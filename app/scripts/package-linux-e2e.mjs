@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, r
 import { dirname, join } from "node:path";
 import { FuseV1Options, FuseVersion, flipFuses } from "@electron/fuses";
 import { driveFresh, driveOpen, driveSidecarFailure, driveUrdf, launchApp } from "./e2e-drive.mjs";
+import { specPath } from "./stage-sidecar.mjs";
 
 if (process.platform !== "linux" && process.platform !== "darwin") {
   throw new Error("package-linux-e2e requires a Linux or macOS packaged executable");
@@ -88,53 +89,58 @@ async function runOpen(options) {
 const original = await runOpen({ openPath: join(fixtureDir, "robot.yaml"), ...workflow, screenshotBase: join(fixtureDir, "x500.png") });
 if (original.verdictClass !== "verdict-go") throw new Error(`expected exact GO verdict, got ${original.verdictClass}`);
 
-const actuatorFixture = join(repoRoot, "tests/fixtures/actuator_review_e2e");
-const actuatorDir = join(fixtureDir, "actuator");
-cpSync(actuatorFixture, actuatorDir, { recursive: true });
-const manifest = JSON.parse(readFileSync(join(actuatorDir, "manifest.json"), "utf8"));
-const actuatorPlanPath = join(actuatorDir, "plan.yaml");
-writeFileSync(actuatorPlanPath, "steps:\n  - kind: rail_load\n    rail: rail.12v\n    draw: {value: 500, unit: W}\n");
-const screenshotPath = join(fixtureDir, "actuator-proof.png");
-function snapshotTree(root, relative = "") {
-  const entries = [];
-  for (const name of readdirSync(join(root, relative)).sort()) {
-    const path = join(relative, name);
-    const stat = statSync(join(root, path));
-    if (stat.isDirectory()) entries.push(...snapshotTree(root, path));
-    else entries.push([path, createHash("sha256").update(readFileSync(join(root, path))).digest("hex")]);
+// The actuator review is paid (packaging/pro/ present, as stage-sidecar decides): the free build skips this leg.
+const paid = specPath(repoRoot) !== "packaging/lockwire.spec";
+let actuatorResult, screenshot, screenshotPath;
+if (paid) {
+  const actuatorFixture = join(repoRoot, "tests/fixtures/actuator_review_e2e");
+  const actuatorDir = join(fixtureDir, "actuator");
+  cpSync(actuatorFixture, actuatorDir, { recursive: true });
+  const manifest = JSON.parse(readFileSync(join(actuatorDir, "manifest.json"), "utf8"));
+  const actuatorPlanPath = join(actuatorDir, "plan.yaml");
+  writeFileSync(actuatorPlanPath, "steps:\n  - kind: rail_load\n    rail: rail.12v\n    draw: {value: 500, unit: W}\n");
+  screenshotPath = join(fixtureDir, "actuator-proof.png");
+  function snapshotTree(root, relative = "") {
+    const entries = [];
+    for (const name of readdirSync(join(root, relative)).sort()) {
+      const path = join(relative, name);
+      const stat = statSync(join(root, path));
+      if (stat.isDirectory()) entries.push(...snapshotTree(root, path));
+      else entries.push([path, createHash("sha256").update(readFileSync(join(root, path))).digest("hex")]);
+    }
+    return entries;
   }
-  return entries;
-}
-const snapshotBefore = snapshotTree(actuatorDir);
-const contractPath = join(actuatorDir, "contract.yaml");
-const evidenceRoot = join(actuatorDir, manifest.evidence_root);
-const actuatorResult = await runOpen({
-  openPath: contractPath,
-  planPath: actuatorPlanPath,
-  planStepPath: "plan/steps/0/rail_load/draw",
-  screenshotBase: join(fixtureDir, "actuator.png"),
-  actuator: {
-    caseId: manifest.case_id,
-    revision: manifest.contract_revision,
-    evidenceRoot,
-    evidencePath: manifest.evidence_path,
-    evidenceHash: manifest.evidence_sha256,
-    captureHash: sha256(join(evidenceRoot, "evidence/capture.json")),
-    predictionHash: sha256(join(evidenceRoot, "prediction/run.json")),
-    gaps: manifest.expected_simulation_gaps,
-    initialGaps: manifest.expected_initial_evidence_gaps,
-    screenshotPath,
-  },
-});
-const screenshot = readFileSync(screenshotPath);
-if (screenshot.length < 8 || !screenshot.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
-  throw new Error("actuator screenshot is not a PNG");
-}
-const snapshotAfter = snapshotTree(actuatorDir);
-if (JSON.stringify(snapshotBefore) !== JSON.stringify(snapshotAfter)) throw new Error("packaged actuator review modified its contract or evidence fixture");
-if (!actuatorResult.actuatorProof?.draftReadOnly) throw new Error("packaged actuator review proof missing");
-if (!actuatorResult.actuatorProof.planFinding?.quantity || actuatorResult.actuatorProof.planFinding.quantity !== "plan/steps/0/rail_load/draw") {
-  throw new Error("packaged Plan cited finding proof missing");
+  const snapshotBefore = snapshotTree(actuatorDir);
+  const contractPath = join(actuatorDir, "contract.yaml");
+  const evidenceRoot = join(actuatorDir, manifest.evidence_root);
+  actuatorResult = await runOpen({
+    openPath: contractPath,
+    planPath: actuatorPlanPath,
+    planStepPath: "plan/steps/0/rail_load/draw",
+    screenshotBase: join(fixtureDir, "actuator.png"),
+    actuator: {
+      caseId: manifest.case_id,
+      revision: manifest.contract_revision,
+      evidenceRoot,
+      evidencePath: manifest.evidence_path,
+      evidenceHash: manifest.evidence_sha256,
+      captureHash: sha256(join(evidenceRoot, "evidence/capture.json")),
+      predictionHash: sha256(join(evidenceRoot, "prediction/run.json")),
+      gaps: manifest.expected_simulation_gaps,
+      initialGaps: manifest.expected_initial_evidence_gaps,
+      screenshotPath,
+    },
+  });
+  screenshot = readFileSync(screenshotPath);
+  if (screenshot.length < 8 || !screenshot.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    throw new Error("actuator screenshot is not a PNG");
+  }
+  const snapshotAfter = snapshotTree(actuatorDir);
+  if (JSON.stringify(snapshotBefore) !== JSON.stringify(snapshotAfter)) throw new Error("packaged actuator review modified its contract or evidence fixture");
+  if (!actuatorResult.actuatorProof?.draftReadOnly) throw new Error("packaged actuator review proof missing");
+  if (!actuatorResult.actuatorProof.planFinding?.quantity || actuatorResult.actuatorProof.planFinding.quantity !== "plan/steps/0/rail_load/draw") {
+    throw new Error("packaged Plan cited finding proof missing");
+  }
 }
 // E2.6: open ANYmal through its display-only same-stem URDF and the checked-in mesh package.
 // The contract's selected model URDF remains separate, so display geometry does not bypass the
@@ -226,8 +232,8 @@ try {
 if (missingSidecar.visible !== false) throw new Error("packaged app E2E window was visible");
 
 console.log(JSON.stringify({ platform: process.platform, executable, basicHiddenGo: original.verdictClass,
-  actuatorReview: actuatorResult.actuatorProof, screenshot: { path: screenshotPath, bytes: screenshot.length },
-  fixtureUnchanged: true, visible: actuatorResult.visible,
+  actuatorReview: actuatorResult?.actuatorProof, screenshot: { path: screenshotPath, bytes: screenshot?.length },
+  fixtureUnchanged: true, visible: actuatorResult?.visible,
   x500Screenshots: original.screenshotEvidence, anymalScreenshots: anymalOpen.screenshotEvidence,
   x500Workflows: { plan: original.planVerdict?.verdict, test: original.testVerdict, run: original.runProof, declare: original.declareProof, reference: original.referenceProof },
   anymalHeadline: anymalOpen.headlineText, anymalVerdictClass: anymalOpen.verdictClass,
