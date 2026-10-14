@@ -1,0 +1,19 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 250
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+joint_trajectory_controller:
+  ros__parameters:
+    joints: [pendulum_joint]
+    command_interfaces: [effort]
+    state_interfaces: [position, velocity]
+    allow_partial_joints_goal: false
+    open_loop_control: false
+    constraints:
+      pendulum_joint: {trajectory: 0.10, goal: 0.05}
+      goal_time: 1.0
+    gains:
+      pendulum_joint: {p: 25.0, i: 1.0, d: 3.0, i_clamp: 2.0}

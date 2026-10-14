@@ -1,0 +1,8 @@
+{
+  "address": "bus-address-map-1",
+  "build": "image-build-1",
+  "memory": "memory-map-1",
+  "partition": "partition-table-1",
+  "pin": "board-pin-map-1",
+  "signed_slot": "signed-slot-A-1"
+}

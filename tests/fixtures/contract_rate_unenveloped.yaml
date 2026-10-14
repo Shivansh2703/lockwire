@@ -1,0 +1,34 @@
+# rate-capable reference devices with no declared envelopes.
+schema_version: "0.2"
+robot:
+  name: unenveloped-rate-testbot
+families:
+  - id: fam.imu
+    name: IMU
+  - id: fam.barometer
+    name: Barometer
+  - id: fam.gnss
+    name: GNSS
+device_models:
+  - id: mdl.imu
+    family: fam.imu
+  - id: mdl.barometer
+    family: fam.barometer
+  - id: mdl.gnss
+    family: fam.gnss
+devices:
+  - id: dev.imu
+    model: mdl.imu
+    driver:
+      nominal_rate_hz: 200
+    owner: shivansh
+  - id: dev.barometer
+    model: mdl.barometer
+    driver:
+      nominal_rate_hz: 50
+    owner: shivansh
+  - id: dev.gnss
+    model: mdl.gnss
+    driver:
+      nominal_rate_hz: 8
+    owner: shivansh

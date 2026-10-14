@@ -1,0 +1,73 @@
+# Five links in one closed loop — outside the named set; must be NOT SCORED as five-bar.
+#
+# Every length below is an exact binary fraction, so the two Grashof sums are exact
+# floats and the test can assert them as literals with no tolerance.
+schema_version: "0.2"
+robot:
+  name: fivebar
+model:
+  source: fivebar.urdf
+  source_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  structure_hash: derived-from-recorded-structure
+  links:
+    - name: ground
+      mass: {value: 1.0, unit: kg}
+      com: [0.0, 0.0, 0.0]
+      frame: ground
+    - name: link_a
+      mass: {value: 1.0, unit: kg}
+      com: [0.0, 0.0, 0.0]
+      frame: link_a
+    - name: link_b
+      mass: {value: 1.0, unit: kg}
+      com: [0.0, 0.0, 0.0]
+      frame: link_b
+    - name: link_c
+      mass: {value: 1.0, unit: kg}
+      com: [0.0, 0.0, 0.0]
+      frame: link_c
+    - name: link_d
+      mass: {value: 1.0, unit: kg}
+      com: [0.0, 0.0, 0.0]
+      frame: link_d
+
+  joints:
+    - name: ground_to_a
+      type: continuous
+      parent: ground
+      child: link_a
+      origin: {xyz: [0.5, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+      axis: [0.0, 0.0, 1.0]
+    - name: a_to_b
+      type: revolute
+      parent: link_a
+      child: link_b
+      origin: {xyz: [0.125, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+      axis: [0.0, 0.0, 1.0]
+      limits: {lower: -1.0, upper: 1.0, effort: 5.0, velocity: 2.0}
+    - name: b_to_c
+      type: revolute
+      parent: link_b
+      child: link_c
+      origin: {xyz: [0.4375, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+      axis: [0.0, 0.0, 1.0]
+      limits: {lower: -1.0, upper: 1.0, effort: 5.0, velocity: 2.0}
+    - name: c_to_d
+      type: revolute
+      parent: link_c
+      child: link_d
+      origin: {xyz: [0.375, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+      axis: [0.0, 0.0, 1.0]
+      limits: {lower: -1.0, upper: 1.0, effort: 5.0, velocity: 2.0}
+    - name: d_to_ground
+      type: revolute
+      parent: link_d
+      child: ground
+      origin: {xyz: [0.25, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+      axis: [0.0, 0.0, 1.0]
+      limits: {lower: -1.0, upper: 1.0, effort: 5.0, velocity: 2.0}
+
+  provenance:
+    witness: w0
+    source: fivebar.urdf
+    locked_at: 2026-09-08

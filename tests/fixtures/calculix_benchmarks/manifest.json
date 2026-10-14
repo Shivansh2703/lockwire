@@ -1,0 +1,64 @@
+{
+  "solver": "CalculiX 2.23",
+  "formulation": "small-strain linear *STATIC only",
+  "cases": [
+    {
+      "id": "rotated_truss",
+      "deck": "rotated_truss.inp",
+      "element": "T3D2",
+      "applicability": "Straight, pin-jointed, axial bar. The transverse MPC removes the truss mechanism; no bending, material nonlinearity, or dynamics.",
+      "reference": "delta=PL/(AE), u=delta*(3/5,4/5), R_root=-P*(3/5,4/5)",
+      "measurements": [
+        {"kind": "U", "set": "TIP", "node": 2, "component": 1, "expected": 0.00015, "abs_tol": 1e-9, "rel_tol": 0.02, "unit": "m"},
+        {"kind": "U", "set": "TIP", "node": 2, "component": 2, "expected": 0.0002, "abs_tol": 1e-9, "rel_tol": 0.02, "unit": "m"},
+        {"kind": "U", "set": "ROOT", "node": 1, "component": 1, "expected": 0.0, "abs_tol": 1e-12, "rel_tol": 0.0, "unit": "m"},
+        {"kind": "U", "set": "ROOT", "node": 1, "component": 2, "expected": 0.0, "abs_tol": 1e-12, "rel_tol": 0.0, "unit": "m"},
+        {"kind": "RF", "set": "ROOT", "node": 1, "component": 1, "expected": -6000.0, "abs_tol": 0.001, "rel_tol": 0.02, "unit": "N"},
+        {"kind": "RF", "set": "ROOT", "node": 1, "component": 2, "expected": -8000.0, "abs_tol": 0.001, "rel_tol": 0.02, "unit": "N"}
+      ]
+    },
+    {
+      "id": "cantilever_b31_4", "deck": "cantilever_b31_4.inp", "element": "B31",
+      "applicability": "Prismatic linear-elastic Euler--Bernoulli comparison. The 0.190 m mathematical deflection is not a physical large-deflection prediction.",
+      "reference": "I=bh^3/12; u_y(L)=-PL^3/(3EI); theta_z(L)=-PL^2/(2EI); R_y=P",
+      "measurements": [
+        {"kind": "U", "set": "TIP", "node": 5, "component": 2, "expected": -0.19047619047619047, "abs_tol": 1e-8, "rel_tol": 0.02, "unit": "m"},
+        {"kind": "RF", "set": "ROOT", "node": 1, "component": 2, "expected": 100.0, "abs_tol": 0.001, "rel_tol": 0.02, "unit": "N"}
+      ]
+    },
+    {
+      "id": "cantilever_b31_8", "deck": "cantilever_b31_8.inp", "element": "B31",
+      "applicability": "Same mathematical linear-elastic cantilever as the four-element case; this is a refinement witness, not a physical validation.",
+      "reference": "I=bh^3/12; u_y(L)=-PL^3/(3EI); theta_z(L)=-PL^2/(2EI); R_y=P",
+      "measurements": [
+        {"kind": "U", "set": "TIP", "node": 9, "component": 2, "expected": -0.19047619047619047, "abs_tol": 1e-8, "rel_tol": 0.02, "unit": "m"},
+        {"kind": "RF", "set": "ROOT", "node": 1, "component": 2, "expected": 100.0, "abs_tol": 0.001, "rel_tol": 0.02, "unit": "N"}
+      ]
+    },
+    {
+      "id": "propped_frame", "deck": "propped_frame.inp", "element": "B31",
+      "applicability": "Planar Euler--Bernoulli propped cantilever represented with a 3-D frame element; linear static loading only.",
+      "reference": "For a centre load: R_prop=5P/16, R_fixed=11P/16, M_fixed=3PL/16, u_y(L/2)=-7PL^3/(768EI)",
+      "measurements": [
+        {"kind": "U", "set": "LOAD", "node": 7, "component": 2, "expected": -0.00023625, "abs_tol": 1e-9, "rel_tol": 0.02, "unit": "m"},
+        {"kind": "RF", "set": "PROP", "node": 13, "component": 2, "expected": 500.0, "abs_tol": 0.001, "rel_tol": 0.02, "unit": "N"},
+        {"kind": "RF", "set": "ROOT", "node": 1, "component": 2, "expected": 1100.0, "abs_tol": 0.001, "rel_tol": 0.02, "unit": "N"}
+      ]
+    },
+    {
+      "id": "plate_s4_8", "deck": "plate_s4_8.inp", "element": "S4",
+      "applicability": "Coarse S4 simply-supported plate under constant transverse pressure; three in-plane constraints remove rigid motion. Refinement witness only: the 8x8 mesh does not meet the two-percent Navier limit.",
+      "reference": "Navier double sine series: w(a/2,a/2)=0.00406235266055*q*a^4/D, D=E*t^3/[12*(1-nu^2)]",
+      "measurements": []
+    },
+    {
+      "id": "plate_s4_16", "deck": "plate_s4_16.inp", "element": "S4",
+      "applicability": "Refined S4 simply-supported thin isotropic square plate under constant transverse pressure; three in-plane constraints remove rigid motion. Physical center-deflection validation is limited to this 16x16 mesh.",
+      "reference": "Navier double sine series: w(a/2,a/2)=0.00406235266055*q*a^4/D, D=E*t^3/[12*(1-nu^2)]",
+      "measurements": [
+        {"kind": "U", "set": "CENTER", "node": 145, "component": 3, "expected": -0.002640529229, "abs_tol": 1e-8, "rel_tol": 0.02, "unit": "m"}
+      ]
+    }
+  ],
+  "negative": {"deck": "singular_underconstrained_truss.inp", "expect": "nonzero exit or a mechanically unusable rigid-body displacement (|U| > 1 m)"}
+}

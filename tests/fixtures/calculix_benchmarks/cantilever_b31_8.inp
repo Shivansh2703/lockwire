@@ -1,0 +1,42 @@
+*HEADING
+** SI linear B31 cantilever: eight equal elements, 1 m, 10 mm square, -100 N y.
+*NODE
+1, 0., 0., 0.
+2, 0.125, 0., 0.
+3, 0.25, 0., 0.
+4, 0.375, 0., 0.
+5, 0.5, 0., 0.
+6, 0.625, 0., 0.
+7, 0.75, 0., 0.
+8, 0.875, 0., 0.
+9, 1., 0., 0.
+*ELEMENT, TYPE=B31, ELSET=BEAM
+1, 1, 2
+2, 2, 3
+3, 3, 4
+4, 4, 5
+5, 5, 6
+6, 6, 7
+7, 7, 8
+8, 8, 9
+*NSET, NSET=ROOT
+1
+*NSET, NSET=TIP
+9
+*MATERIAL, NAME=STEEL
+*ELASTIC
+210000000000., 0.3
+*BEAM SECTION, ELSET=BEAM, MATERIAL=STEEL, SECTION=RECT
+0.01, 0.01
+0., 1., 0.
+*BOUNDARY
+ROOT, 1, 6
+*STEP
+*STATIC
+*CLOAD
+TIP, 2, -100.
+*NODE PRINT, NSET=TIP, GLOBAL=YES
+U
+*NODE PRINT, NSET=ROOT, GLOBAL=YES
+RF
+*END STEP

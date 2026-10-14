@@ -1,0 +1,37 @@
+{
+  "log_id": "bff22af6-8b5f-4945-bc49-f17baeedbf72",
+  "log_date": "2025-02-18",
+  "description": "QGroundControl Session",
+  "feedback": "None Given",
+  "type": "flightreport",
+  "wind_speed": -1,
+  "rating": "",
+  "video_url": "",
+  "error_labels": [
+    6
+  ],
+  "source": "QGroundControl",
+  "duration_s": 131,
+  "mav_type": "Quadrotor",
+  "estimator": "EKF2",
+  "sys_autostart_id": 4001,
+  "sys_hw": "HOLYBRO_KAKUTEH7",
+  "ver_sw": "1d83eebd4b70995b6a0bb57c7c7bea6d0746f118",
+  "ver_sw_release": "v1.13.2 0",
+  "num_logged_errors": 0,
+  "num_logged_warnings": 5,
+  "flight_modes": [
+    15
+  ],
+  "vehicle_uuid": "000600000000313436303133510f00360028",
+  "flight_mode_durations": [
+    [
+      15,
+      131
+    ]
+  ],
+  "vehicle_name": "",
+  "airframe_name": "Generic Quadcopter",
+  "airframe_type": "Quadrotor x",
+  "download_url": "https://cdn.logs.px4.io/bff22af6-8b5f-4945-bc49-f17baeedbf72.ulg"
+}

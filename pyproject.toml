@@ -1,0 +1,84 @@
+[project]
+name = "lockwire"
+version = "0.1.0"
+description = "The physical-assumption contract for robots: physics lockfile + preflight gate"
+readme = "README.md"
+authors = [
+    { name = "Shivansh" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+keywords = ["robotics", "urdf", "ros", "preflight", "lockfile", "ci", "hardware", "drone"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "numpy>=2.5.1",
+    "pydantic>=2.13.4",
+    "rich>=15.0.0",
+    "ruamel-yaml>=0.19.1",
+    "typer>=0.26.8",
+]
+
+[project.optional-dependencies]
+# Serving lockwire over MCP to an agent. Optional for the same reason as `ros2bag`:
+# a plain install must stay lean, and the SDK is only needed by `lockwire mcp`.
+mcp = [
+    "mcp>=2.1.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/Shivansh2703/lockwire"
+Repository = "https://github.com/Shivansh2703/lockwire"
+Issues = "https://github.com/Shivansh2703/lockwire/issues"
+
+[project.scripts]
+lockwire = "lockwire:main"
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+
+[dependency-groups]
+dev = [
+    "mcp>=2.1.1",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-xdist>=3.6.1",
+    "ruff>=0.15.20,<0.16",  # 0.17 changes default rules
+    "pytest-cov>=7.1.0",
+]
+
+[tool.ruff]
+# This codebase is written to ~100 columns: schema.py and checks.py carry aligned
+# trailing comments naming each field's consumer, and wrapping at ruff's default 88
+# splits those annotations off the line they annotate. E501 is not in ruff's default
+# rule set, so before this block the two documented commands disagreed — `ruff check`
+# passed while `ruff format` wanted to rewrite 12 files. At 100 the sweep is a net
+# reduction (83 insertions / 105 deletions); at 88 it was +219/-80.
+line-length = 100
+
+# measure_stacked_gate.py bootstraps sys.path before imports (B76) — E402 is intentional there.
+[tool.ruff.lint.per-file-ignores]
+"scripts/measure_stacked_gate.py" = ["E402"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+# chrome: drives real headless Chrome (subprocess spawn). scripts/pytest_slot.sh
+# excludes this marker from every non-exclusive (targeted) run so workers' test
+# runs never spawn Chrome processes; the cadence Check (--exclusive) still runs
+# them. Registered here so --strict-markers, if ever turned on, does not bite.
+markers = [
+    "chrome: drives real headless Chrome; excluded from targeted runs by scripts/pytest_slot.sh",
+]

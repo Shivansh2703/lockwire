@@ -1,0 +1,42 @@
+*HEADING
+** Candidate modal refinement: fixed-free axial T3D2 bar, eight elements.
+** SI units: E=100 Pa, rho=1 kg/m3, A=1e-4 m2 (slender bar), L=1 m; continuum f1=2.5 Hz.
+*NODE
+1, 0., 0., 0.
+2, 0.125, 0., 0.
+3, 0.25, 0., 0.
+4, 0.375, 0., 0.
+5, 0.5, 0., 0.
+6, 0.625, 0., 0.
+7, 0.75, 0., 0.
+8, 0.875, 0., 0.
+9, 1., 0., 0.
+*ELEMENT, TYPE=T3D2, ELSET=BAR
+1, 1, 2
+2, 2, 3
+3, 3, 4
+4, 4, 5
+5, 5, 6
+6, 6, 7
+7, 7, 8
+8, 8, 9
+*NSET, NSET=ROOT
+1
+*NSET, NSET=AXIAL_NODES
+2, 3, 4, 5, 6, 7, 8, 9
+*MATERIAL, NAME=BAR_MATERIAL
+*ELASTIC
+100., 0.3
+*DENSITY
+1.
+*SOLID SECTION, ELSET=BAR, MATERIAL=BAR_MATERIAL
+1e-4
+*BOUNDARY
+ROOT, 1, 3
+AXIAL_NODES, 2, 3
+*STEP
+*FREQUENCY, STORAGE=YES
+1
+*NODE PRINT, NSET=AXIAL_NODES, GLOBAL=YES
+U
+*END STEP

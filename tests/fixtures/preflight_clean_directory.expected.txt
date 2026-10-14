@@ -1,0 +1,110 @@
+stage 0
+not scored devices/dev.radio.rfd900/enumeration — observed not observed by preflight source, expected device present on the bus
+  owner: shivansh
+  action: source cannot see this declaration; enumeration not scored (absence is
+not a no-go)
+stage 2
+not scored preflight/stage/2/timestamps/monotonicity/live_path — observed through a RecordedSource loading the native recording format, recv-time
+monotonicity is enforced upstream by load_recording, which rejects non-monotonic
+recv-times, so the property cannot fail here; a LiveSource or a RecordedSource 
+wrapping a rosbag2 .mcap bag (E3-DC/E3-FL) instead scores this quantity directly
+from the bag's own receipt order — this disclosure fires only when no such 
+capture was loaded, expected monotonic receive-times verified on the live path
+  action: load a live or .mcap-bag capture to score live-path monotonicity 
+directly; RecordedSource-native monotonicity remains enforced at load_recording
+not scored preflight/stage/2/timestamps/wall_clock_currency — observed wall-clock currency is a live-path property; not scored against a 
+recording, expected last sample current versus wall clock
+  action: score wall-clock currency only through an exercised LiveSource
+stage 3
+not scored devices/dev.barometer/signals/pressure_pa/variance — observed oneshot_variance_min undeclared, expected 
+SignalEnvelope.oneshot_variance_min declared for this context
+  owner: shivansh
+  action: declare oneshot_variance_min on the context envelope — do not treat 
+variance_floor as a preflight pass/fail threshold
+not scored devices/dev.imu/signals/accel_x/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
+CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
+threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
+context
+  owner: shivansh
+  action: declare oneshot_variance_min on the context envelope — do not treat 
+variance_floor as a preflight pass/fail threshold
+not scored devices/dev.imu/signals/accel_y/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
+CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
+threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
+context
+  owner: shivansh
+  action: declare oneshot_variance_min on the context envelope — do not treat 
+variance_floor as a preflight pass/fail threshold
+not scored devices/dev.imu/signals/gyro_x/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
+CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
+threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
+context
+  owner: shivansh
+  action: declare oneshot_variance_min on the context envelope — do not treat 
+variance_floor as a preflight pass/fail threshold
+not scored devices/dev.imu/signals/gyro_y/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
+CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
+threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
+context
+  owner: shivansh
+  action: declare oneshot_variance_min on the context envelope — do not treat 
+variance_floor as a preflight pass/fail threshold
+not scored devices/dev.imu/signals/gyro_z/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
+CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
+threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
+context
+  owner: shivansh
+  action: declare oneshot_variance_min on the context envelope — do not treat 
+variance_floor as a preflight pass/fail threshold
+stage 4
+not scored devices/dev.barometer/physical/mass — observed mass not declared, expected a positive mass with units
+  owner: shivansh
+  action: declare the device's mass, or accept it excluded from this budget
+not scored devices/dev.esc.busless/physical/mass — observed mass not declared, expected a positive mass with units
+  owner: shivansh
+  action: declare the device's mass, or accept it excluded from this budget
+not scored devices/dev.gnss/physical/mass — observed mass not declared, expected a positive mass with units
+  owner: shivansh
+  action: declare the device's mass, or accept it excluded from this budget
+not scored devices/dev.imu/envelopes/nominal-op/conditions — observed axes temp_c, condition_altitude_m verified independently; interaction 
+between them unverified, expected correlated multi-axis envelope modeling 
+(deferred until real envelope data exists)
+  dependent: src/estimation/ekf.cpp
+  owner: shivansh
+  action: treat the supported region as a Cartesian product of per-axis spans, 
+or wait for correlated-region modeling
+not scored preflight/commands/in_recording — observed commands inside the recording itself are not scored: bag readers have 
+no command decoder or mapping, so numeric samples cannot be told from a write, 
+expected a bag command decoder and mapping to the declared Driver.command_topic
+  action: a GO here does not mean the bag's own commanded topics were decoded or
+checked
+not scored preflight/commands/record — observed no command record beside this recording (commands.jsonl not present), 
+expected a commands.jsonl written by the watched write layer
+  action: run the write layer alongside the capture to score commands; absence 
+is not a no-go
+not scored preflight/coverage/comm_links_under_representative_load — observed comm links under representative load: permanently out of scope offline 
+(requires live hardware); deferred to M1b, expected comm links under 
+representative load scored against live hardware (M1b)
+  action: a GO here does not mean comm links under representative load was 
+checked; that needs the powered-on robot
+not scored preflight/coverage/live_hardware_software_reconciliation — observed live hardware↔software reconciliation: permanently out of scope offline
+(requires live hardware); deferred to M1b, expected live hardware↔software 
+reconciliation scored against live hardware (M1b)
+  action: a GO here does not mean live hardware↔software reconciliation was 
+checked; that needs the powered-on robot
+not scored preflight/cross_signal/camera_histogram — observed recording format carries no image data or histogram summary channel; 
+camera histogram not scored, expected image samples or a histogram summary 
+channel in the recording
+  action: record image data or a histogram summary channel to score this
+not scored preflight/cross_signal/redundant_sensors — observed lockfile schema has no redundancy declaration naming which sensors are 
+peers; redundant-sensor agreement not scored, expected an authored lockfile 
+declaration of redundant sensor peers
+  action: declare which sensors are redundant peers in the lockfile; do not 
+infer it from device-id string shape
+not scored preflight/cross_signal/stationary_|g| — observed recording context 'nominal-op': context does not assert a stationary 
+platform, expected context bench-idle or armed-idle (stationary platform) before
+|g|≈9.81 can be scored — gating is correct design, not a coverage gap
+  action: run preflight under a stationary context, or accept that |g| is not 
+scored while the platform may be moving
+
+GO — records agree (31 scored); 20 check(s) not scored

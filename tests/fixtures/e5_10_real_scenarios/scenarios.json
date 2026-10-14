@@ -1,0 +1,127 @@
+{
+  "schema": "lockwire.e5_10.real_scenarios.v1",
+  "scope": {
+    "source_only": true,
+    "runtime_status": "PENDING",
+    "product_status": "PENDING",
+    "hardware_evidence": false,
+    "forbidden_evidence": [
+      "animation",
+      "command_echo",
+      "desired_state_as_actual_state"
+    ]
+  },
+  "world": {
+    "simulator": "Gazebo Harmonic",
+    "source": "scenario_world.sdf",
+    "network_required": false,
+    "contact_topic": "/lockwire/e5_10/contacts"
+  },
+  "scenarios": {
+    "px4_x500_takeoff_hover_land": {
+      "plant": "official/px4-gazebo-models/models/x500/model.sdf",
+      "plant_revision_source": "sources.json#sources.px4-gazebo-models",
+      "controller": {
+        "name": "PX4",
+        "release": "v1.16.2",
+        "source_revision": "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+        "airframe": "official/px4-autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500",
+        "transport": "PX4 vehicle_command through the existing motion runner adapter"
+      },
+      "actions": [
+        {"command": "arm", "vehicle_command": "VEHICLE_CMD_COMPONENT_ARM_DISARM"},
+        {"command": "takeoff", "vehicle_command": "VEHICLE_CMD_NAV_TAKEOFF", "altitude_m": 2.0},
+        {"command": "hover", "duration_s": 10.0},
+        {"command": "land", "vehicle_command": "VEHICLE_CMD_NAV_LAND"}
+      ],
+      "telemetry": {
+        "position": {"source": "uorb:vehicle_local_position", "fields": ["x", "y", "z"], "kind": "actual_estimated_plant_state"},
+        "velocity": {"source": "uorb:vehicle_local_position", "fields": ["vx", "vy", "vz"], "kind": "actual_estimated_plant_state"},
+        "effort": {"source": "uorb:actuator_motors", "fields": ["control"], "kind": "controller_effort_output"},
+        "sensors": {"source": "uorb:sensor_combined", "kind": "simulated_sensor_feedback"},
+        "contact": {"source": "gz:/lockwire/e5_10/contacts", "kind": "physics_contact"},
+        "landed": {"source": "uorb:vehicle_land_detected", "kind": "actual_estimated_plant_state"}
+      },
+      "acceptance": {
+        "deadline_s": 90.0,
+        "takeoff_altitude_m": {"target": 2.0, "tolerance": 0.2},
+        "hover_duration_s": {"minimum": 10.0, "vertical_tolerance_m": 0.2, "max_horizontal_speed_m_s": 0.3},
+        "landed_altitude_m": {"maximum": 0.15},
+        "requires_landed_feedback": true,
+        "decision_sources": ["position", "velocity", "landed", "sensors"],
+        "command_echo_may_not_satisfy": true
+      }
+    },
+    "anymal_d_effort_squat": {
+      "plant": "official/anymal-d/urdf/anymal.urdf",
+      "plant_revision_source": "sources.json#sources.anymal-d",
+      "controller": {
+        "name": "anymal_effort_controller",
+        "type": "joint_trajectory_controller/JointTrajectoryController",
+        "overlay": "anymal_control_overlay.xml",
+        "parameters": "controllers.yaml",
+        "command_interface": "effort",
+        "lifecycle_state": "active",
+        "gains_origin": "LOCKWIRE_TEST_CONFIGURATION_NOT_INFERRED_OR_INSTALLED"
+      },
+      "test_trajectory": {
+        "origin": "LOCKWIRE_TEST_CONFIGURATION_NOT_INFERRED_OR_INSTALLED",
+        "cycles": 2,
+        "cycle_duration_s": 4.0,
+        "nominal_rad": {
+          "LF_HAA": -0.14, "LF_HFE": 0.48, "LF_KFE": -0.76,
+          "RF_HAA": 0.14, "RF_HFE": 0.48, "RF_KFE": -0.76,
+          "LH_HAA": -0.14, "LH_HFE": -0.48, "LH_KFE": 0.76,
+          "RH_HAA": 0.14, "RH_HFE": -0.48, "RH_KFE": 0.76
+        },
+        "squat_delta_rad": {"HFE": 0.15, "KFE": 0.15}
+      },
+      "telemetry": {
+        "position": {"source": "ros:/joint_states", "field": "position", "kind": "actual_plant_state"},
+        "velocity": {"source": "ros:/joint_states", "field": "velocity", "kind": "actual_plant_state"},
+        "effort": {"source": "ros:/joint_states", "field": "effort", "kind": "actual_plant_state"},
+        "controller_state": {"source": "ros:/anymal_effort_controller/controller_state", "actual_field": "actual", "desired_field": "desired"},
+        "sensors": {"source": "gz:/lockwire/e5_10/anymal/imu", "kind": "simulated_sensor_feedback"},
+        "contact": {"source": "gz:/lockwire/e5_10/contacts", "kind": "physics_contact"}
+      },
+      "acceptance": {
+        "cycles_required": 2,
+        "hfe_peak_displacement_rad": {"target": 0.15, "tolerance": 0.02},
+        "kfe_peak_displacement_rad": {"target": 0.15, "tolerance": 0.02},
+        "return_position_error_rad": {"maximum": 0.03},
+        "return_speed_rad_s": {"maximum": 0.1},
+        "absolute_effort_limit_nm": 80.0,
+        "requires_nonempty_contact": true,
+        "requires_nonempty_sensor_feedback": true,
+        "decision_sources": ["position", "velocity", "effort", "controller_state", "contact", "sensors"],
+        "command_echo_may_not_satisfy": true
+      }
+    },
+    "anymal_d_controller_disabled_negative": {
+      "plant": "official/anymal-d/urdf/anymal.urdf",
+      "controller": {
+        "name": "anymal_effort_controller",
+        "required_lifecycle_state": "inactive",
+        "hold_joints": false,
+        "trajectory_command_allowed": false
+      },
+      "actions": [
+        {"controller_manager_action": "deactivate", "controller": "anymal_effort_controller"},
+        {"release": "gravity", "duration_s": 2.0}
+      ],
+      "capture": {
+        "begins_after_controller_inactive": true,
+        "controller_commands_allowed": false
+      },
+      "acceptance": {
+        "controller_must_remain_inactive": true,
+        "implicit_hold_must_be_disabled": true,
+        "gravity_window_s": 2.0,
+        "minimum_actual_position_change_rad": 0.01,
+        "or_minimum_actual_speed_rad_s": 0.02,
+        "decision_sources": ["ros:/joint_states", "ros:/controller_manager/list_controllers", "gz:/lockwire/e5_10/contacts"],
+        "command_echo_may_not_satisfy": true
+      }
+    }
+  }
+}

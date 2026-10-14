@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+      - run: uv sync --locked --dev --python ${{ matrix.python-version }}
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+      # The hero example must keep catching the overload (exit 1 = caught).
+      - run: uv run lockwire check tests/fixtures/x500/contract.yaml || test $? -eq 1

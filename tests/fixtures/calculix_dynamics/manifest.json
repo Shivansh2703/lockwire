@@ -1,0 +1,155 @@
+{
+  "status": "Truss modal decks (diagnostic_2, refined_4, refined_8, 4rho_refined_8) are executed under pinned CalculiX 2.23. CalculiX's T3D2 solid expansion can surface a spurious local cross-section mode below the true axial mode, so 'mode 1' is not a safe pick; select_axial_mode (analysis.py, next to parse_modal_frequencies) instead picks the lowest mode whose X effective mass exceeds 50% of the model's total, from the effective-modal-mass table. refined_8 (mode 1, 2.499836 Hz) and 4rho_refined_8 (mode 1, 1.249918 Hz) pass the 2% gate with their single requested mode already axial. refined_4 requests 12 eigenvalues (its first 8 are a degenerate spurious local mode at 0.8795936 Hz); select_axial_mode picks mode 9 (2.499915 Hz), which passes the 2% gate. diagnostic_2 remains at one requested mode, a non-axial first mode (0.2203729 Hz), and stays unadmitted/unremediated (not tested). Two-positive-DOF decks remain unexecuted; retained one-DOF raw attempts are refusal evidence, not a solver or physical result.",
+  "solver_target": "CalculiX 2.23",
+  "units": "SI",
+  "primary_manual": "https://www.dhondt.de/ccx_2.23.pdf",
+  "output_grammar": {
+    "source": "CalculiX 2.23 manual: *NODE PRINT and *EL PRINT write requested values to jobname.dat; *EL PRINT supports ELSE and ELKE",
+    "samples": "retained one-DOF attempt only: it produced no eigenmodes and no response; the two-positive-DOF decks require independent raw capture before modal result admission",
+    "parser": "the existing runner parses only its bounded modal table; do not derive a harmonic/transient response parser or synthetic .dat rows from this manifest"
+  },
+  "modal_truss": {
+    "model": "fixed-free axial T3D2 chain; E=100 Pa, rho=1 kg/m3 (or 4 kg/m3), A=1e-4 m2, L=1 m",
+    "area_rationale": "A=1e-4 m2 (1 cm2), not the earlier A=1 m2: at A=1 m2 the 1 m bar is a cube, not a slender bar, and cannot match the slender-bar closed form; the model therefore uses A=1e-4 m2. The closed-form reference depends only on E, rho and L, not on area (mass per length changes, f1 does not).",
+    "reference": "f1=sqrt(E/rho)/(4L)",
+    "base_frequency_hz": 2.5,
+    "four_rho_frequency_hz": 1.25,
+    "density_scaling": "rho*4 => f1/2",
+    "cases": [
+      {
+        "id": "truss_modal_diagnostic_2",
+        "deck": "truss_modal_diagnostic_2.inp",
+        "elements": 2,
+        "role": "diagnostic only",
+        "reference_frequency_hz": 2.5,
+        "expected_discretization_error": "about 2.6%; deliberately outside the unchanged 2% gate",
+        "admitted": false
+      },
+      {
+        "id": "truss_modal_refined_4",
+        "deck": "truss_modal_refined_4.inp",
+        "elements": 4,
+        "role": "candidate refinement",
+        "reference_frequency_hz": 2.5,
+        "gate": "relative error <= 0.02; must improve on diagnostic",
+        "requested_modes": 12,
+        "axial_mode": 9,
+        "note": "modes 1-8 are a degenerate spurious local cross-section mode at 0.8795936 Hz; select_axial_mode picks mode 9"
+      },
+      {
+        "id": "truss_modal_refined_8",
+        "deck": "truss_modal_refined_8.inp",
+        "elements": 8,
+        "role": "candidate refinement",
+        "reference_frequency_hz": 2.5,
+        "gate": "relative error <= 0.02; must be nonworse than four elements"
+      },
+      {
+        "id": "truss_modal_4rho_refined_8",
+        "deck": "truss_modal_4rho_refined_8.inp",
+        "elements": 8,
+        "role": "density sensitivity candidate",
+        "reference_frequency_hz": 1.25,
+        "gate": "relative error <= 0.02 and f(rho=4)/f(rho=1) = 0.5 within the same gate"
+      }
+    ]
+  },
+  "sdof": {
+    "model": "one-node SPRING1 plus MASS, constrained transverse to x",
+    "k_n_per_m": 100.0,
+    "m_kg": 1.0,
+    "rayleigh": {"alpha_per_s": 1.0, "beta_s": 0.0, "c_n_s_per_m": 1.0, "zeta": 0.05},
+    "natural_frequency_rad_per_s": 10.0,
+    "harmonic": {
+      "deck": "sdof_modal_harmonic.inp",
+      "force_n": 1.0,
+      "omega_rad_per_s": 5.0,
+      "frequency_hz": 0.7957747154594768,
+      "amplitude_m": 0.013303802104755,
+      "phase_lag_rad": 0.066568163775824,
+      "reference": "|U|=F/sqrt((k-m*omega^2)^2+(c*omega)^2), c=alpha*m+beta*k"
+    },
+    "forced_damped_transient": {
+      "deck": "sdof_modal_transient_damped.inp",
+      "force": "1 N load explicitly bound with AMPLITUDE=UNIT_STEP",
+      "amplitude": {
+        "name": "UNIT_STEP",
+        "time": "STEP TIME",
+        "pairs": [[0.0, 1.0], [0.01, 1.0]],
+        "meaning": "unit step at t=0, held at one for the 0.01 s modal-dynamic step"
+      },
+      "reference": "u(t)=F/k*[1-exp(-c*t/(2m))*(cos(wd*t)+c*sin(wd*t)/(2m*wd))], wd=sqrt(k/m-(c/(2m))^2)",
+      "samples_m": [
+        {"time_s": 0.0, "u_m": 0.0},
+        {"time_s": 0.001, "u_m": 4.9982921e-7},
+        {"time_s": 0.002, "u_m": 1.998600721e-6},
+        {"time_s": 0.005, "u_m": 1.2476593934e-5},
+        {"time_s": 0.01, "u_m": 4.9792262579e-5}
+      ],
+      "energy_balance": "E_internal + E_kinetic + integral(c*v^2 dt) - E_initial - integral(F_ext*du) = 0; ELSE+ELKE alone is not conserved under forcing or damping"
+    },
+    "two_positive_dof": {
+      "status": "SOURCE-ONLY response scope; no captured output, harmonic/transient response parser, response score, GO, or physical claim",
+      "model": "one node with independent x and y SPRING1 stiffnesses and one MASS element; z constrained. x is the declared response axis; y is a decoupled witness mode solely to give ARPACK two positive free modes.",
+      "mass_kg": 1.0,
+      "x_stiffness_n_per_m": 100.0,
+      "y_witness_stiffness_n_per_m": 10000.0,
+      "modal": {
+        "deck": "two_dof_modal_reference.inp",
+        "sha256": "f3349e3c3e77d80c8e0e9c0ddfcdb59d05426bcee9fdaf401440302b8e2e0e32",
+        "requested_modes": 1,
+        "x_frequency_hz": 1.5915494309189535,
+        "y_witness_frequency_hz": 15.915494309189533,
+        "reference": "f=sqrt(k/m)/(2*pi); x and y are uncoupled, and x is the requested first positive mode."
+      },
+      "harmonic": {
+        "deck": "two_dof_modal_harmonic.inp",
+        "sha256": "880ee2bdf67bc62aa905913f966896820d13ebd42068e2fe8c1efd9a7c5dd6c2",
+        "force_n": 1.0,
+        "omega_rad_per_s": 5.0,
+        "frequency_hz": 0.7957747154594768,
+        "x_amplitude_m": 0.013303802104755,
+        "reference": "The y witness is unforced and uncoupled, so the x response remains F/sqrt((kx-m*omega^2)^2+(alpha*m*omega)^2).",
+        "frequency_interval_hz": [0.795774715459, 0.795774715460],
+        "frequency_samples": 2
+      },
+      "damped_transient": {
+        "deck": "two_dof_modal_transient_damped.inp",
+        "sha256": "fe74aed4a18dbfe4ded523dd93d2e862ca3425adbf08984775a632cd4c6d77c3",
+        "force_n": 1.0,
+        "amplitude": "UNIT_STEP, default local-step time, (0 s,1) through (0.01 s,1)",
+        "reference": "The y witness is unforced and uncoupled; x uses forced_damped_transient's retained unit-step closed form."
+      },
+      "capture_requirement": "Verify each deck input SHA-256, run only pinned CCX 2.23 under the independent bounded procedure, retain .dat/.eig/stdout/stderr/SHA256SUMS, and refuse absent/empty/zero modal or response output."
+    },
+    "explicit_unforced_undamped": {
+      "decks": [
+        {"deck": "sdof_explicit_unforced_dt_1e-3.inp", "dt_s": 0.001},
+        {"deck": "sdof_explicit_unforced_dt_5e-4.inp", "dt_s": 0.0005}
+      ],
+      "initial_velocity_m_per_s": 0.1,
+      "reference": "u(t)=v0*sin(sqrt(k/m)*t)/sqrt(k/m); v(t)=v0*cos(sqrt(k/m)*t)",
+      "initial_energy_j": 0.005,
+      "samples": [
+        {"time_s": 0.0, "u_m": 0.0, "v_m_per_s": 0.1},
+        {"time_s": 0.001, "u_m": 9.9998333342e-5, "v_m_per_s": 0.099995000041667},
+        {"time_s": 0.002, "u_m": 0.000199986666933, "v_m_per_s": 0.099980000666658},
+        {"time_s": 0.005, "u_m": 0.000499791692707, "v_m_per_s": 0.099875026039497},
+        {"time_s": 0.01, "u_m": 0.000998334166468, "v_m_per_s": 0.099500416527803}
+      ],
+      "proposed_runtime_gate": "max absolute |ELSE+ELKE-0.005 J| <= 1e-4 J; the 5e-4 s deck must be nonworse than the 1e-3 s deck"
+    }
+  },
+  "refusals": [
+    "No *DENSITY or no MASS means a frequency or dynamic result is refused, never interpreted as a valid massless result.",
+    "A zero/negative first frequency or a rigid-body mode is refused; the transverse constraints are deliberately explicit in every axial-truss deck.",
+    "A modal or steady-state deck without the STORAGE=YES-produced .eig artifact is refused; it is not rerun as a substitute dynamic analysis.",
+    "A requested damped case without *MODAL DAMPING,RAYLEIGH and exactly ,,1.,0. is refused; missing damping must not look like a valid damped case.",
+    "Unsupported nonzero or incompatible constraints, absent requested U/V/ELSE/ELKE output, or an undocumented output layout are refusals, not fallback parses."
+  ],
+  "pending": [
+    "Run each exact deck only with the approved CalculiX 2.23 capacity and capture actual .dat/.eig artifacts.",
+    "Integrate harmonic/transient response handling only after an executor confirms output grammar against those actual artifacts; the existing modal runner still requires independently captured output before result admission.",
+    "Independently review numerical output, package/runtime behavior, and any future parent admission."
+  ]
+}

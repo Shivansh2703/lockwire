@@ -1,0 +1,407 @@
+{
+  "bag": {
+    "duration_s": 30.0,
+    "id": "preflight_cross_signal"
+  },
+  "channel_models": {
+    "device/dev.barometer/pressure_pa": {
+      "ar1_phi": 0.94,
+      "drift": {
+        "amplitude": 18.0,
+        "period_s": 24.0
+      },
+      "e_folding_s": 0.3232302142402598,
+      "e_folding_samples": 16.16151071201299,
+      "innovation_std": 1.8,
+      "integrated_autocorrelation_samples": 32.33333333333331,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 50.0,
+      "thermal_transient": {
+        "amplitude": 9.0,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 2.5,
+        "frequency_hz": 3.0
+      }
+    },
+    "device/dev.gnss/gnss_altitude_m": {
+      "ar1_phi": 0.72,
+      "drift": {
+        "amplitude": 0.35,
+        "period_s": 28.0
+      },
+      "e_folding_s": 0.38051279289227374,
+      "e_folding_samples": 3.04410234313819,
+      "innovation_std": 0.09,
+      "integrated_autocorrelation_samples": 6.142857142857142,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 8.0,
+      "thermal_transient": {
+        "amplitude": 0.175,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.0,
+        "frequency_hz": 0.0
+      }
+    },
+    "device/dev.gnss/latitude_deg": {
+      "ar1_phi": 0.72,
+      "drift": {
+        "amplitude": 4e-07,
+        "period_s": 28.0
+      },
+      "e_folding_s": 0.38051279289227374,
+      "e_folding_samples": 3.04410234313819,
+      "innovation_std": 1.2e-07,
+      "integrated_autocorrelation_samples": 6.142857142857142,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 8.0,
+      "thermal_transient": {
+        "amplitude": 2e-07,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.0,
+        "frequency_hz": 0.0
+      }
+    },
+    "device/dev.gnss/longitude_deg": {
+      "ar1_phi": 0.72,
+      "drift": {
+        "amplitude": 5e-07,
+        "period_s": 28.0
+      },
+      "e_folding_s": 0.38051279289227374,
+      "e_folding_samples": 3.04410234313819,
+      "innovation_std": 1.5e-07,
+      "integrated_autocorrelation_samples": 6.142857142857142,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 8.0,
+      "thermal_transient": {
+        "amplitude": 2.5e-07,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.0,
+        "frequency_hz": 0.0
+      }
+    },
+    "device/dev.imu/accel_x": {
+      "ar1_phi": 0.88,
+      "drift": {
+        "amplitude": 0.035,
+        "period_s": 18.0
+      },
+      "e_folding_s": 0.039113417262982605,
+      "e_folding_samples": 7.822683452596521,
+      "innovation_std": 0.012,
+      "integrated_autocorrelation_samples": 15.666666666666666,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 200.0,
+      "thermal_transient": {
+        "amplitude": 0.0175,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.025,
+        "frequency_hz": 23.0
+      }
+    },
+    "device/dev.imu/accel_y": {
+      "ar1_phi": 0.88,
+      "drift": {
+        "amplitude": 0.03,
+        "period_s": 21.0
+      },
+      "e_folding_s": 0.039113417262982605,
+      "e_folding_samples": 7.822683452596521,
+      "innovation_std": 0.012,
+      "integrated_autocorrelation_samples": 15.666666666666666,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 200.0,
+      "thermal_transient": {
+        "amplitude": 0.015,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.022,
+        "frequency_hz": 19.0
+      }
+    },
+    "device/dev.imu/accel_z": {
+      "ar1_phi": 0.9,
+      "drift": {
+        "amplitude": 0.045,
+        "period_s": 25.0
+      },
+      "e_folding_s": 0.04745610790514952,
+      "e_folding_samples": 9.491221581029905,
+      "innovation_std": 0.015,
+      "integrated_autocorrelation_samples": 19.000000000000004,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 200.0,
+      "thermal_transient": {
+        "amplitude": 0.0225,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.035,
+        "frequency_hz": 27.0
+      }
+    },
+    "device/dev.imu/gyro_x": {
+      "ar1_phi": 0.84,
+      "drift": {
+        "amplitude": 0.004,
+        "period_s": 20.0
+      },
+      "e_folding_s": 0.028677389535588148,
+      "e_folding_samples": 5.735477907117629,
+      "innovation_std": 0.0015,
+      "integrated_autocorrelation_samples": 11.499999999999996,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 200.0,
+      "thermal_transient": {
+        "amplitude": 0.002,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.003,
+        "frequency_hz": 31.0
+      }
+    },
+    "device/dev.imu/gyro_y": {
+      "ar1_phi": 0.84,
+      "drift": {
+        "amplitude": 0.004,
+        "period_s": 22.0
+      },
+      "e_folding_s": 0.028677389535588148,
+      "e_folding_samples": 5.735477907117629,
+      "innovation_std": 0.0015,
+      "integrated_autocorrelation_samples": 11.499999999999996,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 200.0,
+      "thermal_transient": {
+        "amplitude": 0.002,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.003,
+        "frequency_hz": 29.0
+      }
+    },
+    "device/dev.imu/gyro_z": {
+      "ar1_phi": 0.86,
+      "drift": {
+        "amplitude": 0.005,
+        "period_s": 24.0
+      },
+      "e_folding_s": 0.033151466656015816,
+      "e_folding_samples": 6.630293331203163,
+      "innovation_std": 0.0018,
+      "integrated_autocorrelation_samples": 13.285714285714283,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 200.0,
+      "thermal_transient": {
+        "amplitude": 0.0025,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.004,
+        "frequency_hz": 17.0
+      }
+    },
+    "environment/condition_altitude_m": {
+      "ar1_phi": 0.8,
+      "drift": {
+        "amplitude": 0.5,
+        "period_s": 30.0
+      },
+      "e_folding_s": 2.2407100588622755,
+      "e_folding_samples": 4.481420117724551,
+      "innovation_std": 0.1,
+      "integrated_autocorrelation_samples": 9.000000000000002,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 2.0,
+      "thermal_transient": {
+        "amplitude": 0.25,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.0,
+        "frequency_hz": 0.0
+      }
+    },
+    "environment/temp_c": {
+      "ar1_phi": 0.92,
+      "drift": {
+        "amplitude": 0.35,
+        "period_s": 35.0
+      },
+      "e_folding_s": 5.996526168803989,
+      "e_folding_samples": 11.993052337607978,
+      "innovation_std": 0.025,
+      "integrated_autocorrelation_samples": 24.00000000000001,
+      "model": "ar1_plus_thermal_drift_and_vibration",
+      "sample_rate_hz": 2.0,
+      "thermal_transient": {
+        "amplitude": 0.175,
+        "time_constant_s": 6.0
+      },
+      "timing_jitter": {
+        "clip_sigma": 3.0,
+        "latency_ar1_phi": 0.35,
+        "latency_std_fraction_of_period": 0.02,
+        "latency_std_max_s": 0.0005,
+        "model": "bounded_ar1_scheduling_latency"
+      },
+      "vibration": {
+        "amplitude": 0.0,
+        "frequency_hz": 0.0
+      }
+    }
+  },
+  "context": "bench-idle",
+  "format_version": "1.0",
+  "generator": {
+    "algorithm_version": "2",
+    "path": "tests/fixtures/bags/generate.py"
+  },
+  "planted_failures": [
+    {
+      "description": "Under bench-idle, a +5 m/s^2 accel_x offset pushes mean |g| outside the envelope-derived band while accel_z stays in-band.",
+      "id": "preflight-stationary-g-excursion",
+      "targets": [
+        {
+          "channel": {
+            "device": "dev.imu",
+            "kind": "device",
+            "name": "accel_x"
+          },
+          "magnitude": {
+            "metric": "lateral_accel_offset",
+            "reference": {
+              "description": "added lateral accel to push |g| above envelope-derived band",
+              "unit": "m/s^2",
+              "value": 0.0
+            },
+            "unit": "m/s^2",
+            "value": 5.0
+          },
+          "sample_range": {
+            "end_index_exclusive": 6000,
+            "start_index": 0
+          },
+          "time_range_s": {
+            "end_inclusive": 29.99518912,
+            "start": 0.0
+          }
+        }
+      ],
+      "type": "stationary-g-excursion"
+    }
+  ],
+  "seed": 20260725,
+  "units": {
+    "dev.barometer": {
+      "pressure_pa": "Pa"
+    },
+    "dev.gnss": {
+      "gnss_altitude_m": "m",
+      "latitude_deg": "deg",
+      "longitude_deg": "deg"
+    },
+    "dev.imu": {
+      "accel_x": "m/s^2",
+      "accel_y": "m/s^2",
+      "accel_z": "m/s^2",
+      "gyro_x": "rad/s",
+      "gyro_y": "rad/s",
+      "gyro_z": "rad/s"
+    },
+    "environment": {
+      "condition_altitude_m": "m",
+      "temp_c": "degC"
+    }
+  }
+}

@@ -1,0 +1,328 @@
+# Synthetic M0 fixture: a *clean* contract — every check must pass with zero
+# findings (the false-positive budget is a first-class requirement).
+schema_version: "0.3"
+robot:
+  name: testbot
+fitted_band_allocations:
+  - context: nominal-op
+    channels:
+      - device/dev.barometer/pressure_pa
+      - rate/dev.barometer
+    fitted_bands: []
+    denominator: 8
+  - context: nominal-op
+    channels:
+      - device/dev.gnss/gnss_altitude_m
+      - device/dev.gnss/latitude_deg
+      - device/dev.gnss/longitude_deg
+      - rate/dev.gnss
+    fitted_bands: []
+    denominator: 16
+  - context: nominal-op
+    channels:
+      - device/dev.imu/accel_x
+      - device/dev.imu/accel_y
+      - device/dev.imu/accel_z
+      - device/dev.imu/gyro_x
+      - device/dev.imu/gyro_y
+      - device/dev.imu/gyro_z
+      - rate/dev.imu
+    fitted_bands:
+      - devices/dev.imu/envelopes/nominal-op/signals/accel_x
+      - devices/dev.imu/envelopes/nominal-op/signals/accel_y
+      - devices/dev.imu/envelopes/nominal-op/signals/gyro_x
+      - devices/dev.imu/envelopes/nominal-op/signals/gyro_y
+      - devices/dev.imu/envelopes/nominal-op/signals/gyro_z
+    denominator: 28
+  - context: nominal-op
+    channels:
+      - environment/condition_altitude_m
+      - environment/temp_c
+    fitted_bands: []
+    denominator: 8
+model:
+  source: testbot.urdf
+  source_sha256: "1111111111111111111111111111111111111111111111111111111111111111"
+  structure_hash: derived-from-recorded-structure
+  links:
+    - name: base_link
+      mass: {value: 1.0, unit: kg}
+      com: [0.0, 0.0, 0.0]
+      frame: base_link
+    - name: imu_link
+      mass: {value: 12, unit: g}
+      com: [0.0, 0.0, 0.0]
+      frame: imu_link
+  joints:
+    - name: imu_mount
+      type: revolute
+      parent: base_link
+      child: imu_link
+      limits:
+        effort: 2.0
+  provenance:
+    witness: w0
+    source: testbot.urdf
+    locked_at: 2026-07-05
+edges:
+  - quantity: devices/dev.imu/physical/mass
+    tolerance: {rel_pct: 5}
+    code: [src/estimation/ekf.cpp]
+    owner: shivansh
+  - quantity: model/joints/imu_mount/limits/effort
+    tolerance: {rel_pct: 5}
+    code: [src/control/mount.cpp]
+    owner: shivansh
+assumptions:
+  - id: asm.mode.ground
+    statement: "mode=ground iff weight-on-wheels AND airspeed < 5 m/s"
+    owner: shivansh
+    last_reviewed: 2026-07-05
+families:
+  - id: fam.imu.mems
+    name: MEMS IMU
+  - id: fam.baro.mems
+    name: MEMS barometer
+  - id: fam.gnss
+    name: GNSS receiver
+  - id: fam.radio.telemetry
+    name: Telemetry radio
+  - id: fam.esc
+    name: Electronic speed controller
+device_models:
+  - id: mdl.imu.bmi088
+    family: fam.imu.mems
+    match: {vid_pid: "108c:0088"}
+    actuator:
+      gear_ratio: 3.0
+      torque_continuous: 1.0
+    hard_limits:
+      accel_z: {lo: -235.4, hi: 235.4, unit: m/s^2}
+    known_failure_modes:
+      - frozen-but-publishing after brownout
+  - id: mdl.baro.generic
+    family: fam.baro.mems
+    hard_limits:
+      # Absolute MEMS barometer rated measurement range (BMP280-class): 300–1100 hPa.
+      # Device property — independent of any recording or generate.py injector constant.
+      pressure_pa: {lo: 30000, hi: 110000, unit: Pa}
+  - id: mdl.gnss.generic
+    family: fam.gnss
+  - id: mdl.radio.rfd900
+    family: fam.radio.telemetry
+  - id: mdl.esc.generic
+    family: fam.esc
+devices:
+  # Instance id matches the recording device id (bags emit "dev.imu"). Model id
+  # retains the part name; renaming the bags instead would rewrite ~46k sample rows
+  # and change channel seeds. Radio/esc stay declared without bag counterparts.
+  - id: dev.imu
+    model: mdl.imu.bmi088
+    drives_joint: imu_mount
+    identity: {bus_ref: bus.usb0, host: nav-computer, vid_pid: "108c:0088"}
+    driver:
+      node: /sensors/imu
+      topic: /imu/data
+      nominal_rate_hz: 200
+      payload_bytes: 64
+    physical:
+      mass: {value: 12, unit: g}
+      mount_frame: base_link
+      mount_xyz:
+        - {value: 100, unit: mm}
+        - {value: -40, unit: mm}
+        - {value: 20, unit: mm}
+    power:
+      rail: rail.5v
+      draw: {value: 0.4, unit: W}
+    envelopes:
+      - context: bench-idle
+        rate_hz: {lo: 190, hi: 210, unit: Hz}
+        startup_ms_p95: 140
+        signals:
+          accel_z:
+            band: {lo: -10.5, hi: -9.0, unit: m/s^2}
+            variance_floor: 1.0e-4
+            # Stage-3 one-shot floor; model-derived (same value as nominal-op).
+            oneshot_variance_min: 5.8e-5
+        conditions:
+          temp_c: {lo: 18, hi: 24, unit: C}
+        provenance:
+          # B113: was witness:live / source:synthetic-bench-bag-001 /
+          # bag_sha256: sixty-four zeros — a nonexistent artifact. Restamped
+          # as what it always was: hand-authored bench limits (no bag).
+          witness: human
+          source: author-chosen engineering headroom
+          locked_at: 2026-07-28
+          note: "Hand-authored bench-idle temp band [18, 24] C from the M0 stub (785053c). Not fitted to a recording; no live bag exists for this envelope (B101). Formerly claimed witness:live against synthetic-bench-bag-001 with a zero hash — that bag never existed."
+      - context: nominal-op
+        n: 5999
+        n_eff: 5999.0
+        coverage: 0.95
+        confidence: 1.0
+        signals:
+          accel_x:
+            n: 6000
+            n_eff: 232.87943654410228
+            coverage: 0.95
+            confidence: 0.9999059542380431
+            band: {lo: -0.1367784880497097, hi: 0.08943636753100538, unit: m/s^2}
+            variance_floor: 0.00016436005042075796
+          accel_y:
+            n: 6000
+            n_eff: 315.94181451935447
+            coverage: 0.95
+            confidence: 0.9999983895380165
+            band: {lo: -0.0865873065973786, hi: 0.08437441233396682, unit: m/s^2}
+            variance_floor: 0.00011934607993763972
+          gyro_x:
+            n: 6000
+            n_eff: 283.87591510602516
+            coverage: 0.95
+            confidence: 0.9999872598807132
+            band: {lo: -0.011507485574025329, hi: 0.011623501217132404, unit: rad/s}
+            variance_floor: 3.0348038859032405e-6
+          gyro_y:
+            n: 6000
+            n_eff: 729.1515756910704
+            coverage: 0.95
+            confidence: 0.9999999999999499
+            band: {lo: -0.010346422681736236, hi: 0.010489196325431766, unit: rad/s}
+            variance_floor: 2.9973734579705473e-6
+          gyro_z:
+            n: 6000
+            n_eff: 1127.6286097063469
+            coverage: 0.95
+            confidence: 1.0
+            band: {lo: -0.014862166063131434, hi: 0.012949746767038408, unit: rad/s}
+            variance_floor: 3.6047569760636486e-6
+        fitted_bands:
+          signals/accel_x: {rank: 1, n_eff: 231, alpha: 0.00017857142857142857}
+          signals/accel_y: {rank: 1, n_eff: 316, alpha: 0.00017857142857142857}
+          signals/gyro_x: {rank: 1, n_eff: 273, alpha: 0.00017857142857142857}
+          signals/gyro_y: {rank: 1, n_eff: 667, alpha: 0.00017857142857142857}
+          signals/gyro_z: {rank: 1, n_eff: 1000, alpha: 0.00017857142857142857}
+        provenance:
+          witness: live
+          source: tests/fixtures/bags/clean
+          locked_at: 2026-07-29
+          bag_sha256: "9b7a30c9e2ea678acfb35c2d4ae7b5cf00593b0d37e6d723b749176ac4524865"
+          note: "Bands and fitted_bands are generated by build_baseline from bags/clean."
+      - context: nominal-op
+        rate_hz: {lo: 180, hi: 225, unit: Hz}
+        signals:
+          accel_z:
+            band: {lo: -10.5, hi: -9.0, unit: m/s^2}
+            # Min windowed variance floor; see envelope provenance.
+            oneshot_variance_min: 5.8e-5
+        provenance:
+          witness: human
+          source: generate.py NoiseSpec device/dev.imu/accel_z
+          locked_at: 2026-07-27
+          note: "oneshot_variance_min scores min sliding-window population variance (window=20, matching CUSUM_WINDOW_SIZE), not whole-capture variance. Derived from the accel_z NoiseSpec in tests/fixtures/bags/generate.py (phi=0.90, innovation_std=0.015, drift_amplitude=0.045, vibration_amplitude=0.035 @ 27 Hz): under 2000 independent healthy draws from that model the quietest min-window variance was 1.1635991e-4; floor = 5.8e-5 is half that lower envelope (~2.01x headroom to the quietest model draw). Equivalently ~innovation_std^2/3.9 — a fraction of innovation power, acknowledging AR(1) correlation can suppress short-window variance below the stationary level. Not taken from a planted-failure bag. Verify bag clean measures min-window var 1.6969279e-4 (~2.93x the floor)."
+      - context: nominal-op
+        conditions:
+          temp_c: {lo: 0, hi: 40, unit: C}
+          condition_altitude_m: {lo: 0, hi: 300, unit: m}
+        provenance:
+          witness: human
+          source: proposed nominal-op engineering limits
+          locked_at: 2026-08-03
+          note: "Owner-ratified asserted operating region (D47, 2026-08-03): temperature [0, 40] C and altitude [0, 300] m replace fitted temp_c extrema [23.6635, 24.482] C that refused the independent healthy bags/clean_b capture for being 0.05 C cooler than the 30-second baseline—the exact pathology B117 exists to remove. These axes preserve the measured 45 C condition_envelope_exit NO-GO; removing them degrades that result to a warning, contrary to D43. They are asserted engineering limits, carry no fitted_bands entries, and remain strict: a declaration means exactly what it says."
+    depends: [src/estimation/ekf.cpp]
+    owner: shivansh
+  # Present in every synthetic bag; no physical/power so record-check mass/CG stay stable.
+  - id: dev.barometer
+    model: mdl.baro.generic
+    driver:
+      nominal_rate_hz: 50
+    envelopes:
+      - context: nominal-op
+        n: 1499
+        n_eff: 1499.0
+        coverage: 0.95
+        confidence: 1.0
+        provenance:
+          witness: live
+          source: tests/fixtures/bags/clean
+          locked_at: 2026-07-29
+          bag_sha256: "9b7a30c9e2ea678acfb35c2d4ae7b5cf00593b0d37e6d723b749176ac4524865"
+          note: "Generated by build_baseline from bags/clean. pressure_pa remains under-sampled, so no signal envelope was serialized; the model hard limit stays strict."
+      - context: nominal-op
+        rate_hz: {lo: 45, hi: 56, unit: Hz}
+        provenance:
+          witness: human
+          source: author-chosen engineering band around the driver's declared 50 Hz nominal
+          locked_at: 2026-08-03
+          note: "Owner-ratified asserted cadence band (D48, 2026-08-03). It restores strict cadence scoring after D44 turned that scoring off for fitted bands. Measured reason: main refuses a 21.4 ms gap, while the fitted band let a 457.3 ms gap through. Its endpoints apply the IMU's -10%/+12.5% authored headroom to the declared 50 Hz nominal and were verified against four independent healthy draws with a measured envelope of [46.43, 54.02] Hz. The band is deliberately wider than any observed draw: an asserted engineering limit must not be a same-draw detector."
+    owner: shivansh
+  - id: dev.gnss
+    model: mdl.gnss.generic
+    driver:
+      nominal_rate_hz: 8
+    envelopes:
+      - context: nominal-op
+        rate_hz: {lo: 7.5, hi: 8.5, unit: Hz}
+        provenance:
+          witness: human
+          source: author-chosen engineering headroom
+          locked_at: 2026-07-27
+          note: "Models expected publish-rate timing tolerance under bounded scheduling jitter for an 8 Hz GNSS; not a live recording and not fitted to silence a finding."
+    owner: shivansh
+  - id: dev.radio.rfd900
+    model: mdl.radio.rfd900
+    identity: {bus_ref: bus.serial0, host: nav-computer, serial_number: RFD900X-1234}
+    physical:
+      mass: {value: 30, unit: g}
+      mount_frame: base_link
+      mount_xyz:
+        - {value: -200, unit: mm}
+        - {value: 80, unit: mm}
+        - {value: 50, unit: mm}
+    power:
+      rail: rail.5v
+      draw: {value: 2.0, unit: W}
+    owner: shivansh
+  - id: dev.esc.busless
+    model: mdl.esc.generic
+    owner: shivansh
+topology:
+  hosts:
+    - id: nav-computer
+  buses:
+    - id: bus.usb0
+      kind: usb
+      host: nav-computer
+      bitrate: 480000000
+    - id: bus.serial0
+      kind: serial
+      host: nav-computer
+      bitrate: 57600
+  rails:
+    - id: rail.5v
+      voltage: {value: 5, unit: V}
+      capacity: {value: 5, unit: W}
+      upstream: rail.22v
+      efficiency: 0.85
+    - id: rail.22v
+      voltage: {value: 22.2, unit: V}
+      capacity: {value: 20, unit: W}
+      upstream: battery
+  battery:
+    capacity: {value: 99.9, unit: Wh}
+    voltage: {value: 22.2, unit: V}
+budgets:
+  - id: bud.power.rail5v
+    kind: rail_power
+    rail: rail.5v
+    limit: {value: 5, unit: W}
+    owner: shivansh
+  - id: bud.mass.devices
+    kind: mass_total
+    sources: devices
+    limit: {value: 0.5, unit: kg}
+    owner: shivansh
+  - id: bud.endurance
+    kind: endurance
+    limit: {value: 30, unit: min}
+    owner: shivansh

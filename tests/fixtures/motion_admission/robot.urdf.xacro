@@ -1,0 +1,25 @@
+<?xml version="1.0" ?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="synthetic_gravity_pendulum">
+  <link name="base"/>
+  <link name="pendulum">
+    <inertial><origin xyz="0.5 0 0"/><mass value="1.0"/><inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/></inertial>
+    <visual><origin xyz="0.5 0 0"/><geometry><box size="1 0.04 0.04"/></geometry></visual>
+    <collision><origin xyz="0.5 0 0"/><geometry><box size="1 0.04 0.04"/></geometry></collision>
+  </link>
+  <joint name="pendulum_joint" type="revolute">
+    <parent link="base"/><child link="pendulum"/><origin xyz="0 0 1" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/><limit lower="-1.5" upper="1.5" effort="20" velocity="4"/>
+  </joint>
+  <ros2_control name="SyntheticPendulum" type="system">
+    <hardware><plugin>gz_ros2_control/GazeboSimSystem</plugin></hardware>
+    <joint name="pendulum_joint">
+      <command_interface name="effort"/>
+      <state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>/workspace/controllers.yaml</parameters><hold_joints>false</hold_joints>
+    </plugin>
+  </gazebo>
+</robot>

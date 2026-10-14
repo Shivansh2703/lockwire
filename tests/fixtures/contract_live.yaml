@@ -1,0 +1,67 @@
+# Live-target contract: authored against a containerized Linux/ROS 2 target.
+# Identity descriptors are hand-authored to match what scan observes through the
+# container runner (i2c sysfs planted under /var/lockwire) and what the
+# container's ROS graph exposes when imu_driver is running. Do NOT derive these
+# from the live provisioner module — that circularity is the house bug
+# (same lineage as the demo bags); see the guard in tests/test_live_source.py.
+#
+# Separated from contract_clean.yaml / contract_demo.yaml — recorded-path fixtures
+# are untouched.
+schema_version: "0.2"
+robot:
+  name: livebot
+families:
+  - id: fam.imu.mems
+    name: MEMS IMU
+device_models:
+  - id: mdl.imu.bmi088
+    family: fam.imu.mems
+    # A wide sanity ceiling, not a datasheet rating — this fixture only needs
+    # stage 3 to have something to score against the live capture.
+    hard_limits:
+      accel_z: {lo: -50, hi: 50, unit: m/s^2}
+devices:
+  - id: dev.imu
+    model: mdl.imu.bmi088
+    # Authored independently of the provisioner — values may coincide with what
+    # the provisioner plants, but this file is the source of truth.
+    identity: {bus_ref: bus.i2c1, host: host.local, address: "0x68"}
+    driver:
+      node: /imu_driver
+      topic: /imu/data
+      # Same signal mapping the offline rosbag2 path uses, so a live
+      # capture reads back through the identical `load_ros2_bag` decoder.
+      msg_type: sensor_msgs/msg/Imu
+      nominal_rate_hz: 5.0
+      signals:
+        accel_z: {field: linear_acceleration.z, unit: m/s^2}
+    # load_ros2_bag defaults to context "nominal-op" (source.py never
+    # passes one), and without a declared rate_hz band here stage 2's rate_hz
+    # leg is not_scored regardless of the disclosures above it — a
+    # wide, generous band (imu_driver publishes at 5 Hz; a real 5s docker
+    # capture has real jitter) so this fixture's own point (real capture ->
+    # real score) isn't itself hostage to timing noise.
+    envelopes:
+      - context: nominal-op
+        rate_hz: {lo: 3.0, hi: 8.0, unit: Hz}
+        signals:
+          accel_z:
+            band: {lo: -10.0, hi: -9.5, unit: m/s^2}
+            # imu_driver (tests/fixtures/live/provision.py) publishes a
+            # hardcoded -9.81 every tick — zero real sensor jitter — so the
+            # captured window's variance is genuinely 0.0. 0.0 is the only
+            # floor that is TRUE of this fixture's own driver, not an
+            # invented tolerance to force a pass.
+            oneshot_variance_min: 0.0
+        provenance:
+          witness: live
+          source: fixture-authored, imu_driver publishes at 5 Hz
+          locked_at: 2026-09-09
+    owner: shivansh
+topology:
+  hosts:
+    - id: host.local
+  buses:
+    - id: bus.i2c1
+      kind: i2c
+      host: host.local

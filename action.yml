@@ -1,0 +1,43 @@
+name: Lockwire check
+description: Fail the build when a robot's declared physical assumptions (power, thermal, bus, link, torque budgets) stop adding up.
+branding:
+  icon: check-circle
+  color: green
+inputs:
+  contract:
+    description: Path to the lockfile.
+    default: lockwire.yaml
+  version:
+    description: lockwire version to install (default latest).
+    default: ""
+  python-version:
+    description: Python version to run lockwire with.
+    default: "3.12"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install lockwire
+      shell: bash
+      env:
+        LW_VERSION: ${{ inputs.version }}
+      run: |
+        if [ -n "$LW_VERSION" ]; then pip install "lockwire==$LW_VERSION"; else pip install lockwire || pip install "$GITHUB_ACTION_PATH"; fi
+    - name: lockwire check
+      shell: bash
+      env:
+        LW_CONTRACT: ${{ inputs.contract }}
+      run: lockwire check "$LW_CONTRACT"
+    - name: lockwire report
+      if: always()
+      shell: bash
+      env:
+        LW_CONTRACT: ${{ inputs.contract }}
+      run: lockwire report "$LW_CONTRACT" --out "$RUNNER_TEMP/lockwire-report.html" --no-open
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      if: always()
+      with:
+        name: lockwire-report
+        path: ${{ runner.temp }}/lockwire-report.html

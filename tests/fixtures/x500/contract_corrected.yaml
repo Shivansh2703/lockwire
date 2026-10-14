@@ -1,0 +1,643 @@
+# Corrected X500 V2 reference contract. This preserves the original demo
+# contract and adds the separate BEC used to supply the bare Jetson module on
+# a custom carrier; module-only mass is UNKNOWN.
+schema_version: "0.2"
+robot:
+  name: Holybro X500 V2 PX4 reference quadrotor
+  id: x500-v2-px4
+
+model:
+  source: docs/reference_robot_specs.md
+  source_sha256: c8c9ce97375d59f6c40f006ecaa0522a943ebaaa0dd5b92533f3d72fbc9779ca
+  structure_hash: f50e3e33faf883386c1acaf40adde5f4c8a16c9ce4bcd8729e4fdc38f3980cc7
+  links:
+    - name: x500_frame
+      mass: {value: 610, unit: g}
+      frame: x500_frame
+  provenance:
+    witness: w0
+    source: holybro.com/products/x500-v2-kits
+    locked_at: 2026-07-25
+    note: "610 g is the published dry frame-kit weight; MTOW is unknown."
+
+families:
+  - id: fam.airframe.multirotor
+    name: Multirotor airframe
+  - id: fam.flight-controller.autopilot
+    name: Autopilot flight controller
+  - id: fam.companion.sbc
+    name: Companion computer
+  - id: fam.gnss.dronecan
+    name: DroneCAN GNSS
+  - id: fam.radio.telemetry
+    name: Telemetry radio
+  - id: fam.camera.stereo
+    name: Stereo depth camera
+  - id: fam.imu.mems
+    name: MEMS IMU
+  - id: fam.magnetometer.mems
+    name: MEMS magnetometer
+  - id: fam.barometer.mems
+    name: MEMS barometer
+  - id: fam.motor.brushless
+    name: Brushless motor
+  - id: fam.esc
+    name: Electronic speed controller
+  - id: fam.power-module
+    name: Power module
+  - id: fam.power-converter.bec
+    name: Battery eliminator circuit
+
+device_models:
+  - id: mdl.airframe.holybro-x500-v2
+    family: fam.airframe.multirotor
+    provenance:
+      witness: w0
+      source: holybro.com/products/x500-v2-kits
+      locked_at: 2026-07-25
+      note: "500 mm wheelbase; 1045 propeller; 1500 g payload without battery at 70% throttle; recommended pack is 4S 3000-5000 mAh, 20C+, XT60."
+  - id: mdl.flight-controller.pixhawk-6c
+    family: fam.flight-controller.autopilot
+    provenance:
+      witness: w0
+      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
+      locked_at: 2026-07-25
+      note: "Board current draw is unknown; aluminium/plastic case masses are variants, so no installed mass is selected."
+  - id: mdl.companion.jetson-orin-nano
+    family: fam.companion.sbc
+    provenance:
+      witness: w0
+      source: "NVIDIA module datasheet; NVIDIA power-mode docs; NVIDIA staff forum reply"
+      locked_at: 2026-07-26
+      note: "Bare module on a custom carrier: 5 V module VDD_IN; published power modes 7 W / 15 W / 25 W (docs/reference_robot_specs.md); 25 W mode implies 5 A peak. Module-only mass is UNKNOWN; the published 176 g dev-kit figure is the wrong product. input_voltage_range 5-20 V is the module VDD_IN pin rating (NVIDIA Jetson Orin Nano module datasheet)."
+    input_voltage_range:
+      min: {value: 5, unit: V}
+      max: {value: 20, unit: V}
+  - id: mdl.gnss.here3-plus
+    family: fam.gnss.dronecan
+    provenance:
+      witness: w0
+      source: irlock.com
+      locked_at: 2026-07-25
+      note: "DroneCAN at 8 Mbit/s; current draw is unknown. The 8 Hz update-rate figure is from an unnamed retailer source."
+  - id: mdl.radio.rfd900x
+    family: fam.radio.telemetry
+    provenance:
+      witness: w0
+      source: "https://files.rfdesign.com.au/Files/documents/RFD900x%20DataSheet%20V1.2.pdf"
+      locked_at: 2026-09-06
+      note: "Corrected 2026-09-06 04:3x against the vendor PDF text itself (an earlier lock carried supply, current and sensitivity figures the PDF does not contain; caught in review). PDF, Power Requirements: supply +5 V nominal (+5 V min, +5.5 V max, +6 V abs max); transmit current 1 A peak at 30 dBm; receive/standby current 60 mA typical. Sensitivity table (10^-5 BER): 12 kbps -111 dBm, 56 kbps -107 dBm, 64 kbps -105 dBm, 100 kbps -102 dBm. Default air data rate 64k (RFDesign store page, same day); default serial 57600 bps (PDF, Point-to-Point/SiK defaults). TX power 0-30 dBm adjustable; RF connector SMA, no bundled antenna gain published."
+    input_voltage_range:
+      min: {value: 5.0, unit: V}
+      max: {value: 5.5, unit: V}
+    radio:
+      tx_power: {value: 30, unit: dBm}
+      rx_sensitivity: {value: -105, unit: dBm}
+      air_rate: {value: 64, unit: kbit/s}
+  - id: mdl.camera.oak-d-lite
+    family: fam.camera.stereo
+    provenance:
+      witness: w0
+      source: Luxonis docs
+      locked_at: 2026-07-25
+      note: "USB-C; published power components total 2.5-5 W. Published mass is unresolved."
+  - id: mdl.imu.icm-42688-p
+    family: fam.imu.mems
+    provenance:
+      witness: w0
+      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
+      locked_at: 2026-07-25
+      note: "Primary Pixhawk 6C IMU. hard_limits from invensense.tdk.com/products/motion-tracking/6-axis/icm-42688-p/ (fetched 2026-09-06): accelerometer full-scale +/-16 g = +/-156.9064 m/s^2 (1 g = 9.80665 m/s^2); gyroscope full-scale +/-2000 dps = +/-34.9066 rad/s (2000 x pi/180)."
+    hard_limits:
+      accel_z: {lo: -156.9064, hi: 156.9064, unit: "m/s^2"}
+      gyro_z: {lo: -34.9066, hi: 34.9066, unit: "rad/s"}
+  - id: mdl.imu.bmi088
+    family: fam.imu.mems
+    provenance:
+      witness: w0
+      source: "docs.holybro.com/autopilot/pixhawk-6c/technical-specification + docs.px4.io"
+      locked_at: 2026-07-25
+      note: "Secondary Pixhawk 6C IMU; earlier units used the discontinued BMI055. hard_limits from bosch-sensortec.com/products/motion-sensors/imus/bmi088/ (fetched 2026-09-06): accelerometer full-scale +/-24 g = +/-235.3596 m/s^2; gyroscope full-scale +/-2000 dps = +/-34.9066 rad/s."
+    hard_limits:
+      accel_z: {lo: -235.3596, hi: 235.3596, unit: "m/s^2"}
+      gyro_z: {lo: -34.9066, hi: 34.9066, unit: "rad/s"}
+  - id: mdl.magnetometer.ist8310
+    family: fam.magnetometer.mems
+    provenance:
+      witness: w0
+      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
+      locked_at: 2026-07-25
+  - id: mdl.barometer.ms5611
+    family: fam.barometer.mems
+    provenance:
+      witness: w0
+      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
+      locked_at: 2026-07-25
+  - id: mdl.motor.holybro-2216-920kv
+    family: fam.motor.brushless
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/spare-parts-x500-v2-kit (spare-parts variant JSON, SKU 520085/520086)"
+      locked_at: 2026-09-06
+      note: "2216, 920 KV, 3S-4S (Holybro kit page). Mass 80 g per motor, fetched first-hand 2026-09-06 from Holybro's own spare-parts-store product JSON (weight: 80.0, weight_unit: g) for SKU 520085 (CW) / 520086 (CCW) — this SUPERSEDES the earlier conflicting 63 g/~150 g retailer figures in docs/reference_robot_specs.md as a first-party Holybro number. Max continuous current and max power remain UNKNOWN (not published anywhere checked); hover-only draw is derived separately, see dev.motor.* provenance."
+  - id: mdl.esc.holybro-20a
+    family: fam.esc
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/spare-parts-x500-v2-kit (spare-parts variant JSON, SKU 520081)"
+      locked_at: 2026-09-06
+      note: "20 A continuous (Holybro kit page); burst current and DShot modes stay unconfirmed (search aggregation only). Mass 50 g, fetched first-hand 2026-09-06 from Holybro's own spare-parts-store product JSON (weight: 50.0, weight_unit: g) for SKU 520081 — supersedes the earlier UNKNOWN mass."
+  - id: mdl.power-module.pm02-v3
+    family: fam.power-module
+    provenance:
+      witness: w0
+      source: docs/reference_robot_specs.md
+      locked_at: 2026-07-25
+      note: "2S-12S input; 60 A continuous/120 A burst PCB rating; regulated output 5.2 V at 3 A max; mass 20 g."
+  - id: mdl.power-converter.castle-cc-bec-pro
+    family: fam.power-converter.bec
+    provenance:
+      witness: w0
+      source: "https://www.castlecreations.com/en/cc-bec-pro-010-0004-01; https://www.freakware.de/technik/CastleCreations/cc_bec_pro_user_guide.pdf"
+      locked_at: 2026-07-26
+      note: "Item 010-0004-01; output is adjustable 4.8-12.5 V and set here to 5 V. The published continuous-current row is 15 A at 16 V input. A 4S pack spans 14.8 V nominal to 16.8 V full, so the band straddles that row; rely on nothing tighter than >=13 A-class continuous at 4S. Maximum input is 50.4 V (12S)."
+
+devices:
+  # MAVLink path: Jetson sits on the FC TELEM/UART serial bus. Power draw does
+  # not require identity; the companion-computer host remains for the USB camera bus.
+  - id: dev.companion.jetson-orin-nano
+    model: mdl.companion.jetson-orin-nano
+    identity:
+      bus_ref: bus.uart.companion
+      host: flight-controller
+      strength: positional
+    power:
+      rail: rail.cc-bec-pro-5v
+      draw: {value: 25, unit: W}
+      modes:
+        - name: "7W"
+          draw: {value: 7, unit: W}
+        - name: "15W"
+          draw: {value: 15, unit: W}
+        - name: "25W"
+          draw: {value: 25, unit: W}
+    owner: companion-compute
+    provenance:
+      witness: w0
+      source: "NVIDIA module datasheet; NVIDIA power-mode docs; NVIDIA staff forum reply; docs/reference_robot_specs.md"
+      locked_at: 2026-07-26
+      note: "Bare module on a custom carrier. Nominal draw remains 25 W (fallback). Published Orin Nano power modes 7 W / 15 W / 25 W from docs/reference_robot_specs.md (table line citing NVIDIA docs; companion section). 5 A is derived from 25 W / 5 V module VDD_IN. Module-only mass is UNKNOWN: dev-kit 176 g is the kit, not the module. Identity is on bus.uart.companion (Pixhawk TELEM/UART); baud UNKNOWN."
+  - id: dev.gnss.here3-plus
+    model: mdl.gnss.here3-plus
+    identity:
+      bus_ref: bus.can.dronecan
+      host: flight-controller
+      strength: positional
+    driver:
+      topic: /fmu/out/vehicle_gps_position
+      msg_type: px4_msgs/msg/SensorGps
+      nominal_rate_hz: 8
+      signals:
+        latitude_deg: {field: latitude_deg, unit: deg}
+        longitude_deg: {field: longitude_deg, unit: deg}
+        gnss_altitude_m: {field: altitude_msl_m, unit: m}
+    physical:
+      mass: {value: 51.8, unit: g}
+      mount_frame: x500_frame
+    owner: navigation
+    provenance:
+      witness: w0
+      source: "irlock.com; retailer source; PX4-Autopilot v1.16.2@54f0455ffcd755534539a7cf33a09a20bf71d29d src/modules/uxrce_dds_client/dds_topics.yaml (source-derived bridge declaration); PX4/px4_msgs v1.16.2@392e831c1f659429ca83902e66820d7094591410 msg/SensorGps.msg"
+      locked_at: 2026-09-28
+      note: "Mass and protocol are from irlock.com; update rate is retailer-sourced; current draw is unknown. The pinned PX4 bridge declaration maps /fmu/out/vehicle_gps_position to px4_msgs/msg/SensorGps. Its raw WGS84 latitude_deg/longitude_deg are degrees and altitude_msl_m is metres. This source-derived descriptor does not prove live topic emission. Native capture records local receive time, not the message timestamp."
+  - id: dev.radio.rfd900x
+    model: mdl.radio.rfd900x
+    identity:
+      bus_ref: bus.uart.telemetry
+      host: flight-controller
+      strength: positional
+    physical:
+      mass: {value: 14.5, unit: g}
+      mount_frame: x500_frame
+    power:
+      rail: rail.pixhawk-telem1-5v
+      draw: {value: 5.2, unit: W}
+      modes:
+        - name: "transmit"
+          draw: {value: 5.2, unit: W}
+        - name: "receive"
+          draw: {value: 0.312, unit: W}
+    owner: telemetry
+    provenance:
+      witness: w0
+      source: "https://store.rfdesign.com.au/rfd-900x-modem/; docs.holybro.com/autopilot/pixhawk-6c/technical-specification"
+      locked_at: 2026-09-06
+      note: "Mass 14.5 g, fetched first-hand 2026-09-06 from RFDesign's own store product page ('Weight: 14.5g') — supersedes the earlier 14 g search-engine-paraphrase figure. B10 (2026-09-06): the radio now IS routed onto a modeled rail, rail.pixhawk-telem1-5v, since Holybro's own technical-specification page publishes a Telem1 per-port current limiter (1.5 A) that gives the missing rail capacity — see that rail's provenance for the quoted sentence and fetch date. draw is 1 A peak TX x 5.2 V = 5.2 W (transmit mode, also the fallback/worst mode); receive/standby mode is 60 mA x 5.2 V = 0.312 W."
+    # link_budget: required_range/fade_margin_required are flight-ops mission
+    # requirements (owner flight-ops), not datasheet figures. installation_loss
+    # 2 dB is a declared feedline/connector assumption (mandatory field,
+    # not measured). carrier_frequency is declared at the published band's
+    # centre (902-928 MHz -> 915 MHz) as an explicit, labelled assumption: no
+    # channel is fixed by the datasheet, so this is not a silent default.
+    # tx_antenna/rx_antenna now declared. RFDesign's own
+    # RFD900x modem bundle page publishes bundled antenna gains alongside the
+    # radio itself ("4 x Antennas, 900MHz Half wave dipole 3dBi" among the
+    # bundle's included antennas). The ground-station end is assumed to carry
+    # the same bundled antenna (a labelled assumption, as for the transmit end).
+    link_budget:
+      required_range: {value: 2000, unit: m}
+      fade_margin_required: {value: 10, unit: dB}
+      installation_loss: {value: 2, unit: dB}
+      carrier_frequency: {value: 915000000, unit: Hz}
+      tx_antenna:
+        gain: {value: 3, unit: dBi}
+        provenance:
+          witness: w0
+          source: "https://store.rfdesign.com.au/rfd900x-modem-bundle-usb-c-hs-8517-62-00-90/"
+          locked_at: 2026-09-06
+          note: "RFD900x modem bundle page, bundle contents: '4 x Antennas, 900MHz Half wave dipole 3dBi'. Vehicle-end antenna; ground-station end assumed to use the same bundled dipole (labelled assumption, as for the transmit end)."
+      rx_antenna:
+        gain: {value: 3, unit: dBi}
+        provenance:
+          witness: w0
+          source: "https://store.rfdesign.com.au/rfd900x-modem-bundle-usb-c-hs-8517-62-00-90/"
+          locked_at: 2026-09-06
+          note: "Same bundle page and figure as tx_antenna, assumed for the ground-station end (labelled assumption, as for the transmit end)."
+  - id: dev.camera.oak-d-lite
+    model: mdl.camera.oak-d-lite
+    identity:
+      bus_ref: bus.usb.companion
+      host: companion-computer
+      strength: positional
+    power:
+      rail: rail.pm02-5v
+      draw: {value: 5, unit: W}
+    owner: perception
+    provenance:
+      witness: w0
+      source: Luxonis docs
+      locked_at: 2026-07-25
+      note: "5 W is the published maximum component sum: 3 W base + 1 W AI + 0.5 W depth + 0.5 W encode; mass is unresolved."
+  - id: dev.power-converter.castle-cc-bec-pro
+    model: mdl.power-converter.castle-cc-bec-pro
+    physical:
+      mass: {value: 29, unit: g}
+      mount_frame: x500_frame
+    owner: power-integration
+    provenance:
+      witness: w0
+      source: "https://www.castlecreations.com/en/cc-bec-pro-010-0004-01"
+      locked_at: 2026-07-26
+      note: "29 g installed mass. Input is connected to the 4S pack; the dedicated output is set to 5 V for the Jetson."
+  - id: dev.flight-controller.pixhawk-6c
+    model: mdl.flight-controller.pixhawk-6c
+    physical:
+      mass: {value: 59.3, unit: g}
+      mount_frame: x500_frame
+    owner: avionics-integration
+    provenance:
+      witness: w0
+      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
+      locked_at: 2026-07-25
+      note: "59.3 g is the published aluminium-case mass (plastic-case variant is 34.6 g; aluminium is used here since neither variant is otherwise selected). Board current draw remains UNKNOWN, so no power block is declared. No identity: the FC is the bus host, not a device on its own bus."
+  - id: dev.power-module.pm02-v3
+    model: mdl.power-module.pm02-v3
+    physical:
+      mass: {value: 20, unit: g}
+      mount_frame: x500_frame
+    owner: power-integration
+    provenance:
+      witness: w0
+      source: docs/reference_robot_specs.md
+      locked_at: 2026-07-25
+      note: "20 g is the published PM02 (V3) mass. No power block declared: PM02 is the source of rail.pm02-5v and rail.servo-motor, not a consumer of either."
+  - id: dev.magnetometer.ist8310
+    model: mdl.magnetometer.ist8310
+    identity:
+      bus_ref: bus.i2c.external
+      host: flight-controller
+      address: "0x0E"
+      strength: positional
+    owner: navigation
+    provenance:
+      witness: w0
+      source: "https://tw.isentek.com/userfiles/files/IST8310Datasheet_3DMagneticSensors.pdf"
+      locked_at: 2026-09-06
+      note: "IST8310 default I2C slave address is 0x0E (7-bit) when the CAD0/CAD1 address pins float, per the Isentek IST8310 datasheet. Mass and current draw are not separately published for the discrete part on this external bus. Only one device is declared at 0x0E on bus.i2c.external in this build, so no collision is present."
+  # 4x motor + 4x ESC, declared with published masses and a
+  # derived hover-only power draw (no max-current/max-thrust figure exists for
+  # this motor anywhere checked -- Holybro's own kit and spare-parts pages
+  # publish neither, so only a "hover" mode is declared, never a guessed "max").
+  # Derivation shared by all four dev.motor.* entries: Holybro's X500 V2 kit
+  # page (https://holybro.com/products/x500-v2-kits, fetched 2026-09-06)
+  # publishes "Flight time: ~18 minutes hover with no additional payload.
+  # Tested with 5000mAh Battery." Total hover power = battery energy / flight
+  # time = (5000 mAh x 14.8 V nominal 4S = 74.0 Wh) / (18 min = 0.3 h) =
+  # 246.68 W. That figure is the AIRCRAFT's total hover draw (propulsion +
+  # the stock FC/GPS/RX avionics present during the test, no companion
+  # payload); no separate motor-only or baseline-avionics-only number is
+  # published, so it is divided evenly across the 4 motors as each motor's
+  # propulsion-channel draw: 246.68 / 4 = 61.67 W. This modestly
+  # overstates true per-motor draw (a few watts of baseline avionics are
+  # folded in) but is the only published anchor available -- flagged here
+  # rather than treated as an exact motor-only figure.
+  - id: dev.motor.m1
+    model: mdl.motor.holybro-2216-920kv
+    physical:
+      mass: {value: 80, unit: g}
+      mount_frame: x500_frame
+    power:
+      rail: rail.servo-motor
+      draw: {value: 61.67, unit: W}
+      modes:
+        - name: "hover"
+          draw: {value: 61.67, unit: W}
+    owner: propulsion
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/x500-v2-kits; https://holybro.com/products/spare-parts-x500-v2-kit"
+      locked_at: 2026-09-06
+      note: "Mass 80 g from Holybro's spare-parts-store product JSON (SKU 520085). Hover draw 61.67 W derived from the kit page's published ~18 min hover flight-time figure -- see the shared derivation note above this block. No max-current/max-thrust figure is published; only 'hover' is declared."
+  - id: dev.motor.m2
+    model: mdl.motor.holybro-2216-920kv
+    physical:
+      mass: {value: 80, unit: g}
+      mount_frame: x500_frame
+    power:
+      rail: rail.servo-motor
+      draw: {value: 61.67, unit: W}
+      modes:
+        - name: "hover"
+          draw: {value: 61.67, unit: W}
+    owner: propulsion
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/x500-v2-kits; https://holybro.com/products/spare-parts-x500-v2-kit"
+      locked_at: 2026-09-06
+      note: "Same derivation as dev.motor.m1 (see its provenance note)."
+  - id: dev.motor.m3
+    model: mdl.motor.holybro-2216-920kv
+    physical:
+      mass: {value: 80, unit: g}
+      mount_frame: x500_frame
+    power:
+      rail: rail.servo-motor
+      draw: {value: 61.67, unit: W}
+      modes:
+        - name: "hover"
+          draw: {value: 61.67, unit: W}
+    owner: propulsion
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/x500-v2-kits; https://holybro.com/products/spare-parts-x500-v2-kit"
+      locked_at: 2026-09-06
+      note: "Same derivation as dev.motor.m1 (see its provenance note)."
+  - id: dev.motor.m4
+    model: mdl.motor.holybro-2216-920kv
+    physical:
+      mass: {value: 80, unit: g}
+      mount_frame: x500_frame
+    power:
+      rail: rail.servo-motor
+      draw: {value: 61.67, unit: W}
+      modes:
+        - name: "hover"
+          draw: {value: 61.67, unit: W}
+    owner: propulsion
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/x500-v2-kits; https://holybro.com/products/spare-parts-x500-v2-kit"
+      locked_at: 2026-09-06
+      note: "Same derivation as dev.motor.m1 (see its provenance note)."
+  - id: dev.esc.esc1
+    model: mdl.esc.holybro-20a
+    physical:
+      mass: {value: 50, unit: g}
+      mount_frame: x500_frame
+    owner: propulsion
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/spare-parts-x500-v2-kit"
+      locked_at: 2026-09-06
+      note: "Mass 50 g from Holybro's spare-parts-store product JSON (SKU 520081). No separate power block: the ESC's own current draw is not separately published and is not double-counted on top of the motor's derived propulsion-channel draw."
+  - id: dev.esc.esc2
+    model: mdl.esc.holybro-20a
+    physical:
+      mass: {value: 50, unit: g}
+      mount_frame: x500_frame
+    owner: propulsion
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/spare-parts-x500-v2-kit"
+      locked_at: 2026-09-06
+      note: "Same as dev.esc.esc1 (see its provenance note)."
+  - id: dev.esc.esc3
+    model: mdl.esc.holybro-20a
+    physical:
+      mass: {value: 50, unit: g}
+      mount_frame: x500_frame
+    owner: propulsion
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/spare-parts-x500-v2-kit"
+      locked_at: 2026-09-06
+      note: "Same as dev.esc.esc1 (see its provenance note)."
+  - id: dev.esc.esc4
+    model: mdl.esc.holybro-20a
+    physical:
+      mass: {value: 50, unit: g}
+      mount_frame: x500_frame
+    owner: propulsion
+    provenance:
+      witness: w0
+      source: "https://holybro.com/products/spare-parts-x500-v2-kit"
+      locked_at: 2026-09-06
+      note: "Same as dev.esc.esc1 (see its provenance note)."
+
+topology:
+  hosts:
+    - id: flight-controller
+      notes: Pixhawk 6C
+    - id: companion-computer
+      notes: Jetson Orin Nano
+  buses:
+    - id: bus.can.dronecan
+      kind: can
+      host: flight-controller
+      bitrate: 8000000
+      provenance:
+        witness: w0
+        source: docs/reference_robot_specs.md
+        locked_at: 2026-07-26
+        note: "8 Mbit/s is the Here3+ CAN-FD capability ceiling, not a verified configured rate. No configured rate is present in the source record, so this field must not be read as an operating-rate claim."
+    - id: bus.uart.telemetry
+      kind: serial
+      host: flight-controller
+      bitrate: 57600
+      provenance:
+        witness: w0
+        source: "https://files.rfdesign.com.au/Files/documents/RFD900x%20DataSheet%20V1.2.pdf"
+        locked_at: 2026-09-06
+        note: "57600 bps is the RFD900x's own published default UART baud (user-selectable: 9600/19200/38400/57600/115200/400k/921k). This is the radio's own default, not a Holybro-Pixhawk-6C-specific figure (the board's own spec sheet states no default for this port) — declared per B1b (2026-09-06) since the radio, not the FC, sets the operating baud on this link."
+    - id: bus.uart.companion
+      kind: serial
+      host: flight-controller
+      bitrate: 921600
+      provenance:
+        witness: w0
+        source: "https://docs.px4.io/main/en/peripherals/mavlink_peripherals.html"
+        locked_at: 2026-09-06
+        note: "FC↔companion MAVLink path on published Pixhawk 6C UART/Telem ports (3× UART; Telem1 named). 921600 bps is PX4's own documented default TELEM2 companion-link baud (SER_TEL2_BAUD=921600) — a PX4-project default, not a Holybro-Pixhawk-6C-board-specific figure (the board's own spec sheet publishes no default for this port), declared per B1b (2026-09-06) as the best available published figure for this link."
+    - id: bus.usb.companion
+      kind: usb
+      host: companion-computer
+      bitrate: 5000000000
+      provenance:
+        witness: w0
+        source: "https://github.com/luxonis/oak-hardware/blob/master/DM9095_OAK-D-LITE_DepthAI_USB3C/Datasheet/OAK-D-Lite_Datasheet.pdf"
+        locked_at: 2026-09-06
+        note: "OAK-D Lite's own datasheet (fetched first-hand 2026-09-06) lists the on-die USB3.1 Gen2 PHY as a 10 Gbps capability, but states in prose that 'data is then output to a host via USB 3.1 Gen1' — the actual operating link. 5 Gbit/s (USB 3.1 Gen1) is declared as the conservative, correctly-cited figure rather than the 10 Gbps controller-capability number."
+    - id: bus.i2c.external
+      kind: i2c
+      host: flight-controller
+      provenance:
+        witness: w0
+        source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
+        locked_at: 2026-07-25
+        note: "Pixhawk 6C's published port list includes 1x I2C; bitrate is not stated in the cited technical specification and is left UNKNOWN rather than assumed (I2C fast-mode 400 kHz is common but not confirmed for this board's external port)."
+  rails:
+    # PM02 regulated output: 5.2 V x 3 A = 15.6 W. Only the OAK-D Lite remains.
+    - id: rail.pm02-5v
+      voltage: {value: 5.2, unit: V}
+      capacity: {value: 15.6, unit: W}
+      provenance:
+        witness: w0
+        source: "PX4 hardware docs; Holybro; docs/reference_robot_specs.md"
+        locked_at: 2026-07-26
+        note: "PM02 regulated rail is published as 5.2 V at 3 A max; capacity is 5.2 V x 3 A = 15.6 W."
+    # Pixhawk 6C TELEM1 per-port limiter, fetched from
+    # docs.holybro.com/autopilot/pixhawk-6c/technical-specification. Quoted
+    # sentence (Electrical data / Current Ratings): "Telem1 Max output current
+    # limiter: 1.5A". The page states no separate peripheral 5V rating for the
+    # TELEM ports, so voltage is the PM02's 5.2 V passed through the FC's power
+    # input unchanged (efficiency 1.0, pass-through, not a converter). The
+    # Pixhawk's power input stays on PM02 in this corrected build too (only the
+    # Jetson moved to the dedicated CC BEC PRO). Capacity = 1.5 A x 5.2 V = 7.8 W.
+    - id: rail.pixhawk-telem1-5v
+      voltage: {value: 5.2, unit: V}
+      capacity: {value: 7.8, unit: W}
+      upstream: rail.pm02-5v
+      efficiency: 1.0
+      provenance:
+        witness: w0
+        source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
+        locked_at: 2026-09-06
+        note: "\"Telem1 Max output current limiter: 1.5A\" (Holybro Pixhawk 6C technical-specification page, Electrical data / Current Ratings, fetched 2026-09-06). No peripheral 5V rating is separately published for TELEM ports, so voltage is the PM02's 5.2 V passed through the Pixhawk's power input, not converted (efficiency 1.0, pass-through). Capacity = 1.5 A x 5.2 V = 7.8 W."
+    # CC BEC PRO output set to 5 V. Conservatively rely on 13 A-class continuous
+    # at 4S, so modeled capacity is 5 V x 13 A = 65 W (2.6× the 25 W draw).
+    # Input is from the 4S pack (within the 12S maximum). The upstream conversion
+    # edge is omitted because no sourced efficiency is available.
+    - id: rail.cc-bec-pro-5v
+      voltage: {value: 5, unit: V}
+      capacity: {value: 65, unit: W}
+      provenance:
+        witness: w0
+        source: "Castle Creations product page and user guide; docs/reference_robot_specs.md"
+        locked_at: 2026-07-26
+        note: "Output is set to 5 V. The 65 W modeled capacity is 5 V x the source record's conservative 13 A-class continuous reading at 4S."
+    # Holybro specifies a 4S pack. 14.8 V is the nominal 4S value; the
+    # PM02's 60 A continuous PCB rating gives 888 W pass-through capacity.
+    # The upstream conversion edge is omitted because PM02 efficiency and a
+    # sourced, specific 4S pack capacity are both UNKNOWN.
+    - id: rail.servo-motor
+      voltage: {value: 14.8, unit: V}
+      capacity: {value: 888, unit: W}
+      provenance:
+        witness: w0
+        source: "Holybro X500 V2 kit page; docs/reference_robot_specs.md"
+        locked_at: 2026-07-26
+        note: "Holybro specifies 4S; 14.8 V is the documented nominal 4S voltage, and 888 W is derived from 14.8 V x the PM02 published 60 A continuous PCB rating."
+  battery:
+    # Holybro publishes "4S 3000-5000 mAh, 20C+" as the recommended pack, with
+    # the actual pack a builder's choice. The fixture switches from the
+    # 3000 mAh lower-bound reading to the 5000 mAh pack Holybro's own kit page
+    # cites for its published "~18 min hover" flight-time figure (see
+    # bud.endurance.mission) -- that figure is the only real anchor available
+    # for motor draw, so the declared battery must match the pack it was
+    # measured on. 5000 mAh x 14.8 V nominal 4S = 74.0 Wh.
+    capacity: {value: 74.0, unit: Wh}
+    voltage: {value: 14.8, unit: V}
+
+budgets:
+  - id: bud.power.pm02-5v
+    kind: rail_power
+    rail: rail.pm02-5v
+    limit: {value: 15.6, unit: W}
+    owner: power-integration
+    provenance:
+      witness: w0
+      source: "PX4 hardware docs; Holybro; docs/reference_robot_specs.md"
+      locked_at: 2026-07-26
+      note: "Budget limit equals the PM02 published regulated-rail capacity: 5.2 V x 3 A = 15.6 W."
+  - id: bud.power.pixhawk-telem1
+    kind: rail_power
+    rail: rail.pixhawk-telem1-5v
+    limit: {value: 7.8, unit: W}
+    owner: power-integration
+    provenance:
+      witness: w0
+      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
+      locked_at: 2026-09-06
+      note: "Budget limit equals rail.pixhawk-telem1-5v's declared capacity: the published Telem1 per-port current limiter (1.5 A) x the PM02 pass-through voltage (5.2 V) = 7.8 W. Observed draw is the radio's declared draw (5.2 W transmit peak) — a real pass, 5.2 W <= 7.8 W."
+  - id: bud.power.cc-bec-pro-5v
+    kind: rail_power
+    rail: rail.cc-bec-pro-5v
+    limit: {value: 65, unit: W}
+    owner: power-integration
+    provenance:
+      witness: w0
+      source: "Castle Creations product page and user guide; docs/reference_robot_specs.md"
+      locked_at: 2026-07-26
+      note: "Budget limit equals the modeled BEC rail capacity: 5 V x the conservative 13 A-class continuous reading = 65 W."
+  # Mode-aware companion on the BEC rail: selects the Jetson's published 7 W
+  # mode. Arithmetic: 7 W <= 65 W — clean pass (keeps corrected fixture at 0/0).
+  - id: bud.power.cc-bec-pro-5v.7w-mode
+    kind: rail_power
+    rail: rail.cc-bec-pro-5v
+    limit: {value: 65, unit: W}
+    draw_mode: "7W"
+    owner: power-integration
+    provenance:
+      witness: w0
+      source: "Castle Creations product page and user guide; docs/reference_robot_specs.md"
+      locked_at: 2026-07-26
+      note: "Duplicates the CC BEC Pro rail budget to exercise draw_mode selection against the Jetson's published 7 W mode (docs/reference_robot_specs.md)."
+  - id: bud.power.servo-motor
+    kind: rail_power
+    rail: rail.servo-motor
+    limit: {value: 888, unit: W}
+    owner: power-integration
+    provenance:
+      witness: w0
+      source: "Holybro X500 V2 kit page; docs/reference_robot_specs.md"
+      locked_at: 2026-09-06
+      note: "Budget limit equals the rail.servo-motor declared capacity: 14.8 V x the PM02's published 60 A continuous PCB rating = 888 W. Observed draw is the 4 motors' derived hover-only propulsion-channel power (see dev.motor.* provenance): 4 x 61.67 W = 246.68 W, well under capacity — a real, non-fabricated pass, not the motors' true worst-case (max-current) draw, which stays UNKNOWN."
+  - id: bud.mass.payload
+    kind: mass_total
+    limit: {value: 1500, unit: g}
+    sources: devices
+    owner: airframe-integration
+    provenance:
+      witness: w0
+      source: holybro.com/products/x500-v2-kits
+      locked_at: 2026-09-06
+      note: "1500 g is Holybro's published payload capacity 'without battery, at 70% throttle'. sources: devices sums only instantiated device masses: dev.gnss.here3-plus 51.8 g + dev.radio.rfd900x 14.5 g + dev.flight-controller.pixhawk-6c 59.3 g + dev.power-module.pm02-v3 20 g + dev.power-converter.castle-cc-bec-pro 29 g + 4x dev.motor.* 80 g (320 g) + 4x dev.esc.* 50 g (200 g) = 694.6 g; the frame link mass is not summed (sources=devices, not links). This total is now closer to the real installed mass than the earlier 174.1 g floor (motor/ESC masses are no longer excluded — see mdl.motor.holybro-2216-920kv / mdl.esc.holybro-20a provenance), but Jetson module mass and OAK-D Lite mass remain UNKNOWN and stay excluded rather than guessed."
+  - id: bud.endurance.mission
+    kind: endurance
+    limit: {value: 15, unit: min}
+    owner: flight-ops
+    provenance:
+      witness: w0
+      source: "requirement, not a datasheet — owner: flight-ops"
+      locked_at: 2026-09-06
+      note: "15 min is a stated flight-ops mission requirement, not a vendor figure. B1b (2026-09-06) makes this a REAL endurance figure: topology.battery is now 74.0 Wh (the 5000 mAh pack Holybro's own kit page cites for its published ~18 min hover flight-time figure -- see dev.motor.* provenance for the full derivation), and total declared draw now includes propulsion: Jetson 25 W (rail.cc-bec-pro-5v) + OAK-D Lite 5 W (rail.pm02-5v) + 4x motor 61.67 W (rail.servo-motor, 246.68 W) + radio 5.2 W transmit-peak (rail.pixhawk-telem1-5v -> rail.pm02-5v, B10 2026-09-06) = 281.88 W nominal. Computed endurance = 74.0 / 281.88 = 0.2625 h (~15.75 min), which still clears the 15-min requirement, though by a thinner real margin than before the radio joined the power tree -- consistent with Holybro's own ~18-min hover figure being reduced by the added companion/camera/radio payload. This still covers hover-only draw (no climb/cruise/wind margin) and the per-motor draw is a derived approximation (see dev.motor.* provenance caveat), not an exact motor-only datasheet figure."

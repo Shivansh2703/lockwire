@@ -1,0 +1,19 @@
+# Minimal fixture: one rail carrying one review note in its
+# provenance. Round-trip anchor for test_a_contract_with_review_notes_round_trips —
+# the checked-in text below is the anchor, not a model also dumped.
+schema_version: "0.3"
+robot:
+  name: reviewbot
+topology:
+  rails:
+    - id: rail.5v
+      capacity: {value: 5, unit: W}
+      provenance:
+        witness: w0
+        source: datasheet.pdf
+        locked_at: 2026-09-08
+        reviews:
+          - state: questioned
+            witness: Maya Chen
+            at: 2026-09-08
+            note: the datasheet page does not say 20.8 W

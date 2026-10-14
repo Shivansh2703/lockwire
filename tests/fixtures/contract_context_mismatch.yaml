@@ -1,0 +1,30 @@
+# Context-mismatch demonstration fixture.
+#
+# Condition baselines exist only under bench-idle; the reference recordings
+# (bags/clean, bags/condition_envelope_exit) declare context nominal-op.
+# contract_clean.yaml carries real nominal-op condition baselines so the
+# known-good robot is a plain GO; this fixture keeps the mismatch shape
+# pinned so it cannot silently regress.
+schema_version: "0.2"
+robot:
+  name: context-mismatch-bot
+families:
+  - id: fam.imu.mems
+    name: MEMS IMU
+device_models:
+  - id: mdl.imu.bmi088
+    family: fam.imu.mems
+devices:
+  - id: dev.imu
+    model: mdl.imu.bmi088
+    owner: shivansh
+    depends: [src/estimation/ekf.cpp]
+    envelopes:
+      - context: bench-idle
+        conditions:
+          temp_c: {lo: 18, hi: 24, unit: C}
+        provenance:
+          witness: human
+          source: author-chosen engineering headroom
+          locked_at: 2026-07-28
+          note: "Hand-authored bench temp band for the D31 mismatch demo. Not fitted to a recording — the point of this fixture is that no condition baselines cover the recording's nominal-op context."

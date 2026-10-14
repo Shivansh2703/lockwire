@@ -1,0 +1,27 @@
+# LOCKWIRE TEST configuration. These gains are neither inferred from nor installed on ANYmal.
+controller_manager:
+  ros__parameters:
+    update_rate: 250
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    anymal_effort_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+anymal_effort_controller:
+  ros__parameters:
+    joints: [LF_HAA, LF_HFE, LF_KFE, RF_HAA, RF_HFE, RF_KFE, LH_HAA, LH_HFE, LH_KFE, RH_HAA, RH_HFE, RH_KFE]
+    command_interfaces: [effort]
+    state_interfaces: [position, velocity]
+    gains:
+      LF_HAA: {p: 120.0, i: 0.0, d: 4.0}
+      LF_HFE: {p: 120.0, i: 0.0, d: 4.0}
+      LF_KFE: {p: 120.0, i: 0.0, d: 4.0}
+      RF_HAA: {p: 120.0, i: 0.0, d: 4.0}
+      RF_HFE: {p: 120.0, i: 0.0, d: 4.0}
+      RF_KFE: {p: 120.0, i: 0.0, d: 4.0}
+      LH_HAA: {p: 120.0, i: 0.0, d: 4.0}
+      LH_HFE: {p: 120.0, i: 0.0, d: 4.0}
+      LH_KFE: {p: 120.0, i: 0.0, d: 4.0}
+      RH_HAA: {p: 120.0, i: 0.0, d: 4.0}
+      RH_HFE: {p: 120.0, i: 0.0, d: 4.0}
+      RH_KFE: {p: 120.0, i: 0.0, d: 4.0}

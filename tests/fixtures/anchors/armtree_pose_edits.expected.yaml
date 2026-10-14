@@ -1,0 +1,29 @@
+# The provenance `armtree.yaml` must carry after move + rotate + reparent, each
+# submitted separately with witness "Maya Chen", source notes/layout.md and
+# --locked-at 2026-09-08.
+#
+# This file is the ANCHORED leg. `test_every_pose_edit_stamps_its_own_witness`
+# would otherwise only compare the writer against itself; a bug in the shared
+# stamper would make both sides agree and the test would pass. Nothing under
+# test produces these bytes — they were read off a run and checked in, so a
+# stamp that stops happening, or starts happening once for three edits, shows
+# up as a diff here.
+#
+# Two blocks, split on the `### ` markers below. Indentation is significant:
+# each fragment is matched verbatim against the written file.
+### model
+  provenance:
+    witness: w0
+    source: armbot.urdf; rpy from notes/layout.md (2026-09-08); parent from notes/layout.md (2026-09-08); structure_hash from notes/layout.md (2026-09-08)
+    locked_at: 2026-09-08
+    note: '2026-09-08: rpy declared, witness Maya Chen
+
+      2026-09-08: parent declared, witness Maya Chen
+
+      2026-09-08: structure_hash declared, witness Maya Chen'
+### device
+    provenance:
+      witness: w0
+      source: armbot.urdf; mount_xyz from notes/layout.md (2026-09-08)
+      locked_at: 2026-09-08
+      note: '2026-09-08: mount_xyz declared, witness Maya Chen'

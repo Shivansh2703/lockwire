@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!-- Minimal unexpanded xacro stub — ${namespace} must refuse, not become a link name. -->
+<robot name="xacro_stub">
+  <link name="${namespace}base_footprint"/>
+  <link name="${namespace}imu_link">
+    <inertial>
+      <mass value="0.01"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+  <joint name="${namespace}imu_joint" type="fixed">
+    <parent link="${namespace}base_footprint"/>
+    <child link="${namespace}imu_link"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+  </joint>
+</robot>

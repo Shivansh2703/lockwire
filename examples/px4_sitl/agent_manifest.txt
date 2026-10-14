@@ -1,0 +1,6 @@
+# What a fleet discovery service hands an agent before it ever touches the
+# contract: which device to inspect. One id per line, `#` comments ignored.
+# The blind-agent demo reads this file at runtime for its device id — it is
+# not a Python constant and is exempt from the demo script's self-grep by
+# construction (see docs/blind-agent-demo.md, "the discovery gap").
+px4.sensor_combined.0

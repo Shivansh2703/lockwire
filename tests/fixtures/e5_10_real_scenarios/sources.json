@@ -1,0 +1,40 @@
+{
+  "schema": "lockwire.e5_10.sources.v1",
+  "hard_asset_limit_bytes": 67108864,
+  "expected_asset_count": 54,
+  "expected_asset_bytes": 30454659,
+  "sources": {
+    "px4-autopilot": {
+      "repository": "https://github.com/PX4/PX4-Autopilot.git",
+      "release": "v1.16.2",
+      "tag_object": "cec6f597235c27f8d42d900e5c5fc8e4d792dbd6",
+      "revision": "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+      "license": "BSD-3-Clause",
+      "license_path": "LICENSE",
+      "integration_tree_entry": {
+        "path": "Tools/simulation/gz",
+        "mode": "160000",
+        "type": "commit",
+        "sha": "e05f4312d3f28aa621157610584a4870406cb6d3"
+      }
+    },
+    "px4-gazebo-models": {
+      "repository": "https://github.com/PX4/PX4-gazebo-models.git",
+      "revision": "e05f4312d3f28aa621157610584a4870406cb6d3",
+      "selected_by": "px4-autopilot.integration_tree_entry",
+      "license": "BSD-3-Clause",
+      "license_paths": [
+        "LICENSE",
+        "models/x500/LICENSE",
+        "models/x500_base/LICENSE"
+      ],
+      "excluded_incompatible_revision": "5577035667afb4b63fe1f966fb1a58bbb05d905b"
+    },
+    "anymal-d": {
+      "repository": "https://github.com/ANYbotics/anymal_d_simple_description.git",
+      "revision": "d5bf4dc3a81af81a16b9598fc15c98e339f45a33",
+      "license": "BSD-3-Clause",
+      "license_path": "LICENSE"
+    }
+  }
+}

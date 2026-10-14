@@ -1,0 +1,47 @@
+# eb-05 bench corpus: hand-authored, generated for the X500 reference contract
+# (tests/fixtures/x500/contract.yaml). Every case is a single-step plan.
+#
+# Honesty ceiling (named in the bench report itself, not just here): these
+# cases were authored by the project that also wrote the checks they exercise.
+# A bench scored only on cases it wrote to be catchable measures self-
+# agreement, not independent detection — see bench.format_report.
+#
+# category: violating  -> the step SHOULD be flagged NO-GO by `plan`'s evaluator.
+# category: compliant  -> the step SHOULD score GO (a real pass, not tuned away).
+# category: unscorable -> the contract cannot resolve the reference; NOT SCORED.
+#
+# rail.pm02-5v: capacity 15.6 W, already at 35.2 W worst-case rollup before any
+# plan step (docs/reference_robot_specs.md; see tests/test_plan.py's own note on
+# this rail) — any RailLoad on it is a genuine, non-fabricated overload.
+# rail.servo-motor: capacity 888 W, base 246.68 W — real headroom for a small load.
+cases:
+  - id: pm02-overload-small
+    category: violating
+    step:
+      kind: rail_load
+      rail: rail.pm02-5v
+      draw: {value: 0.1, unit: W}
+  - id: pm02-overload-larger
+    category: violating
+    step:
+      kind: rail_load
+      rail: rail.pm02-5v
+      draw: {value: 2.0, unit: W}
+  - id: servo-headroom-small
+    category: compliant
+    step:
+      kind: rail_load
+      rail: rail.servo-motor
+      draw: {value: 1.0, unit: W}
+  - id: servo-headroom-larger
+    category: compliant
+    step:
+      kind: rail_load
+      rail: rail.servo-motor
+      draw: {value: 5.0, unit: W}
+  - id: unknown-rail
+    category: unscorable
+    step:
+      kind: rail_load
+      rail: rail.does-not-exist
+      draw: {value: 1.0, unit: W}

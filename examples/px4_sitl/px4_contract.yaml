@@ -1,0 +1,33 @@
+schema_version: "0.3"
+robot:
+  name: px4-sitl-x500
+families:
+  - id: fam.imu
+    name: MEMS IMU
+  - id: fam.power
+    name: Battery
+device_models:
+  - id: mdl.imu
+    family: fam.imu
+    hard_limits:
+      accel_z: {lo: -80.0, hi: 80.0, unit: "m/s^2"}
+  - id: mdl.battery
+    family: fam.power
+devices:
+  - id: px4.sensor_combined.0
+    model: mdl.imu
+    owner: shivansh
+    driver:
+      topic: /fmu/out/sensor_combined
+      nominal_rate_hz: 250.0
+      msg_type: sensor_msgs/msg/Imu
+      signals:
+        accel_z:
+          field: linear_acceleration.z
+          unit: m/s^2
+  - id: px4.battery_status.0
+    model: mdl.battery
+    owner: shivansh
+    driver:
+      topic: /fmu/out/battery_status
+      nominal_rate_hz: 5.0

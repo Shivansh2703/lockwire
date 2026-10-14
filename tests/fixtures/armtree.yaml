@@ -1,0 +1,75 @@
+# A hand-drawn link tree, for the pose-edit refusals. Drawn so a cycle is
+# obvious on the page rather than emergent from a computation:
+#
+#     base
+#      └── shoulder
+#           └── elbow
+#                └── wrist        <- dev.gripper is mounted here
+#
+#     detached_cart               <- a link with NO joint: connected to nothing
+#
+# Re-parenting `shoulder` onto `wrist` closes a cycle (wrist already sits below
+# shoulder). Re-parenting `shoulder` onto `detached_cart` orphans shoulder,
+# elbow and wrist, because detached_cart reaches no root. This is the anchored
+# leg of the parity pair: the expected refusals are readable off this drawing,
+# not recomputed by the code under test.
+schema_version: "0.2"
+robot:
+  name: armbot
+model:
+  source: armbot.urdf
+  source_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  structure_hash: derived-from-recorded-structure
+  links:
+    - name: base
+      frame: base
+    - name: shoulder
+      frame: shoulder
+    - name: elbow
+      frame: elbow
+    - name: wrist
+      frame: wrist
+    - name: detached_cart
+      frame: detached_cart
+  joints:
+    - name: base_to_shoulder
+      type: fixed
+      parent: base
+      child: shoulder
+      origin: {xyz: [0.0, 0.0, 0.10], rpy: [0.0, 0.0, 0.0]}
+    - name: shoulder_to_elbow
+      type: fixed
+      parent: shoulder
+      child: elbow
+      origin: {xyz: [0.0, 0.0, 0.20], rpy: [0.0, 0.0, 0.0]}
+    - name: elbow_to_wrist
+      type: fixed
+      parent: elbow
+      child: wrist
+      origin: {xyz: [0.0, 0.0, 0.15], rpy: [0.0, 0.0, 0.0]}
+  provenance:
+    witness: w0
+    source: armbot.urdf
+    locked_at: 2026-09-08
+families:
+  - id: fam.gripper
+    name: Gripper
+device_models:
+  - id: mdl.gripper.generic
+    family: fam.gripper
+    provenance:
+      witness: w0
+      source: armbot.urdf
+      locked_at: 2026-09-08
+devices:
+  - id: dev.gripper
+    model: mdl.gripper.generic
+    physical:
+      mass: {value: 240, unit: g}
+      mount_frame: wrist
+      mount_xyz: [{value: 0.0, unit: m}, {value: 0.0, unit: m}, {value: 0.05, unit: m}]
+    owner: manipulation
+    provenance:
+      witness: w0
+      source: armbot.urdf
+      locked_at: 2026-09-08

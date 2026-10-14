@@ -1,0 +1,30 @@
+*HEADING
+** DIAGNOSTIC ONLY: fixed-free axial T3D2 bar, two elements. Not an admitted mesh.
+** SI units: E=100 Pa, rho=1 kg/m3, A=1e-4 m2 (slender bar), L=1 m; continuum f1=2.5 Hz.
+*NODE
+1, 0., 0., 0.
+2, 0.5, 0., 0.
+3, 1., 0., 0.
+*ELEMENT, TYPE=T3D2, ELSET=BAR
+1, 1, 2
+2, 2, 3
+*NSET, NSET=ROOT
+1
+*NSET, NSET=AXIAL_NODES
+2, 3
+*MATERIAL, NAME=BAR_MATERIAL
+*ELASTIC
+100., 0.3
+*DENSITY
+1.
+*SOLID SECTION, ELSET=BAR, MATERIAL=BAR_MATERIAL
+1e-4
+*BOUNDARY
+ROOT, 1, 3
+AXIAL_NODES, 2, 3
+*STEP
+*FREQUENCY, STORAGE=YES
+1
+*NODE PRINT, NSET=AXIAL_NODES, GLOBAL=YES
+U
+*END STEP

@@ -1,0 +1,15 @@
+{
+  "case_id": "elbow.nominal",
+  "contract_revision": "c736a8e17e806cdcdf3f2d883e025931ba01fff905de525b027d134fd4015360",
+  "evidence_root": "evidence-root",
+  "evidence_path": "evidence/payload.json",
+  "evidence_sha256": "fa084d0e45fde8d4a1eb023f69a0d2ab09521e462d4a262af0ea2423443ce21a",
+  "expected_simulation_gaps": [
+    "actuator_cases/elbow.nominal/simulation_validity/rmse",
+    "actuator_cases/elbow.nominal/simulation_validity/peak"
+  ],
+  "expected_initial_evidence_gaps": [
+    "actuator_cases/elbow.nominal/conformance/evidence",
+    "actuator_cases/elbow.nominal/simulation_validity/evidence"
+  ]
+}

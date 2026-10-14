@@ -1,0 +1,118 @@
+{
+  "status": "SOURCE FIXTURES — pinned impact raw completed; public impact Job and parent admission await independent review",
+  "solver_target": "CalculiX 2.23",
+  "units": "SI",
+  "primary_manual": "https://www.dhondt.de/ccx_2.23.pdf",
+  "cases": [
+    {
+      "id": "plastic_truss_static",
+      "deck": "plastic_truss_static.inp",
+      "purpose": "Nonlinear static elastoplastic hardening without contact.",
+      "material": {
+        "elastic": {"youngs_modulus_pa": 1000.0, "poisson_ratio": 0.3},
+        "plastic_curve": [
+          {"yield_stress_pa": 10.0, "equivalent_plastic_strain": 0.0},
+          {"yield_stress_pa": 20.0, "equivalent_plastic_strain": 0.01}
+        ],
+        "ordering": "strictly increasing equivalent plastic strain; the first point has zero plastic strain",
+        "reference": "For the prescribed total axial strain 0.02, linear interpolation gives sigma=15 Pa, epsilon_p=0.005, and epsilon_total=sigma/E+epsilon_p=0.020. With unit area, the analytic axial reaction magnitude is 15 N."
+      },
+      "runtime_gate": "Reaction magnitude and final stress must each agree with the analytic piecewise curve within 5%; a run with an unbound displacement or a curve/deck mismatch is refused.",
+      "refusals": [
+        "Missing *ELASTIC, *PLASTIC, SI units, or nonincreasing plastic strain is refused.",
+        "Contact keywords in this static-plastic control deck are refused."
+      ]
+    },
+    {
+      "id": "sliding_contact_static",
+      "deck": "sliding_contact_static.inp",
+      "sha256": "7b657e3d8b355f1ef70dd15164f7dcd0e99850f2c3496a5a47f57d48369f7905",
+      "purpose": "Two deformable C3D8 blocks with an explicitly named slave/master contact pair, linear normal penalty, and Coulomb friction.",
+      "contact": {
+        "slave_surface": "UPPER_BOTTOM",
+        "master_surface": "LOWER_TOP",
+        "formulation": "TYPE=SURFACE TO SURFACE",
+        "normal_penalty_pa_per_m": 1000000.0,
+        "friction_coefficient": 0.2,
+        "normal_load_n": 40.0,
+        "tangential_displacement_m": 0.02,
+        "reference": "Once a future run proves positive sliding rather than sticking, |F_t|=mu*N=8 N and the normal resultant balances 40 N. Both quantities use a 5% gate; no result is inferred from this source fixture."
+      },
+      "runtime_gate": "Verify non-penetration, positive sliding, normal-force balance, and |F_t|/(mu*N) within 5%; otherwise refuse rather than label sticking as sliding.",
+      "refusals": [
+        "Unnamed/missing surfaces, interaction, penalty, or friction are refused.",
+        "A run without contact-status evidence is refused; force alone cannot distinguish stick from slide."
+      ]
+    },
+    {
+      "id": "sliding_contact_state_probe",
+      "deck": "sliding_contact_state_probe.inp",
+      "sha256": "51c9ffb3cfae56c0d74da2b2c8d4cbe8b4807e39a550a0f7388d82744ef38368",
+      "purpose": "Same two-block sliding-contact geometry and load history as sliding_contact_static, with retained contact stress/displacement rows at every nonlinear increment to diagnose partial Coulomb mobilization.",
+      "contact_state_probe": {
+        "base_case": "sliding_contact_static",
+        "output": "The only deck difference is *CONTACT PRINT FREQUENCY=1, retaining CDIS/CSTR/CNUM/CF/CFN/CFS for every nonlinear increment.",
+        "criterion": "At each final active contact integration point, p is CSTR normal pressure and q is sqrt(tang1^2+tang2^2). The declared Coulomb law requires 0 <= q/p <= mu=0.2; q/p strictly below mu shows that point is not fully friction-mobilized. A fully mobilized state requires every final active point to satisfy q/p=mu within printed-output rounding.",
+        "independent_reference": "The criterion derives only from the deck's declared *FRICTION coefficient and CSTR components, not the 5% resultant-force acceptance threshold."
+      },
+      "runtime_gate": "Retain every-increment CSTR/CDIS/CNUM/CF/CFN/CFS rows and require finite positive final pressure, 0 <= q/p <= mu at every active point, and an explicit full-mobilization classification before applying the existing 5% resultant Coulomb gate.",
+      "refusals": [
+        "Missing or duplicate CSTR/contact-state rows, nonpositive final pressure, or q/p above mu is refused.",
+        "Mixed or sub-Coulomb final states remain diagnostic evidence only and cannot be promoted to a 5% positive sliding result."
+      ]
+    },
+    {
+      "id": "sliding_contact_extended_travel",
+      "deck": "sliding_contact_extended_travel.inp",
+      "sha256": "4fbcb4e7020bdbf6a54e350f355c33c3da1dec4cff0bfb088e62b8eb36a7f9ee",
+      "purpose": "A distinct declared continuation of the state probe: the sole deck change is one additional equal 20 mm tangential travel segment, from 0.02 m to 0.04 m, to test the same named face-contact procedure after the declared load path reaches sliding.",
+      "continuation_probe": {
+        "base_case": "sliding_contact_state_probe",
+        "sole_input_delta": "UPPER_TOP prescribed tangential displacement changes from 0.02 m to 0.04 m.",
+        "physical_basis": "The continuation doubles the declared monotonic tangential travel from 2% to 4% of the existing 1 m face length without changing contact geometry, material, friction, normal load, or output sampling.",
+        "independent_relation": "With the same declared mu=0.2 and normal load, a fully mobilized final state requires q/p=mu at every active contact point and |F_t|=mu*|N|. A persistent sub-mu point refuses full-mobilization attribution; it does not prove mesh convergence."
+      },
+      "runtime_gate": "Retain every-increment CDIS/CSTR/CNUM/CF/CFN/CFS rows. The final state must show positive tangential CDIS, compressive CDIS/CSTR contact, and at least one q/p value equal to mu at CCX printed precision, while every row remains Coulomb-admissible and normal-force balance and |F_t|/(mu*|N|) use the original unchanged 5% resultant limit. This solver-resolution witness is not a finer-precision slip claim. This distinct 40 mm procedure cannot rewrite the original 20 mm NO_GO result.",
+      "refusals": [
+        "Any change beyond the declared tangential endpoint, or missing/nonfinite per-increment contact rows, is refused.",
+        "Missing final contact status, nonpositive tangential CDIS, noncompressive CDIS/CSTR, or no printed-precision Coulomb-mobilized point is refused; the original 20 mm result remains NO_GO."
+      ]
+    },
+    {
+      "id": "frictionless_elastic_impact",
+      "deck": "frictionless_elastic_impact.inp",
+      "sha256": "b08b1741220948f63e506ab4bb4d5094fa49a8cb89b7722e1dc3407ccce18a21",
+      "rejected_prior_deck_sha256": "d8d06dc6d84bf72d4e74bf52fab4dbec20166401075b9536c4dde25dd8185394",
+      "purpose": "A rigid translating C3D8 impactor strikes a fully fixed C3D8 wall through a frictionless elastic penalty contact.",
+      "impact": {
+        "mass_kg": 1.0,
+        "solid_density_kg_per_m3": 1.0,
+        "solid_volume_m3": 0.1,
+        "solid_element_set": "IMPACTOR",
+        "point_mass_kg": 0.9,
+        "point_mass_element_set": "IMPACTOR_MASS",
+        "point_mass_region": {"kind": "node_set", "name": "REF"},
+        "fixed_wall_node_set": "WALL_FIXED",
+        "rotation_node": 101,
+        "initial_velocity_m_per_s": -1.0,
+        "normal_penalty_pa_per_m": 10000000.0,
+        "friction_coefficient": 0.0,
+        "formulation": "TYPE=SURFACE TO SURFACE",
+        "restitution": "derived, not an input keyword: e=|v_rebound/v_incident|=1 for a one-translation-DOF mass against a fixed wall with undamped elastic penalty contact",
+        "inertia": "not consumed: rotation node 101 translational DOFs 1-3 are constrained; no rotational inertia value is claimed",
+        "reference": "The declared solid contributes 0.1 m3*1 kg/m3=0.1 kg and the distinct REF point mass contributes 0.9 kg, giving 1 kg total and initial kinetic energy 0.5*m*v^2=0.5 J. The fixed-wall undamped elastic-penalty reference requires final energy and restitution within 5% after separation; raw output must first prove the total mass and energy accounting."
+      },
+      "numerical_controls": {"fixed_increment_s": 1e-05, "total_time_s": 0.15, "step_increment_limit": 30000, "alpha": 0.0},
+      "runtime_gate": "First prove native effective total translating mass of 1 kg and initial kinetic energy of 0.5 J, fixed increment without mass scaling, initial separation, contact, later separation, and complete every-increment node/contact/energy rows. If ELKE omits the MASS element, validate its 0.5*m*v^2 contribution separately and refuse incomplete total-energy inference. Then require final energy conservation and restitution each within the unchanged 5% limit. A no-contact, sticking, or still-compressed final state is refused.",
+      "refusals": [
+        "The earlier deck without material density, with 1 kg point mass on top of solid mass, default alpha, unconstrained rigid rotations, or a deformable wall is refused as this bounded reference.",
+        "No distinct REF point mass, solid density, fixed wall and rotation node, *INITIAL CONDITIONS, direct explicit increment with ALPHA=0, contact pair, or requested U/V/ELSE/ELKE output is refused.",
+        "No *RESTITUTION keyword is assumed for CalculiX 2.23: an executor must measure the derived coefficient from retained velocities."
+      ]
+    }
+  ],
+  "pending": [
+    "Independently review the impact parser, scorer, public Job, and their pinned raw numerical evidence before any public impact acceptance claim.",
+    "Physical conformance and parent E5.8 admission remain separate and unscored."
+  ]
+}

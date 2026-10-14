@@ -1,0 +1,545 @@
+# The starter parts catalog. NOT the contract schema (frozen) — see catalog.py.
+#
+# Two kinds of number live here, and every one says which it is:
+#   kind: datasheet     - a manufacturer datasheet/spec-page/product-listing figure, cited.
+#   kind: source_file   - a real number read out of a file already in this repo (a vendor URDF's
+#                         own <mass> tag); real, but the citation is a file, not a datasheet.
+#   kind: assumed       - fabricated for seeding. No real part backs this number. The source string
+#                         says so in plain words — never presented as if it were measured.
+#
+# The 13 "x500.*" parts and their numbers are carried over verbatim from
+# tests/fixtures/x500/contract.yaml's device_models/devices (each already witnessed there,
+# locked_at dates and citations preserved). The 6 "anymal.*" parts are read from the masses in
+# tests/fixtures/anymal_d.urdf. Everything else ("generic.*") is a labelled placeholder so the
+# catalog covers common part families a user might reach for; replace before relying on it.
+
+parts:
+- id: x500.airframe.holybro-x500-v2
+  family: fam.airframe.multirotor
+  name: Holybro X500 V2 airframe kit
+  numbers:
+    frame_mass:
+      value: 610
+      unit: g
+      kind: datasheet
+      source: holybro.com/products/x500-v2-kits — published dry frame-kit weight (contract.yaml
+        model.links[0], locked 2026-07-25)
+  note: 500 mm wheelbase, 1045 propeller, per the kit page. MTOW is unknown (not carried
+    here).
+- id: x500.flight-controller.pixhawk-6c
+  family: fam.flight-controller.autopilot
+  name: Pixhawk 6C flight controller
+  numbers:
+    mass:
+      value: 59.3
+      unit: g
+      kind: datasheet
+      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification — published
+        aluminium-case mass (plastic variant is 34.6 g), locked 2026-07-25
+  note: Board current draw is not published; no power number is carried here.
+- id: x500.companion.jetson-orin-nano
+  family: fam.companion.sbc
+  name: NVIDIA Jetson Orin Nano (bare module, custom carrier)
+  numbers:
+    draw_max:
+      value: 25
+      unit: W
+      kind: datasheet
+      source: NVIDIA Jetson Orin Nano module datasheet + NVIDIA power-mode docs, 25
+        W power mode; locked 2026-07-26
+    input_voltage_min:
+      value: 5
+      unit: V
+      kind: datasheet
+      source: NVIDIA Jetson Orin Nano module datasheet — VDD_IN pin rating, locked
+        2026-07-26
+    input_voltage_max:
+      value: 20
+      unit: V
+      kind: datasheet
+      source: NVIDIA Jetson Orin Nano module datasheet — VDD_IN pin rating, locked
+        2026-07-26
+  note: Module-only mass is UNKNOWN (the published 176 g dev-kit figure is a different
+    product) and is not carried here.
+- id: x500.gnss.here3-plus
+  family: fam.gnss.dronecan
+  name: Here3+ DroneCAN GNSS
+  numbers:
+    mass:
+      value: 51.8
+      unit: g
+      kind: datasheet
+      source: irlock.com, locked 2026-07-25
+    update_rate:
+      value: 8
+      unit: Hz
+      kind: datasheet
+      source: retailer product page (unnamed retailer, per contract.yaml note), locked
+        2026-07-25
+  note: Current draw is unknown.
+- id: x500.radio.rfd900x
+  family: fam.radio.telemetry
+  name: RFD900x telemetry radio
+  numbers:
+    mass:
+      value: 14.5
+      unit: g
+      kind: datasheet
+      source: 'store.rfdesign.com.au product page (''Weight: 14.5g''), first-hand
+        fetch 2026-09-06'
+    tx_power:
+      value: 30
+      unit: dBm
+      kind: datasheet
+      source: RFD900x datasheet v1.2, Power Requirements section, fetched 2026-09-06
+    rx_sensitivity:
+      value: -105
+      unit: dBm
+      kind: datasheet
+      source: RFD900x datasheet v1.2, sensitivity table (64 kbps row, 10^-5 BER),
+        fetched 2026-09-06
+    draw_transmit:
+      value: 5.2
+      unit: W
+      kind: datasheet
+      source: RFD900x datasheet v1.2, Power Requirements (1 A peak TX x 5.2 V), fetched
+        2026-09-06
+    draw_receive:
+      value: 0.312
+      unit: W
+      kind: datasheet
+      source: RFD900x datasheet v1.2, Power Requirements (60 mA standby x 5.2 V),
+        fetched 2026-09-06
+  note: Default air rate 64 kbit/s, default serial 57600 bps per the same datasheet.
+- id: x500.camera.oak-d-lite
+  family: fam.camera.stereo
+  name: Luxonis OAK-D Lite stereo depth camera
+  numbers:
+    draw_max:
+      value: 5
+      unit: W
+      kind: datasheet
+      source: Luxonis docs, published maximum component sum (3 W base + 1 W AI + 0.5
+        W depth + 0.5 W encode), locked 2026-07-25
+  note: Mass is unresolved (not published).
+- id: x500.imu.icm-42688-p
+  family: fam.imu.mems
+  name: InvenSense ICM-42688-P IMU
+  numbers:
+    accel_hard_limit:
+      value: 156.9064
+      unit: m/s^2
+      kind: datasheet
+      source: invensense.tdk.com ICM-42688-P product page, +/-16 g full-scale (1 g
+        = 9.80665 m/s^2), fetched 2026-09-06
+    gyro_hard_limit:
+      value: 34.9066
+      unit: rad/s
+      kind: datasheet
+      source: invensense.tdk.com ICM-42688-P product page, +/-2000 dps full-scale,
+        fetched 2026-09-06
+  note: Primary IMU on Pixhawk 6C.
+- id: x500.imu.bmi088
+  family: fam.imu.mems
+  name: Bosch BMI088 IMU
+  numbers:
+    accel_hard_limit:
+      value: 235.3596
+      unit: m/s^2
+      kind: datasheet
+      source: bosch-sensortec.com BMI088 product page, +/-24 g full-scale, fetched
+        2026-09-06
+    gyro_hard_limit:
+      value: 34.9066
+      unit: rad/s
+      kind: datasheet
+      source: bosch-sensortec.com BMI088 product page, +/-2000 dps full-scale, fetched
+        2026-09-06
+  note: Secondary IMU on Pixhawk 6C.
+- id: x500.magnetometer.ist8310
+  family: fam.magnetometer.mems
+  name: IST8310 magnetometer
+  numbers: {}
+  note: Mass and current draw not separately published for this discrete part. I2C
+    address 0x0E per the Isentek IST8310 datasheet, fetched 2026-09-06 — not a physical
+    number, not carried here.
+- id: x500.barometer.ms5611
+  family: fam.barometer.mems
+  name: MS5611 barometer
+  numbers: {}
+  note: No physical numbers published for this discrete part (docs.holybro.com/autopilot/pixhawk-6c/technical-specification,
+    locked 2026-07-25).
+- id: x500.motor.holybro-2216-920kv
+  family: fam.motor.brushless
+  name: Holybro 2216, 920 KV brushless motor
+  numbers:
+    mass:
+      value: 80
+      unit: g
+      kind: datasheet
+      source: 'holybro.com spare-parts-store product JSON, SKU 520085/520086 (''weight:
+        80.0, weight_unit: g''), first-hand fetch 2026-09-06'
+    draw_hover:
+      value: 61.67
+      unit: W
+      kind: datasheet
+      source: derived per-motor hover draw from Holybro's published ~18 min hover
+        flight-time figure on a 5000 mAh 4S pack (246.68 W total / 4 motors); see
+        tests/fixtures/x500/contract.yaml dev.motor.* provenance for the full derivation,
+        fetched 2026-09-06
+  note: 3S-4S, 920 KV. Max continuous current and max power are UNKNOWN (not published
+    anywhere checked).
+- id: x500.esc.holybro-20a
+  family: fam.esc
+  name: Holybro 20A ESC
+  numbers:
+    mass:
+      value: 50
+      unit: g
+      kind: datasheet
+      source: 'holybro.com spare-parts-store product JSON, SKU 520081 (''weight: 50.0,
+        weight_unit: g''), first-hand fetch 2026-09-06'
+    current_continuous:
+      value: 20
+      unit: A
+      kind: datasheet
+      source: holybro.com/products/spare-parts-x500-v2-kit kit page, locked 2026-09-06
+  note: Burst current and DShot modes are unconfirmed (search aggregation only, not
+    carried here).
+- id: x500.power-module.pm02-v3
+  family: fam.power-module
+  name: Holybro PM02 V3 power module
+  numbers:
+    mass:
+      value: 20
+      unit: g
+      kind: datasheet
+      source: docs/reference_robot_specs.md, published PM02 (V3) mass, locked 2026-07-25
+    output_voltage:
+      value: 5.2
+      unit: V
+      kind: datasheet
+      source: docs/reference_robot_specs.md, regulated output rating, locked 2026-07-25
+    output_current_max:
+      value: 3
+      unit: A
+      kind: datasheet
+      source: docs/reference_robot_specs.md, regulated output rating, locked 2026-07-25
+  note: 2S-12S input; 60 A continuous / 120 A burst PCB rating.
+- id: anymal.actuator.anydrive
+  family: fam.actuator.series-elastic
+  name: ANYmal D leg actuator (HAA/HFE/KFE drive)
+  numbers:
+    mass:
+      value: 2.01511
+      unit: kg
+      kind: source_file
+      source: tests/fixtures/anymal_d.urdf, <link name="LF_HAA_drive"> (same mass
+        repeated on every *_HAA_drive/*_HFE_drive/*_KFE_drive link), fetched 2026-09-06
+  note: Same actuator model drives hip-abduction, hip-flexion and knee-flexion on
+    each of the 4 legs (12 instances total in the URDF).
+- id: anymal.leg.foot
+  family: fam.structure.leg
+  name: ANYmal D foot
+  numbers:
+    mass:
+      value: 0.29644
+      unit: kg
+      kind: source_file
+      source: tests/fixtures/anymal_d.urdf, <link name="LF_FOOT">, fetched 2026-09-06
+  note: One of 4 (LF/LH/RF/RH), same mass in the URDF.
+- id: anymal.leg.hip-housing
+  family: fam.structure.leg
+  name: ANYmal D hip housing
+  numbers:
+    mass:
+      value: 0.36386
+      unit: kg
+      kind: source_file
+      source: tests/fixtures/anymal_d.urdf, <link name="LF_hip_fixed">, fetched 2026-09-06
+  note: One of 4, same mass in the URDF.
+- id: anymal.leg.thigh-housing
+  family: fam.structure.leg
+  name: ANYmal D thigh housing
+  numbers:
+    mass:
+      value: 1.10098
+      unit: kg
+      kind: source_file
+      source: tests/fixtures/anymal_d.urdf, <link name="LF_thigh_fixed">, fetched
+        2026-09-06
+  note: One of 4, same mass in the URDF.
+- id: anymal.leg.shank-housing
+  family: fam.structure.leg
+  name: ANYmal D shank housing
+  numbers:
+    mass:
+      value: 0.49854
+      unit: kg
+      kind: source_file
+      source: tests/fixtures/anymal_d.urdf, <link name="LF_shank_fixed">, fetched
+        2026-09-06
+  note: One of 4, same mass in the URDF.
+- id: anymal.power.battery
+  family: fam.battery.pack
+  name: ANYmal D battery pack
+  numbers:
+    mass:
+      value: 5.51206
+      unit: kg
+      kind: source_file
+      source: tests/fixtures/anymal_d.urdf, <link name="battery">, fetched 2026-09-06
+  note: Voltage/capacity not modelled in the URDF (mass only); not carried here.
+- id: generic.battery.lipo-4s-5000mah
+  family: fam.battery.pack
+  name: Generic 4S 5000 mAh LiPo pack (placeholder)
+  numbers:
+    mass:
+      value: 550
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — no datasheet consulted; typical order-of-magnitude
+        for a 4S 5000 mAh LiPo, not a real part's published figure — replace before
+        use.
+    nominal_voltage:
+      value: 14.8
+      unit: V
+      kind: assumed
+      source: ASSUMED for seeding — 4S nominal (4 x 3.7 V), not a specific product's
+        datasheet figure — replace before use.
+  note: Placeholder pack sized to match the X500's published ~18 min hover test pack;
+    not a specific vendor SKU.
+- id: generic.motor.bldc-medium
+  family: fam.motor.brushless
+  name: Generic medium BLDC motor (placeholder)
+  numbers:
+    mass:
+      value: 70
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder for a motor family not otherwise represented; see x500.motor.holybro-2216-920kv
+    for a real, sourced motor.
+- id: generic.esc.escs-4in1
+  family: fam.esc
+  name: Generic 4-in-1 ESC stack (placeholder)
+  numbers:
+    mass:
+      value: 35
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; see x500.esc.holybro-20a for a real, sourced single-channel ESC.
+- id: generic.gnss.rtk-module
+  family: fam.gnss.dronecan
+  name: Generic RTK GNSS module (placeholder)
+  numbers:
+    mass:
+      value: 45
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; see x500.gnss.here3-plus for a real, sourced GNSS unit.
+- id: generic.radio.wifi-telemetry
+  family: fam.radio.telemetry
+  name: Generic WiFi telemetry radio (placeholder)
+  numbers:
+    mass:
+      value: 10
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; see x500.radio.rfd900x for a real, sourced telemetry radio.
+- id: generic.camera.mono-usb
+  family: fam.camera.stereo
+  name: Generic monocular USB camera (placeholder)
+  numbers:
+    draw_max:
+      value: 2
+      unit: W
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; see x500.camera.oak-d-lite for a real, sourced stereo depth camera.
+- id: generic.lidar.2d-scanning
+  family: fam.lidar.scanning
+  name: Generic 2D scanning LIDAR (placeholder)
+  numbers:
+    mass:
+      value: 190
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+    draw_max:
+      value: 4.5
+      unit: W
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; no real part in this catalog covers a scanning LIDAR yet.
+- id: generic.sensor.ultrasonic-rangefinder
+  family: fam.sensor.range
+  name: Generic ultrasonic rangefinder (placeholder)
+  numbers:
+    mass:
+      value: 9
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder.
+- id: generic.compute.sbc-arm
+  family: fam.companion.sbc
+  name: Generic ARM single-board computer (placeholder)
+  numbers:
+    mass:
+      value: 45
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+    draw_max:
+      value: 10
+      unit: W
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; see x500.companion.jetson-orin-nano for a real, sourced companion
+    computer.
+- id: generic.actuator.servo-standard
+  family: fam.actuator.servo
+  name: Generic standard-size servo (placeholder)
+  numbers:
+    mass:
+      value: 60
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; no real part in this catalog covers a hobby servo yet.
+- id: generic.flight-controller.f7-generic
+  family: fam.flight-controller.autopilot
+  name: Generic F7-class flight controller (placeholder)
+  numbers:
+    mass:
+      value: 12
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; see x500.flight-controller.pixhawk-6c for a real, sourced flight
+    controller.
+- id: generic.imu.mems-generic
+  family: fam.imu.mems
+  name: Generic MEMS IMU (placeholder)
+  numbers:
+    accel_hard_limit:
+      value: 156.9
+      unit: m/s^2
+      kind: assumed
+      source: ASSUMED for seeding — illustrative +/-16 g figure, no datasheet consulted
+        — replace before use.
+    gyro_hard_limit:
+      value: 34.9
+      unit: rad/s
+      kind: assumed
+      source: ASSUMED for seeding — illustrative +/-2000 dps figure, no datasheet
+        consulted — replace before use.
+  note: Placeholder; see x500.imu.icm-42688-p or x500.imu.bmi088 for real, sourced
+    IMUs.
+- id: generic.magnetometer.mems-generic
+  family: fam.magnetometer.mems
+  name: Generic MEMS magnetometer (placeholder)
+  numbers: {}
+  note: Placeholder, no numbers seeded (real x500.magnetometer.ist8310 entry also
+    carries no physical numbers — none are published for the discrete part).
+- id: generic.barometer.mems-generic
+  family: fam.barometer.mems
+  name: Generic MEMS barometer (placeholder)
+  numbers: {}
+  note: Placeholder, no numbers seeded.
+- id: generic.gimbal.2-axis
+  family: fam.gimbal.camera-mount
+  name: Generic 2-axis camera gimbal (placeholder)
+  numbers:
+    mass:
+      value: 130
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+    draw_max:
+      value: 3
+      unit: W
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder.
+- id: generic.power-module.pdb-generic
+  family: fam.power-module
+  name: Generic power distribution board (placeholder)
+  numbers:
+    mass:
+      value: 25
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder; see x500.power-module.pm02-v3 for a real, sourced power module.
+- id: generic.antenna.dipole-omni
+  family: fam.radio.telemetry
+  name: Generic omni dipole antenna (placeholder)
+  numbers:
+    gain:
+      value: 3
+      unit: dBi
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure matching the RFD900x bundle's
+        published dipole gain, but not itself a datasheet figure for a specific product
+        — replace before use.
+  note: Placeholder.
+- id: generic.wheel-motor.hub-drive
+  family: fam.motor.brushless
+  name: Generic hub-drive wheel motor (placeholder)
+  numbers:
+    mass:
+      value: 900
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder for ground-vehicle use cases; no real wheeled-robot part is in
+    this catalog yet.
+- id: generic.encoder.magnetic-absolute
+  family: fam.sensor.encoder
+  name: Generic absolute magnetic encoder (placeholder)
+  numbers:
+    mass:
+      value: 4
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder.
+- id: generic.imu.industrial-fog
+  family: fam.imu.mems
+  name: Generic industrial-grade FOG IMU (placeholder)
+  numbers:
+    mass:
+      value: 250
+      unit: g
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+    draw_max:
+      value: 8
+      unit: W
+      kind: assumed
+      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
+        replace before use.
+  note: Placeholder for higher-grade navigation than the MEMS IMUs above.

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Children to append to the official ANYmal D <robot> before spawning it. -->
+<lockwire_anymal_control_overlay>
+  <ros2_control name="GazeboSimSystem" type="system">
+    <hardware><plugin>gz_ros2_control/GazeboSimSystem</plugin></hardware>
+    <joint name="LF_HAA"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="LF_HFE"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="LF_KFE"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="RF_HAA"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="RF_HFE"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="RF_KFE"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="LH_HAA"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="LH_HFE"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="LH_KFE"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="RH_HAA"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="RH_HFE"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+    <joint name="RH_KFE"><command_interface name="effort"><param name="min">-80</param><param name="max">80</param></command_interface><state_interface name="position"/><state_interface name="velocity"/><state_interface name="effort"/></joint>
+  </ros2_control>
+  <gazebo reference="imu_link">
+    <sensor name="anymal_imu" type="imu">
+      <always_on>true</always_on><update_rate>200</update_rate>
+      <topic>/lockwire/e5_10/anymal/imu</topic>
+    </sensor>
+  </gazebo>
+  <gazebo>
+    <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>controllers.yaml</parameters>
+      <hold_joints>false</hold_joints>
+    </plugin>
+  </gazebo>
+</lockwire_anymal_control_overlay>

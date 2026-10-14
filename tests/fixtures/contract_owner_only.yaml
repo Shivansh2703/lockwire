@@ -1,0 +1,26 @@
+# Case A: one device with only owner + model — no physical, power, identity,
+# rails, or budgets. Reference integrity resolves the model FK, but no check
+# compares two populated operands. Must read "nothing scored", never "1 scored".
+schema_version: "0.2"
+robot:
+  name: owneronly
+families:
+  - id: fam.stub
+    name: Stub family
+device_models:
+  - id: mdl.stub
+    family: fam.stub
+devices:
+  - id: dev.stub
+    model: mdl.stub
+    owner: shivansh
+model:
+  source: owneronly.urdf
+  source_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  structure_hash: derived-from-recorded-structure
+  links: []
+  joints: []
+  provenance:
+    witness: w0
+    source: owneronly.urdf
+    locked_at: 2026-07-27

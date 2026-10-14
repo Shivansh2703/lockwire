@@ -1,0 +1,134 @@
+{
+  "solver": "CalculiX 2.23",
+  "formulation": "small-strain linear *STATIC only",
+  "cases": [
+    {
+      "element": "C3D20",
+      "reference": "T=G*J*theta/L, J=pi*(ro^4-ri^4)/2; theta(x)=theta*x/L",
+      "declared_inputs": {
+        "length": {
+          "value": 1.0,
+          "unit": "m"
+        },
+        "outer_radius": {
+          "value": 0.1,
+          "unit": "m"
+        },
+        "inner_radius": {
+          "value": 0.05,
+          "unit": "m"
+        },
+        "twist": {
+          "value": 0.001,
+          "unit": "rad"
+        },
+        "youngs_modulus": {
+          "value": 200000000000.0,
+          "unit": "Pa"
+        },
+        "poisson_ratio": {
+          "value": 0.3,
+          "unit": "1"
+        }
+      },
+      "reference_outputs": {
+        "reaction_torque_x": {
+          "value": 11327.858125924737,
+          "unit": "N*m"
+        },
+        "midspan_outer_u3": {
+          "value": 5e-05,
+          "unit": "m"
+        }
+      },
+      "fixture_provenance": {
+        "source_kind": "project_retained_archive",
+        "source_commit": "2d397760313dcb8b3c18c6e30947072ec5fdd578",
+        "third_party_deck_redistributed": false,
+        "license_basis": "Project-local deck retained from the named commit; no external deck copyright or license is claimed.",
+        "analytical_reference": "Saint-Venant torsion of a circular annulus T=GJ theta/L; Timoshenko & Goodier, Theory of Elasticity.",
+        "source_path": "tests/fixtures/calculix_benchmarks/torsion_c3d20_8.inp",
+        "sha256": "327a0786c857f7eb94b75ad1b911c0f75f1622217366adba1b8ec141bdaeaa21"
+      },
+      "id": "torsion_c3d20_8",
+      "deck": "torsion_c3d20_8.inp",
+      "applicability": "Displacement-controlled torsional stiffness of a circular annular, prismatic, linear-elastic shaft. Circular annuli have zero Saint-Venant warping; no load-driven compliance, contact, plasticity, dynamics, or product path is admitted.",
+      "measurements": [
+        {
+          "kind": "U",
+          "set": "MIDSPAN",
+          "node": 11,
+          "component": 3,
+          "expected": 5e-05,
+          "abs_tol": 1e-11,
+          "rel_tol": 0.02,
+          "unit": "m"
+        }
+      ]
+    },
+    {
+      "element": "C3D20",
+      "reference": "T=G*J*theta/L, J=pi*(ro^4-ri^4)/2; theta(x)=theta*x/L",
+      "declared_inputs": {
+        "length": {
+          "value": 1.0,
+          "unit": "m"
+        },
+        "outer_radius": {
+          "value": 0.1,
+          "unit": "m"
+        },
+        "inner_radius": {
+          "value": 0.05,
+          "unit": "m"
+        },
+        "twist": {
+          "value": 0.001,
+          "unit": "rad"
+        },
+        "youngs_modulus": {
+          "value": 200000000000.0,
+          "unit": "Pa"
+        },
+        "poisson_ratio": {
+          "value": 0.3,
+          "unit": "1"
+        }
+      },
+      "reference_outputs": {
+        "reaction_torque_x": {
+          "value": 11327.858125924737,
+          "unit": "N*m"
+        },
+        "midspan_outer_u3": {
+          "value": 5e-05,
+          "unit": "m"
+        }
+      },
+      "fixture_provenance": {
+        "source_kind": "project_retained_archive",
+        "source_commit": "2d397760313dcb8b3c18c6e30947072ec5fdd578",
+        "third_party_deck_redistributed": false,
+        "license_basis": "Project-local deck retained from the named commit; no external deck copyright or license is claimed.",
+        "analytical_reference": "Saint-Venant torsion of a circular annulus T=GJ theta/L; Timoshenko & Goodier, Theory of Elasticity.",
+        "source_path": "tests/fixtures/calculix_benchmarks/torsion_c3d20_16.inp",
+        "sha256": "88ad310791527d2cc13f8b9052474a4e278866edd0f9ed2ec548a2f66fba74e7"
+      },
+      "id": "torsion_c3d20_16",
+      "deck": "torsion_c3d20_16.inp",
+      "applicability": "Same displacement-controlled circular-annulus torsional-stiffness problem at a second circumferential solid-mesh level; this is not load-driven torsional compliance or product admission.",
+      "measurements": [
+        {
+          "kind": "U",
+          "set": "MIDSPAN",
+          "node": 11,
+          "component": 3,
+          "expected": 5e-05,
+          "abs_tol": 1e-11,
+          "rel_tol": 0.02,
+          "unit": "m"
+        }
+      ]
+    }
+  ]
+}

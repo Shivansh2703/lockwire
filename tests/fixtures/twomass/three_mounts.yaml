@@ -1,0 +1,92 @@
+# The decisive NOT SCORED case: one rigid body bolted down at THREE mount points.
+#
+# Three supports in one plane is statically indeterminate — the load split
+# depends on the structure's stiffness (Young's modulus and section), which the
+# contract schema declares nowhere. the solver design note names this exact gap
+# ("an off-centre mass on four standoffs is indeterminate in a way this bench
+# never solved"), so every mount here must read NOT SCORED with the reason, and
+# never a plausible-looking number.
+schema_version: "0.2"
+robot:
+  name: threemount
+  id: threemount-01
+model:
+  source: threemount.urdf
+  source_sha256: "2222222222222222222222222222222222222222222222222222222222222222"
+  structure_hash: derived-from-recorded-structure
+  provenance:
+    witness: human
+    source: tests/fixtures/twomass/three_mounts.yaml
+    locked_at: 2026-09-08
+  links:
+    - name: base
+      com: [0.0, 0.0, 0.0]
+      frame: base
+    - name: mount_a
+      com: [0.0, 0.0, 0.0]
+      frame: mount_a
+    - name: mount_b
+      com: [0.0, 0.0, 0.0]
+      frame: mount_b
+    - name: mount_c
+      com: [0.0, 0.0, 0.0]
+      frame: mount_c
+  joints:
+    - name: base_to_a
+      type: fixed
+      parent: base
+      child: mount_a
+      origin: {xyz: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+    - name: base_to_b
+      type: fixed
+      parent: base
+      child: mount_b
+      origin: {xyz: [1.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+    - name: base_to_c
+      type: fixed
+      parent: base
+      child: mount_c
+      origin: {xyz: [2.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+families:
+  - id: fam.mass
+    name: inert mass
+device_models:
+  - id: mdl.mass
+    family: fam.mass
+devices:
+  - id: dev.a
+    model: mdl.mass
+    owner: shivansh
+    physical:
+      mass: {value: 2.0, unit: kg}
+      mount_frame: mount_a
+      mount_xyz:
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+  - id: dev.b
+    model: mdl.mass
+    owner: shivansh
+    physical:
+      mass: {value: 2.0, unit: kg}
+      mount_frame: mount_b
+      mount_xyz:
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+  - id: dev.c
+    model: mdl.mass
+    owner: shivansh
+    physical:
+      mass: {value: 4.0, unit: kg}
+      mount_frame: mount_c
+      mount_xyz:
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+budgets:
+  - id: bud.mass.devices
+    kind: mass_total
+    sources: devices
+    limit: {value: 10, unit: kg}
+    owner: shivansh

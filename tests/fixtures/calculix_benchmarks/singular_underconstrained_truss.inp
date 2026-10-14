@@ -1,0 +1,24 @@
+*HEADING
+** Negative control: a free beam with a transverse load has rigid-body mechanisms.
+*NODE
+1, 0., 0., 0.
+2, 1., 0., 0.
+*ELEMENT, TYPE=B31, ELSET=BEAM
+1, 1, 2
+*NSET, NSET=ROOT
+1
+*NSET, NSET=TIP
+2
+*MATERIAL, NAME=STEEL
+*ELASTIC
+200000000000., 0.3
+*BEAM SECTION, ELSET=BEAM, MATERIAL=STEEL, SECTION=RECT
+0.01, 0.01
+0., 1., 0.
+*STEP
+*STATIC
+*CLOAD
+TIP, 2, -100.
+*NODE PRINT, NSET=TIP, GLOBAL=YES
+U
+*END STEP

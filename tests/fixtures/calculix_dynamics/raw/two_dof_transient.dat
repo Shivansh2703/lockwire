@@ -1,0 +1,278 @@
+
+                        S T E P       1
+
+
+     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY   
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.1000000E+03   0.1000000E+02   0.1591549E+01   0.0000000E+00
+
+     P A R T I C I P A T I O N   F A C T O R S
+
+MODE NO.   X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+      1  -0.1000000E+01   0.2416287E-20   0.0000000E+00   0.0000000E+00   0.0000000E+00   0.0000000E+00
+
+     E F F E C T I V E   M O D A L   M A S S
+
+MODE NO.   X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+      1   0.1000000E+01   0.5838445E-41   0.0000000E+00   0.0000000E+00   0.0000000E+00   0.0000000E+00
+TOTAL     0.1000000E+01   0.5838445E-41   0.0000000E+00   0.0000000E+00   0.0000000E+00   0.0000000E+00
+
+     T O T A L   E F F E C T I V E   M A S S
+
+           X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+          0.1000000E+01   0.1000000E+01   0.0000000E+00   0.0000000E+00   0.0000000E+00   0.0000000E+00
+
+
+     F R A C T I O N   O F   T O T A L S
+
+           X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+          0.1000000E+01   0.5838445E-41   0.1000000E+01   0.1000000E+01   0.1000000E+01   0.1000000E+01
+
+
+                    E I G E N V A L U E    N U M B E R     1
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.1000000E+01
+
+         1 -1.000000E+00  2.416287E-21  0.000000E+00
+
+                        S T E P       2
+
+
+                                INCREMENT     1
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.1000000E-02
+
+         1  4.998292E-07 -1.207731E-27  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.1000000E-02
+
+         1  9.994835E-04 -2.415039E-24  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.1000000E-02
+
+         1  1.249146E-11
+         2  7.293071E-51
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.1000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT     2
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.2000000E-02
+
+         1  1.998601E-06 -4.829194E-27  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.2000000E-02
+
+         1  1.997868E-03 -4.827424E-24  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.2000000E-02
+
+         1  1.997202E-10
+         2  1.166056E-49
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.2000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT     3
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.3000000E-02
+
+         1  4.495166E-06 -1.086161E-26  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.3000000E-02
+
+         1  2.995055E-03 -7.236914E-24  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.3000000E-02
+
+         1  1.010326E-09
+         2  5.898733E-49
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.3000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT     4
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.4000000E-02
+
+         1  7.988279E-06 -1.930198E-26  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.4000000E-02
+
+         1  3.990946E-03 -9.643273E-24  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.4000000E-02
+
+         1  3.190630E-09
+         2  1.862832E-48
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.4000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT     5
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.5000000E-02
+
+         1  1.247659E-05 -3.014704E-26  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.5000000E-02
+
+         1  4.985443E-03 -1.204626E-23  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.5000000E-02
+
+         1  7.783270E-09
+         2  4.544219E-48
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.5000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT     6
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.6000000E-02
+
+         1  1.795867E-05 -4.339330E-26  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.6000000E-02
+
+         1  5.978447E-03 -1.444565E-23  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.6000000E-02
+
+         1  1.612569E-08
+         2  9.414893E-48
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.6000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT     7
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.7000000E-02
+
+         1  2.443296E-05 -5.903705E-26  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.7000000E-02
+
+         1  6.969862E-03 -1.684119E-23  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.7000000E-02
+
+         1  2.984847E-08
+         2  1.742687E-47
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.7000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT     8
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.8000000E-02
+
+         1  3.189783E-05 -7.707432E-26  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.8000000E-02
+
+         1  7.959589E-03 -1.923265E-23  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.8000000E-02
+
+         1  5.087357E-08
+         2  2.970226E-47
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.8000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT     9
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.9000000E-02
+
+         1  4.035154E-05 -9.750092E-26  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.9000000E-02
+
+         1  8.947531E-03 -2.161981E-23  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.9000000E-02
+
+         1  8.141234E-08
+         2  4.753215E-47
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.9000000E-02
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+                                INCREMENT    10
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.1000000E-01
+
+         1  4.979226E-05 -1.203124E-25  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.1000000E-01
+
+         1  9.933591E-03 -2.400241E-23  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.1000000E-01
+
+         1  1.239635E-07
+         2  7.237539E-47
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.1000000E-01
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00

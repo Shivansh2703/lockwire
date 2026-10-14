@@ -1,0 +1,166 @@
+# Demo contract: device ids match the generated bags (dev.imu, dev.barometer,
+# dev.gnss). Condition / rate / signal envelopes are locked under nominal-op so
+# the offline gate actually scores against bag context. contract_clean.yaml is
+# intentionally untouched (finding-count standing requirement).
+#
+# Fitted bands (pressure_pa, temp_c, condition_altitude_m) are the clean bag's
+# observed extrema — unrounded. Rate / accel_z bands are author-chosen headroom
+# and labelled as such. Injector constants in generate.py must not equal any
+# threshold here (see test_demo_contract_thresholds_are_not_injector_constants).
+schema_version: "0.2"
+robot:
+  name: demobot
+families:
+  - id: fam.imu.mems
+    name: MEMS IMU
+  - id: fam.baro
+    name: Barometer
+  - id: fam.gnss
+    name: GNSS receiver
+  - id: fam.radio.telemetry
+    name: Telemetry radio
+device_models:
+  - id: mdl.imu
+    family: fam.imu.mems
+    match: {vid_pid: "108c:0088"}
+    hard_limits:
+      accel_z: {lo: -235.4, hi: 235.4, unit: m/s^2}
+    known_failure_modes:
+      - frozen-but-publishing after brownout
+  - id: mdl.baro
+    family: fam.baro
+  - id: mdl.gnss
+    family: fam.gnss
+  - id: mdl.radio.rfd900
+    family: fam.radio.telemetry
+devices:
+  - id: dev.imu
+    model: mdl.imu
+    identity: {bus_ref: bus.usb0, host: nav-computer, vid_pid: "108c:0088"}
+    driver:
+      node: /sensors/imu
+      topic: /imu/data
+      nominal_rate_hz: 200
+      payload_bytes: 64
+    envelopes:
+      - context: nominal-op
+        rate_hz: {lo: 170, hi: 230, unit: Hz}
+        signals:
+          accel_z:
+            band: {lo: -10.5, hi: -9.0, unit: m/s^2}
+            variance_floor: 1.0e-4
+            # Fitted from clean bag accel_z min-window variance (window=20):
+            # measured 1.696927893e-4; floor = half that (~2.0x headroom).
+            # Never a generate.py constant (self-grade guard).
+            oneshot_variance_min: 8.48e-5
+        conditions:
+          # Fitted to clean bag observed extrema (60 samples).
+          temp_c: {lo: 23.6634712, hi: 24.481991885, unit: C}
+          condition_altitude_m: {lo: 119.103279419, hi: 120.718826994, unit: m}
+        provenance:
+          witness: live
+          source: clean
+          locked_at: 2026-07-27
+          bag_sha256: "9b7a30c9e2ea678acfb35c2d4ae7b5cf00593b0d37e6d723b749176ac4524865"
+          note: "temp_c and condition_altitude_m bands are observed_range from clean. oneshot_variance_min is half the clean bag's measured min-window accel_z variance (1.696927893e-4 → 8.48e-5). rate_hz and accel_z band are author-chosen engineering headroom (not fitted)."
+      - context: bench-idle
+        # Wide enough for clean-bag instantaneous rates (≈185–220 Hz) so a
+        # bench-idle |g| plant does not also trip stage-2 gap-vs-cadence.
+        # oneshot_variance_min lives only under nominal-op (honest live/clean
+        # stamp). Schema allows one provenance per envelope — a fitted floor
+        # here would force the mixed-block lie onto an author-chosen stamp.
+        rate_hz: {lo: 170, hi: 230, unit: Hz}
+        signals:
+          accel_z:
+            band: {lo: -10.5, hi: -9.0, unit: m/s^2}
+            variance_floor: 1.0e-4
+        provenance:
+          witness: human
+          source: author-chosen engineering headroom
+          locked_at: 2026-07-27
+          note: "Rate and accel_z headroom for the bench-idle |g| demo plant; not fitted to a recording. The oneshot floor is declared on nominal-op only."
+    depends: [src/estimation/ekf.cpp]
+    owner: shivansh
+  - id: dev.barometer
+    model: mdl.baro
+    identity: {bus_ref: bus.i2c0, host: nav-computer, address: "0x77"}
+    driver:
+      node: /sensors/baro
+      topic: /baro/data
+      nominal_rate_hz: 50
+      payload_bytes: 16
+    envelopes:
+      - context: nominal-op
+        rate_hz: {lo: 40, hi: 60, unit: Hz}
+        signals:
+          pressure_pa:
+            band: {lo: 101300.302669966, hi: 101354.969858963, unit: Pa}
+            variance_floor: 1.0
+        provenance:
+          witness: live
+          source: clean
+          locked_at: 2026-07-27
+          bag_sha256: "9b7a30c9e2ea678acfb35c2d4ae7b5cf00593b0d37e6d723b749176ac4524865"
+          note: "pressure_pa band is observed_range from clean. rate_hz is author-chosen engineering headroom (not fitted)."
+      - context: bench-idle
+        rate_hz: {lo: 40, hi: 60, unit: Hz}
+        provenance:
+          witness: human
+          source: author-chosen engineering headroom
+          locked_at: 2026-07-27
+          note: "Rate headroom for bench-idle context; not fitted to a recording."
+    owner: shivansh
+  - id: dev.gnss
+    model: mdl.gnss
+    identity: {bus_ref: bus.serial0, host: nav-computer, serial_number: GNSS-DEMO-1}
+    driver:
+      node: /sensors/gnss
+      topic: /gnss/fix
+      nominal_rate_hz: 8
+      payload_bytes: 48
+    envelopes:
+      - context: nominal-op
+        rate_hz: {lo: 7, hi: 9, unit: Hz}
+        provenance:
+          witness: human
+          source: author-chosen engineering headroom
+          locked_at: 2026-07-27
+          note: "GNSS rate band is author-chosen engineering headroom; not fitted to a recording."
+      - context: bench-idle
+        rate_hz: {lo: 7, hi: 9, unit: Hz}
+        provenance:
+          witness: human
+          source: author-chosen engineering headroom
+          locked_at: 2026-07-27
+          note: "GNSS rate band is author-chosen engineering headroom; not fitted to a recording."
+    owner: shivansh
+  # Declared but never carried by the bag — stages 0/1 disclose absence (not a no-go).
+  - id: dev.radio.absent
+    model: mdl.radio.rfd900
+    identity: {bus_ref: bus.serial1, host: nav-computer, serial_number: RFD900X-ABSENT}
+    driver:
+      node: /comms/radio
+      topic: /radio/status
+      nominal_rate_hz: 10
+      payload_bytes: 32
+    owner: shivansh
+topology:
+  hosts:
+    - id: nav-computer
+  buses:
+    - id: bus.usb0
+      kind: usb
+      host: nav-computer
+      bitrate: 480000000
+    - id: bus.i2c0
+      kind: i2c
+      host: nav-computer
+      bitrate: 400000
+    - id: bus.serial0
+      kind: serial
+      host: nav-computer
+      bitrate: 115200
+    - id: bus.serial1
+      kind: serial
+      host: nav-computer
+      bitrate: 57600

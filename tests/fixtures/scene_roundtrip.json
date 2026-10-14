@@ -1,0 +1,70 @@
+{
+  "_comment": "Generated from lockwire.scene_view._pack_vectors/_pack_indices directly (Python's real production packer), anchoring the TS decoder's round-trip test against Python's own numbers rather than a value the test itself computed.",
+  "positions": {
+    "raw": [
+      0.0,
+      10.0,
+      -5.0,
+      2.0,
+      12.0,
+      -3.0,
+      -1.0,
+      8.0,
+      -7.0
+    ],
+    "packed": {
+      "type": "i16",
+      "data": "AOAAAAAA/1//f/9/AaABgAGA",
+      "scale": 6.103701895199438e-05,
+      "offset": [
+        0.5,
+        10.0,
+        -5.0
+      ]
+    }
+  },
+  "normals": {
+    "raw": [
+      0.0,
+      0.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0
+    ],
+    "packed": {
+      "type": "i16",
+      "data": "AAAAAP9//38AAAAAAAD/fwAA"
+    }
+  },
+  "indices_u16": {
+    "raw": [
+      0,
+      1,
+      2
+    ],
+    "packed": {
+      "type": "u16",
+      "data": "AAABAAIA"
+    }
+  },
+  "indices_u32": {
+    "raw": [
+      0,
+      1,
+      70000
+    ],
+    "packed": {
+      "type": "u32",
+      "data": "AAAAAAEAAABwEQEA"
+    }
+  },
+  "translation": [
+    100.0,
+    -200.0,
+    50.0
+  ]
+}

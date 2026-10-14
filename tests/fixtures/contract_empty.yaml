@@ -1,0 +1,16 @@
+# valid stub with no scoring surface — no links, devices, rails, or budgets.
+# Presence floor must disclose the empty denominator; must never claim "records agree".
+# Denominator is check-reported (D3 comparisons), not declaration counts.
+schema_version: "0.2"
+robot:
+  name: emptybot
+model:
+  source: empty.urdf
+  source_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  structure_hash: derived-from-recorded-structure
+  links: []
+  joints: []
+  provenance:
+    witness: w0
+    source: empty.urdf
+    locked_at: 2026-07-27

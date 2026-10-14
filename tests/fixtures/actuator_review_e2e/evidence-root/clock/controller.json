@@ -1,0 +1,1 @@
+{"version":"1","id":"clock/controller.json","source_clock_domain":"controller","source_epoch":"boot-42","target_clock_domain":"actuator-case","target_epoch":"case-run-1","scale":1.0,"offset":{"value":0.0,"unit":"s"},"max_error":{"value":0.001,"unit":"s"},"provenance_class":"declared"}

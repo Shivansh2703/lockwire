@@ -1,0 +1,95 @@
+
+                        S T E P       1
+
+
+     E I G E N V A L U E   O U T P U T
+
+ MODE NO    EIGENVALUE                       FREQUENCY   
+                                     REAL PART            IMAGINARY PART
+                           (RAD/TIME)      (CYCLES/TIME     (RAD/TIME)
+
+      1   0.1000000E+03   0.1000000E+02   0.1591549E+01   0.0000000E+00
+
+     P A R T I C I P A T I O N   F A C T O R S
+
+MODE NO.   X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+      1  -0.1000000E+01   0.2416287E-20   0.0000000E+00   0.0000000E+00   0.0000000E+00   0.0000000E+00
+
+     E F F E C T I V E   M O D A L   M A S S
+
+MODE NO.   X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+      1   0.1000000E+01   0.5838445E-41   0.0000000E+00   0.0000000E+00   0.0000000E+00   0.0000000E+00
+TOTAL     0.1000000E+01   0.5838445E-41   0.0000000E+00   0.0000000E+00   0.0000000E+00   0.0000000E+00
+
+     T O T A L   E F F E C T I V E   M A S S
+
+           X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+          0.1000000E+01   0.1000000E+01   0.0000000E+00   0.0000000E+00   0.0000000E+00   0.0000000E+00
+
+
+     F R A C T I O N   O F   T O T A L S
+
+           X-COMPONENT     Y-COMPONENT     Z-COMPONENT     X-ROTATION      Y-ROTATION      Z-ROTATION
+
+          0.1000000E+01   0.5838445E-41   0.1000000E+01   0.1000000E+01   0.1000000E+01   0.1000000E+01
+
+
+                    E I G E N V A L U E    N U M B E R     1
+
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.1000000E+01
+
+         1 -1.000000E+00  2.416287E-21  0.000000E+00
+
+                        S T E P       2
+
+
+P A R T I C I P A T I O N   F A C T O R S   F O R   F R E Q U E N C Y    0.7957747154590E+00 (CYCLES/TIME)
+
+ MODE NO    FREQUENCY               FACTOR
+           (CYCLES/TIME)      REAL        IMAGINARY
+
+      1   0.1591549E+01  -0.1327434E-01   0.8849558E-03
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.7957747E+00
+
+         1  1.327434E-02 -3.207461E-23  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.7957747E+00
+
+         1  4.424779E-03 -1.069154E-23 -0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.7957747E+00
+
+         1  8.810400E-03
+         2  5.143904E-42
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.7957747E+00
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00
+
+ displacements (vx,vy,vz) for set OSCILLATOR and time  0.7957747E+00
+
+         1 -8.849558E-04  2.138307E-24  0.000000E+00
+
+ velocities (vx,vy,vz) for set OSCILLATOR and time  0.7957747E+00
+
+         1  0.000000E+00  0.000000E+00  0.000000E+00
+
+ internal energy (element, energy) for set ALL_ELEMENTS and time  0.7957747E+00
+
+         1  3.915733E-05
+         2  2.286179E-44
+         3  0.000000E+00
+
+ kinetic energy (elem, energy) for set ALL_ELEMENTS and time  0.7957747E+00
+
+         1  0.000000E+00
+         2  0.000000E+00
+         3  0.000000E+00

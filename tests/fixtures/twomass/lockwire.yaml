@@ -1,0 +1,61 @@
+# Two masses on one mount frame. The CG is arithmetic anyone can do on paper:
+#
+#   dev.fore   2 kg at x = 0.0 m
+#   dev.aft    6 kg at x = 1.0 m
+#   total mass = 8 kg
+#   CG_x = (2*0.0 + 6*1.0) / 8 = 0.75 m,  CG_y = CG_z = 0.0
+#
+# Every number is an exact binary fraction, so the expected CG is a literal in
+# tests/test_forces.py with no tolerance. One mount frame (`base`) means the
+# support set is statically determinate and the reaction is scored; the
+# three-mount sibling next door is redundant and must read NOT SCORED.
+schema_version: "0.2"
+robot:
+  name: twomass
+  id: twomass-01
+model:
+  source: twomass.urdf
+  source_sha256: "1111111111111111111111111111111111111111111111111111111111111111"
+  structure_hash: derived-from-recorded-structure
+  provenance:
+    witness: human
+    source: tests/fixtures/twomass/lockwire.yaml
+    locked_at: 2026-09-08
+  links:
+    - name: base
+      com: [0.0, 0.0, 0.0]
+      frame: base
+  joints: []
+families:
+  - id: fam.mass
+    name: inert mass
+device_models:
+  - id: mdl.mass
+    family: fam.mass
+devices:
+  - id: dev.fore
+    model: mdl.mass
+    owner: shivansh
+    physical:
+      mass: {value: 2.0, unit: kg}
+      mount_frame: base
+      mount_xyz:
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+  - id: dev.aft
+    model: mdl.mass
+    owner: shivansh
+    physical:
+      mass: {value: 6.0, unit: kg}
+      mount_frame: base
+      mount_xyz:
+        - {value: 1.0, unit: m}
+        - {value: 0.0, unit: m}
+        - {value: 0.0, unit: m}
+budgets:
+  - id: bud.mass.devices
+    kind: mass_total
+    sources: devices
+    limit: {value: 10, unit: kg}
+    owner: shivansh

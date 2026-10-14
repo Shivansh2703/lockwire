@@ -1,0 +1,42 @@
+{
+  "log_id": "1b8e43d5-04d8-4130-8227-628898f319c5",
+  "log_date": "2020-11-19",
+  "description": "QGroundControl Session",
+  "feedback": "None Given",
+  "type": "flightreport",
+  "wind_speed": -1,
+  "rating": "",
+  "video_url": "",
+  "error_labels": [
+    2
+  ],
+  "source": "QGroundControl",
+  "duration_s": 243,
+  "mav_type": "Quadrotor",
+  "estimator": "EKF2",
+  "sys_autostart_id": 4002,
+  "sys_hw": "PX4_FMU_V3",
+  "ver_sw": "9fb223f18fe42698d49a766024b0413ba1e73710",
+  "ver_sw_release": "v9.223.18 255",
+  "num_logged_errors": 1,
+  "num_logged_warnings": 29,
+  "flight_modes": [
+    2,
+    3
+  ],
+  "vehicle_uuid": "000100000000203830504d48500400420040",
+  "flight_mode_durations": [
+    [
+      2,
+      9
+    ],
+    [
+      3,
+      233
+    ]
+  ],
+  "vehicle_name": "",
+  "airframe_name": "",
+  "airframe_type": 4002,
+  "download_url": "https://cdn.logs.px4.io/1b8e43d5-04d8-4130-8227-628898f319c5.ulg"
+}

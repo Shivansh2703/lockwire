@@ -1,0 +1,35 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# lockwire hw sidecar logs
+*.hw.yaml
+
+# graphify knowledge-graph output (generated; ~4 MB, rebuild with /graphify)
+graphify-out/
+
+
+# PyInstaller desktop build output (41 MB per platform; rebuild with packaging/lockwire.spec)
+dist-app/
+build/
+*.spec.bak
+
+# generated viewer pages (rebuild with `lockwire gui <lockfile>`)
+examples/**/lockwire-gui.html
+
+# desktop app deps/build output
+app/node_modules/
+app/dist/
+app/out/
+
+# pytest-cov writes these in the cwd
+.coverage
+.coverage.*
+**/node_modules/
