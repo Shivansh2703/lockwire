@@ -4,11 +4,41 @@
 from __future__ import annotations
 
 from importlib.metadata import entry_points
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 # A plugin may swap in a richer implementation of a library function (same name,
 # same signature); free callers go through `pick`, so without a plugin they get their own.
 OVERRIDES: dict[str, Callable[..., Any]] = {}
+
+
+# Payload members a plugin adds to the generated app types: enveloped ones by
+# `artifact_type`, the rest in a list, and their number-kind rows.
+PAYLOAD_MEMBERS: dict[str, type] = {}
+PAYLOAD_EXTRA: list[type] = []
+PAYLOAD_NUMBER_KINDS: dict[str, dict[str, str]] = {}
+
+
+# Hooks that add fields to the page payload: each is called as
+# `hook(contract=, contract_path=, preflight=, run_findings=, redact_paths=, payload=)` and returns a dict
+# merged over the payload (so a plugin may also replace `modes`, `mode_labels`, `command_modes`).
+PAGE_EXTRAS: list[Callable[..., dict[str, Any]]] = []
+
+
+class ServeCommand(NamedTuple):
+    """One sidecar command: `handler`, its `args` model, and its request model (a pydantic
+    class with a `command: Literal[...]` field). A plugin's handler is called `(body, state)`."""
+
+    handler: Callable[..., Any]
+    args: type
+    command: type
+
+
+# Sidecar commands a plugin adds (or replaces, by name) beside the free ones; callables that
+# prepare the app's `state` at construction; and the factory behind `lockwire serve --profile`,
+# `(profile, required) -> Callable[[request], request]`, raising ValueError to refuse.
+SERVE_COMMANDS: dict[str, ServeCommand] = {}
+SERVE_SETUP: list[Callable[[Any], None]] = []
+SERVE_POLICY: Callable[..., Callable[[Any], Any]] | None = None
 
 
 def pick(name: str, default: Callable[..., Any]) -> Callable[..., Any]:

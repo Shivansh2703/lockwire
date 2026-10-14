@@ -1,6 +1,6 @@
 [project]
 name = "lockwire"
-version = "0.1.0"
+version = "0.2.0"
 description = "The physical-assumption contract for robots: physics lockfile + preflight gate"
 readme = "README.md"
 authors = [
@@ -34,6 +34,14 @@ dependencies = [
 mcp = [
     "mcp>=2.1.1",
 ]
+# The Electron app's sidecar: `lockwire serve` over local HTTP. Optional for the
+# same reason as `desktop`/`ros2bag`/`mcp` — a plain CLI install stays lean; only the
+# packaged app build and anyone running the sidecar by hand need these. Versions are
+# today's PyPI current stable (measured, E1-a).
+serve = [
+    "fastapi>=0.141.1",
+    "uvicorn>=0.52.4",
+]
 
 [project.urls]
 Homepage = "https://github.com/Shivansh2703/lockwire"
@@ -52,7 +60,18 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "mcp>=2.1.1",
+    # tests/test_serve.py needs the sidecar (`lockwire serve`) importable and
+    # runnable as a subprocess. Same reasoning as `mcp`/`mcap` above: CI's
+    # `test` job runs a plain `uv sync --dev`, so without these here that
+    # whole test file would silently never run. Dev-only: the runtime `serve`
+    # extra above stays optional so a plain install stays lean.
+    "fastapi>=0.141.1",
+    "uvicorn>=0.52.4",
     "httpx>=0.28.1",
+    # Freezing the sidecar binary: `uv run pyinstaller packaging/lockwire.spec`. Dev-only —
+    # it is a build tool, never imported at runtime — and `tests/test_cli.py` imports it to
+    # anchor the uvicorn hidden-import test against uvicorn's real module list (box e1-d2).
+    "pyinstaller>=6.21.0",
     "pytest>=9.1.1",
     "pytest-xdist>=3.6.1",
     "ruff>=0.15.20,<0.16",  # 0.17 changes default rules

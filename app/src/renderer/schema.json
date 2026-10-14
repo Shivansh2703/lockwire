@@ -1,0 +1,3767 @@
+{
+  "components": {
+    "schemas": {
+      "AddsUpRow": {
+        "additionalProperties": false,
+        "properties": {
+          "margin": {
+            "title": "Margin",
+            "type": "string"
+          },
+          "mark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "raw": {
+            "title": "Raw",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "text",
+          "margin",
+          "raw",
+          "mark"
+        ],
+        "title": "AddsUpRow",
+        "type": "object"
+      },
+      "Alternative": {
+        "additionalProperties": false,
+        "description": "One remedy suggestion, its number, and the kind that number carries.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "mark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mark"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "text",
+          "value",
+          "unit",
+          "kind"
+        ],
+        "title": "Alternative",
+        "type": "object"
+      },
+      "AssertionOutcome": {
+        "additionalProperties": false,
+        "description": "Machine-readable disposition for one assertion submitted in a plan.",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNSCORED",
+              "ERROR"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "status"
+        ],
+        "title": "AssertionOutcome",
+        "type": "object"
+      },
+      "BlamePayload": {
+        "description": "``lockwire blame --json`` rows; api.blame retains its tuple ABI.",
+        "items": {
+          "$ref": "#/components/schemas/BlameRow"
+        },
+        "title": "BlamePayload",
+        "type": "array"
+      },
+      "BlameRow": {
+        "additionalProperties": false,
+        "description": "One unchanged declared fact row from the public blame producer.",
+        "properties": {
+          "compared_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Compared From"
+          },
+          "last_changing_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Changing Commit"
+          },
+          "locked_at": {
+            "title": "Locked At",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "value": {
+            "additionalProperties": true,
+            "title": "Value",
+            "type": "object"
+          },
+          "witness": {
+            "title": "Witness",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "value",
+          "source",
+          "witness",
+          "locked_at"
+        ],
+        "title": "BlameRow",
+        "type": "object"
+      },
+      "BudgetRow": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "number"
+          },
+          "limit_raised": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Raised"
+          },
+          "locked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locked At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "witness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Witness"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "value",
+          "limit",
+          "unit",
+          "direction",
+          "state",
+          "note",
+          "source",
+          "witness",
+          "locked_at",
+          "limit_raised"
+        ],
+        "title": "BudgetRow",
+        "type": "object"
+      },
+      "Card": {
+        "additionalProperties": false,
+        "properties": {
+          "affected": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affected",
+            "type": "array"
+          },
+          "also_in_run": {
+            "title": "Also In Run",
+            "type": "boolean"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/Alternative"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "consumer": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Consumer"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "count_figure": {
+            "$ref": "#/components/schemas/Figure"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Figure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "faults": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Faults",
+            "type": "array"
+          },
+          "figure_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Figure Note"
+          },
+          "fix": {
+            "title": "Fix",
+            "type": "string"
+          },
+          "group_title": {
+            "title": "Group Title",
+            "type": "string"
+          },
+          "hits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "instead": {
+            "items": {
+              "$ref": "#/components/schemas/Instead"
+            },
+            "title": "Instead",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "observed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Figure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "raw": {
+            "title": "Raw",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "violation",
+              "warning",
+              "not_scored"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "shape": {
+            "title": "Shape",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/Target"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "whole": {
+            "default": false,
+            "title": "Whole",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "severity",
+          "tag",
+          "title",
+          "body",
+          "fix",
+          "raw",
+          "hits",
+          "faults",
+          "affected",
+          "targets",
+          "count",
+          "count_figure",
+          "observed",
+          "expected",
+          "alternatives",
+          "figure_note",
+          "shape",
+          "label",
+          "group_title",
+          "instead",
+          "also_in_run"
+        ],
+        "title": "Card",
+        "type": "object"
+      },
+      "CheckPayload": {
+        "additionalProperties": false,
+        "description": "``api.check`` / ``lockwire check --json``.\n\n``scene`` is a sidecar-only addition (e1-b2, not a CLI field \u2014 T2 keeps\n``lockwire check`` scene-free by design, ``cli.py:454``): present only on\nthe ``/v1/run`` reply, and only when a scene sits beside the contract.\n``None`` when there is no scene to offer; ``SceneUnchanged`` when the\ncaller's ``scene.have`` already matches the current hash.\n\n``headline`` (E2-hl) is the plain-words sentence for the verdict --\n``api.check``'s own field, not shared with ``PlanPayload``\n(its door does not fill it), computed once by ``report.verdict_headline``\nand reused, never re-derived by a consumer.\n\n``graph`` rides beside ``scene`` for the same reason and on the same\ncondition (E2-j2): the app's Design tab needs the lens bar's words\n(``GraphLens.label``/``.caption``) next to the scene it labels, and\n``report_html._graph`` already computes exactly this dict for the page\npayload (``gui.py:1019``) \u2014 this is the same call, not a second one.\n``None`` when there is no contract to derive it from (a refusal never\nreaches this far) or no scene sits beside the contract, matching\n``scene``'s own condition so the two never disagree about whether a\nDesign tab has anything to show.",
+        "properties": {
+          "artifact_type": {
+            "const": "lockwire-check-report",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "cli_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cli Line"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Counts"
+          },
+          "exit_code": {
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "forces": {
+            "$ref": "#/components/schemas/ForceDocument"
+          },
+          "format_version": {
+            "title": "Format Version",
+            "type": "string"
+          },
+          "graph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Graph"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "headline": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Headline",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Revision"
+          },
+          "robot": {
+            "title": "Robot",
+            "type": "string"
+          },
+          "scene": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenePayload"
+              },
+              {
+                "$ref": "#/components/schemas/SceneUnchanged"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scene"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scored": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored"
+          },
+          "verdict": {
+            "enum": [
+              "REFUSED",
+              "NO-GO",
+              "GO_WITH_NOTES",
+              "GO",
+              "NOT_SCORED"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "format_version",
+          "schema_version",
+          "robot",
+          "verdict",
+          "exit_code",
+          "counts",
+          "scored",
+          "findings",
+          "artifact_type",
+          "headline",
+          "forces"
+        ],
+        "title": "CheckPayload",
+        "type": "object"
+      },
+      "Constraint": {
+        "additionalProperties": false,
+        "description": "one constraint instance the engine evaluates, for badges and margin bars\n(``constraints.constraint_rows``). ``domain`` maps the graph lenses: mechanical ->\nmechanical, power -> electrical, data -> data, health -> health, plus thermal (no lens).\n``used``/``limit`` are null when the engine has no number (status \"unset\"); each carries\nits number-kind in ``used_kind``/``limit_kind`` (per row; NUMBER_KINDS is per field).",
+        "properties": {
+          "components": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "domain": {
+            "enum": [
+              "mechanical",
+              "electrical",
+              "data",
+              "thermal",
+              "health"
+            ],
+            "title": "Domain",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "limit_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "declared",
+                  "measured",
+                  "derived",
+                  "catalog",
+                  "projected"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Kind"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "parts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warn",
+              "bad",
+              "unset"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "used": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used"
+          },
+          "used_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "declared",
+                  "measured",
+                  "derived",
+                  "catalog",
+                  "projected"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used Kind"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "domain",
+          "used",
+          "limit",
+          "unit",
+          "margin_pct",
+          "status",
+          "used_kind",
+          "limit_kind",
+          "parts",
+          "components"
+        ],
+        "title": "Constraint",
+        "type": "object"
+      },
+      "Counts": {
+        "additionalProperties": false,
+        "properties": {
+          "not_scored": {
+            "title": "Not Scored",
+            "type": "integer"
+          },
+          "violation": {
+            "title": "Violation",
+            "type": "integer"
+          },
+          "warning": {
+            "title": "Warning",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "violation",
+          "warning",
+          "not_scored"
+        ],
+        "title": "Counts",
+        "type": "object"
+      },
+      "DeclareFace": {
+        "additionalProperties": false,
+        "properties": {
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "lines"
+        ],
+        "title": "DeclareFace",
+        "type": "object"
+      },
+      "DeclareFormPayload": {
+        "additionalProperties": false,
+        "description": "``gui.build_declare_form`` \u2014 every declarable quantity plus the witness\nbox (E4-df). Unenveloped like the page (seam 1): this box's face render is\nthe app's own, not this door's, so there is no ``artifact_type`` to\ndiscriminate on yet.",
+        "properties": {
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Revision"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DeclareRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "witness": {
+            "$ref": "#/components/schemas/DeclareWitnessBox"
+          }
+        },
+        "required": [
+          "rows",
+          "witness"
+        ],
+        "title": "DeclareFormPayload",
+        "type": "object"
+      },
+      "DeclareRow": {
+        "additionalProperties": false,
+        "description": "One quantity ``lockwire declare`` could write, present or not (E4-df).\n\nWalked from ``schema.Contract``'s own models (nothing here re-derives\na value or invents a path) \u2014 ``path`` is the exact ``/``-separated string\n``declare``'s own ``path`` argument takes. ``kind`` is always ``\"declared\"``:\nevery one of these is, by definition, a fact the contract itself would\nhold (the own example row is ``Quantity.value`` -> ``declared``). Scoped\nto ``schema.Quantity``-typed fields only \u2014 a bare unitless number\n(``efficiency``, ``gear_ratio``) is not a \"quantity\" in the sense and is\nout of this box's charter.\n\n``value``/``unit`` are ``None`` when the fact has never been declared;\n``provenance`` is the nearest ancestor block's own ``provenance`` (schema's\nper-block provenance, same rule ``edit.provenance_owner_path`` already\nencodes), ``None`` when nothing has stamped one yet.",
+        "properties": {
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "declared",
+              "measured",
+              "derived",
+              "catalog",
+              "projected"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "part": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Part"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Provenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "short": {
+            "title": "Short",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "path",
+          "label",
+          "group",
+          "short",
+          "unit",
+          "kind",
+          "value",
+          "provenance"
+        ],
+        "title": "DeclareRow",
+        "type": "object"
+      },
+      "DeclareWitnessBox": {
+        "additionalProperties": false,
+        "description": "The declare form's witness field, pre-filled exactly as a submit with no\n``--witness`` would resolve it (``edit.resolve_witness``) \u2014 a config\ndefault arrives already marked ``\"(default)\"``; no default is `\"\"`, which\nstill refuses on submit exactly like the CLI (O8's refusal side).",
+        "properties": {
+          "prefill": {
+            "title": "Prefill",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefill"
+        ],
+        "title": "DeclareWitnessBox",
+        "type": "object"
+      },
+      "DescribePayload": {
+        "additionalProperties": false,
+        "description": "``api.describe`` \u2014 filename -> Markdown. The member that carries prose,\nnot the page dict: ``files`` is ``describe.describe_all``'s output.",
+        "properties": {
+          "artifact_type": {
+            "const": "lockwire-describe",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "cli_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cli Line"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "object"
+          },
+          "format_version": {
+            "title": "Format Version",
+            "type": "string"
+          },
+          "robot": {
+            "title": "Robot",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "format_version",
+          "schema_version",
+          "artifact_type",
+          "robot",
+          "files"
+        ],
+        "title": "DescribePayload",
+        "type": "object"
+      },
+      "DesignFace": {
+        "additionalProperties": false,
+        "properties": {
+          "cli": {
+            "title": "Cli",
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/DesignFacePart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "parts",
+          "cli"
+        ],
+        "title": "DesignFace",
+        "type": "object"
+      },
+      "DesignFacePart": {
+        "additionalProperties": false,
+        "properties": {
+          "draw": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Figure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "rail": {
+            "title": "Rail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "rail",
+          "draw"
+        ],
+        "title": "DesignFacePart",
+        "type": "object"
+      },
+      "DiffPayload": {
+        "additionalProperties": false,
+        "description": "`api.diff` / `lockwire diff --json` \u2014 what changed in the facts.",
+        "properties": {
+          "added": {
+            "items": {
+              "$ref": "#/components/schemas/EntityChangeRow"
+            },
+            "title": "Added",
+            "type": "array"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/FieldChangeRow"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "findings_gone": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRefRow"
+            },
+            "title": "Findings Gone",
+            "type": "array"
+          },
+          "findings_new": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRefRow"
+            },
+            "title": "Findings New",
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "$ref": "#/components/schemas/EntityChangeRow"
+            },
+            "title": "Removed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "changed",
+          "changes",
+          "added",
+          "removed",
+          "findings_new",
+          "findings_gone"
+        ],
+        "title": "DiffPayload",
+        "type": "object"
+      },
+      "EditPayload": {
+        "additionalProperties": false,
+        "description": "``api.declare`` \u2014 the write door's document. This is the member that\ncarries a diff; ``written`` is False under ``--dry-run``.\n\n``contract_sha`` is ``None`` with ``contract_sha_error`` set (E5-D3, same\nshape as e5-d-r2's fix on ``api.add``) when the write landed but the\npost-write disk re-read that names its sha then faulted \u2014 ``written``\nstill reports what the writer did, never the re-read's outcome.",
+        "properties": {
+          "artifact_type": {
+            "const": "lockwire-edit-result",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "cli_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cli Line"
+          },
+          "contract_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Sha"
+          },
+          "contract_sha_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Contract Sha Error"
+          },
+          "diff": {
+            "title": "Diff",
+            "type": "string"
+          },
+          "format_version": {
+            "title": "Format Version",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Revision"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "written": {
+            "title": "Written",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "format_version",
+          "schema_version",
+          "artifact_type",
+          "contract_sha",
+          "written",
+          "diff",
+          "lines"
+        ],
+        "title": "EditPayload",
+        "type": "object"
+      },
+      "EntityChangeRow": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "EntityChangeRow",
+        "type": "object"
+      },
+      "Faces": {
+        "additionalProperties": false,
+        "properties": {
+          "declare": {
+            "$ref": "#/components/schemas/DeclareFace"
+          },
+          "design": {
+            "$ref": "#/components/schemas/DesignFace"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanFace"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/ReferenceFace"
+          }
+        },
+        "required": [
+          "design",
+          "declare",
+          "plan",
+          "reference"
+        ],
+        "title": "Faces",
+        "type": "object"
+      },
+      "FieldChangeRow": {
+        "additionalProperties": false,
+        "properties": {
+          "limit_raised": {
+            "title": "Limit Raised",
+            "type": "boolean"
+          },
+          "new": {
+            "title": "New"
+          },
+          "old": {
+            "title": "Old"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "witness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Witness"
+          }
+        },
+        "required": [
+          "path",
+          "old",
+          "new",
+          "witness",
+          "source",
+          "limit_raised"
+        ],
+        "title": "FieldChangeRow",
+        "type": "object"
+      },
+      "Figure": {
+        "additionalProperties": false,
+        "description": "**One number on screen, typed** \u2014 the shape every figure a door renders\nas a number takes, so the number kind is a property of the value rather than of a\nlookup table someone forgot to extend.\n\n``NUMBER_KINDS`` (below) covers numeric-*typed* fields. It cannot cover a\nnumber a producer has already formatted into a ``str``: measured on the\nx500 fixture, ``SceneLabel.figure`` read ``\"35.20 W vs <= 15.60 W\"`` \u2014 two\nnumbers on screen, the exact words, carrying no kind, with nothing to\nnotice. *A number stopped being a number, for that guard, the moment\nsomeone formatted it.* **The number kind is a claim about\nnumbers on screen, so a preformatted string figure defeats it.**\n\nA ``Figure`` carries its own kind, so a field typed as one needs no\n``NUMBER_KINDS`` row \u2014 ``numeric_fields()`` skips it deliberately.\n**The renderer formats it** (``value:.2f`` + unit, ``report.format_magnitude``'s\none rule, one line of JS in ``gui``/``scene_js``); no producer here emits a\npreformatted numeric string, and\n``test_no_door_emits_a_preformatted_number_outside_the_named_exemptions``\nholds that against every document the doors actually emit.",
+        "properties": {
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "declared",
+              "measured",
+              "derived",
+              "catalog",
+              "projected"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mark"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "kind",
+          "by"
+        ],
+        "title": "Figure",
+        "type": "object"
+      },
+      "Finding": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "alternatives": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Alternative"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
+          "cluster_members": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Cluster Members",
+            "type": "array"
+          },
+          "cluster_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cluster Root"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Delta"
+          },
+          "dependent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dependent"
+          },
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "expected_quantity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Quantity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "locked_at": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Locked At"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "string"
+          },
+          "observed_quantity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Quantity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Owner"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "violation",
+              "warning",
+              "not_scored"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stage"
+          },
+          "witness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Witness"
+          }
+        },
+        "required": [
+          "severity",
+          "quantity",
+          "observed",
+          "expected",
+          "action"
+        ],
+        "title": "Finding",
+        "type": "object"
+      },
+      "FindingLabel": {
+        "additionalProperties": false,
+        "description": "One finding's human name and typed targets, index-aligned with ``findings``.",
+        "properties": {
+          "fix": {
+            "default": "",
+            "title": "Fix",
+            "type": "string"
+          },
+          "instead": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Instead"
+            },
+            "title": "Instead",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/Target"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "whole": {
+            "default": false,
+            "title": "Whole",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "targets"
+        ],
+        "title": "FindingLabel",
+        "type": "object"
+      },
+      "FindingRefRow": {
+        "additionalProperties": false,
+        "properties": {
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "quantity"
+        ],
+        "title": "FindingRefRow",
+        "type": "object"
+      },
+      "ForceDocument": {
+        "additionalProperties": false,
+        "description": "The force lane carried by the check document.",
+        "properties": {
+          "cg": {
+            "$ref": "#/components/schemas/ForceFigure"
+          },
+          "gravity": {
+            "$ref": "#/components/schemas/ForceFigure"
+          },
+          "mass_total": {
+            "$ref": "#/components/schemas/ForceFigure"
+          },
+          "masses": {
+            "items": {
+              "$ref": "#/components/schemas/ForceFigure"
+            },
+            "title": "Masses",
+            "type": "array"
+          },
+          "mount_shapes": {
+            "items": {
+              "$ref": "#/components/schemas/ForceMountShape"
+            },
+            "title": "Mount Shapes",
+            "type": "array"
+          },
+          "mounts": {
+            "items": {
+              "$ref": "#/components/schemas/ForceFigure"
+            },
+            "title": "Mounts",
+            "type": "array"
+          },
+          "not_scored": {
+            "items": {
+              "$ref": "#/components/schemas/ForceFigure"
+            },
+            "title": "Not Scored",
+            "type": "array"
+          }
+        },
+        "required": [
+          "gravity",
+          "mass_total",
+          "cg",
+          "masses",
+          "mounts",
+          "mount_shapes",
+          "not_scored"
+        ],
+        "title": "ForceDocument",
+        "type": "object"
+      },
+      "ForceFigure": {
+        "additionalProperties": false,
+        "description": "One self-described number from ``forces.force_document``.",
+        "properties": {
+          "complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Complete"
+          },
+          "frame": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Frame"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Id"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "limitation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Limitation"
+          },
+          "moment_nm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Moment Nm"
+          },
+          "not_scored_because": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Not Scored Because"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Quantity"
+          },
+          "reaction_n": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reaction N"
+          },
+          "span_axis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Span Axis"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "kind"
+        ],
+        "title": "ForceFigure",
+        "type": "object"
+      },
+      "ForceMountShape": {
+        "additionalProperties": false,
+        "description": "One mount shape read from ``Physical`` by the force document.",
+        "properties": {
+          "dimensions": {
+            "$ref": "#/components/schemas/ForceFigure"
+          },
+          "fastener_pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fastener Pattern"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "plate",
+              "bracket",
+              "tube",
+              "custom-mesh"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "mesh_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mesh Path"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "dimensions",
+          "fastener_pattern",
+          "mesh_path"
+        ],
+        "title": "ForceMountShape",
+        "type": "object"
+      },
+      "Graph": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GraphLens"
+          },
+          "health": {
+            "$ref": "#/components/schemas/GraphLens"
+          },
+          "mechanical": {
+            "$ref": "#/components/schemas/GraphLens"
+          },
+          "off": {
+            "$ref": "#/components/schemas/GraphLens"
+          },
+          "power": {
+            "$ref": "#/components/schemas/GraphLens"
+          }
+        },
+        "required": [
+          "off",
+          "mechanical",
+          "power",
+          "data",
+          "health"
+        ],
+        "title": "Graph",
+        "type": "object"
+      },
+      "GraphEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "label"
+        ],
+        "title": "GraphEdge",
+        "type": "object"
+      },
+      "GraphLens": {
+        "additionalProperties": false,
+        "properties": {
+          "caption": {
+            "title": "Caption",
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/GraphNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "edges",
+          "label",
+          "caption"
+        ],
+        "title": "GraphLens",
+        "type": "object"
+      },
+      "GraphNode": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "link",
+              "device",
+              "rail",
+              "source",
+              "host",
+              "bus"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "sub": {
+            "title": "Sub",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "sub",
+          "kind"
+        ],
+        "title": "GraphNode",
+        "type": "object"
+      },
+      "Instead": {
+        "additionalProperties": false,
+        "description": "One short \"Instead\" row: verb + number + the kind word (copy.instead_row).",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "kind"
+        ],
+        "title": "Instead",
+        "type": "object"
+      },
+      "LogEntry": {
+        "additionalProperties": false,
+        "description": "One git-backed contract-history row from ``api.log``.",
+        "properties": {
+          "author": {
+            "title": "Author",
+            "type": "string"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "fact_diff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiffPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "sha": {
+            "title": "Sha",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "REFUSED",
+              "NO-GO",
+              "GO_WITH_NOTES",
+              "GO",
+              "NOT_SCORED"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha",
+          "author",
+          "date",
+          "message",
+          "verdict",
+          "fact_diff"
+        ],
+        "title": "LogEntry",
+        "type": "object"
+      },
+      "LogPayload": {
+        "description": "``api.log`` / ``lockwire log --json`` history, newest first.",
+        "items": {
+          "$ref": "#/components/schemas/LogEntry"
+        },
+        "title": "LogPayload",
+        "type": "array"
+      },
+      "PackedIndices": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "title": "Data",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "u16",
+              "u32"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "data"
+        ],
+        "title": "PackedIndices",
+        "type": "object"
+      },
+      "PackedVectors": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "title": "Data",
+            "type": "string"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Offset"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scale"
+          },
+          "type": {
+            "const": "i16",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "data"
+        ],
+        "title": "PackedVectors",
+        "type": "object"
+      },
+      "PagePayload": {
+        "additionalProperties": false,
+        "description": "``gui.build_payload``'s dict, field for field \u2014 the union's largest\nmember, and the only one with no envelope (seam 1 in the module docstring).",
+        "properties": {
+          "adds_up": {
+            "items": {
+              "$ref": "#/components/schemas/AddsUpRow"
+            },
+            "title": "Adds Up",
+            "type": "array"
+          },
+          "budgets": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetRow"
+            },
+            "title": "Budgets",
+            "type": "array"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/Card"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "cli_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cli Line"
+          },
+          "command_modes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Command Modes",
+            "type": "object"
+          },
+          "constraints": {
+            "items": {
+              "$ref": "#/components/schemas/Constraint"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "contract_id": {
+            "title": "Contract Id",
+            "type": "string"
+          },
+          "document_identity": {
+            "title": "Document Identity",
+            "type": "string"
+          },
+          "faces": {
+            "$ref": "#/components/schemas/Faces"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/Graph"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "joints": {
+            "items": {
+              "$ref": "#/components/schemas/RobotJoint"
+            },
+            "title": "Joints",
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/RobotLink"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "mode_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Mode Labels",
+            "type": "object"
+          },
+          "modes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Modes",
+            "type": "array"
+          },
+          "qualifier": {
+            "title": "Qualifier",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Revision"
+          },
+          "robot": {
+            "title": "Robot",
+            "type": "string"
+          },
+          "scene": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenePayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scored": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored"
+          },
+          "setup": {
+            "items": {
+              "$ref": "#/components/schemas/SetupGap"
+            },
+            "title": "Setup",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "stop",
+              "warn",
+              "neutral",
+              "go"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "unchecked": {
+            "title": "Unchecked",
+            "type": "integer"
+          },
+          "violations": {
+            "title": "Violations",
+            "type": "integer"
+          },
+          "warnings": {
+            "title": "Warnings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "robot",
+          "contract_id",
+          "state",
+          "headline",
+          "qualifier",
+          "scored",
+          "violations",
+          "warnings",
+          "unchecked",
+          "adds_up",
+          "cards",
+          "joints",
+          "links",
+          "graph",
+          "budgets",
+          "constraints",
+          "setup",
+          "scene",
+          "modes",
+          "mode_labels",
+          "command_modes",
+          "faces",
+          "cli_line",
+          "document_identity"
+        ],
+        "title": "PagePayload",
+        "type": "object"
+      },
+      "PlanFace": {
+        "additionalProperties": false,
+        "properties": {
+          "cli": {
+            "title": "Cli",
+            "type": "string"
+          },
+          "outcomes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssertionOutcome"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcomes"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "cli",
+          "outcomes"
+        ],
+        "title": "PlanFace",
+        "type": "object"
+      },
+      "PlanPayload": {
+        "additionalProperties": false,
+        "description": "``api.plan`` / ``lockwire plan --json``. ``outcomes`` rides along only\nwhen the report carries them (``plan.PlanReport``), exactly as\n``api.verdict_document`` attaches them. ``steps`` is joined from the\nreport's own outcomes and findings before the document is emitted.",
+        "properties": {
+          "artifact_type": {
+            "const": "lockwire-plan-report",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "cli_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cli Line"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Counts"
+          },
+          "exit_code": {
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "finding_labels": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingLabel"
+            },
+            "title": "Finding Labels",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "format_version": {
+            "title": "Format Version",
+            "type": "string"
+          },
+          "outcomes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssertionOutcome"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Outcomes"
+          },
+          "robot": {
+            "title": "Robot",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scored": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanStepPayload"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "verdict": {
+            "enum": [
+              "REFUSED",
+              "NO-GO",
+              "GO_WITH_NOTES",
+              "GO",
+              "NOT_SCORED"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "format_version",
+          "schema_version",
+          "robot",
+          "verdict",
+          "exit_code",
+          "counts",
+          "scored",
+          "findings",
+          "artifact_type"
+        ],
+        "title": "PlanPayload",
+        "type": "object"
+      },
+      "PlanStepPayload": {
+        "additionalProperties": false,
+        "description": "One plan step's disposition (the app shows each agent call\nand lockwire's reply as a read-only timeline, from the command record; the\noperator sees what the agent was told, and nothing in the app\nsteers the agent), joined from ``PlanReport``'s own ``outcomes`` and\n``findings`` \u2014 ``plan.py`` already computes both; this only correlates\nwhat it returns (no second scorer). The join key is identity:\n``AssertionOutcome.path == Finding.quantity`` \u2014 every ``UNSCORED`` outcome\n``validate_plan`` emits carries exactly one ``not_scored`` Finding at the\nsame path, whose ``action`` names the missing fact.",
+        "properties": {
+          "not_scored_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Scored Reason"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNSCORED",
+              "ERROR"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "targets": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Target"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "path",
+          "status",
+          "not_scored_reason"
+        ],
+        "title": "PlanStepPayload",
+        "type": "object"
+      },
+      "Provenance": {
+        "additionalProperties": false,
+        "properties": {
+          "bag_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Bag Sha256"
+          },
+          "compared_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Compared From"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Conditions"
+          },
+          "locked_at": {
+            "format": "date",
+            "title": "Locked At",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "reviews": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ReviewNote"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reviews"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "witness": {
+            "title": "Witness",
+            "type": "string"
+          }
+        },
+        "required": [
+          "witness",
+          "source",
+          "locked_at"
+        ],
+        "title": "Provenance",
+        "type": "object"
+      },
+      "Quantity": {
+        "additionalProperties": false,
+        "properties": {
+          "frame": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Frame"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value",
+          "unit"
+        ],
+        "title": "Quantity",
+        "type": "object"
+      },
+      "RecordComparison": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_type": {
+            "const": "lockwire-record-comparison",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "cli_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cli Line"
+          },
+          "comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredRecord"
+            },
+            "title": "Comparisons",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Counts"
+          },
+          "exit_code": {
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/WhatIfFact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "format_version": {
+            "title": "Format Version",
+            "type": "string"
+          },
+          "robot": {
+            "title": "Robot",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scored": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored"
+          },
+          "verdict": {
+            "enum": [
+              "REFUSED",
+              "NO-GO",
+              "GO_WITH_NOTES",
+              "GO",
+              "NOT_SCORED"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "format_version",
+          "schema_version",
+          "robot",
+          "verdict",
+          "exit_code",
+          "counts",
+          "scored",
+          "findings",
+          "artifact_type",
+          "facts",
+          "comparisons"
+        ],
+        "title": "RecordComparison",
+        "type": "object"
+      },
+      "ReferenceDrawer": {
+        "additionalProperties": false,
+        "description": "One of the Reference face's four drawers \u2014 a thing the\nCLI already produces (``describe``/``report``/``baseline``/``scan``),\nnamed with its content, its provenance and the exact CLI line that\nreproduces it in a terminal. Nothing here is computed twice: ``content``\nis always a producer's own output (``describe_all`` for the describe\ndrawer; a fixed description for the other three, which need inputs the\npage does not have \u2014 a recording, this machine).",
+        "properties": {
+          "cli_line": {
+            "title": "Cli Line",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "provenance": {
+            "title": "Provenance",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content",
+          "provenance",
+          "cli_line"
+        ],
+        "title": "ReferenceDrawer",
+        "type": "object"
+      },
+      "ReferenceFace": {
+        "additionalProperties": false,
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/ReferenceFaceDevice"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "drawers": {
+            "items": {
+              "$ref": "#/components/schemas/ReferenceDrawer"
+            },
+            "title": "Drawers",
+            "type": "array"
+          },
+          "power_tree": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Tree"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "devices",
+          "drawers",
+          "power_tree"
+        ],
+        "title": "ReferenceFace",
+        "type": "object"
+      },
+      "ReferenceFaceDevice": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "title": "ReferenceFaceDevice",
+        "type": "object"
+      },
+      "ReviewNote": {
+        "additionalProperties": false,
+        "description": "A reviewer's judgement of a declared value, written into the file.\n\n`state` is exactly one of these two words. The witness gate is the\n*existing* `validate_witness` (edit.py) \u2014 imported lazily inside the\nvalidator to avoid a module-level cycle (edit.py imports from schema.py).",
+        "properties": {
+          "at": {
+            "format": "date",
+            "title": "At",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "state": {
+            "enum": [
+              "approved",
+              "questioned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "witness": {
+            "title": "Witness",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "witness",
+          "at"
+        ],
+        "title": "ReviewNote",
+        "type": "object"
+      },
+      "RobotJoint": {
+        "additionalProperties": false,
+        "description": "A model joint with its frame in the single robot frame (parent chain composed).",
+        "properties": {
+          "axis": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Axis",
+            "type": "array"
+          },
+          "child": {
+            "title": "Child",
+            "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "lower": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lower"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent": {
+            "title": "Parent",
+            "type": "string"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Position",
+            "type": "array"
+          },
+          "type": {
+            "enum": [
+              "fixed",
+              "revolute",
+              "continuous",
+              "prismatic",
+              "floating",
+              "planar"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "upper": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upper"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "parent",
+          "child",
+          "position",
+          "axis",
+          "lower",
+          "upper",
+          "effort"
+        ],
+        "title": "RobotJoint",
+        "type": "object"
+      },
+      "RobotLink": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Position",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "position"
+        ],
+        "title": "RobotLink",
+        "type": "object"
+      },
+      "SceneGroup": {
+        "additionalProperties": false,
+        "description": "the component drop-down a part is listed under (id, 1-3 word label, kind).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "device",
+              "rail",
+              "bus",
+              "link",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind"
+        ],
+        "title": "SceneGroup",
+        "type": "object"
+      },
+      "SceneLabel": {
+        "additionalProperties": false,
+        "description": "The pinned label the 3D scene draws on a faulty part.\n\n``figure: str`` until 2026-09-08 \u2014 ``\"35.20 W vs <= 15.60 W\"``, the very\nstring that showed a formatted number defeats ``NUMBER_KINDS``. Now the two\nnumbers are typed and the callout in ``scene_js`` formats them.\nNumeric findings carry typed magnitudes. Structural findings can carry\ntext operands without numeric quantities, so either figure remains\n``| None``; the renderer omits an absent figure instead of inventing one.",
+        "properties": {
+          "comparator": {
+            "title": "Comparator",
+            "type": "string"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Figure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Figure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "part": {
+            "title": "Part",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part",
+          "severity",
+          "title",
+          "observed",
+          "comparator",
+          "expected"
+        ],
+        "title": "SceneLabel",
+        "type": "object"
+      },
+      "ScenePart": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Color",
+            "type": "array"
+          },
+          "group": {
+            "$ref": "#/components/schemas/SceneGroup"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "indices": {
+            "$ref": "#/components/schemas/PackedIndices"
+          },
+          "lenses": {
+            "items": {
+              "enum": [
+                "off",
+                "mechanical",
+                "power",
+                "data",
+                "health"
+              ],
+              "type": "string"
+            },
+            "title": "Lenses",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "node": {
+            "title": "Node",
+            "type": "string"
+          },
+          "normals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PackedVectors"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "positions": {
+            "$ref": "#/components/schemas/PackedVectors"
+          },
+          "state": {
+            "enum": [
+              "fault",
+              "warn",
+              "affected",
+              "ok",
+              "unchecked",
+              "plain"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "translation": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Translation",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "node",
+          "name",
+          "state",
+          "positions",
+          "normals",
+          "indices",
+          "color",
+          "translation",
+          "lenses",
+          "group"
+        ],
+        "title": "ScenePart",
+        "type": "object"
+      },
+      "ScenePayload": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Asset Path"
+          },
+          "asset_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Asset Sha256"
+          },
+          "bounds": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Bounds",
+            "type": "array"
+          },
+          "contract_only": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Contract Only",
+            "type": "array"
+          },
+          "display_triangles": {
+            "title": "Display Triangles",
+            "type": "integer"
+          },
+          "expected_asset_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Asset Sha256"
+          },
+          "hash": {
+            "title": "Hash",
+            "type": "string"
+          },
+          "honesty": {
+            "title": "Honesty",
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/SceneLabel"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/ScenePart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "scene_only": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scene Only",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "triangles": {
+            "title": "Triangles",
+            "type": "integer"
+          },
+          "vertices": {
+            "title": "Vertices",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source",
+          "hash",
+          "parts",
+          "labels",
+          "scene_only",
+          "contract_only",
+          "bounds",
+          "triangles",
+          "vertices",
+          "display_triangles",
+          "honesty"
+        ],
+        "title": "ScenePayload",
+        "type": "object"
+      },
+      "SceneUnchanged": {
+        "additionalProperties": false,
+        "description": "The sidecar's reply when a caller's ``scene.have`` already matches \u2014\nships no geometry (e1-b2). ``unchanged`` is always ``True``; the shape\nexists so ``{\"unchanged\": true}`` is a typed member, not a bare dict.",
+        "properties": {
+          "asset_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Asset Path"
+          },
+          "asset_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Asset Sha256"
+          },
+          "expected_asset_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Asset Sha256"
+          },
+          "unchanged": {
+            "const": true,
+            "title": "Unchanged",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "unchanged"
+        ],
+        "title": "SceneUnchanged",
+        "type": "object"
+      },
+      "ScoredRecord": {
+        "additionalProperties": false,
+        "description": "A comparison that PASSED: two populated operands, no violation.\n\nFindings only ever carry problems and blind spots; this is the missing\n\"it agrees\" half. ``quantity`` is the contract path (exact-text toggle\nonly); ``observed``/``expected``/``margin`` are already plain words for\ndirect rendering \u2014 never a quantity path or code identifier.",
+        "properties": {
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "expected_quantity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Quantity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "margin": {
+            "title": "Margin",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "string"
+          },
+          "observed_quantity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Quantity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Provenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "uncertainty": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Quantity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "quantity",
+          "observed",
+          "expected",
+          "margin"
+        ],
+        "title": "ScoredRecord",
+        "type": "object"
+      },
+      "SetupGap": {
+        "additionalProperties": false,
+        "properties": {
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "why",
+          "snippet"
+        ],
+        "title": "SetupGap",
+        "type": "object"
+      },
+      "StartPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "written": {
+            "title": "Written",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "revision",
+          "written"
+        ],
+        "title": "StartPayload",
+        "type": "object"
+      },
+      "Target": {
+        "additionalProperties": false,
+        "description": "What a card is about, typed by the engine so the app never parses text.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "joint",
+              "link",
+              "device",
+              "rail"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "parts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "label"
+        ],
+        "title": "Target",
+        "type": "object"
+      },
+      "WhatIfFact": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "finding",
+              "passed_comparison"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "provenance_state": {
+            "enum": [
+              "recorded",
+              "missing_evidence"
+            ],
+            "title": "Provenance State",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "witness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Witness"
+          }
+        },
+        "required": [
+          "quantity",
+          "kind",
+          "severity",
+          "source",
+          "witness",
+          "provenance_state"
+        ],
+        "title": "WhatIfFact",
+        "type": "object"
+      },
+      "WhatIfPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_type": {
+            "const": "lockwire-what-if-report",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "cli_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cli Line"
+          },
+          "current": {
+            "$ref": "#/components/schemas/RecordComparison"
+          },
+          "diff": {
+            "title": "Diff",
+            "type": "string"
+          },
+          "format_version": {
+            "title": "Format Version",
+            "type": "string"
+          },
+          "proposed": {
+            "$ref": "#/components/schemas/RecordComparison"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "format_version",
+          "schema_version",
+          "artifact_type",
+          "current",
+          "proposed",
+          "diff"
+        ],
+        "title": "WhatIfPayload",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "lockwire",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {},
+  "x-lockwire-extension-points": [
+    "accessibility_strings"
+  ],
+  "x-lockwire-members": {
+    "lockwire-check-report": "CheckPayload",
+    "lockwire-describe": "DescribePayload",
+    "lockwire-edit-result": "EditPayload",
+    "lockwire-plan-report": "PlanPayload",
+    "lockwire-what-if-report": "WhatIfPayload"
+  },
+  "x-lockwire-number-kinds": {
+    "BudgetRow.limit": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "BudgetRow.value": {
+      "by": "gui._budget_rows",
+      "kind": "derived"
+    },
+    "Card.count": {
+      "by": "gui._cards",
+      "kind": "derived"
+    },
+    "Constraint.limit": {
+      "by": "constraints.constraint_rows",
+      "kind": "declared"
+    },
+    "Constraint.margin_pct": {
+      "by": "constraints.constraint_rows",
+      "kind": "derived"
+    },
+    "Constraint.used": {
+      "by": "constraints.constraint_rows",
+      "kind": "derived"
+    },
+    "Counts.not_scored": {
+      "by": "report.verdict",
+      "kind": "derived"
+    },
+    "Counts.violation": {
+      "by": "report.verdict",
+      "kind": "derived"
+    },
+    "Counts.warning": {
+      "by": "report.verdict",
+      "kind": "derived"
+    },
+    "DeclareRow.value": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "Finding.stage": {
+      "by": "schema.Contract (contract section 3.2)",
+      "kind": "declared"
+    },
+    "ForceFigure.moment_nm": {
+      "by": "forces.force_document",
+      "kind": "derived"
+    },
+    "ForceFigure.reaction_n": {
+      "by": "forces.force_document",
+      "kind": "derived"
+    },
+    "ForceFigure.value": {
+      "by": "forces.force_document",
+      "kind": "derived"
+    },
+    "PackedVectors.offset": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "PackedVectors.scale": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "PagePayload.scored": {
+      "by": "checks.run_record_checks",
+      "kind": "derived"
+    },
+    "PagePayload.unchecked": {
+      "by": "report.verdict",
+      "kind": "derived"
+    },
+    "PagePayload.violations": {
+      "by": "report.verdict",
+      "kind": "derived"
+    },
+    "PagePayload.warnings": {
+      "by": "report.verdict",
+      "kind": "derived"
+    },
+    "Provenance.conditions": {
+      "by": "schema.Provenance (env channel at lock time)",
+      "kind": "measured"
+    },
+    "Quantity.value": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "RobotJoint.axis": {
+      "by": "gui._robot_model",
+      "kind": "derived"
+    },
+    "RobotJoint.effort": {
+      "by": "schema.Joint",
+      "kind": "declared"
+    },
+    "RobotJoint.lower": {
+      "by": "schema.Joint",
+      "kind": "declared"
+    },
+    "RobotJoint.position": {
+      "by": "gui._robot_model",
+      "kind": "derived"
+    },
+    "RobotJoint.upper": {
+      "by": "schema.Joint",
+      "kind": "declared"
+    },
+    "RobotLink.position": {
+      "by": "gui._robot_model",
+      "kind": "derived"
+    },
+    "ScenePart.color": {
+      "by": "gui._scene_payload",
+      "kind": "derived"
+    },
+    "ScenePart.translation": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "ScenePayload.bounds": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "ScenePayload.display_triangles": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "ScenePayload.triangles": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "ScenePayload.vertices": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "_VerdictDocument.exit_code": {
+      "by": "report.verdict",
+      "kind": "derived"
+    },
+    "_VerdictDocument.scored": {
+      "by": "report.verdict",
+      "kind": "derived"
+    }
+  }
+}

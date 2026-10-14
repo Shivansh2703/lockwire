@@ -16,9 +16,56 @@ jobs:
         python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
       - run: uv sync --locked --dev --python ${{ matrix.python-version }}
       - run: uv run ruff check .
       - run: uv run pytest -q
       # The hero example must keep catching the overload (exit 1 = caught).
       - run: uv run lockwire check tests/fixtures/x500/contract.yaml || test $? -eq 1
+
+  # The free desktop app: types, tests, then the packaged Linux app driven end to end
+  # (Open, Design, Declare, Plan, Check). Node pinned exactly; actions pinned by SHA.
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.22.2"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # the packaged build freezes the sidecar with PyInstaller from the dev group
+      - run: uv sync --locked --dev
+      - working-directory: app
+        run: npm ci --engine-strict
+      - working-directory: app
+        run: npm run typecheck
+      - working-directory: app
+        run: npm run build
+      # hidden-launch.test.ts starts the real Electron: it needs the sandbox helper and a display.
+      - name: Enable Electron's Linux sandbox helper
+        working-directory: app
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+      - working-directory: app
+        run: xvfb-run -a npx vitest run --exclude '**/*.e2e.test.ts' --exclude scripts/build.test.ts
+      - working-directory: app
+        run: npm run package -- --linux --x64
+      - name: Enable Electron's Linux sandbox helper
+        working-directory: app
+        run: |
+          sudo chown root:root dist/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+      - working-directory: app
+        run: xvfb-run -a node scripts/package-linux-e2e.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lockwire-linux-x64-appimage
+          path: app/dist/*.AppImage
+          if-no-files-found: error

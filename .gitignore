@@ -33,3 +33,4 @@ app/out/
 .coverage
 .coverage.*
 **/node_modules/
+.app-free-*/

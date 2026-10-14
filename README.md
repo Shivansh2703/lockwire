@@ -1,13 +1,46 @@
 # lockwire
 
-A checked-in file that pins your robot's physical assumptions (masses, power rails, bus
-bandwidth, actuator torque) and a command that tells you when they stop adding up, before you
-ever apply power.
+**Find out your robot won't work before you buy the parts.**
 
-## Try it
+Every robot is a stack of numbers from a dozen datasheets: what each part weighs, what each power rail can supply, how much the bus can carry, how much torque each joint gets. Lockwire keeps those numbers in one file and tells you the moment they stop adding up. Use it while you're still planning a build, then keep it in CI so a part swap can't quietly break it later.
+
+Prefer clicking to typing? The free desktop app does the same visually: Open, Design, Declare, Plan, Check.
+
+## Plan a robot from scratch
+
+Start from a URDF (one line is enough), add the parts you're thinking of buying, and check:
 
 ```bash
-pip install lockwire        # not on PyPI yet? pip install git+https://github.com/Shivansh2703/lockwire
+pip install "git+https://github.com/Shivansh2703/lockwire@v0.2.0"   # not on PyPI
+echo '<robot name="rover"><link name="base_link"/></robot>' > robot.urdf
+lockwire start robot.urdf
+lockwire add rail   lockwire.yaml --id rail.5v --voltage "5 V" --capacity "15 W" --source "UBEC datasheet: 5 V 3 A" --witness Sam
+lockwire add device lockwire.yaml --id dev.pi5   --family fam.pi    --model mod.pi5    --rail rail.5v --draw "12 W" --mass "46 g" --mount-frame base_link --owner you --source "Raspberry Pi 5 product brief" --witness Sam
+lockwire add device lockwire.yaml --id dev.servo --family fam.servo --model mod.mg996r --rail rail.5v --draw "6 W"  --mass "55 g" --mount-frame base_link --owner you --source "MG996R datasheet" --witness Sam
+lockwire add budget lockwire.yaml --id bud.5v --kind rail_power --rail rail.5v --limit "15 W" --owner you --source "UBEC datasheet" --witness Sam
+lockwire check lockwire.yaml
+```
+
+`--witness` is the person who read the number off the datasheet; use a real name, not "you".
+
+```console
+VIOLATION budgets/bud.5v — observed 18.00 W, expected <= 15.00 W (Δ +3.00 W (+20%))
+  dependent: dev.pi5, dev.servo
+  owner: you
+  source: UBEC datasheet: 5 V 3 A
+  action: shed load on rail 'rail.5v' or raise its capacity with provenance
+warning model/links/base_link/mass — observed zero or missing mass, expected a positive mass with units
+  …
+scored 2: 0 add up, 1 do not · 0 not scored
+
+NO-GO — 1 violation(s), 1 warning(s)
+```
+
+The check exits 1. A Pi 5 and one servo on a common 3 A regulator: caught before you ordered either. Swap in a 5 A regulator and it passes.
+
+## A real-world example: the X500 drone
+
+```bash
 git clone https://github.com/Shivansh2703/lockwire && cd lockwire     # the X500 example lives in the repo, not the wheel
 lockwire check tests/fixtures/x500/contract.yaml
 ```
@@ -45,12 +78,7 @@ you find out before you apply power. Give the Jetson its own regulator
 
 ## Your own robot
 
-```bash
-lockwire start path/to/robot.urdf     # writes lockwire.yaml from your URDF
-lockwire check                        # checks lockwire.yaml; exit 1 on a violation
-```
-
-`start` reads links, joints, masses and the structure hash from your URDF or SDF. A fresh
+`lockwire start` reads links, joints, masses and the structure hash from your URDF or SDF. A fresh
 lockfile knows the frame and nothing else; fill in devices, rails and buses as you go, and
 `check` lists what it still could not check.
 
@@ -82,14 +110,14 @@ The `scored N: …` line above the verdict is where a script should look.
 ```
 
 Inputs: `contract` (default `lockwire.yaml`), `version` (default latest), `python-version` (default 3.12).
-Or just `pip install lockwire && lockwire check lockwire.yaml`.
+Or just `pip install "git+https://github.com/Shivansh2703/lockwire@v0.2.0" && lockwire check lockwire.yaml`.
 
 ## Pre-commit
 
 ```yaml
 repos:
   - repo: https://github.com/Shivansh2703/lockwire
-    rev: v0.1.0
+    rev: v0.2.0
     hooks:
       - id: lockwire-check
 ```
@@ -117,10 +145,10 @@ No physics simulation, no machine learning, no network. The answer is the same t
 ## Free and Pro
 
 - **Free forever (this repo):** the lockfile, all deterministic checks including
-  power/thermal/bus/link/torque budgets, edit / describe / plan / what-if, the MCP server, and
-  the HTML report.
-- **Lockwire Pro** adds the powered-on preflight gate, recording analysis (rosbag2 / ULog), and
-  the desktop app.
+  power/thermal/bus/link/torque budgets, edit / describe / plan / what-if, the MCP server, the
+  HTML report, and the desktop planning app (Open, Design, Declare, Plan, Check).
+- **Lockwire Pro** adds the powered-on preflight gate (Test, Run), recording analysis
+  (rosbag2 / ULog), and health.
 
 ## Development
 

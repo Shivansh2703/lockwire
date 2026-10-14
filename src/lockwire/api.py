@@ -105,6 +105,119 @@ def start(
     return start_contract(urdf, overwrite=overwrite, expected_revision=expected_revision)
 
 
+def api_schema(out: Path | str) -> None:
+    """Write the payload union's JSON schema — ``api_payload.export_openapi``.
+
+    ``api_payload`` is imported here rather than at module scope so
+    ``import lockwire.api`` stays as thin as
+    ``test_library_import_pulls_no_server_or_cli_deps`` requires: the schema
+    export is the one operation nothing else on the read path needs.
+    """
+    from lockwire.api_payload import export_openapi
+
+    export_openapi(out)
+
+
+def api_types(out: Path | str) -> None:
+    """Write the payload union's TypeScript types — ``emit_ts.write`` (e1-d3).
+
+    ``emit_ts`` is imported here rather than at module scope for the same
+    reason ``api_schema`` imports ``api_payload`` locally:
+    ``test_library_import_pulls_no_server_or_cli_deps`` keeps ``import
+    lockwire.api`` thin.
+    """
+    from lockwire.emit_ts import write
+
+    write(out)
+
+
+def declare_form(contract: Path | str | Contract) -> dict[str, Any]:
+    """The Declare form's payload (E4-df): every quantity ``declare`` could
+    write in `contract` — present or not — plus a pre-filled witness box.
+    ``page.build_declare_form`` — read-only, nothing here writes.
+
+    Not in ``FUNCTIONS``: there is no ``lockwire declare-form`` command, only
+    the three face boxes (e4-b/c/d) reading this document (same "not a
+    seventh operation" reasoning as ``health_document`` above).
+    """
+    loaded = contract if isinstance(contract, Contract) else load(contract)
+    from lockwire.page import build_declare_form  # noqa: PLC0415 - keeps `import lockwire.api` thin
+
+    document = build_declare_form(loaded)
+    if not isinstance(contract, Contract):
+        document["revision"] = contract_revision(contract)
+        from lockwire.cli import _find_scene  # noqa: PLC0415 - deferred, as load_scene
+        from lockwire.scene_urdf import urdf_visual_parents  # noqa: PLC0415
+
+        scene_path, _ = _find_scene(Path(contract), None)
+        if scene_path is not None and scene_path.suffix.lower() == ".urdf":
+            try:
+                up = urdf_visual_parents(scene_path)
+            except (OSError, ValueError, SyntaxError):  # SyntaxError: ET.ParseError
+                up = {}
+            for row in document["rows"]:
+                seg = row["path"].split("/")
+                if seg[:2] == ["model", "links"] and seg[2] in up:
+                    row["part"] = up[seg[2]]
+    return document
+
+
+def page(
+    contract: Path | str | Contract,
+    *,
+    preflight: tuple[list[Finding], str] | None = None,
+    scene: Any = None,
+    scene_source: str | None = None,
+    contract_path: Path | str | None = None,
+    plan_path: Path | str | None = None,
+    plan_outcomes: list[Any] | None = None,
+    cli_line: str | None = None,
+) -> dict[str, Any]:
+    """The page dict ``page.build_payload`` computes, wrapped unchanged —
+    the root gap e1-pg closes: ``PagePayload`` (``api_payload.py``) was
+    defined with nothing behind it. This does not recompute anything
+    ``build_payload`` does not already compute; it only loads the contract the
+    way every other door in this file does.
+
+    ``contract_path`` is a separate override (defaulting to ``contract`` when
+    that is a path, ``None`` when it is already a ``Contract``) because
+    ``build_payload`` itself takes a parsed ``Contract`` *and* its path as two
+    fields — the path drives the health summary and the describe faces, not
+    just the loader — so a caller that already parsed the contract (the
+    sidecar, which also needs it for scene/preflight/plan lookups first) can
+    pass both without a second parse.
+
+    Not in ``FUNCTIONS``/``__all__``: there is no ``lockwire page`` CLI
+    command, and ``test_every_cli_command_has_a_library_twin`` refuses a
+    ``FUNCTIONS`` entry with no CLI leaf of the same name. So this sits beside
+    ``load_scene``/``passed_baseline_channels`` above — a computation more
+    than one door needs (the sidecar's ``page`` command) without being the
+    twin of its own CLI command. the page's CLI command remains the one that
+    writes this same payload to a file; this returns the dict itself for a
+    caller — the sidecar, today — that wants the document.
+    """
+    from lockwire.page import build_payload as _build_payload  # noqa: PLC0415
+
+    loaded = contract if isinstance(contract, Contract) else load(contract)
+    if contract_path is not None:
+        resolved_path = Path(contract_path)
+    else:
+        resolved_path = None if isinstance(contract, Contract) else Path(contract)
+    document = _build_payload(
+        loaded,
+        preflight=preflight,
+        scene=scene,
+        scene_source=scene_source,
+        contract_path=resolved_path,
+        plan_path=Path(plan_path) if plan_path is not None else None,
+        plan_outcomes=plan_outcomes,
+        cli_line=cli_line,
+    )
+    if resolved_path is not None:
+        document["revision"] = contract_revision(resolved_path)
+    return document
+
+
 #: The free library operations. Every name here has a CLI command of the same
 #: name. ``api_pro.FUNCTIONS`` is the complete inventory with the paid ones.
 FUNCTIONS = (
@@ -126,6 +239,8 @@ FUNCTIONS = (
     "place",
     "mount-shape",
     "upgrade",
+    "api-schema",
+    "api-types",
 )
 
 __all__ = [
@@ -133,6 +248,8 @@ __all__ = [
     "DOCUMENT_VERSION",
     "FUNCTIONS",
     "add",
+    "api_schema",
+    "api_types",
     "blame",
     "what_if",
     "check",
@@ -227,37 +344,40 @@ def check_document(
         document["counts"]["not_scored"],
         len(scored_records),
     )
-    document["actuator_cases"] = [
-        {
-            "case_id": report.case_id,
-            "evidence": (
-                actuator_evidence[report.case_id].model_dump(mode="json")
-                if actuator_evidence is not None and report.case_id in actuator_evidence
-                else None
-            ),
-            "conformance": _actuator_claim_document(
-                report.case_id,
-                report.conformance,
-                report.findings,
-                "conformance",
-                report.comparisons,
-                report=report,
-                evidence=(actuator_evidence or {}).get(report.case_id),
-                revision=revision,
-            ),
-            "simulation_validity": _actuator_claim_document(
-                report.case_id,
-                report.simulation_validity,
-                report.findings,
-                "simulation_validity",
-                report.comparisons,
-                report=report,
-                evidence=(actuator_evidence or {}).get(report.case_id),
-                revision=revision,
-            ),
-        }
-        for report in getattr(findings, "actuator_case_reports", [])
-    ]
+    # Only the paid check slot produces case reports; without it the key is absent.
+    case_reports = getattr(findings, "actuator_case_reports", [])
+    if case_reports:
+        document["actuator_cases"] = [
+            {
+                "case_id": report.case_id,
+                "evidence": (
+                    actuator_evidence[report.case_id].model_dump(mode="json")
+                    if actuator_evidence is not None and report.case_id in actuator_evidence
+                    else None
+                ),
+                "conformance": _actuator_claim_document(
+                    report.case_id,
+                    report.conformance,
+                    report.findings,
+                    "conformance",
+                    report.comparisons,
+                    report=report,
+                    evidence=(actuator_evidence or {}).get(report.case_id),
+                    revision=revision,
+                ),
+                "simulation_validity": _actuator_claim_document(
+                    report.case_id,
+                    report.simulation_validity,
+                    report.findings,
+                    "simulation_validity",
+                    report.comparisons,
+                    report=report,
+                    evidence=(actuator_evidence or {}).get(report.case_id),
+                    revision=revision,
+                ),
+            }
+            for report in case_reports
+        ]
     document["revision"] = revision
     return document
 
@@ -969,14 +1089,15 @@ def what_if(
         sides[name]["comparisons"] = [
             row.model_dump(mode="json") for row in side.report.scored_records
         ]
-    recorded_health_document = {
-        "baseline": [row.model_dump(mode="json") for row in result.recorded_health.baseline],
-        "invalidated": [row.model_dump(mode="json") for row in result.recorded_health.invalidated],
-    }
-    return envelope(
-        "lockwire-what-if-report",
-        {**sides, "recorded_health": recorded_health_document, "diff": result.diff},
-    )
+    document = {**sides, "diff": result.diff}
+    if recorded_health is not None:  # only the paid what-if supplies a ledger
+        document["recorded_health"] = {
+            "baseline": [row.model_dump(mode="json") for row in result.recorded_health.baseline],
+            "invalidated": [
+                row.model_dump(mode="json") for row in result.recorded_health.invalidated
+            ],
+        }
+    return envelope("lockwire-what-if-report", document)
 
 
 def upgrade(

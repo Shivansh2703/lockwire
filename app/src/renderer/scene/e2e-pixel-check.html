@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+  <body>
+    <canvas id="c" width="64" height="64"></canvas>
+    <script src="./e2e-pixel-bundle.js"></script>
+    <script>
+      // Renders the REAL scene once and reads back the center pixel with gl.readPixels — a
+      // screenshot proves nothing was pasted over the window; a raw framebuffer read proves the
+      // mesh was actually drawn (see e2-pixel-check.ts's header comment).
+      window.__runSceneCheck = function (partsJson) {
+        var parts = JSON.parse(partsJson);
+        var canvas = document.getElementById("c");
+        var ctx = window.__buildScene(canvas, parts, 64, 64);
+        ctx.renderer.render(ctx.scene, ctx.camera);
+        var gl = ctx.renderer.getContext();
+        var pixel = new Uint8Array(4);
+        gl.readPixels(Math.floor(gl.canvas.width / 2), Math.floor(gl.canvas.height / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        return Array.from(pixel);
+      };
+    </script>
+  </body>
+</html>

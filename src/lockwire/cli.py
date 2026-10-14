@@ -1700,4 +1700,100 @@ def blame_cmd(
     raise typer.Exit(0)
 
 
+@app.command(
+    "api-schema",
+    # One short line on purpose: `_help_commands` in tests/test_parity.py reads
+    # the first token of every line in `--help`'s Commands panel, so a
+    # description that wraps invents a command that does not exist.
+    help="Write the payload union's JSON schema, for the app's TypeScript types.",
+)
+def api_schema_cmd(
+    out: Path = typer.Option(..., "--out", help="Where to write the JSON schema document."),
+) -> None:
+    """Write the payload union's JSON schema (E1-b) — every member document
+    lockwire's doors emit, which is what the TypeScript types are generated from
+    (packaging/generate-types.md). The library builds it, never this file
+   : `api.api_schema` is the twin.
+    """
+    api.api_schema(out)
+    console.print(f"wrote {out}")
+
+
+@app.command(
+    "api-types",
+    # One short line on purpose: `_help_commands` in tests/test_parity.py reads
+    # the first token of every line in `--help`'s Commands panel, so a
+    # description that wraps invents a command that does not exist.
+    help="Write app/src/shared/api.gen.ts directly from the payload union.",
+)
+def api_types_cmd(
+    out: Path = typer.Option(..., "--out", help="Where to write the generated TypeScript."),
+) -> None:
+    """Write the payload union's TypeScript types (e1-d3) — no generator
+    dependency, walked straight from `api_payload.py` (v8 line 265: the
+    mainstream generator's own docs say a discriminated union like ours
+    narrows badly through it). The library builds it, never this file
+   : `api.api_types` is the twin.
+    """
+    api.api_types(out)
+    console.print(f"wrote {out}")
+
+
+@app.command("serve")
+def serve_cmd(
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="Bind address. Loopback only — anything else is refused."
+    ),
+    port: int = typer.Option(
+        0, "--port", help="Port to bind, or 0 to pick a free one (the default)."
+    ),
+    robot: bool = typer.Option(
+        False,
+        "--robot",
+        help="Robot mode: write commands are absent, not refused (plan v8 line 418).",
+    ),
+    exit_on_stdin_close: bool = typer.Option(
+        False,
+        "--exit-on-stdin-close",
+        help="Exit when stdin closes. The app passes this so no sidecar outlives it.",
+    ),
+    profile: str | None = typer.Option(
+        None, "--profile", hidden=True, help="Server policy a plugin enforces."
+    ),
+    required_evidence: list[str] | None = typer.Option(
+        None,
+        "--require-evidence",
+        hidden=True,
+        help="Evidence a plugin's server policy requires; repeat for each class.",
+    ),
+) -> None:
+    """Start the sidecar: the same core, over local HTTP, for the Electron app.
+
+    Private to the app: loopback only, a fresh token every launch, no
+    compatibility promise. A caller outside the app uses `lockwire.api`, this
+    CLI's `--json`, or MCP.
+
+    Prints one JSON line on stdout when ready, then serves until SIGTERM — or,
+    with --exit-on-stdin-close, until its stdin closes.
+    """
+    try:
+        import fastapi  # noqa: F401
+        import uvicorn  # noqa: F401
+
+        from lockwire.serve import run_server
+    except ImportError:
+        print("install the serve extra: uv sync --extra serve", file=sys.stderr)
+        raise typer.Exit(2) from None
+    raise typer.Exit(
+        run_server(
+            host=host,
+            port=port,
+            robot=robot,
+            exit_on_stdin_close=exit_on_stdin_close,
+            profile=profile,
+            required_evidence=required_evidence,
+        )
+    )
+
+
 plugins.load(app=app)  # after every free command is defined, so paid ones append to the same app

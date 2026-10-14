@@ -1,0 +1,28 @@
+# E5.9a stable-Noble arm64 direct-package receipt (2026-09-13).
+# Source: http://packages.ros.org/ros2/ubuntu noble/main, signed by Open
+# Robotics <info@osrfoundation.org>, fingerprint
+# C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 (key id F42ED6FBAB17C654).
+# Base: ros:jazzy-ros-core@sha256:17142ce4cb561d70d61f4fb485177caf0d6cceca4ccc418704168ff45f3713e5
+# (linux/arm64, 151593239 bytes).
+#
+# Corrected history: the earlier empty apt-cache result was a cache-path error,
+# not package absence. This direct manifest is measured; it is NOT a complete
+# dpkg closure or a runnable build authorization.
+resolution_status=pending-authorized-build-full-dpkg-closure
+
+# Direct runtime install set: no ros-jazzy-ros-gz meta package, which would add
+# bridge/image/demo dependencies beyond the required simulator interface.
+ros-jazzy-gz-ros2-control=1.2.20-1noble.20260904.032933 architecture=arm64 sha256=b952a457bac640727b29e8875e5d3cffcc9aadbf4198ac7ef598ac008b492fcd size=209238 license=unresolved-until-build-notice-capture source=https://index.ros.org/p/gz_ros2_control/#jazzy
+ros-jazzy-joint-trajectory-controller=4.42.1-1noble.20260904.012550 architecture=arm64 sha256=4c6e32de57ff397a570bb76ed5a7c2717786db4179d49f3917894c43f2ae3712 size=308774 license=unresolved-until-build-notice-capture source=https://control.ros.org
+ros-jazzy-ros-gz-sim=1.0.24-1noble.20260904.032840 architecture=arm64 sha256=ccb6d99a83d05531a2e3e4be54fa27cb63df79957faf0a20811ac296996cd122 size=664302 license=unresolved-until-build-notice-capture source=https://index.ros.org/p/ros_gz_sim/#jazzy
+ros-jazzy-gz-sim-vendor=0.0.13-1noble.20260904.022149 architecture=arm64 sha256=564d3067f080f555bec82ceff41ab2a70c8ff4f34f9231b0d050f198b6de57c5 size=10550674 license=unresolved-until-build-notice-capture source=https://github.com/gazebosim/gz-sim
+
+# Probe-only package: ros-jazzy-ros-gz=1.0.24-1noble.20260907.051758
+# is intentionally not installed; it is a broader meta-package than this
+# synthetic admission needs. The vendor description identifies gz-sim8 8.15.0
+# (Gazebo Harmonic).
+#
+# The authorized online build must replace the pending status only after
+# retaining every installed package/version/architecture/hash/license/source
+# from dpkg and apt, plus final image ID/digest/size. No floating name, apt
+# upgrade, missing-pin fallback, or partial lock is runnable.

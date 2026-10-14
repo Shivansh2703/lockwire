@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 — the free desktop app
+
+The app's planning half is now free.
+
+- A desktop app for planning a robot before it is powered: Open a robot description, Design it,
+  Declare what it must hold, Plan changes, and Check them against the contract. The first run
+  needs no setup beyond opening your robot.
+- Downloads for macOS (Apple silicon, unsigned) and Linux (x64 AppImage), plus the source to
+  build them. Windows follows.
+- The local server behind the app (`lockwire serve`) and the generated types (`lockwire api-types`,
+  `lockwire api-schema`) are part of the free package.
+- A CI job that packages the Linux app and drives it end to end.
+
+Lockwire Pro keeps the powered preflight gate, recording analysis and health.
+
 ## 0.1.0 — first public release
 
 - The physics lockfile: a checked-in YAML contract for a robot's devices, frames, power and

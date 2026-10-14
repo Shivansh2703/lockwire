@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <body>
+    <canvas id="c-css" width="64" height="64"></canvas>
+    <canvas id="c-db" width="64" height="64"></canvas>
+    <canvas id="c-nofix" width="64" height="64"></canvas>
+    <canvas id="c-buildscene" width="64" height="64"></canvas>
+    <script src="./hidpi-line-bundle.js"></script>
+    <script>
+      // Runs the real Line2/LineMaterial harness once per case and returns the measured
+      // thicknesses (device pixels) plus devicePixelRatio, for the node side to compare — see
+      // hidpi-line-entry.ts and scene-hidpi.e2e.test.ts.
+      window.__runHidpiCheck = function (linewidth) {
+        var cssThickness = window.__runHidpiLineCheck("c-css", "css", linewidth);
+        var dbThickness = window.__runHidpiLineCheck("c-db", "drawing-buffer", linewidth);
+        var noFixThickness = window.__runHidpiLineCheck("c-nofix", "no-fix", linewidth);
+        // The bite-sensitive measurement: goes through the REAL buildScene(), not a hand-rolled
+        // renderer — this is what red/greens when buildScene.ts's own setPixelRatio is removed.
+        var viaBuildSceneThickness = window.__runHidpiLineCheckViaBuildScene("c-buildscene", linewidth);
+        return {
+          dpr: window.devicePixelRatio,
+          cssThickness: cssThickness,
+          dbThickness: dbThickness,
+          noFixThickness: noFixThickness,
+          viaBuildSceneThickness: viaBuildSceneThickness,
+        };
+      };
+    </script>
+  </body>
+</html>
