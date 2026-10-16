@@ -12,7 +12,9 @@ CLEAN = Path(__file__).parent / "fixtures" / "contract_clean.yaml"
 
 
 def _f(quantity: str) -> Finding:
-    return Finding(severity="violation", quantity=quantity, observed="1", expected="2", action="fix")
+    return Finding(
+        severity="violation", quantity=quantity, observed="1", expected="2", action="fix"
+    )
 
 
 def test_labels_are_short_and_drop_structure():
@@ -31,3 +33,19 @@ def test_served_plan_names_each_finding_in_order():
     payload = PlanPayload.model_validate(document)
     assert len(payload.finding_labels) == len(payload.findings) > 0
     assert payload.finding_labels[0].label == "Joint effort"
+
+
+def test_rail_overload_has_one_name_on_every_page():
+    from lockwire.page import finding_labels
+
+    contract = api.load(Path(__file__).parent / "fixtures" / "x500" / "contract.yaml")
+    f = Finding(
+        severity="violation",
+        quantity="budgets/bud.power.pm02-5v",
+        observed="1",
+        expected="2",
+        action="x",
+    )
+    assert (
+        finding_labels(contract, [f])[0]["label"] == "PM02 5 V rail overloaded"
+    )  # as Check's card title

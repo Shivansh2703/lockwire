@@ -90,7 +90,7 @@ function render(
 
 const expandAll = () => act(() => container.querySelectorAll<HTMLButtonElement>('.kit-tree-chev[aria-expanded="false"]').forEach((c) => c.click()));
 const valueRows = () => [...container.querySelectorAll<HTMLButtonElement>(".kit-tree-row:not(.kit-tree-head)")];
-const full = (b: HTMLElement) => { const g = b.closest(".kit-tree-group"); return g ? `${g.querySelector(".kit-tree-label span")!.textContent} · ${b.textContent}` : b.textContent!; };
+const full = (b: HTMLElement) => { const name = b.querySelector("span")!.textContent!; const g = b.closest(".kit-tree-group"); return g ? `${g.querySelector(".kit-tree-label span")!.textContent} · ${name}` : name; };
 const pick = (label: string) => {
   expandAll();
   act(() => valueRows().find((b) => full(b) === label)!.click());
@@ -190,7 +190,7 @@ describe("DeclareFace", () => {
     };
     const onSubmit = vi.fn(async (): Promise<DeclareSubmitResult> => ({ written: true }));
     render(payload, onSubmit);
-    expect((container.querySelector('input[aria-label="value"]') as HTMLInputElement).value).toBe("0.1235");
+    expect((container.querySelector('input[aria-label="value"]') as HTMLInputElement).value).toBe("123.5 g"); // the list's own unit, not kg
     act(() => (container.querySelector('input[aria-label="value"]') as HTMLInputElement).focus());
     expect((container.querySelector('input[aria-label="value"]') as HTMLInputElement).value).toBe("0.123456");
     await act(async () => declareButton().click());
@@ -287,5 +287,32 @@ describe("DeclareFace", () => {
       state: "approved",
       witness: PAYLOAD.witness.prefill,
     });
+  });
+});
+
+describe("r8 Values list names", () => {
+  it("shows a frame as its own tail and a fully unset part as one count line", () => {
+    const r = (group: string, path: string) => ({ path, label: path, group, short: "Model mass", unit: "kg", kind: "declared" as const, value: null, provenance: null });
+    const rows = [r("Depth Front Lower Camera", "a"), r("Depth Front Lower Camera", "b"), r("Depth Camera Front Lower Depth Optical Frame", "c")];
+    act(() => root.render(<DeclareValues payload={{ ...PAYLOAD, rows }} selectedPath="a" onSelect={() => {}} />));
+    expect(container.textContent).toContain("2 unset");
+    expect(container.textContent).toContain("Depth Optical Frame");
+    expect(container.textContent).not.toContain("Camera Front Lower Depth");
+  });
+
+  it("shows Model mass once as a group header, not on every row", () => {
+    const r = (group: string, path: string) => ({ path, label: path, group, short: "Model mass", unit: "kg", kind: "declared" as const, value: 1.28, provenance: null });
+    act(() => root.render(<DeclareValues payload={{ ...PAYLOAD, rows: [r("Torso", "a"), r("Head", "b")] }} selectedPath="a" onSelect={() => {}} />));
+    expect(container.textContent?.match(/Model mass/g)).toHaveLength(1);
+    expect(container.textContent).toContain("Head");
+  });
+
+  it("r10: groups many link masses per limb and files 0.001 kg Body frames as no-mass", () => {
+    const r = (group: string, value: number) => ({ path: group, label: group, group, short: "Model mass", unit: "kg", kind: "declared" as const, value, provenance: null });
+    const rows = [r("Torso", 1.28), r("Head", 0.14), ...["Hip Pitch", "Knee", "Ankle Roll", "Hip Roll", "Hip Yaw", "Foot"].map((n) => r(`Left ${n}`, 0.1)), r("Torso Body", 0.001), r("Left Knee Body", 0.001)];
+    act(() => root.render(<DeclareValues payload={{ ...PAYLOAD, rows }} selectedPath="Torso" onSelect={() => {}} />));
+    expect(container.textContent).toContain("Left leg");
+    expect(container.textContent).toContain("Frame (no mass)");
+    expect(container.textContent).not.toContain("1 g");
   });
 });

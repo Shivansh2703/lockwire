@@ -29,7 +29,6 @@ const platform = requestedPlatforms[0] ?? "mac";
 if (platform === "linux" && arch !== "x64") throw new Error("Linux packaging is x64-only");
 console.log(`packaging for platform=${platform} arch=${arch}`);
 
-execFileSync("node", ["scripts/generate-icon.mjs"], { stdio: "inherit" });
 execFileSync("npx", ["electron-vite", "build"], { stdio: "inherit" });
 execFileSync("node", ["scripts/stage-sidecar.mjs", `--${arch}`], { stdio: "inherit" });
 // Linux also yields the AppImage download; the dir target is what the packaged e2e runs.

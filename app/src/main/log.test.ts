@@ -13,9 +13,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const require = createRequire(import.meta.url);
 
 let logsDir: string;
+let userDataFlag = false;
 
 vi.mock("electron", () => ({
-  app: { getPath: (name: string) => (name === "logs" ? logsDir : tmpdir()) },
+  app: {
+    getPath: (name: string) => (name === "logs" ? logsDir : name === "userData" ? join(logsDir, "ud") : tmpdir()),
+    commandLine: { hasSwitch: () => userDataFlag },
+  },
   shell: { showItemInFolder: vi.fn() },
 }));
 
@@ -34,6 +38,15 @@ function readLog(): string {
 }
 
 describe("the main-process log (e2-h)", () => {
+  it("test_the_log_dir_follows_user_data_dir_when_the_flag_is_given", () => {
+    userDataFlag = true;
+    try {
+      expect(log.logFilePath()).toBe(join(logsDir, "ud", "logs", "lockwire.log"));
+    } finally {
+      userDataFlag = false;
+    }
+  });
+
   it("test_the_token_never_appears_in_the_log_file", () => {
     const secret = "super-secret-abc123";
     const readyLine = JSON.stringify({ lockwire: "ready", version: "0.0.0", port: 1234, token: secret });

@@ -214,9 +214,7 @@ def write_change_file(entries: tuple[dict[str, Any], ...], out: Path, *, scene_s
     witness, or an absolute source path.
     """
     for witness in {entry["witness"] for entry in entries if "witness" in entry}:
-        validate_witness(
-            witness, refusal=f"--witness must name a real person, not {witness!r}"
-        )
+        validate_witness(witness, refusal=f"--witness must name a real person, not {witness!r}")
     for source in {str(entry["source"]) for entry in entries if "source" in entry}:
         validate_source(source)
     yaml = YAML()
@@ -233,9 +231,7 @@ def write_change_file(entries: tuple[dict[str, Any], ...], out: Path, *, scene_s
             out_entry["value"] = seq
         return out_entry
 
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{out.name}.", suffix=".tmp", dir=out.parent
-    )
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{out.name}.", suffix=".tmp", dir=out.parent)
     temporary_path = Path(temporary_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:

@@ -1,0 +1,7 @@
+{
+  "title": "Drone",
+  "based_on": "Holybro X500 V2 PX4 reference quadrotor",
+  "licence": "Apache-2.0",
+  "licence_url": "https://github.com/Shivansh2703/lockwire/blob/main/LICENSE",
+  "source_repo": "https://github.com/Shivansh2703/lockwire"
+}

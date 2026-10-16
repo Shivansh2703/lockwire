@@ -84,5 +84,3 @@ def test_mcp_tools_call_the_library_not_checks_directly(monkeypatch):
     result = asyncio.run(run())
     assert result.structured_content["verdict"] == "SENTINEL"
     assert result.structured_content["cli_line"] == f"lockwire check {X500}"
-
-

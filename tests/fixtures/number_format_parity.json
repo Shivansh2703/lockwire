@@ -1,0 +1,116 @@
+[
+ {
+  "value": 275.52,
+  "unit": "W",
+  "vs": null,
+  "expected": "275.5 W"
+ },
+ {
+  "value": 370.0,
+  "unit": "W",
+  "vs": null,
+  "expected": "370 W"
+ },
+ {
+  "value": 35.2,
+  "unit": "W",
+  "vs": null,
+  "expected": "35.2 W"
+ },
+ {
+  "value": 0.48,
+  "unit": "W",
+  "vs": null,
+  "expected": "0.48 W"
+ },
+ {
+  "value": 0.002974,
+  "unit": "kg",
+  "vs": null,
+  "expected": "2.97 g"
+ },
+ {
+  "value": 3.0,
+  "unit": "kg",
+  "vs": null,
+  "expected": "3 kg"
+ },
+ {
+  "value": 1e-09,
+  "unit": "kg",
+  "vs": null,
+  "expected": "≈0"
+ },
+ {
+  "value": 0.0,
+  "unit": "kg",
+  "vs": null,
+  "expected": "0 kg"
+ },
+ {
+  "value": 0.2,
+  "unit": "A",
+  "vs": null,
+  "expected": "200 mA"
+ },
+ {
+  "value": 0.0005,
+  "unit": "kg",
+  "vs": null,
+  "expected": "500 mg"
+ },
+ {
+  "value": 0.25,
+  "unit": "m",
+  "vs": null,
+  "expected": "250 mm"
+ },
+ {
+  "value": 15.64,
+  "unit": "W",
+  "vs": 15.6,
+  "expected": "15.64 W"
+ },
+ {
+  "value": 15.64,
+  "unit": "W",
+  "vs": null,
+  "expected": "15.6 W"
+ },
+ {
+  "value": 15.6,
+  "unit": "W",
+  "vs": 15.6,
+  "expected": "15.6 W"
+ },
+ {
+  "value": 9.996,
+  "unit": "W",
+  "vs": null,
+  "expected": "10 W"
+ },
+ {
+  "value": 1234.56,
+  "unit": "V",
+  "vs": null,
+  "expected": "1234.6 V"
+ },
+ {
+  "value": 2e-05,
+  "unit": "W",
+  "vs": null,
+  "expected": "0.00002 W"
+ },
+ {
+  "value": -3.456,
+  "unit": "V",
+  "vs": null,
+  "expected": "-3.46 V"
+ },
+ {
+  "value": 0.1235,
+  "unit": "",
+  "vs": null,
+  "expected": "0.123"
+ }
+]

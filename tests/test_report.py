@@ -735,6 +735,20 @@ def test_html_mass_budget_and_graph_survive_a_device_with_no_declared_mass():
     assert node["sub"] == "mass unknown"  # bites the .base() crash on a None mass
 
 
+def test_graph_nodes_carry_the_numbers_the_connection_views_draw():
+    """Rail load vs capacity (overload), draw, bitrate and mass ride on the nodes as numbers."""
+    nodes = {
+        (lens, n["id"]): n
+        for lens, g in report_html._graph(load_contract(X500)).items()
+        for n in g["nodes"]
+    }
+    rail = nodes["power", "rail.pm02-5v"]
+    assert rail["value"] == pytest.approx(35.2) and rail["limit"] == pytest.approx(15.6)
+    assert nodes["power", "dev.companion.jetson-orin-nano"]["value"] == pytest.approx(25.0)
+    assert nodes["data", "bus.uart.companion"]["value"] == pytest.approx(921600)
+    assert nodes["mechanical", "x500_frame"]["value"] == pytest.approx(0.61)
+
+
 def test_x500_html_report_carries_at_least_one_adds_up_row():
     """A passing comparison must show up as a row in the report_html findings
     section too, not only in the GUI. Mutation bite: deleting
@@ -1091,3 +1105,10 @@ def test_the_emitted_report_carries_its_identity_line():
     assert re.search(
         r"commit [0-9a-f]{12}(-dirty)?|content hash [0-9a-f]{12} \(no repository\)", html
     )
+
+
+def test_fourbar_changepoint_scored_warning_is_counted():
+    path = Path(__file__).parent / "fixtures/fourbar_changepoint/lockwire.yaml"
+    report = run_record_checks(load_contract(path), contract_path=path)
+    _, text = _plain_render(report)
+    assert "scored 1: 0 add up, 0 do not, 1 warn" in text

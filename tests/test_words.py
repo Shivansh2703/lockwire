@@ -177,5 +177,3 @@ def _words_md_start_section() -> str:
     match = re.search(r"## `start` exit codes.*?(?=\n## |\Z)", text, re.DOTALL)
     assert match, "docs/words.md has no `start` section"
     return match.group(0)
-
-

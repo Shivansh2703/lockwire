@@ -99,9 +99,7 @@ def parent_relpath_after_rename(ref: str, relpath: str, *, repo: Path) -> str:
     """
     if not valid_ref(ref):
         return relpath
-    code, out = _git(
-        ["diff-tree", "--no-commit-id", "--name-status", "-r", "-M", ref], cwd=repo
-    )
+    code, out = _git(["diff-tree", "--no-commit-id", "--name-status", "-r", "-M", ref], cwd=repo)
     if code != 0:
         return relpath
     for line in out.splitlines():

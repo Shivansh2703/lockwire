@@ -32,5 +32,3 @@ def test_the_two_places_the_version_lives_agree():
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     declared = tomllib.loads(pyproject.read_text())["project"]["version"]
     assert declared == __version__, f"pyproject says {declared}, package says {__version__}"
-
-

@@ -14,8 +14,14 @@ import pytest
 from typer.testing import CliRunner
 
 from lockwire import api
+from lockwire.copy import human_name
 from lockwire.cli import app
-from lockwire.describe import describe_all, describe_device, describe_system, render_power_tree
+from lockwire.describe import (
+    describe_all,
+    describe_device,
+    describe_system,
+    render_power_tree,
+)
 from lockwire.schema import (
     Actuator,
     Contract,
@@ -466,3 +472,34 @@ def test_human_power_tree_has_no_ids():
     contract = load_contract(FIXTURES / "contract_clean.yaml")
     tree = "\n".join(render_power_tree(contract, human=True))
     assert "dev." not in tree and "rail." not in tree and "efficiency" not in tree
+    assert (
+        "- converter" not in tree and " converter" in tree
+    )  # labelled, never a bare lowercase row
+
+
+def test_human_system_sheet_is_plain(x500_contract):
+    text = describe_system(x500_contract, human=True)
+    assert "CAN (DroneCAN) | CAN | 8 Mbit/s" in text and "e+06" not in text
+    assert "| Endurance |" in text and "bud." not in text
+    assert "\nBattery · " in text and "\n  - " in text
+    assert "- Total mass: 665.6 g · Incomplete" in text
+    assert "kind:" not in text and "device(s)" not in text
+    assert "device(s)" in describe_system(x500_contract)
+
+
+def test_human_sheet_plain_joints_battery_and_mass_reason(x500_contract):
+    text = describe_system(x500_contract, human=True)
+    assert "## Battery" not in text  # the battery's figures ride on the power-tree root
+    assert "rail (" not in text and "capacity:" not in text
+    assert human_name("END-EFFECTOR") == "End Effector" and human_name("base_link") == "Base"
+    from lockwire.describe import _forces_plain
+
+    doc = {
+        "mass_total": {
+            "kind": "not_scored",
+            "not_scored_because": "no mass_total budget is declared",
+        },
+        "cg": {"kind": "not_scored"},
+        "gravity": {"kind": "declared", "value": 9.81, "unit": "m/s^2"},
+    }
+    assert "- Total mass: NOT SCORED — no total-mass budget declared" in _forces_plain(doc)

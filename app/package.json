@@ -1,6 +1,6 @@
 {
   "name": "lockwire-app",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": true,
   "main": "./out/main/index.js",
   "engines": {
@@ -21,7 +21,7 @@
     "appId": "com.shivansh.lockwire",
     "productName": "Lockwire",
     "files": ["out/**/*"],
-    "icon": "build/icons/icon.png",
+    "icon": "assets/icon.png",
     "extraResources": [
       {
         "from": "build/sidecar-staging/sidecar-${platform}-${arch}",
@@ -30,7 +30,7 @@
     ],
     "mac": {
       "target": [{ "target": "dir", "arch": ["arm64"] }],
-      "icon": "build/icons/icon.png",
+      "icon": "assets/icon.icns",
       "identity": null,
       "hardenedRuntime": false,
       "notarize": false

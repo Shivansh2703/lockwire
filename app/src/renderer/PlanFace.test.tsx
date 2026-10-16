@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlanPayload, RobotJoint } from "../shared/api.gen";
 import { PlanFace } from "./PlanFace";
-import { PlanInput } from "./PlanInput";
+import { PlanInput, planName } from "./PlanInput";
 
 const PAYLOAD: PlanPayload = {
   format_version: "2",
@@ -67,6 +67,13 @@ describe("PlanFace", () => {
     expect(row.querySelector(".plan-outcome-reason")!.textContent).toBe("declare the joint before validating this target");
   });
 
+  it("an unscored reason carries one Declare link", () => {
+    const onJump = Object.assign(vi.fn(), { can: () => true });
+    render(PAYLOAD, { onJump });
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Declare it")!.click());
+    expect(onJump).toHaveBeenCalledWith({ declare: true, targets: [] });
+  });
+
   it("titles a finding with the engine's label and chips its typed targets; the path moves to the detail", () => {
     const labels = [{ label: "Rail not declared", targets: [{ kind: "rail" as const, id: "rail.servo-motor", label: "servo-motor" }] }];
     render({ ...PAYLOAD, findings: [FINDING], finding_labels: labels });
@@ -85,6 +92,35 @@ describe("PlanFace", () => {
     expect(container.querySelector(".plan-outcome-reason")?.textContent).toBe(PAYLOAD.steps![0]!.not_scored_reason);
   });
 
+  it("a typed overload reads as a mode header; the engine string waits under the exact finding", () => {
+    const path = "plan/steps/0/set_power_mode/draw";
+    render({ ...PAYLOAD, verdict: "NO-GO", exit_code: 1, counts: { violation: 1, warning: 0, not_scored: 0 }, scored: 1,
+      findings: [{ severity: "violation", quantity: path, observed: "194.40 W rolled-up draw on rail.a at mode 'stall'", expected: "<= 60.00 W capacity", action: "shed load", alternatives: [],
+        observed_quantity: { value: 194.4, unit: "W" }, expected_quantity: { value: 60, unit: "W" } }],
+      steps: [{ path, status: "FAIL", not_scored_reason: null, targets: [] }],
+      finding_labels: [{ label: "Power draw", targets: [], whole: false, instead: [], fix: "Lower the mode" }] });
+    openRow();
+    expect(container.querySelector("summary")?.textContent).toBe("Stall · 194.4 W of 60 W");
+    expect(container.querySelector(".check-detail .kit-kv")?.textContent).not.toContain("rolled-up");
+    expect(container.textContent).toContain("194.40 W rolled-up draw");
+  });
+
+  it("two failing steps of one kind are one row, counted once", () => {
+    const steps = ["0", "1"].map((n) => ({ path: `plan/steps/${n}/rail_load/draw`, status: "FAIL" as const, not_scored_reason: null, targets: [] }));
+    render({ ...PAYLOAD, verdict: "NO-GO", exit_code: 1, findings: [], steps });
+    expect(container.querySelector(".plan-total")?.textContent).toBe("1 step · 1 failed");
+  });
+
+  it("two servos on one overloaded rail are one block whose single Fix names both", () => {
+    const f = (n: string) => ({ severity: "violation" as const, quantity: `plan/steps/${n}/rail_load/draw`, observed: "194.40 W (draw mode: stall)", expected: "<= 60.00 W", observed_quantity: { value: 194.4, unit: "W" }, expected_quantity: { value: 60, unit: "W" }, action: "x", alternatives: [] });
+    const fix = (who: string) => ({ label: "Power draw", targets: [], whole: false, instead: [], fix: `Pick a lower power mode for ${who} or shed other load` });
+    render({ ...PAYLOAD, verdict: "NO-GO", exit_code: 1, findings: [f("0"), f("1")], steps: [], finding_labels: [fix("Gripper Servo"), fix("Shoulder Lift Servo")] });
+    openRow();
+    const text = container.textContent!;
+    expect(text).toContain("for Gripper Servo and Shoulder Lift Servo or shed other load");
+    expect(text.match(/Show the exact finding/g)).toHaveLength(1);
+  });
+
   it("a failed step its violation names is one Fails row whose detail holds the path and numbers (packaged e2e reads this)", () => {
     const path = "plan/steps/0/rail_load/draw";
     render({ ...PAYLOAD, verdict: "NO-GO", exit_code: 1, counts: { violation: 1, warning: 0, not_scored: 0 }, scored: 1,
@@ -97,8 +133,8 @@ describe("PlanFace", () => {
     expect(row.querySelector(".kit-finding-word")?.textContent).toBe("Fails");
     openRow();
     expect(row.querySelector(".finding-path")?.textContent).toBe(path);
-    expect(row.textContent).toContain("501.00 W");
-    expect(row.textContent).toContain("20.00 W");
+    expect(row.textContent).toContain("501 W");
+    expect(row.textContent).toContain("20 W");
   });
 
   it("lists findings as the same rows Check uses, chipped with the joint they name", () => {
@@ -141,11 +177,22 @@ describe("PlanInput", () => {
     expect(container.querySelector(".kit-filepick .kit-cli")).toBeNull();
     await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click());
     expect(onPlan).toHaveBeenCalledWith(PAYLOAD);
-    expect(container.querySelector(".kit-filepick .kit-cli-text")?.textContent).toBe("pick-and-place.yaml");
+    expect(container.querySelector(".kit-filepick .kit-cli-text")?.textContent).toBe("pick and place plan");
+    expect(container.querySelector(".kit-filepick .kit-cli")?.getAttribute("title")).toBe("pick-and-place.yaml");
     act(() => root.render(<PlanInput onChoosePlan={async () => picked} payload={PAYLOAD} onPlan={onPlan} />));
     expect(container.querySelector(".verdict-word .kit-pill")?.textContent).toBe("Not scored");
     expect(container.querySelector(".plan-outcome-reason")?.textContent).toBe(PAYLOAD.steps?.[0]?.not_scored_reason);
     expect(container.querySelector(".titlebar, .mode-tabs")).toBeNull();
+  });
+
+  it("a GO with a not-scored step says so next to the verdict", () => {
+    act(() => root.render(<PlanInput onChoosePlan={async () => null} payload={{ ...PAYLOAD, verdict: "GO" }} onPlan={vi.fn()} />));
+    expect(container.querySelector(".verdict-word")?.textContent).toContain("1 step not scored");
+  });
+
+  it("planName never doubles or leads with a space", () => {
+    expect(["plan.yaml", "plan-.yaml", ".yaml", "plan-x500.yaml"].map((f) => planName(f))).toEqual(["Plan", "Plan", "Plan", "x500 plan"]);
+    expect(planName("plan-x500.yaml", "X500")).toBe("X500 plan");
   });
 
   it("removing the file chip clears the result", async () => {

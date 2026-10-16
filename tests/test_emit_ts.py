@@ -35,7 +35,7 @@ def test_union_emits_a_discriminated_type_typescript_can_narrow():
     text = emit_ts.emit()
     assert "export type MachineDocument =" in text
     for artifact_type, model in MEMBERS.items():
-        assert f'{model.__name__} {{' in text
+        assert f"{model.__name__} {{" in text
         assert f'artifact_type: "{artifact_type}";' in text, (
             f"{model.__name__}.artifact_type did not emit as a narrowable literal"
         )
@@ -47,9 +47,7 @@ def test_every_union_member_appears_in_the_emitted_file():
     for model in ALL_MEMBERS:
         assert f"export interface {model.__name__} {{" in text or (
             f"export type {model.__name__} =" in text
-        ), (
-            f"{model.__name__} is in api_payload.ALL_MEMBERS but missing from the emitted file"
-        )
+        ), f"{model.__name__} is in api_payload.ALL_MEMBERS but missing from the emitted file"
 
 
 def test_root_list_member_emits_its_item_type_instead_of_an_empty_interface():
@@ -63,7 +61,7 @@ def test_python_verdict_exit_codes_are_emitted_for_the_app_boundary():
     text = emit_ts.emit()
     assert "export const VERDICT_EXIT_CODES =" in text
     for code, exit_code in VERDICT_EXIT_CODES.items():
-        assert f'{json.dumps(verdict_word(code))}: {exit_code}' in text
+        assert f"{json.dumps(verdict_word(code))}: {exit_code}" in text
 
 
 def test_no_typescript_generator_dependency_declared():
@@ -73,7 +71,9 @@ def test_no_typescript_generator_dependency_declared():
     committed design doc considered and measured broken here."""
     package = json.loads(APP_PACKAGE_JSON.read_text(encoding="utf-8"))
     declared = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
-    generator_names = {name for name in declared if "openapi-typescript" in name or "quicktype" in name}
+    generator_names = {
+        name for name in declared if "openapi-typescript" in name or "quicktype" in name
+    }
     assert not generator_names, f"a TypeScript-generator dependency was added: {generator_names}"
 
     source = Path(emit_ts.__file__).read_text(encoding="utf-8")

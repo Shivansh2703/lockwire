@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import type { FileOpenResult, StartUrdfResult } from "../main/ipc";
 import type { SidecarState } from "../main/sidecar";
-import type { DeclareFormPayload, DiffPayload, LogPayload, PagePayload, PlanPayload, WhatIfPayload } from "../shared/api.gen";
+import type { DeclareFormPayload, DiffPayload, LogPayload, PagePayload, PlanPayload, Starter, WhatIfPayload } from "../shared/api.gen";
 import { proApi } from "./proRegistry";
 import {
   MENU_OPENED_CHANNEL,
@@ -34,7 +34,7 @@ const lockwire = {
   getContractPage: (request: ContractPageRequest): Promise<PagePayload> => run("contract:page", request),
   getDeclareForm: (request: DeclareFormRequest): Promise<DeclareFormPayload> => run("contract:declare-form", request),
   compareContractWhatIf: (request: ContractWhatIfRequest): Promise<WhatIfPayload> => run("contract:what-if", request),
-  checkPlan: (request: PlanRequest): Promise<PlanPayload> => run("contract:plan", request),
+  checkPlan: (request: PlanRequest): Promise<PlanPayload | null> => run("contract:plan", request),
   diffContract: (request: DiffRequest): Promise<DiffPayload> => run("contract:diff", request),
   getHistory: (request: HistoryRequest): Promise<LogPayload> => run("contract:history", request),
   choosePlan: (): Promise<string | null> => run("file:choose-plan", undefined),
@@ -42,6 +42,8 @@ const lockwire = {
     run("robot:command", args),
   openLockfile: (request: ContractPageRequest): Promise<FileOpenResult> => run("file:open", request),
   startFromUrdf: (request?: StartUrdfRequest): Promise<StartUrdfResult> => run("file:start-urdf", request),
+  newRobot: (starter: string | null): Promise<StartUrdfResult> => run("file:new-robot", { starter }),
+  getStarters: (): Promise<Starter[]> => run("file:starters", undefined),
   // Drag-to-open: pathForFile turns a dropped File into its path (webUtils), openDroppedPath
   // runs the same start/open+check flow; main refuses any extension but urdf/sdf/xacro/yaml/yml.
   pathForFile: (file: File): string => webUtils.getPathForFile(file),

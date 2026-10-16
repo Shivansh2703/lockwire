@@ -33,6 +33,10 @@ export interface ScenePart {
 export interface ViewInset { top: number; right: number; bottom: number; left: number }
 const NO_INSET: ViewInset = { top: 0, right: 0, bottom: 0, left: 0 };
 
+/** One framing for every page: the robot is fitted to the same open area whichever panels are up
+ * (about 1440x900: tabs on top, parts list left, inspector right, view pill below). */
+export const FRAME_INSET: ViewInset = { top: 105, right: 450, bottom: 60, left: 280 };
+
 export interface SceneContext {
   inset?: ViewInset;
   scene: THREE.Scene;
@@ -47,8 +51,10 @@ export interface SceneContext {
   needsRender: boolean;
 }
 
-/** The initial three-quarter framing fills the panel without taking over later orbit or resize. */
-const FIT_FILL_FRACTION = 0.74;
+/** One framing rule: every robot is as wide as 55% of the open width, centred. A tall robot
+ * (humanoid) stops at 80% of the open height instead, so it never reaches the tab bar. */
+const FIT_FILL_FRACTION = 0.55;
+const FIT_HEIGHT_CAP = 0.8;
 const LIGHT_SKY = 0xffffff;
 const LIGHT_GROUND = 0x8890a0;
 const ROBOT_UP = new THREE.Vector3(0, 0, 1);
@@ -81,7 +87,8 @@ export function applyViewInset(ctx: SceneContext, inset: ViewInset, width: numbe
 export function refit(ctx: SceneContext): void {
   ctx.needsRender = true;
   const { x: w, y: h } = ctx.resolution;
-  fitCameraToBounds(ctx.camera, ctx.controls, ctx.meshes, FIT_FILL_FRACTION, ctx.renderer, ctx.scene, visibleRect(ctx.inset ?? NO_INSET, w, h));
+  const visible = visibleRect(ctx.inset ?? NO_INSET, w, h);
+  fitCameraToBounds(ctx.camera, ctx.controls, ctx.meshes, FIT_FILL_FRACTION, ctx.renderer, ctx.scene, visible);
 }
 
 function defaultViewDirection(): THREE.Vector3 {
@@ -103,13 +110,15 @@ function fitCameraToBounds(
   renderer?: THREE.WebGLRenderer,
   scene?: THREE.Scene,
   visible: VisibleRect = FULL_RECT,
+  extra: THREE.Vector3[] = [],
+  viewDirection?: THREE.Vector3,
 ): void {
   const box = new THREE.Box3();
   for (const mesh of meshes) box.expandByObject(mesh);
   if (box.isEmpty()) return;
 
   const center = box.getCenter(new THREE.Vector3());
-  const direction = defaultViewDirection();
+  const direction = viewDirection ?? defaultViewDirection();
   const right = new THREE.Vector3()
     .crossVectors(ROBOT_UP, direction)
     .normalize();
@@ -129,12 +138,17 @@ function fitCameraToBounds(
       halfHeight = Math.max(halfHeight, Math.abs(vertex.dot(up)));
     }
   }
+  for (const p of extra) {
+    vertex.copy(p).sub(center);
+    halfWidth = Math.max(halfWidth, Math.abs(vertex.dot(right)));
+    halfHeight = Math.max(halfHeight, Math.abs(vertex.dot(up)));
+  }
 
   const verticalFov = (camera.fov * Math.PI) / 180;
   const horizontalFov =
     2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
   let distance = Math.max(
-    halfHeight / (fillFraction * visible.h * Math.tan(verticalFov / 2)),
+    halfHeight / (FIT_HEIGHT_CAP * visible.h * Math.tan(verticalFov / 2)),
     halfWidth / (fillFraction * visible.w * Math.tan(horizontalFov / 2)),
   );
   const placeCamera = () => {
@@ -149,16 +163,40 @@ function fitCameraToBounds(
   camera.up.copy(ROBOT_UP);
   placeCamera();
 
+  // The box-based distance is orthographic; perspective makes the near end bigger. Re-measure the
+  // projected vertices and rescale until the width (or capped height) hits its target.
+  for (let pass = 0; pass < 4; pass++) {
+    camera.updateMatrixWorld();
+    let lo = Infinity, hi = -Infinity, bottom = Infinity, top = -Infinity;
+    for (const mesh of meshes) {
+      const positions = mesh.geometry.getAttribute("position");
+      for (let i = 0; i < positions.count; i++) {
+        vertex.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld).project(camera);
+        lo = Math.min(lo, vertex.x); hi = Math.max(hi, vertex.x);
+        bottom = Math.min(bottom, vertex.y); top = Math.max(top, vertex.y);
+      }
+    }
+    for (const p of extra) {
+      vertex.copy(p).project(camera);
+      lo = Math.min(lo, vertex.x); hi = Math.max(hi, vertex.x);
+      bottom = Math.min(bottom, vertex.y); top = Math.max(top, vertex.y);
+    }
+    const scale = Math.max((hi - lo) / 2 / visible.w / fillFraction, (top - bottom) / 2 / visible.h / FIT_HEIGHT_CAP);
+    if (!(scale > 0) || Math.abs(scale - 1) < 0.005) break;
+    distance *= scale;
+    placeCamera();
+  }
+
   // The analytic fit includes vertices hidden by the current view. Correct it from the actual
   // painted silhouette, but back off whenever the readback might already be clipped.
   if (!renderer || !scene) return;
   try {
     for (let pass = 0; pass < 8; pass++) {
-      const measured = measurePaintedSilhouette(renderer, scene, camera, visible);
+      const measured = measurePaintedSilhouette(renderer, scene, camera, visible, fillFraction);
       if (!measured) return;
       const scale = measured.touchesEdge
         ? 1.08
-        : Math.max(measured.fraction / fillFraction, 0.85);
+        : Math.max(measured.fraction, 0.85);
       // Perspective makes the near end of a long robot look bigger than the box predicts, so the
       // silhouette drifts off-centre; pan by the measured offset (fractions of the view).
       const viewHeight = 2 * distance * Math.tan(verticalFov / 2);
@@ -239,6 +277,7 @@ function measurePaintedSilhouette(
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
   visible: VisibleRect = FULL_RECT,
+  fillFraction: number = FIT_FILL_FRACTION,
 ): { fraction: number; touchesEdge: boolean; offsetX: number; offsetY: number } | null {
   const bounds = readPaintedSilhouetteBounds(renderer, scene, camera);
   if (!bounds) return null;
@@ -248,7 +287,7 @@ function measurePaintedSilhouette(
   const homeX = 0.5 - (v ? v.offsetX / v.fullWidth : 0);
   const homeY = 0.5 + (v ? v.offsetY / v.fullHeight : 0);
   return {
-    fraction: Math.max((maxX - minX) / width / visible.w, (maxY - minY) / height / visible.h),
+    fraction: Math.max((maxX - minX) / width / visible.w / fillFraction, (maxY - minY) / height / visible.h / FIT_HEIGHT_CAP), // 1 = on target
     offsetX: (minX + maxX) / 2 / width - homeX,
     offsetY: (minY + maxY) / 2 / height - homeY, // readPixels rows run bottom-up: +y is up
     touchesEdge:
@@ -317,6 +356,45 @@ export function buildScene(
   return ctx;
 }
 
+/** WASD walk: hold W/S/A/D to move camera and target together over the ground plane (Z-up),
+ * speed scaled to the framing (camera-to-target distance per second). Keyboard-only; never while typing. */
+const WASD = { w: [1, 0], s: [-1, 0], d: [0, 1], a: [0, -1] } as const;
+const typing = (el: Element | null) => !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || (el as HTMLElement).isContentEditable);
+export function attachWasd(ctx: SceneContext): { step: (dt: number) => void; dispose: () => void } {
+  const held = new Set<keyof typeof WASD>();
+  const down = (e: KeyboardEvent) => {
+    const k = e.key.toLowerCase() as keyof typeof WASD;
+    if (!(k in WASD) || e.metaKey || e.ctrlKey || e.altKey || typing(document.activeElement)) return;
+    held.add(k);
+    ctx.needsRender = true;
+  };
+  const up = (e: KeyboardEvent) => void held.delete(e.key.toLowerCase() as keyof typeof WASD);
+  const clear = () => held.clear();
+  window.addEventListener("keydown", down);
+  window.addEventListener("keyup", up);
+  window.addEventListener("blur", clear);
+  const fwd = new THREE.Vector3(), side = new THREE.Vector3(), move = new THREE.Vector3();
+  return {
+    step(dt) {
+      if (!held.size) return;
+      fwd.subVectors(ctx.controls.target, ctx.camera.position);
+      const dist = fwd.length();
+      fwd.z = 0; // ground plane
+      if (fwd.lengthSq() < 1e-12) return; // looking straight down: no ground heading
+      fwd.normalize();
+      side.crossVectors(fwd, ROBOT_UP);
+      move.set(0, 0, 0);
+      for (const k of held) move.addScaledVector(fwd, WASD[k][0]).addScaledVector(side, WASD[k][1]);
+      if (move.lengthSq() === 0) return;
+      move.normalize().multiplyScalar(dist * 0.8 * dt);
+      ctx.camera.position.add(move);
+      ctx.controls.target.add(move);
+      ctx.needsRender = true;
+    },
+    dispose() { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", clear); },
+  };
+}
+
 /** The ONE place the resolution uniform is written. Owns the camera aspect and the renderer's
  * size too, so a `ResizeObserver` on the container is the single caller. */
 export function handleResize(ctx: SceneContext, width: number, height: number): void {
@@ -345,14 +423,20 @@ export function updatePixelRatio(ctx: SceneContext, ratio: number): void {
  * empty space is a real, distinct result, not an absence of one.
  */
 export function pickPart(ctx: SceneContext, ndcX: number, ndcY: number): string | null {
+  return pickHit(ctx, ndcX, ndcY)?.id ?? null;
+}
+
+/** The part under the pointer and the world point the ray meets it at (a drop's mount point). */
+export function pickHit(ctx: SceneContext, ndcX: number, ndcY: number): SceneHit | null {
   ctx.camera.updateMatrixWorld(); // the pose may have moved since the last render (refit, orbit); never ray from a stale one
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), ctx.camera);
   const hit = raycaster.intersectObjects(ctx.meshes, false)[0];
-  if (!hit) return null;
-  const id = hit.object.userData.partId;
-  return typeof id === "string" ? id : null;
+  const id = hit?.object.userData.partId;
+  return hit && typeof id === "string" ? { id, point: hit.point.toArray() } : null;
 }
+
+export interface SceneHit { id: string; point: number[] }
 
 export function disposeScene(ctx: SceneContext): void {
   for (const o of ctx.scene.children.filter((c) => c.userData.decor)) (o as THREE.GridHelper).dispose();

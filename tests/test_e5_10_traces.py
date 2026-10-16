@@ -25,7 +25,9 @@ _YAML = YAML(typ="safe")
 
 FIXTURES = Path(__file__).parent / "fixtures" / "e5_10_real_scenarios"
 SCENARIOS = json.loads((FIXTURES / "scenarios.json").read_text())
-LEG_JOINTS = [f"{leg}_{joint}" for leg in ("LF", "RF", "LH", "RH") for joint in ("HAA", "HFE", "KFE")]
+LEG_JOINTS = [
+    f"{leg}_{joint}" for leg in ("LF", "RF", "LH", "RH") for joint in ("HAA", "HFE", "KFE")
+]
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("LOCKWIRE_SIM") != "1",
@@ -56,23 +58,34 @@ def test_x500_px4_takeoff_hover_land(sim_out: Path) -> None:
     acceptance = scenario["acceptance"]
 
     commands = json.loads((sim_out / "x500_px4_commands.json").read_text())
-    rows = [json.loads(line) for line in (sim_out / "x500_px4_trace.jsonl").read_text().splitlines() if line.strip()]
+    rows = [
+        json.loads(line)
+        for line in (sim_out / "x500_px4_trace.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
     assert rows, "no X500 PX4 telemetry samples recorded"
 
-    assert commands["abort_reason"] in (None, "hover tolerance breached (recorded in trace; not fatal to the run)"), (
-        f"flight aborted: {commands['abort_reason']}"
-    )
+    assert commands["abort_reason"] in (
+        None,
+        "hover tolerance breached (recorded in trace; not fatal to the run)",
+    ), f"flight aborted: {commands['abort_reason']}"
     assert commands["arm_t"] is not None, "PX4 never accepted the arm command"
     assert commands["takeoff_cmd_t"] is not None, "PX4 never accepted the takeoff command"
-    assert commands["hover_reached_t"] is not None, "X500 never reached takeoff altitude within tolerance"
+    assert commands["hover_reached_t"] is not None, (
+        "X500 never reached takeoff altitude within tolerance"
+    )
     assert commands["land_cmd_t"] is not None, "PX4 never accepted the land command"
     assert commands["landed_t"] is not None, acceptance["requires_landed_feedback"] and (
         "no vehicle_land_detected/EXTENDED_SYS_STATE landed feedback before the deadline"
     )
-    assert commands["sensors_seen"], "no simulated sensor telemetry (IMU/attitude) observed during the flight"
+    assert commands["sensors_seen"], (
+        "no simulated sensor telemetry (IMU/attitude) observed during the flight"
+    )
 
     deadline_s = acceptance["deadline_s"]
-    assert commands["landed_t"] <= deadline_s, f"landed at t={commands['landed_t']:.1f}s, deadline is {deadline_s}s"
+    assert commands["landed_t"] <= deadline_s, (
+        f"landed at t={commands['landed_t']:.1f}s, deadline is {deadline_s}s"
+    )
 
     target = acceptance["takeoff_altitude_m"]["target"]
     hover_rows = [row for row in rows if row.get("phase") == "hover" and "z" in row]
@@ -92,9 +105,10 @@ def test_x500_px4_takeoff_hover_land(sim_out: Path) -> None:
     )
 
     landed_altitude = commands["landed_altitude_m"]
-    assert landed_altitude is not None and landed_altitude <= acceptance["landed_altitude_m"]["maximum"], (
-        f"landed altitude {landed_altitude} m exceeds {acceptance['landed_altitude_m']['maximum']} m"
-    )
+    assert (
+        landed_altitude is not None
+        and landed_altitude <= acceptance["landed_altitude_m"]["maximum"]
+    ), f"landed altitude {landed_altitude} m exceeds {acceptance['landed_altitude_m']['maximum']} m"
 
     # Not scripted/constant: successive altitude samples must actually differ.
     unique_z = {round(row["z"], 3) for row in rows if "z" in row}
@@ -106,12 +120,16 @@ def test_anymal_joints_squat_at_least_twice(sim_out: Path) -> None:
     acceptance = SCENARIOS["scenarios"]["anymal_d_effort_squat"]["acceptance"]
     nominal = trajectory["nominal_rad"]
     lower = {
-        "HFE": acceptance["hfe_peak_displacement_rad"]["target"] - acceptance["hfe_peak_displacement_rad"]["tolerance"],
-        "KFE": acceptance["kfe_peak_displacement_rad"]["target"] - acceptance["kfe_peak_displacement_rad"]["tolerance"],
+        "HFE": acceptance["hfe_peak_displacement_rad"]["target"]
+        - acceptance["hfe_peak_displacement_rad"]["tolerance"],
+        "KFE": acceptance["kfe_peak_displacement_rad"]["target"]
+        - acceptance["kfe_peak_displacement_rad"]["tolerance"],
     }
     upper = {
-        "HFE": acceptance["hfe_peak_displacement_rad"]["target"] + acceptance["hfe_peak_displacement_rad"]["tolerance"],
-        "KFE": acceptance["kfe_peak_displacement_rad"]["target"] + acceptance["kfe_peak_displacement_rad"]["tolerance"],
+        "HFE": acceptance["hfe_peak_displacement_rad"]["target"]
+        + acceptance["hfe_peak_displacement_rad"]["tolerance"],
+        "KFE": acceptance["kfe_peak_displacement_rad"]["target"]
+        + acceptance["kfe_peak_displacement_rad"]["tolerance"],
     }
     thresholds = lower
 
@@ -163,4 +181,6 @@ def test_anymal_trace_is_not_constant_or_scripted(sim_out: Path) -> None:
     assert any(error > 1e-4 for error in errors), (
         "tracking error is identically zero throughout -- looks like a command echo, not simulated tracking"
     )
-    assert len({round(e, 5) for e in errors}) > 1, "tracking error trace is constant -- looks scripted"
+    assert len({round(e, 5) for e in errors}) > 1, (
+        "tracking error trace is constant -- looks scripted"
+    )

@@ -1,0 +1,9 @@
+# Example plan for the rover: start the lidar, then add a small 5 V accessory on the
+# controller's 5 V rail. The 1.5 W is the plan's own hypothetical load, not a contract number.
+steps:
+  - kind: set_power_mode
+    device: dev.2d-lidar
+    mode: start-up
+  - kind: rail_load
+    rail: rail.controller-5v
+    draw: {value: 1.5, unit: W}

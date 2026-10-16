@@ -26,7 +26,9 @@ _YAML = YAML(typ="safe")
 
 FIXTURES = Path(__file__).parent / "fixtures" / "e5_10_real_scenarios"
 SCENARIOS = json.loads((FIXTURES / "scenarios.json").read_text())
-LEG_JOINTS = [f"{leg}_{joint}" for leg in ("LF", "RF", "LH", "RH") for joint in ("HAA", "HFE", "KFE")]
+LEG_JOINTS = [
+    f"{leg}_{joint}" for leg in ("LF", "RF", "LH", "RH") for joint in ("HAA", "HFE", "KFE")
+]
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("LOCKWIRE_SIM") != "1",
@@ -75,8 +77,12 @@ def test_controller_disabled_gives_no_motion(sim_out: Path) -> None:
     x0, y0, z0 = rows[0].get("x", 0.0), rows[0].get("y", 0.0), rows[0].get("z", 0.0)
     epsilon = 0.02  # metres; ground contact settling noise, not real motion
     for row in rows[1:]:
-        displacement = math.dist((x0, y0, z0), (row.get("x", 0.0), row.get("y", 0.0), row.get("z", 0.0)))
-        assert displacement < epsilon, f"X500 base moved {displacement:.4f} m with no controller command"
+        displacement = math.dist(
+            (x0, y0, z0), (row.get("x", 0.0), row.get("y", 0.0), row.get("z", 0.0))
+        )
+        assert displacement < epsilon, (
+            f"X500 base moved {displacement:.4f} m with no controller command"
+        )
 
 
 def test_anymal_controller_disabled_negative(sim_out: Path) -> None:
@@ -90,7 +96,9 @@ def test_anymal_controller_disabled_negative(sim_out: Path) -> None:
     acceptance = scenario["acceptance"]
 
     listing = (sim_out / "anymal_controller_list_after_deactivate.txt").read_text()
-    assert "anymal_effort_controller" in listing, "controller_manager listing missing anymal_effort_controller"
+    assert "anymal_effort_controller" in listing, (
+        "controller_manager listing missing anymal_effort_controller"
+    )
     for line in listing.splitlines():
         if "anymal_effort_controller" in line:
             assert "inactive" in line, (

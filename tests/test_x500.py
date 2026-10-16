@@ -140,3 +140,13 @@ def test_x500_scored_floor_and_not_scored_set_after_b1_contract_growth():
         "budgets/bud.power.pm02-5v.7w-mode",
     }
     assert [f for f in report if f.severity == "warning"] == []
+
+
+def test_x500_5v_overload_is_never_offered_a_battery_voltage_rail():
+    """The 14.8 V motor rail would destroy 5 V loads, and TELEM1 is fed from the
+    overloaded rail itself; neither is a real move, so only the regulator remains."""
+    contract = load_contract(X500_CONTRACT)
+    finding = next(
+        f for f in run_record_checks(contract) if f.quantity == "budgets/bud.power.pm02-5v"
+    )
+    assert [a.kind for a in finding.alternatives] == ["projected"]

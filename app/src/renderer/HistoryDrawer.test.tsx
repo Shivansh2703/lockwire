@@ -213,7 +213,7 @@ describe("HistoryDrawer", () => {
     });
 
     const message = container.querySelector('[aria-label="commit message"]') as HTMLInputElement;
-    expect(message.placeholder).toBe("What changed — witness: your name");
+    expect(message.placeholder).toBe("What changed");
     expect(container.querySelector(".history-commit")!.textContent).toBe("Save version");
     expect(container.textContent).not.toMatch(/commit/i);
   });

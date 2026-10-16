@@ -1,0 +1,7 @@
+{
+  "title": "Quadruped",
+  "based_on": "Solo-12 (Open Dynamic Robot Initiative)",
+  "licence": "BSD-3-Clause",
+  "licence_url": "https://github.com/open-dynamic-robot-initiative/robot_properties_solo/blob/master/license.txt",
+  "source_repo": "https://github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware"
+}

@@ -99,9 +99,7 @@ def test_manifest_closed_form_values_and_refinement_are_independent() -> None:
     assert cases["propped_frame"]["measurements"][0]["expected"] == pytest.approx(
         -7 * 1600 * 3**3 / (768 * 200e9 * (0.1 * 0.1**3 / 12))
     )
-    plate_expected = 0.00406235266055 * -100000.0 / (
-        210e9 * 0.02**3 / (12 * (1 - 0.3**2))
-    )
+    plate_expected = 0.00406235266055 * -100000.0 / (210e9 * 0.02**3 / (12 * (1 - 0.3**2)))
     assert cases["plate_s4_8"]["measurements"] == []
     assert cases["plate_s4_16"]["measurements"][0]["expected"] == pytest.approx(
         plate_expected, abs=1e-11

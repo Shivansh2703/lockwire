@@ -190,7 +190,7 @@ def run_record_checks(
     findings += check_rail_current(contract, scores=scores)
     findings += check_torque_budgets(contract, scores=scores)
     findings += check_bus_bandwidth(contract, scores=scores)
-    findings += check_zero_mass(contract)
+    findings += check_zero_mass(contract, contract_path=contract_path)
     findings += check_unusable_effort(contract)
     findings += check_mechanisms(contract, scores=scores)
     findings += check_urdf_drift(contract, scores=scores, contract_path=contract_path)
@@ -1933,6 +1933,7 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                             rail_totals=rail_totals,
                             rail_unknown=rail_unknown,
                             check_name="check_budgets",
+                            draw_mode=b.draw_mode,
                         ),
                     )
                 )
@@ -2501,6 +2502,26 @@ def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list
 # ---------------------------------------------------------------- actuator and bus budgets
 
 
+def _peak_shortfall(device, joint, peak_nm: float) -> Finding:
+    required = joint.limits.effort
+    return Finding(
+        severity="violation",
+        quantity=f"devices/{device.id}/drives_joint",
+        observed=f"{peak_nm:.2f} N*m peak (stall) geared torque",
+        expected=_with_enforcement_provenance(
+            f">= {required:.2f} N*m joint effort limit",
+            ("effort", joint.limits.effort_enforced_by),
+        ),
+        delta=f"-{required - peak_nm:.2f} N*m",
+        dependent=f"model/joints/{joint.name}/limits/effort",
+        owner=device.owner,
+        action=(
+            "the joint can never reach its limit: select a stronger actuator, "
+            "change gearing, or correct the sourced limits"
+        ),
+    )
+
+
 def check_torque_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
     """A joint's modeled effort demand must not exceed the paired actuator's
     continuous geared output; peak torque is not a sustainable design budget."""
@@ -2521,7 +2542,11 @@ def check_torque_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> li
         ):
             continue
         actuator = model.actuator if model is not None else None
-        if actuator is None or actuator.torque_continuous is None or actuator.gear_ratio is None:
+        if (
+            actuator is None
+            or (actuator.torque_continuous is None and actuator.torque_peak is None)
+            or actuator.gear_ratio is None
+        ):
             continue
         if joint.limits.effort_limit is None:
             out.append(
@@ -2535,8 +2560,26 @@ def check_torque_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> li
             continue
         if scores is not None:
             scores.record(f"devices/{device.id}/drives_joint")
-        available = actuator.torque_continuous * actuator.gear_ratio
         required = joint.limits.effort
+        if actuator.torque_continuous is None:
+            # Peak-only (e.g. a hobby servo's stall torque): it cannot hold the limit if even
+            # the peak falls short. When continuous is also declared, the check below runs
+            # first; schema forces peak >= continuous, so continuous failing covers peak.
+            peak_nm = actuator.torque_peak * actuator.gear_ratio
+            if required > peak_nm:
+                out.append(_peak_shortfall(device, joint, peak_nm))
+            elif scores is not None:
+                scores.passed(
+                    f"devices/{device.id}/drives_joint",
+                    observed=f"{required:.2f} N*m joint effort limit",
+                    expected=_with_enforcement_provenance(
+                        f"<= {peak_nm:.2f} N*m peak (stall) geared torque",
+                        ("effort", joint.limits.effort_enforced_by),
+                    ),
+                    margin=f"{peak_nm - required:.2f} N*m headroom",
+                )
+            continue
+        available = actuator.torque_continuous * actuator.gear_ratio
         if required > available:
             out.append(
                 Finding(
@@ -2681,26 +2724,68 @@ def check_bus_bandwidth(c: Contract, *, scores: _ScoreBook | None = None) -> lis
 # ---------------------------------------------------------------- model sanity
 
 
-def check_zero_mass(c: Contract) -> list[Finding]:
+def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
     """Missing or non-positive link mass is derived from the canonical link
     records so a stale zero_mass_links cache cannot hide incomplete inertia."""
     if c.model is None:
         return []
-    return [
+    massless = [k.name for k in c.model.links if k.mass is None or k.mass.base() <= 0.0]
+    # A massless link with no massive link below it is a sensor/mount frame: one summary line.
+    kids: dict[str, list[str]] = {}
+    for j in c.model.joints:
+        kids.setdefault(j.parent, []).append(j.child)
+    bare = set(massless)
+
+    def carries_mass(name: str, seen: frozenset[str] = frozenset()) -> bool:
+        return name not in seen and (
+            name not in bare or any(carries_mass(k, seen | {name}) for k in kids.get(name, []))
+        )
+
+    # The contract keeps no geometry, so a pure frame (base_footprint, world) is the narrowest
+    # lookalike: a massless root named like a frame whose every joint is fixed or floating and that no device mounts on.
+    mounted = {d.physical.mount_frame for d in c.devices if d.physical}
+    children = {j.child for j in c.model.joints}
+    fixed_root = {
+        n
+        for n in massless
+        if n
+        in ("world", "map", "odom", "base_footprint")  # a named frame; base_link may be a real body
+        and n not in children
+        and n not in mounted
+        and kids.get(n)
+        and all(j.type in ("fixed", "floating") for j in c.model.joints if j.parent == n)
+    }
+    leaves = [
+        n for n in massless if n in fixed_root or not any(carries_mass(k) for k in kids.get(n, []))
+    ]
+    findings = [
         Finding(
             severity="warning",
             quantity=f"model/links/{name}/mass",
             observed="zero or missing mass",
             expected="a positive mass with units",
             action=(
-                "fill in the link's inertial in the source model, or accept "
-                "as massless with a Tier C assumption"
+                "fill in the link's inertial in the source model, then run "
+                f"`lockwire declare {contract_path or 'lockwire.yaml'} model/links/{name}/mass "
+                '"<mass> kg" --source "datasheet" --witness "you"` '
+                "(replace <mass>), or accept as massless with a Tier C assumption"
             ),
         )
-        for link in c.model.links
-        if link.mass is None or link.mass.base() <= 0.0
-        for name in [link.name]
+        for name in massless
+        if name not in leaves
     ]
+    if leaves:
+        shown = ", ".join(leaves[:2]) + (", ..." if len(leaves) > 2 else "")
+        findings.append(
+            Finding(
+                severity="warning",
+                quantity="model/links/massless_frames",
+                observed=f"{len(leaves)} massless frames (sensor/mount frames, normal): {shown}",
+                expected="mass only on real bodies",
+                action="none for pure frames",
+            )
+        )
+    return findings
 
 
 def check_unusable_effort(c: Contract) -> list[Finding]:
@@ -2714,7 +2799,7 @@ def check_unusable_effort(c: Contract) -> list[Finding]:
         if d.drives_joint is not None
         and (m := c.device_model(d.model)) is not None
         and m.actuator is not None
-        and m.actuator.torque_continuous is not None
+        and (m.actuator.torque_continuous is not None or m.actuator.torque_peak is not None)
         and m.actuator.gear_ratio is not None
     }
     return [
@@ -2854,7 +2939,9 @@ def check_urdf_drift(
     if contract_path is not None:
         path = resolve_source(contract_path, named) or path
     if not path.is_file():
-        if path.is_absolute():
+        if named.lower().startswith(("http://", "https://")):
+            observed = "URDF is a web link; not re-checked offline"
+        elif path.is_absolute():
             observed = f"URDF {path} absent; structure drift not scored"
         else:
             observed = (
@@ -2868,7 +2955,11 @@ def check_urdf_drift(
                 observed=observed,
                 expected="a readable URDF at the provenance path",
                 source=named,
-                action="restore the URDF or correct model provenance to its on-disk path",
+                action=(
+                    "download the URDF next to the lockfile to re-check it"
+                    if named.lower().startswith(("http://", "https://"))
+                    else "restore the URDF or correct model provenance to its on-disk path"
+                ),
             )
         ]
 
@@ -2894,6 +2985,8 @@ def check_urdf_drift(
     # Contract structure_hash vs on-disk URDF hash — both sides present.
     if scores is not None:
         scores.record("model/structure_hash")
+    # A match leaves no record: it says "unchanged since lock", not "adds up";
+    # report.render shows it as its own "model check" bucket.
     if disk_hash == c.model.structure_hash:
         return []
 

@@ -293,6 +293,7 @@ def _graph(contract: Contract) -> dict[str, dict[str, Any]]:
             "label": link.name,
             "sub": f"{link.mass.base():.3f} kg" if link.mass is not None else "mass unknown",
             "kind": "link",
+            "value": link.mass.base() if link.mass is not None else None,
         }
         for link in links
     ]
@@ -306,6 +307,11 @@ def _graph(contract: Contract) -> dict[str, dict[str, Any]]:
                 else "mass unknown"
             ),
             "kind": "device",
+            "value": (
+                device.physical.mass.base()
+                if device.physical is not None and device.physical.mass is not None
+                else None
+            ),
         }
         for device in contract.devices
     ]
@@ -319,6 +325,13 @@ def _graph(contract: Contract) -> dict[str, dict[str, Any]]:
     ]
 
     rails = topology.rails if topology is not None else []
+    rail_totals, rail_witnesses, _, _, rail_unknown, _ = power_rollup(contract, "nominal")
+
+    def _rail_load(rail_id: str) -> float | None:
+        # Same rule as the rail_power budget row: no witness or an unknown draw is not a sum.
+        if not rail_witnesses.get(rail_id) or rail_unknown.get(rail_id):
+            return None
+        return rail_totals.get(rail_id)
 
     def _rail_sub(rail: object) -> str:
         sub = (
@@ -338,6 +351,8 @@ def _graph(contract: Contract) -> dict[str, dict[str, Any]]:
             "label": rail.id,
             "sub": _rail_sub(rail),
             "kind": "rail",
+            "value": _rail_load(rail.id),
+            "limit": rail.capacity.base(),
         }
         for rail in rails
     ]
@@ -361,6 +376,7 @@ def _graph(contract: Contract) -> dict[str, dict[str, Any]]:
                 else "draw unknown"
             ),
             "kind": "device",
+            "value": device.power.draw.base() if device.power.draw is not None else None,
         }
         for device in contract.devices
         if device.power is not None
@@ -396,6 +412,7 @@ def _graph(contract: Contract) -> dict[str, dict[str, Any]]:
             "label": bus.id,
             "sub": f"{bus.kind} · {bus.bitrate:g} bit/s" if bus.bitrate else bus.kind,
             "kind": "bus",
+            "value": bus.bitrate,
         }
         for bus in buses
     ]

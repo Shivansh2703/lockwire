@@ -11,8 +11,9 @@ import { app } from "electron";
 export const MAX_LOG_BYTES = 262_144; // 256 KiB per file, stated size
 export const MAX_LOG_FILES = 5; // lockwire.log + 4 rotated backups, stated count
 
-function logDirectory(): string {
-  return app.getPath("logs");
+export function logDirectory(): string {
+  // --user-data-dir (e2e/capture runs) must not leak logs into the real ~/Library/Logs.
+  return app?.commandLine?.hasSwitch("user-data-dir") ? join(app.getPath("userData"), "logs") : app.getPath("logs");
 }
 
 export function logFilePath(): string {

@@ -11,3 +11,9 @@ describe("flagSummary (the 3D view's text twin)", () => {
     expect(flagSummary(["a", "b", "c", "d"], targets)).toBe("4 parts flagged: A, B, C and 1 more");
   });
 });
+
+import { capChips } from "./FindingList";
+it("a finding shows two chips cut at their end, then +N", () => {
+  const l = capChips([{ label: "Servo Ankle Pitch L" }, { label: "Servo Ankle Pitch R" }, { label: "Pump" }, { label: "Fan" }]).map((c) => c.label);
+  expect(l).toEqual(["Servo Ankle Pitch L", "Servo Ankle Pitch R", "+2"]);
+});

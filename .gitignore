@@ -34,3 +34,4 @@ app/out/
 .coverage.*
 **/node_modules/
 .app-free-*/
+dist-release/

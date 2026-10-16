@@ -74,11 +74,11 @@ from lockwire.schema import (
 )
 from lockwire.schema import load_contract as _load_contract_lib
 from lockwire.sdf import parse_sdf
-from lockwire.urdf import _refuse_doctype_entity, parse_urdf
+from lockwire.urdf import _refuse_doctype_entity, parse_urdf, robot_name
 
 app = typer.Typer(
     name="lockwire",
-    help="The physical-assumption contract for robots: physics lockfile + preflight gate.",
+    help="The physical-assumption contract for robots: checks that a robot's declared parts (power, weight, bus, torque) add up.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -268,17 +268,44 @@ def _load_scene_for_cli(
 )
 def start(
     ctx: typer.Context,
-    urdf: Path = typer.Argument(..., exists=True, readable=True, help="Your robot's URDF or SDF."),
+    urdf: Path | None = typer.Argument(None, help="Your robot's URDF or SDF."),
     contract: Path = typer.Option(
         DEFAULT_CONTRACT, "--out", "-o", help="Lockfile to create or reuse."
     ),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing lockfile."),
+    example: str | None = typer.Option(
+        None,
+        "--example",
+        help="Write a ready example lockfile instead: servo-bench or a starter (drone, rover, arm, quadruped, humanoid).",
+    ),
 ) -> None:
     """Start here: make a lockfile from your URDF.
 
     A fresh lockfile knows the frame and nothing else; the app shows what to fill in next.
     """
     _refuse_default_out_when_frozen(ctx, "contract", "start")
+    if example is not None:
+        from lockwire.start_operation import ALIASES, example_names, write_example
+
+        names = example_names()
+        if example not in names and example not in ALIASES:
+            console.print(f"[red]no example named {example!r}[/] — available: {', '.join(names)}")
+            raise typer.Exit(1)
+        if contract.exists() and not force:
+            console.print(
+                f"[yellow]{contract} already exists[/] — kept as is. Pass --force to overwrite."
+            )
+            return
+        write_example(example, contract)
+        console.print(
+            f"[green]wrote {contract}[/] — example {example}. Next: lockwire check {contract}"
+        )
+        return
+    if urdf is None or not urdf.is_file():
+        console.print(
+            "[red]give your robot's URDF/SDF, or --example <name> (try --example servo-bench)[/]"
+        )
+        raise typer.Exit(1)
     from lockwire.start_operation import start_contract
 
     try:
@@ -329,7 +356,7 @@ def init(
     except ValueError as error:
         console.print(f"[red]{error}[/]")
         raise typer.Exit(2) from error
-    contract = Contract(robot=RobotInfo(name=robot or urdf.stem), model=model)
+    contract = Contract(robot=RobotInfo(name=robot or robot_name(urdf)), model=model)
     save_contract(contract, out)
 
     console.print(
@@ -464,6 +491,7 @@ def plan_cmd(
 
 @app.command(
     "bench",
+    hidden=True,
     help="Score a corpus of generated out-of-bound plans: detection (via `plan`'s own "
     "evaluator — missed/false-alarm/unscorable) and forwarding (bytes, order, count, "
     "regardless of verdict) measured separately, on the given contract."
@@ -615,6 +643,7 @@ def export_cmd(
 
 @app.command(
     "import",
+    hidden=True,
     help="Refused: importing a third-party manifest into a contract is not built."
     f"\n\n{exit_code_help('import')}",
 )
@@ -1702,6 +1731,7 @@ def blame_cmd(
 
 @app.command(
     "api-schema",
+    hidden=True,
     # One short line on purpose: `_help_commands` in tests/test_parity.py reads
     # the first token of every line in `--help`'s Commands panel, so a
     # description that wraps invents a command that does not exist.
@@ -1711,9 +1741,9 @@ def api_schema_cmd(
     out: Path = typer.Option(..., "--out", help="Where to write the JSON schema document."),
 ) -> None:
     """Write the payload union's JSON schema (E1-b) — every member document
-    lockwire's doors emit, which is what the TypeScript types are generated from
-    (packaging/generate-types.md). The library builds it, never this file
-   : `api.api_schema` is the twin.
+     lockwire's doors emit, which is what the TypeScript types are generated from
+     (packaging/generate-types.md). The library builds it, never this file
+    : `api.api_schema` is the twin.
     """
     api.api_schema(out)
     console.print(f"wrote {out}")
@@ -1721,6 +1751,7 @@ def api_schema_cmd(
 
 @app.command(
     "api-types",
+    hidden=True,
     # One short line on purpose: `_help_commands` in tests/test_parity.py reads
     # the first token of every line in `--help`'s Commands panel, so a
     # description that wraps invents a command that does not exist.
@@ -1730,16 +1761,16 @@ def api_types_cmd(
     out: Path = typer.Option(..., "--out", help="Where to write the generated TypeScript."),
 ) -> None:
     """Write the payload union's TypeScript types (e1-d3) — no generator
-    dependency, walked straight from `api_payload.py` (v8 line 265: the
-    mainstream generator's own docs say a discriminated union like ours
-    narrows badly through it). The library builds it, never this file
-   : `api.api_types` is the twin.
+     dependency, walked straight from `api_payload.py` (v8 line 265: the
+     mainstream generator's own docs say a discriminated union like ours
+     narrows badly through it). The library builds it, never this file
+    : `api.api_types` is the twin.
     """
     api.api_types(out)
     console.print(f"wrote {out}")
 
 
-@app.command("serve")
+@app.command("serve", hidden=True)
 def serve_cmd(
     host: str = typer.Option(
         "127.0.0.1", "--host", help="Bind address. Loopback only — anything else is refused."

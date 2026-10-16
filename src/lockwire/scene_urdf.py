@@ -414,9 +414,7 @@ def _urdf_visual_to_parts(
     geom = vis_el.find("geometry")
     if geom is None:
         raise SceneRefusal(f"{source}: link {link_name!r} visual has no <geometry>.")
-    submeshes = _urdf_geometry_to_meshes(
-        geom, base_dir, source, package_roots, external_assets
-    )
+    submeshes = _urdf_geometry_to_meshes(geom, base_dir, source, package_roots, external_assets)
     color = _urdf_visual_color(vis_el, materials)
     return [
         _make_part(link_name, link_pose, visual_pose, positions, normals, indices, color)
@@ -710,8 +708,11 @@ def load_robot_scene(
         except ET.ParseError as exc:
             raise SceneRefusal(f"{path}: not valid XML ({exc}).") from exc
         _refuse_xacro(root, path)
-        return replace(_scene_from_urdf(root, path, package_roots, external_assets),
-                       asset_path=str(path.resolve()), asset_sha256=hashlib.sha256(raw).hexdigest())
+        return replace(
+            _scene_from_urdf(root, path, package_roots, external_assets),
+            asset_path=str(path.resolve()),
+            asset_sha256=hashlib.sha256(raw).hexdigest(),
+        )
 
     if suffix == ".sdf":
         _refuse_doctype(raw, path)
@@ -719,8 +720,11 @@ def load_robot_scene(
             root = ET.fromstring(raw)
         except ET.ParseError as exc:
             raise SceneRefusal(f"{path}: not valid XML ({exc}).") from exc
-        return replace(_scene_from_sdf(root, path, package_roots, external_assets),
-                       asset_path=str(path.resolve()), asset_sha256=hashlib.sha256(raw).hexdigest())
+        return replace(
+            _scene_from_sdf(root, path, package_roots, external_assets),
+            asset_path=str(path.resolve()),
+            asset_sha256=hashlib.sha256(raw).hexdigest(),
+        )
 
     raise SceneRefusal(
         f"{path}: unsupported file extension {suffix!r} (expected .urdf, .sdf or .xacro)."
@@ -741,9 +745,7 @@ def load_scene_any(
     if suffix in (".glb", ".gltf"):
         return load_scene(path)
     if suffix in (".urdf", ".sdf", ".xacro"):
-        return load_robot_scene(
-            path, package_roots=package_roots, external_assets=external_assets
-        )
+        return load_robot_scene(path, package_roots=package_roots, external_assets=external_assets)
     raise SceneRefusal(
         f"{path}: unsupported scene file extension {suffix!r} "
         "(expected .glb, .gltf, .urdf, .sdf or .xacro)."

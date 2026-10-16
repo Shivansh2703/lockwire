@@ -66,7 +66,7 @@ describe("kit", () => {
 
   it("Figure: a float is rounded, an integer stays exact", () => {
     mount(<Figure value={57.02786999999998} unit="kg" kind="derived" />);
-    expect(box.querySelector(".kit-num")!.textContent).toBe("57.03 kg");
+    expect(box.querySelector(".kit-num")!.textContent).toBe("57 kg");
     act(() => root!.unmount());
     box.remove();
     mount(<Figure value={1200} kind="declared" />);

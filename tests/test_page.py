@@ -1,6 +1,5 @@
 """The GUI page: it must open on something, group honestly, and never soften a finding away."""
 
-
 import os
 import shutil
 from pathlib import Path
@@ -52,6 +51,14 @@ def test_short_name_drops_only_the_machine_prefix():
 
 
 # ------------------------------------------------------------------- opening screen
+
+
+def test_x500_power_card_note_is_plain_words():
+    cards = build_payload(load_contract(X500))["cards"]
+    card = next(c for c in cards if "bud.power.pm02-5v" in c["raw"])
+    assert card["figure_note"] == (
+        "Observed is the check's sum of your declared draws; Expected is your declared limit."
+    )
 
 
 def test_headline_states_track_severity():
@@ -215,11 +222,24 @@ def test_rail_card_names_the_rail_not_the_budget_id():
     ]
     for card in stop:
         assert "bud." not in card["title"]
-        assert "15.60 W" in card["body"]
+        assert "15.6 W" in card["body"]
         # the console string carries a parenthetical the sentence must not inherit
         assert "draw mode" not in card["body"]
     bodies = " | ".join(card["body"] for card in stop)
-    assert "35.20 W" in bodies and "17.20 W" in bodies
+    assert "35.2 W" in bodies and "17.2 W" in bodies
+
+
+def test_card_carries_its_quantity_and_owner_for_click_through():
+    """A card's number opens its Declare row; its owner pill selects it."""
+    stop = [c for c in build_payload(load_contract(X500))["cards"] if c["severity"] == "violation"]
+    assert sorted(c["quantity"] for c in stop) == [
+        "budgets/bud.power.pm02-5v",
+        "budgets/bud.power.pm02-5v.7w-mode",
+    ]
+    assert all(c["owner"] for c in stop)
+    assert {row["rail"] for c in stop for row in c["instead"]} == {
+        "rail.pm02-5v"
+    }  # typed, not parsed
 
 
 def test_rail_card_highlights_the_rail_node_that_exists_on_the_graph():
@@ -399,8 +419,10 @@ def test_urdf_frames_with_no_mass_are_worded_apart_from_devices(clean_contract):
     clean_contract.model.links[1].mass = None  # imu_link: a URDF link, not a device
 
     cards = build_payload(clean_contract)["cards"]
-    frame_card = next(card for card in cards if "frame" in card["title"] and "mass" in card["raw"])
-    assert "frame" in frame_card["title"]
+    frame_card = next(
+        card for card in cards if "frame" in card["title"].lower() and "mass" in card["raw"]
+    )
+    assert "frame" in frame_card["title"].lower()
     assert "part" not in frame_card["title"]
 
     device_card = next(
@@ -939,12 +961,12 @@ def test_declare_groups_are_plain_names():
 
 def test_declare_value_names_are_plain():
     shorts = {r["short"] for r in build_declare_form(load_contract(X500))["rows"]}
-    assert not [s for s in shorts if s[0].islower()] and "Lowest voltage" in shorts and "Radio power" in shorts
+    assert (
+        not [s for s in shorts if s[0].islower()]
+        and "Lowest voltage" in shorts
+        and "Radio power" in shorts
+    )
     assert not [s for s in shorts if any(w in s for w in ("range min", "tx power", "Structural"))]
-
-
-
-
 
 
 def test_export_and_import_are_reference():
@@ -1025,9 +1047,14 @@ def test_qarm_findings_target_the_joints_and_link_they_are_about(tmp_path):
     page = _qarm_payload(tmp_path)
     targets = [t for card in page["cards"] for t in card["targets"]]
     assert sorted(t["id"] for t in targets if t["kind"] == "joint") == [
-        "ELBOW", "SHOULDER", "WRIST", "YAW"
+        "ELBOW",
+        "SHOULDER",
+        "WRIST",
+        "YAW",
     ]
-    assert {"kind": "link", "id": "world", "label": "World", "parts": ["world"]} in targets
+    # world is a massless fixed root: folded into the frames line, not its own mass warning
+    assert not [t for t in targets if t["kind"] == "link" and t["id"] == "world"]
+    assert "Frames without mass" in [c.get("title") for c in page["cards"]]
 
 
 # ------------------------------------------------------------- constraints
@@ -1044,9 +1071,9 @@ def test_x500_overloaded_rail_constraint_is_electrical_bad_and_names_its_parts()
     assert (row["used"], row["limit"]) == (budget["value"], budget["limit"])  # the check's own
     assert row["margin_pct"] == round((15.6 - 35.2) / 15.6 * 100, 1)
     assert (row["used_kind"], row["limit_kind"]) == ("derived", "declared")
-    assert {
-        "dev.camera.oak-d-lite", "dev.companion.jetson-orin-nano", "dev.radio.rfd900x"
-    } <= set(row["parts"])
+    assert {"dev.camera.oak-d-lite", "dev.companion.jetson-orin-nano", "dev.radio.rfd900x"} <= set(
+        row["parts"]
+    )
     ok = next(c for c in payload["constraints"] if c["id"] == "budget.bud.power.servo-motor")
     assert ok["status"] == "ok"
 
@@ -1066,17 +1093,17 @@ def test_constraint_with_a_number_always_names_its_kind():
         assert (c["limit"] is None) == (c["limit_kind"] is None), c["id"]
 
 
-
-
 def test_preflight_finding_and_joint_target_name_their_parts():
-    f = Finding(severity="violation", quantity="preflight/live/dev.imu/rate_hz", observed="1", expected="2", action="fix")
+    f = Finding(
+        severity="violation",
+        quantity="preflight/live/dev.imu/rate_hz",
+        observed="1",
+        expected="2",
+        action="fix",
+    )
     targets = _targets(load_contract(CLEAN), [f])
     assert ("device", "dev.imu") in {(t["kind"], t["id"]) for t in targets}
     assert "imu_link" in next(t for t in targets if t["kind"] == "joint")["parts"]
-
-
-
-
 
 
 def test_step_targets_light_the_rail_and_its_consumers(tmp_path: Path):
@@ -1084,8 +1111,10 @@ def test_step_targets_light_the_rail_and_its_consumers(tmp_path: Path):
     from lockwire.schema import load_contract
 
     plan = tmp_path / "plan.yaml"
-    plan.write_text("steps:\n  - kind: rail_load\n    rail: rail.servo-motor\n    draw: {value: 5, unit: W}\n"
-                    "  - kind: rail_load\n    rail: rail.nope\n    draw: {value: 5, unit: W}\n")
+    plan.write_text(
+        "steps:\n  - kind: rail_load\n    rail: rail.servo-motor\n    draw: {value: 5, unit: W}\n"
+        "  - kind: rail_load\n    rail: rail.nope\n    draw: {value: 5, unit: W}\n"
+    )
     first, unknown = step_targets(load_contract(X500), plan)
     assert first[0]["id"] == "rail.servo-motor" and len(first[0]["parts"]) > 1
     assert unknown == []
@@ -1095,11 +1124,33 @@ def test_reference_joints_use_plain_words():
     from lockwire.page import _reference_face
     from lockwire.schema import Contract, Joint, ModelRecord, Provenance, RobotInfo
 
-    joint = Joint(name="world_base_joint", type="revolute", parent="world", child="base_link")
-    model = ModelRecord(source="t.urdf", source_sha256="a", structure_hash="b", joints=[joint],
-                        provenance=Provenance(witness="t", source="t.urdf", locked_at="2026-01-01"))
-    sheet = _reference_face(Contract(robot=RobotInfo(name="r"), model=model), None)["drawers"][0]["content"]
-    assert "| World Base Joint | Rotates | World | Base Link |" in sheet
+    joints = [
+        Joint(name="world_base_joint", type="fixed", parent="world", child="base_link"),
+        Joint(name="yaw", type="revolute", parent="base_link", child="END-EFFECTOR"),
+    ]
+    model = ModelRecord(
+        source="t.urdf",
+        source_sha256="a",
+        structure_hash="b",
+        joints=joints,
+        provenance=Provenance(witness="t", source="t.urdf", locked_at="2026-01-01"),
+    )
+    sheet = _reference_face(Contract(robot=RobotInfo(name="r"), model=model), None)["drawers"][0][
+        "content"
+    ]
+    assert "| Yaw | Rotates | Base | End Effector |" in sheet and "World" not in sheet
     assert "revolute" not in sheet
+    from lockwire.schema import DeviceInstance  # noqa: PLC0415
+
+    dev = DeviceInstance(id="dev.controller-opencr-1-0", model="mdl.opencr-1-0", owner="you")
+    face = _reference_face(Contract(robot=RobotInfo(name="anymal"), devices=[dev]), None)
+    assert face["devices"][0]["name"] == "Controller OpenCR 1.0"
+    assert "mdl." not in face["devices"][0]["text"]
 
 
+def test_rail_current_limit_violation_is_not_called_a_lockfile_difference(tmp_path):
+    out = tmp_path / "x.yaml"
+    assert runner.invoke(app, ["start", "--example", "rover", "--out", str(out)]).exit_code == 0
+    cards = build_payload(load_contract(out))["cards"]
+    card = next(c for c in cards if "rails/rail.jetson-header-5v/current_limit" in c["raw"])
+    assert card["title"] == "Jetson Header 5 V over its current limit"

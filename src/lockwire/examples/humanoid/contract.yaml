@@ -1,0 +1,1593 @@
+# Humanoid starter: a ToddlerBot 2xm power tree, built from its published bill of materials.
+# Based on ToddlerBot 2xm (MIT, https://github.com/hshi74/toddlerbot), Haochen Shi et al.,
+# paper https://arxiv.org/abs/2502.00893 (appendix 8.7, power budget).
+#
+# What it is: the 24 Dynamixel servos of the 2xm build, the Jetson Orin NX computer, one 4S
+# battery pack, and the two 12 V step-down converters of the power distribution board.
+# What `lockwire check` finds: NO-GO, in the servos' stall mode, a worst case and not a nominal
+# load. The paper states the pack's peak output (14.8 V x 25 A = 370 W) is "sufficient to power
+# all the joints", but the motors sit behind two 12 V 4.5 A converters (2 x 54 W = 108 W). The
+# 24 servos' e-Manual stall draw at 12 V adds up to 452 W; their standby (idle) draw is about 10 W.
+# Every servo stalled at once never happens in practice. The NO-GO does not depend on how the
+# servos are split between the converters (that split is author-chosen, see below): the 12
+# lowest-stall servos alone (6 XC330-T288 at 10.56 W + 6 servos at 16.8 W = 63.36 + 100.8 =
+# 164.16 W) already exceed one 54 W converter, so some converter is over whichever way they are
+# split. The 54 W is itself an optimistic ceiling: Pololu's 4.5 A is at 36 V input and limited
+# by heat, and this pack is 14.8 V (converter minimum input 13.3 V).
+# This is an inference from the sourced numbers, not an incident reported by ToddlerBot users
+# (the repo's issue tracker holds none about power).
+# Not published, so author-chosen and marked human: which servo hangs on which converter.
+# Legs on the legs converter and arms, neck and waist on the upper-body converter is an assumption.
+# Note for a later version: the converters output 12 V +/- 4% (up to 12.48 V), above the
+# XC330-T288's 12.0 V maximum input.
+schema_version: "0.2"
+robot:
+  name: Humanoid
+  id: toddlerbot-2xm
+model:
+  source: https://raw.githubusercontent.com/hshi74/toddlerbot/e337f3b177b4b53abff70b31d1695a7b66cc6d2e/toddlerbot/descriptions/toddlerbot_2xm/toddlerbot_2xm.urdf
+  source_sha256: 4bffae0007107c4bb3404c1876eaba3c75db1433364620cba234678c71d217db
+  structure_hash: c074fc0fb7f5cc994fe81e8d229a4f62fbac752b2bb45a88305218d808f18e03
+  links:
+  - {name: world}
+  - name: torso
+    mass: {value: 1.27503, unit: kg}
+    frame: torso
+  - name: torso_freejoint_body
+    mass: {value: 0.001, unit: kg}
+    frame: torso_freejoint_body
+  - name: neck_yaw_gear_drive
+    mass: {value: 0.003, unit: kg}
+    frame: neck_yaw_gear_drive
+  - name: neck_yaw_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: neck_yaw_drive_body
+  - name: neck_yaw_link
+    mass: {value: 0.006, unit: kg}
+    frame: neck_yaw_link
+  - name: neck_yaw_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: neck_yaw_driven_body
+  - name: head
+    mass: {value: 0.143321, unit: kg}
+    frame: head
+  - name: neck_pitch_body
+    mass: {value: 0.001, unit: kg}
+    frame: neck_pitch_body
+  - name: neck_pitch_plate
+    mass: {value: 0.002, unit: kg}
+    frame: neck_pitch_plate
+  - name: neck_pitch_act_body
+    mass: {value: 0.001, unit: kg}
+    frame: neck_pitch_act_body
+  - name: neck_rod
+    mass: {value: 0.00297389, unit: kg}
+    frame: neck_rod
+  - name: neck_pitch_front_body
+    mass: {value: 0.001, unit: kg}
+    frame: neck_pitch_front_body
+  - name: neck_rod_2
+    mass: {value: 0.00297389, unit: kg}
+    frame: neck_rod_2
+  - name: neck_pitch_back_body
+    mass: {value: 0.001, unit: kg}
+    frame: neck_pitch_back_body
+  - name: waist_gears
+    mass: {value: 0.0371617, unit: kg}
+    frame: waist_gears
+  - name: waist_yaw_body
+    mass: {value: 0.001, unit: kg}
+    frame: waist_yaw_body
+  - name: pelvis_link
+    mass: {value: 0.1052, unit: kg}
+    frame: pelvis_link
+  - name: waist_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: waist_roll_body
+  - name: waist_gear_drive
+    mass: {value: 0.002, unit: kg}
+    frame: waist_gear_drive
+  - name: waist_act_1_body
+    mass: {value: 0.001, unit: kg}
+    frame: waist_act_1_body
+  - name: waist_gear_drive_2
+    mass: {value: 0.002, unit: kg}
+    frame: waist_gear_drive_2
+  - name: waist_act_2_body
+    mass: {value: 0.001, unit: kg}
+    frame: waist_act_2_body
+  - name: left_hip_pitch_link
+    mass: {value: 0.188221, unit: kg}
+    frame: left_hip_pitch_link
+  - name: left_hip_pitch_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_hip_pitch_body
+  - name: left_hip_roll_link
+    mass: {value: 0.022, unit: kg}
+    frame: left_hip_roll_link
+  - name: left_hip_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_hip_roll_body
+  - name: left_hip_yaw_link
+    mass: {value: 0.159688, unit: kg}
+    frame: left_hip_yaw_link
+  - name: left_hip_yaw_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_hip_yaw_driven_body
+  - name: left_hip_yaw_gear_drive
+    mass: {value: 0.001, unit: kg}
+    frame: left_hip_yaw_gear_drive
+  - name: left_hip_yaw_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_hip_yaw_drive_body
+  - name: left_knee_link
+    mass: {value: 0.029, unit: kg}
+    frame: left_knee_link
+  - name: left_knee_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_knee_body
+  - name: left_ankle_pitch_link
+    mass: {value: 0.172721, unit: kg}
+    frame: left_ankle_pitch_link
+  - name: left_ankle_pitch_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_ankle_pitch_body
+  - name: left_ankle_roll_link
+    mass: {value: 0.039, unit: kg}
+    frame: left_ankle_roll_link
+  - name: left_ankle_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_ankle_roll_body
+  - name: right_hip_pitch_link
+    mass: {value: 0.188221, unit: kg}
+    frame: right_hip_pitch_link
+  - name: right_hip_pitch_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_hip_pitch_body
+  - name: right_hip_roll_link
+    mass: {value: 0.022, unit: kg}
+    frame: right_hip_roll_link
+  - name: right_hip_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_hip_roll_body
+  - name: right_hip_yaw_link
+    mass: {value: 0.159688, unit: kg}
+    frame: right_hip_yaw_link
+  - name: right_hip_yaw_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_hip_yaw_driven_body
+  - name: right_hip_yaw_gear_drive
+    mass: {value: 0.001, unit: kg}
+    frame: right_hip_yaw_gear_drive
+  - name: right_hip_yaw_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_hip_yaw_drive_body
+  - name: right_knee_link
+    mass: {value: 0.029, unit: kg}
+    frame: right_knee_link
+  - name: right_knee_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_knee_body
+  - name: right_ankle_pitch_link
+    mass: {value: 0.172721, unit: kg}
+    frame: right_ankle_pitch_link
+  - name: right_ankle_pitch_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_ankle_pitch_body
+  - name: right_ankle_roll_link
+    mass: {value: 0.039, unit: kg}
+    frame: right_ankle_roll_link
+  - name: right_ankle_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_ankle_roll_body
+  - name: left_shoulder_pitch_link
+    mass: {value: 0.015, unit: kg}
+    frame: left_shoulder_pitch_link
+  - name: left_shoulder_pitch_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_shoulder_pitch_body
+  - name: left_shoulder_roll_link
+    mass: {value: 0.1152, unit: kg}
+    frame: left_shoulder_roll_link
+  - name: left_shoulder_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_shoulder_roll_body
+  - name: left_shoulder_gear_drive
+    mass: {value: 0.004, unit: kg}
+    frame: left_shoulder_gear_drive
+  - name: left_shoulder_yaw_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_shoulder_yaw_drive_body
+  - name: left_shoulder_yaw_link
+    mass: {value: 0.0247439, unit: kg}
+    frame: left_shoulder_yaw_link
+  - name: left_shoulder_yaw_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_shoulder_yaw_driven_body
+  - name: left_elbow_roll_link
+    mass: {value: 0.1152, unit: kg}
+    frame: left_elbow_roll_link
+  - name: left_elbow_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_elbow_roll_body
+  - name: left_elbow_gear_drive
+    mass: {value: 0.004, unit: kg}
+    frame: left_elbow_gear_drive
+  - name: left_elbow_yaw_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_elbow_yaw_drive_body
+  - name: left_elbow_yaw_link
+    mass: {value: 0.0302318, unit: kg}
+    frame: left_elbow_yaw_link
+  - name: left_elbow_yaw_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_elbow_yaw_driven_body
+  - name: left_wrist_pitch_link
+    mass: {value: 0.1276, unit: kg}
+    frame: left_wrist_pitch_link
+  - name: left_wrist_pitch_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_wrist_pitch_driven_body
+  - name: left_wrist_gear_drive
+    mass: {value: 0.003, unit: kg}
+    frame: left_wrist_gear_drive
+  - name: left_wrist_pitch_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_wrist_pitch_drive_body
+  - name: left_hand
+    mass: {value: 0.043, unit: kg}
+    frame: left_hand
+  - name: left_wrist_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: left_wrist_roll_body
+  - name: right_shoulder_pitch_link
+    mass: {value: 0.015, unit: kg}
+    frame: right_shoulder_pitch_link
+  - name: right_shoulder_pitch_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_shoulder_pitch_body
+  - name: right_shoulder_roll_link
+    mass: {value: 0.1152, unit: kg}
+    frame: right_shoulder_roll_link
+  - name: right_shoulder_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_shoulder_roll_body
+  - name: right_shoulder_gear_drive
+    mass: {value: 0.004, unit: kg}
+    frame: right_shoulder_gear_drive
+  - name: right_shoulder_yaw_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_shoulder_yaw_drive_body
+  - name: right_shoulder_yaw_link
+    mass: {value: 0.0247439, unit: kg}
+    frame: right_shoulder_yaw_link
+  - name: right_shoulder_yaw_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_shoulder_yaw_driven_body
+  - name: right_elbow_roll_link
+    mass: {value: 0.1152, unit: kg}
+    frame: right_elbow_roll_link
+  - name: right_elbow_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_elbow_roll_body
+  - name: right_elbow_gear_drive
+    mass: {value: 0.004, unit: kg}
+    frame: right_elbow_gear_drive
+  - name: right_elbow_yaw_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_elbow_yaw_drive_body
+  - name: right_elbow_yaw_link
+    mass: {value: 0.0302318, unit: kg}
+    frame: right_elbow_yaw_link
+  - name: right_elbow_yaw_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_elbow_yaw_driven_body
+  - name: right_wrist_pitch_link
+    mass: {value: 0.1276, unit: kg}
+    frame: right_wrist_pitch_link
+  - name: right_wrist_pitch_driven_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_wrist_pitch_driven_body
+  - name: right_wrist_gear_drive
+    mass: {value: 0.003, unit: kg}
+    frame: right_wrist_gear_drive
+  - name: right_wrist_pitch_drive_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_wrist_pitch_drive_body
+  - name: right_hand
+    mass: {value: 0.043, unit: kg}
+    frame: right_hand
+  - name: right_wrist_roll_body
+    mass: {value: 0.001, unit: kg}
+    frame: right_wrist_roll_body
+  joints:
+  - name: torso_freejoint
+    type: floating
+    parent: world
+    child: torso_freejoint_body
+    origin:
+      xyz: [0.0, 0.0, 0.315053]
+      rpy: [0.0, 0.0, 0.0]
+    limits: {lower: -999999.0, upper: 999999.0, effort: 1000.0, velocity: 1000.0}
+  - name: torso_freejoint_offset
+    type: fixed
+    parent: torso_freejoint_body
+    child: torso
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_yaw_drive
+    type: fixed
+    parent: torso
+    child: neck_yaw_drive_body
+    origin:
+      xyz: [-0.0215079, 0.0, 0.119]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_yaw_drive_offset
+    type: fixed
+    parent: neck_yaw_drive_body
+    child: neck_yaw_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_yaw_driven
+    type: revolute
+    parent: torso
+    child: neck_yaw_driven_body
+    origin:
+      xyz: [-0.00050787, 0.0, 0.124]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 0.0, 1.0]
+    limits: {lower: -2.6179938779914944, upper: 2.6179938779914944, effort: 100.0, velocity: 100.0}
+  - name: neck_yaw_driven_offset
+    type: fixed
+    parent: neck_yaw_driven_body
+    child: neck_yaw_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_pitch
+    type: revolute
+    parent: neck_yaw_link
+    child: neck_pitch_body
+    origin:
+      xyz: [0.0, 0.004, 0.015]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -0.6108652381980779, upper: 1.396263401595401, effort: 100.0, velocity: 100.0}
+  - name: neck_pitch_offset
+    type: fixed
+    parent: neck_pitch_body
+    child: head
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_pitch_act
+    type: fixed
+    parent: head
+    child: neck_pitch_act_body
+    origin:
+      xyz: [-0.027, -0.0025, 0.0326157]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_pitch_act_offset
+    type: fixed
+    parent: neck_pitch_act_body
+    child: neck_pitch_plate
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_pitch_front
+    type: fixed
+    parent: neck_pitch_plate
+    child: neck_pitch_front_body
+    origin:
+      xyz: [0.00723736, -0.0055, 0.0019674]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_pitch_front_offset
+    type: fixed
+    parent: neck_pitch_front_body
+    child: neck_rod
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_pitch_back
+    type: fixed
+    parent: neck_pitch_plate
+    child: neck_pitch_back_body
+    origin:
+      xyz: [-0.00723736, -0.0055, -0.0019674]
+      rpy: [0.0, 0.0, 0.0]
+  - name: neck_pitch_back_offset
+    type: fixed
+    parent: neck_pitch_back_body
+    child: neck_rod_2
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: waist_yaw
+    type: revolute
+    parent: torso
+    child: waist_yaw_body
+    origin:
+      xyz: [-0.0165079, 0.0, -0.00248651]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 0.0, 1.0]
+    limits: {lower: -1.570796326794894, upper: 1.5707963267948992, effort: 100.0, velocity: 100.0}
+  - name: waist_yaw_offset
+    type: fixed
+    parent: waist_yaw_body
+    child: waist_gears
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: waist_roll
+    type: revolute
+    parent: waist_gears
+    child: waist_roll_body
+    origin:
+      xyz: [0.0230079, 0.0, -0.014]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -0.5235987755983006, upper: 0.523598775598297, effort: 100.0, velocity: 100.0}
+  - name: waist_roll_offset
+    type: fixed
+    parent: waist_roll_body
+    child: pelvis_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: waist_act_1
+    type: fixed
+    parent: pelvis_link
+    child: waist_act_1_body
+    origin:
+      xyz: [-0.01275, 0.0, -0.0196]
+      rpy: [0.0, 0.0, 0.0]
+  - name: waist_act_1_offset
+    type: fixed
+    parent: waist_act_1_body
+    child: waist_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: waist_act_2
+    type: fixed
+    parent: pelvis_link
+    child: waist_act_2_body
+    origin:
+      xyz: [-0.03275, 0.0, -0.0196]
+      rpy: [0.0, 0.0, 0.0]
+  - name: waist_act_2_offset
+    type: fixed
+    parent: waist_act_2_body
+    child: waist_gear_drive_2
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_hip_pitch
+    type: revolute
+    parent: pelvis_link
+    child: left_hip_pitch_body
+    origin:
+      xyz: [-0.02275, 0.018, -0.0481]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -2.356194490192345, upper: 0.7853981633974483, effort: 100.0, velocity: 100.0}
+  - name: left_hip_pitch_offset
+    type: fixed
+    parent: left_hip_pitch_body
+    child: left_hip_pitch_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_hip_roll
+    type: revolute
+    parent: left_hip_pitch_link
+    child: left_hip_roll_body
+    origin:
+      xyz: [-0.023, 0.019, -0.024]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -0.7853981633975363, upper: 1.5707963267948084, effort: 100.0, velocity: 100.0}
+  - name: left_hip_roll_offset
+    type: fixed
+    parent: left_hip_roll_body
+    child: left_hip_roll_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_hip_yaw_driven
+    type: revolute
+    parent: left_hip_roll_link
+    child: left_hip_yaw_driven_body
+    origin:
+      xyz: [0.023, 0.0, -0.033]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 0.0, -1.0]
+    limits: {lower: -1.570796326794896, upper: 1.5707963267948972, effort: 100.0, velocity: 100.0}
+  - name: left_hip_yaw_driven_offset
+    type: fixed
+    parent: left_hip_yaw_driven_body
+    child: left_hip_yaw_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_hip_yaw_drive
+    type: fixed
+    parent: left_hip_yaw_link
+    child: left_hip_yaw_drive_body
+    origin:
+      xyz: [-0.0192, -0.0002, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_hip_yaw_drive_offset
+    type: fixed
+    parent: left_hip_yaw_drive_body
+    child: left_hip_yaw_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_knee
+    type: revolute
+    parent: left_hip_yaw_link
+    child: left_knee_body
+    origin:
+      xyz: [0.0, -0.019, -0.0445]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, -1.0, 0.0]
+    limits: {lower: -2.0943951023931953, upper: 0.0, effort: 100.0, velocity: 100.0}
+  - name: left_knee_offset
+    type: fixed
+    parent: left_knee_body
+    child: left_knee_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_ankle_pitch
+    type: revolute
+    parent: left_knee_link
+    child: left_ankle_pitch_body
+    origin:
+      xyz: [0.0, 0.0, -0.11]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -1.8325957145940461, upper: 0.9599310885968813, effort: 100.0, velocity: 100.0}
+  - name: left_ankle_pitch_offset
+    type: fixed
+    parent: left_ankle_pitch_body
+    child: left_ankle_pitch_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_ankle_roll
+    type: revolute
+    parent: left_ankle_pitch_link
+    child: left_ankle_roll_body
+    origin:
+      xyz: [-0.023, 0.019, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -1.221730476395942, upper: 1.2217304763961192, effort: 100.0, velocity: 100.0}
+  - name: left_ankle_roll_offset
+    type: fixed
+    parent: left_ankle_roll_body
+    child: left_ankle_roll_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_hip_pitch
+    type: revolute
+    parent: pelvis_link
+    child: right_hip_pitch_body
+    origin:
+      xyz: [-0.02275, -0.018, -0.0481]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, -1.0, 0.0]
+    limits: {lower: -0.7853981633974207, upper: 2.3561944901923724, effort: 100.0, velocity: 100.0}
+  - name: right_hip_pitch_offset
+    type: fixed
+    parent: right_hip_pitch_body
+    child: right_hip_pitch_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_hip_roll
+    type: revolute
+    parent: right_hip_pitch_link
+    child: right_hip_roll_body
+    origin:
+      xyz: [-0.0228375, -0.019, -0.024]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -1.5707963267948664, upper: 0.7853981633974785, effort: 100.0, velocity: 100.0}
+  - name: right_hip_roll_offset
+    type: fixed
+    parent: right_hip_roll_body
+    child: right_hip_roll_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_hip_yaw_driven
+    type: revolute
+    parent: right_hip_roll_link
+    child: right_hip_yaw_driven_body
+    origin:
+      xyz: [0.023, 0.0, -0.033]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 0.0, -1.0]
+    limits: {lower: -1.570796326794897, upper: 1.5707963267948961, effort: 100.0, velocity: 100.0}
+  - name: right_hip_yaw_driven_offset
+    type: fixed
+    parent: right_hip_yaw_driven_body
+    child: right_hip_yaw_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_hip_yaw_drive
+    type: fixed
+    parent: right_hip_yaw_link
+    child: right_hip_yaw_drive_body
+    origin:
+      xyz: [-0.0192, 0.0002, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_hip_yaw_drive_offset
+    type: fixed
+    parent: right_hip_yaw_drive_body
+    child: right_hip_yaw_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_knee
+    type: revolute
+    parent: right_hip_yaw_link
+    child: right_knee_body
+    origin:
+      xyz: [0.0, 0.019, -0.0445]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: 0.0, upper: 2.0943951023931953, effort: 100.0, velocity: 100.0}
+  - name: right_knee_offset
+    type: fixed
+    parent: right_knee_body
+    child: right_knee_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_ankle_pitch
+    type: revolute
+    parent: right_knee_link
+    child: right_ankle_pitch_body
+    origin:
+      xyz: [0.0, 0.0, -0.11]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, -1.0, 0.0]
+    limits: {lower: -0.9599310885968813, upper: 1.8325957145940461, effort: 100.0, velocity: 100.0}
+  - name: right_ankle_pitch_offset
+    type: fixed
+    parent: right_ankle_pitch_body
+    child: right_ankle_pitch_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_ankle_roll
+    type: revolute
+    parent: right_ankle_pitch_link
+    child: right_ankle_roll_body
+    origin:
+      xyz: [-0.023, -0.019, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -1.221730476396059, upper: 1.2217304763960022, effort: 100.0, velocity: 100.0}
+  - name: right_ankle_roll_offset
+    type: fixed
+    parent: right_ankle_roll_body
+    child: right_ankle_roll_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_shoulder_pitch
+    type: revolute
+    parent: torso
+    child: left_shoulder_pitch_body
+    origin:
+      xyz: [-0.0200079, 0.067, 0.10175]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -4.712388980384688, upper: 4.7123889803846915, effort: 100.0, velocity: 100.0}
+  - name: left_shoulder_pitch_offset
+    type: fixed
+    parent: left_shoulder_pitch_body
+    child: left_shoulder_pitch_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_shoulder_roll
+    type: revolute
+    parent: left_shoulder_pitch_link
+    child: left_shoulder_roll_body
+    origin:
+      xyz: [-0.019, 0.027, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -0.43633231299813, upper: 1.5707963267953489, effort: 100.0, velocity: 100.0}
+  - name: left_shoulder_roll_offset
+    type: fixed
+    parent: left_shoulder_roll_body
+    child: left_shoulder_roll_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_shoulder_yaw_drive
+    type: fixed
+    parent: left_shoulder_roll_link
+    child: left_shoulder_yaw_drive_body
+    origin:
+      xyz: [0.019, 0.024, -0.019]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_shoulder_yaw_drive_offset
+    type: fixed
+    parent: left_shoulder_yaw_drive_body
+    child: left_shoulder_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_shoulder_yaw_driven
+    type: revolute
+    parent: left_shoulder_roll_link
+    child: left_shoulder_yaw_driven_body
+    origin:
+      xyz: [0.019, 0.0, -0.025]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 0.0, -1.0]
+    limits: {lower: -3.141592653589787, upper: 3.1415926535897993, effort: 100.0, velocity: 100.0}
+  - name: left_shoulder_yaw_driven_offset
+    type: fixed
+    parent: left_shoulder_yaw_driven_body
+    child: left_shoulder_yaw_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_elbow_roll
+    type: revolute
+    parent: left_shoulder_yaw_link
+    child: left_elbow_roll_body
+    origin:
+      xyz: [-0.019, 0.0, -0.061]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -2.2689280275929393, upper: 1.9198621771934516, effort: 100.0, velocity: 100.0}
+  - name: left_elbow_roll_offset
+    type: fixed
+    parent: left_elbow_roll_body
+    child: left_elbow_roll_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_elbow_yaw_drive
+    type: fixed
+    parent: left_elbow_roll_link
+    child: left_elbow_yaw_drive_body
+    origin:
+      xyz: [0.019, 0.024, -0.019]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_elbow_yaw_drive_offset
+    type: fixed
+    parent: left_elbow_yaw_drive_body
+    child: left_elbow_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_elbow_yaw_driven
+    type: revolute
+    parent: left_elbow_roll_link
+    child: left_elbow_yaw_driven_body
+    origin:
+      xyz: [0.019, 0.0, -0.025]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 0.0, -1.0]
+    limits: {lower: -3.141592653589793, upper: 3.141592653589793, effort: 100.0, velocity: 100.0}
+  - name: left_elbow_yaw_driven_offset
+    type: fixed
+    parent: left_elbow_yaw_driven_body
+    child: left_elbow_yaw_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_wrist_pitch_driven
+    type: revolute
+    parent: left_elbow_yaw_link
+    child: left_wrist_pitch_driven_body
+    origin:
+      xyz: [0.0, 0.022, -0.061]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, -1.0, 0.0]
+    limits: {lower: -2.094395102392591, upper: 2.0943951023937997, effort: 100.0, velocity: 100.0}
+  - name: left_wrist_pitch_driven_offset
+    type: fixed
+    parent: left_wrist_pitch_driven_body
+    child: left_wrist_pitch_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_wrist_pitch_drive
+    type: fixed
+    parent: left_wrist_pitch_link
+    child: left_wrist_pitch_drive_body
+    origin:
+      xyz: [0.0, -0.003, 0.024]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_wrist_pitch_drive_offset
+    type: fixed
+    parent: left_wrist_pitch_drive_body
+    child: left_wrist_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: left_wrist_roll
+    type: revolute
+    parent: left_wrist_pitch_link
+    child: left_wrist_roll_body
+    origin:
+      xyz: [-0.019, -0.022, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [-1.0, 0.0, 0.0]
+    limits: {lower: -1.5707963267948966, upper: 1.5707963267948966, effort: 100.0, velocity: 100.0}
+  - name: left_wrist_roll_offset
+    type: fixed
+    parent: left_wrist_roll_body
+    child: left_hand
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_shoulder_pitch
+    type: revolute
+    parent: torso
+    child: right_shoulder_pitch_body
+    origin:
+      xyz: [-0.0200079, -0.067, 0.10175]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, -1.0, 0.0]
+    limits: {lower: -4.71238898038469, upper: 4.71238898038469, effort: 100.0, velocity: 100.0}
+  - name: right_shoulder_pitch_offset
+    type: fixed
+    parent: right_shoulder_pitch_body
+    child: right_shoulder_pitch_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_shoulder_roll
+    type: revolute
+    parent: right_shoulder_pitch_link
+    child: right_shoulder_roll_body
+    origin:
+      xyz: [0.019, -0.027, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [-1.0, 0.0, 0.0]
+    limits: {lower: -0.4363323129976375, upper: 1.5707963267958416, effort: 100.0, velocity: 100.0}
+  - name: right_shoulder_roll_offset
+    type: fixed
+    parent: right_shoulder_roll_body
+    child: right_shoulder_roll_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_shoulder_yaw_drive
+    type: fixed
+    parent: right_shoulder_roll_link
+    child: right_shoulder_yaw_drive_body
+    origin:
+      xyz: [-0.019, -0.024, -0.019]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_shoulder_yaw_drive_offset
+    type: fixed
+    parent: right_shoulder_yaw_drive_body
+    child: right_shoulder_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_shoulder_yaw_driven
+    type: revolute
+    parent: right_shoulder_roll_link
+    child: right_shoulder_yaw_driven_body
+    origin:
+      xyz: [-0.019, 0.0, -0.025]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 0.0, -1.0]
+    limits: {lower: -3.14159265358975, upper: 3.141592653589836, effort: 100.0, velocity: 100.0}
+  - name: right_shoulder_yaw_driven_offset
+    type: fixed
+    parent: right_shoulder_yaw_driven_body
+    child: right_shoulder_yaw_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_elbow_roll
+    type: revolute
+    parent: right_shoulder_yaw_link
+    child: right_elbow_roll_body
+    origin:
+      xyz: [0.019, 0.0, -0.061]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [-1.0, 0.0, 0.0]
+    limits: {lower: -2.2689280275929393, upper: 1.9198621771934514, effort: 100.0, velocity: 100.0}
+  - name: right_elbow_roll_offset
+    type: fixed
+    parent: right_elbow_roll_body
+    child: right_elbow_roll_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_elbow_yaw_drive
+    type: fixed
+    parent: right_elbow_roll_link
+    child: right_elbow_yaw_drive_body
+    origin:
+      xyz: [-0.019, -0.024, -0.019]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_elbow_yaw_drive_offset
+    type: fixed
+    parent: right_elbow_yaw_drive_body
+    child: right_elbow_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_elbow_yaw_driven
+    type: revolute
+    parent: right_elbow_roll_link
+    child: right_elbow_yaw_driven_body
+    origin:
+      xyz: [-0.019, 0.0, -0.025]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 0.0, -1.0]
+    limits: {lower: -3.1415926535897016, upper: 3.1415926535898846, effort: 100.0, velocity: 100.0}
+  - name: right_elbow_yaw_driven_offset
+    type: fixed
+    parent: right_elbow_yaw_driven_body
+    child: right_elbow_yaw_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_wrist_pitch_driven
+    type: revolute
+    parent: right_elbow_yaw_link
+    child: right_wrist_pitch_driven_body
+    origin:
+      xyz: [0.0, -0.022, -0.061]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -2.0943951023930802, upper: 2.0943951023933103, effort: 100.0, velocity: 100.0}
+  - name: right_wrist_pitch_driven_offset
+    type: fixed
+    parent: right_wrist_pitch_driven_body
+    child: right_wrist_pitch_link
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_wrist_pitch_drive
+    type: fixed
+    parent: right_wrist_pitch_link
+    child: right_wrist_pitch_drive_body
+    origin:
+      xyz: [0.0, 0.003, 0.024]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_wrist_pitch_drive_offset
+    type: fixed
+    parent: right_wrist_pitch_drive_body
+    child: right_wrist_gear_drive
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  - name: right_wrist_roll
+    type: revolute
+    parent: right_wrist_pitch_link
+    child: right_wrist_roll_body
+    origin:
+      xyz: [0.019, 0.022, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -1.5707963267948966, upper: 1.5707963267948966, effort: 100.0, velocity: 100.0}
+  - name: right_wrist_roll_offset
+    type: fixed
+    parent: right_wrist_roll_body
+    child: right_hand
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  zero_mass_links: [world]
+  provenance:
+    witness: w0
+    source: https://raw.githubusercontent.com/hshi74/toddlerbot/e337f3b177b4b53abff70b31d1695a7b66cc6d2e/toddlerbot/descriptions/toddlerbot_2xm/toddlerbot_2xm.urdf
+    locked_at: 2026-10-15
+    note: "Link masses are the <mass> values of toddlerbot_2xm.urdf at hshi74/toddlerbot@e337f3b, read 2026-10-15. Links and joints are lockwire's own URDF import (lockwire start) of that file, with inertia and centre-of-mass columns dropped; structure_hash and source_sha256 are of that file. The 45 frame-only `*_body` links (no visual, joint-axis bodies) carry the URDF's own placeholder 0.001 kg (MuJoCo `balanceinertia`); left as the model records them, because a massless link with a massive child is one warning each in `lockwire check` (45 of them), not a folded frames line. A servo mounts on the link the scene script gives its id; servos whose own link has no box (hip-roll, shoulder-pitch, neck-yaw, waist-yaw) mount on the drawn link their joint hangs from."
+
+families:
+  - id: fam.companion.computer
+    name: Companion computer
+  - id: fam.servo.dynamixel
+    name: Dynamixel servo
+  - id: fam.regulator
+    name: 12 V step-down converter
+device_models:
+  - id: mdl.servo.xc330-t288
+    family: fam.servo.dynamixel
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/"
+      locked_at: 2026-10-15
+      note: "Robotis e-Manual, XC330-T288, fetched 2026-10-15: Stall Torque 1.00 N.m at 12.0 V, 0.88 A; Input Voltage 6.5 ~ 12.0 V (recommended 11.1 V). Stall draw at 12 V = 12 V x 0.88 A = 10.56 W."
+    input_voltage_range:
+      min: {value: 6.5, unit: V}
+      max: {value: 12.0, unit: V}
+  - id: mdl.servo.2xc430-w250
+    family: fam.servo.dynamixel
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/"
+      locked_at: 2026-10-15
+      note: "Robotis e-Manual, 2XC430-W250, fetched 2026-10-15: Stall Torque 1.8 N.m at 12.0 V, 1.4 A; Input Voltage 6.5 ~ 14.8 V (recommended 12.0 V); the page lists one stall figure for the whole two-axis module. Stall draw at 12 V = 12 V x 1.4 A = 16.8 W."
+    input_voltage_range:
+      min: {value: 6.5, unit: V}
+      max: {value: 14.8, unit: V}
+  - id: mdl.servo.xc430-t240bb
+    family: fam.servo.dynamixel
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/"
+      locked_at: 2026-10-15
+      note: "Robotis e-Manual, XC430-T240BB, fetched 2026-10-15: Stall Torque 1.9 N.m at 12.0 V, 1.4 A; Input Voltage 6.5 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 1.4 A = 16.8 W."
+    input_voltage_range:
+      min: {value: 6.5, unit: V}
+      max: {value: 14.8, unit: V}
+  - id: mdl.servo.xm430-w210
+    family: fam.servo.dynamixel
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/"
+      locked_at: 2026-10-15
+      note: "Robotis e-Manual, XM430-W210, fetched 2026-10-15: Stall Torque 3.0 N.m at 12.0 V, 2.3 A; Input Voltage 10.0 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 2.3 A = 27.6 W."
+    input_voltage_range:
+      min: {value: 10.0, unit: V}
+      max: {value: 14.8, unit: V}
+  - id: mdl.servo.xm430-w350
+    family: fam.servo.dynamixel
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/"
+      locked_at: 2026-10-15
+      note: "Robotis e-Manual, XM430-W350, fetched 2026-10-15: Stall Torque 4.1 N.m at 12.0 V, 2.3 A; Input Voltage 10.0 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 2.3 A = 27.6 W."
+    input_voltage_range:
+      min: {value: 10.0, unit: V}
+      max: {value: 14.8, unit: V}
+  - id: mdl.regulator.pololu-d36v50f12
+    family: fam.regulator
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095"
+      locked_at: 2026-10-15
+      note: "Pololu D36V50F12 (the converter in ToddlerBot's bill of materials, 'Step Down Power Converter 12V 4.5A'), fetched 2026-10-15: input 13.3 V to 50 V, output 12 V with 4% accuracy, 4.5 A at 36 V in (listed on the family page), typical efficiency 90% to 95%. 12 V x 4.5 A = 54 W. Pololu's 4.5 A is the 36 V input figure and is limited by heat; on a 14.8 V pack (13.3 V minimum input) 54 W is an optimistic ceiling."
+  - id: mdl.computer.jetson-orin-nx-16gb
+    family: fam.companion.computer
+    provenance:
+      witness: w0
+      source: "https://wiki.seeedstudio.com/reComputer_J4012_Flash_Jetpack/"
+      locked_at: 2026-10-15
+      note: "ToddlerBot's bill of materials lists the Seeed reComputer J4012 (Jetson Orin NX 16GB); Seeed's page gives its power input as 9-19 V DC."
+    input_voltage_range:
+      min: {value: 9, unit: V}
+      max: {value: 19, unit: V}
+devices:
+  - id: dev.servo.left-hip-pitch
+    model: mdl.servo.xm430-w350
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.48, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.48, unit: W}
+        - name: "stall"
+          draw: {value: 27.6, unit: W}
+    physical:
+      mount_frame: left_hip_pitch_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XM430-W350 on the left hip pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-hip-roll
+    model: mdl.servo.xm430-w350
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.48, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.48, unit: W}
+        - name: "stall"
+          draw: {value: 27.6, unit: W}
+    physical:
+      mount_frame: left_hip_pitch_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XM430-W350 on the left hip roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-hip-yaw
+    model: mdl.servo.xc330-t288
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.204, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.204, unit: W}
+        - name: "stall"
+          draw: {value: 10.56, unit: W}
+    physical:
+      mount_frame: left_hip_yaw_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC330-T288 on the left hip yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-knee
+    model: mdl.servo.xm430-w210
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.48, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.48, unit: W}
+        - name: "stall"
+          draw: {value: 27.6, unit: W}
+    physical:
+      mount_frame: left_knee_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XM430-W210 on the left knee: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-ankle-pitch
+    model: mdl.servo.xm430-w210
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.48, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.48, unit: W}
+        - name: "stall"
+          draw: {value: 27.6, unit: W}
+    physical:
+      mount_frame: left_ankle_pitch_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XM430-W210 on the left ankle pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-ankle-roll
+    model: mdl.servo.xc430-t240bb
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.552, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.552, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: left_ankle_roll_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC430-T240BB on the left ankle roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 46 mA x 12 V = 0.552 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-shoulder-pitch
+    model: mdl.servo.xc430-t240bb
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.552, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.552, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: torso
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC430-T240BB on the left shoulder pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 46 mA x 12 V = 0.552 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-shoulder-roll-yaw
+    model: mdl.servo.2xc430-w250
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.588, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.588, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: left_shoulder_roll_link
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "2XC430-W250 on the left shoulder roll and yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 49 mA x 12 V = 0.588 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-elbow-roll-yaw
+    model: mdl.servo.2xc430-w250
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.588, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.588, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: left_elbow_roll_link
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "2XC430-W250 on the left elbow roll and yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 49 mA x 12 V = 0.588 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.left-wrist-pitch-roll
+    model: mdl.servo.2xc430-w250
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.588, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.588, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: left_wrist_pitch_link
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "2XC430-W250 on the left wrist pitch and roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 49 mA x 12 V = 0.588 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-hip-pitch
+    model: mdl.servo.xm430-w350
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.48, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.48, unit: W}
+        - name: "stall"
+          draw: {value: 27.6, unit: W}
+    physical:
+      mount_frame: right_hip_pitch_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XM430-W350 on the right hip pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-hip-roll
+    model: mdl.servo.xm430-w350
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.48, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.48, unit: W}
+        - name: "stall"
+          draw: {value: 27.6, unit: W}
+    physical:
+      mount_frame: right_hip_pitch_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XM430-W350 on the right hip roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-hip-yaw
+    model: mdl.servo.xc330-t288
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.204, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.204, unit: W}
+        - name: "stall"
+          draw: {value: 10.56, unit: W}
+    physical:
+      mount_frame: right_hip_yaw_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC330-T288 on the right hip yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-knee
+    model: mdl.servo.xm430-w210
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.48, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.48, unit: W}
+        - name: "stall"
+          draw: {value: 27.6, unit: W}
+    physical:
+      mount_frame: right_knee_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XM430-W210 on the right knee: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-ankle-pitch
+    model: mdl.servo.xm430-w210
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.48, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.48, unit: W}
+        - name: "stall"
+          draw: {value: 27.6, unit: W}
+    physical:
+      mount_frame: right_ankle_pitch_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XM430-W210 on the right ankle pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-ankle-roll
+    model: mdl.servo.xc430-t240bb
+    power:
+      rail: rail.legs-12v
+      draw: {value: 0.552, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.552, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: right_ankle_roll_link
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC430-T240BB on the right ankle roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 46 mA x 12 V = 0.552 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-shoulder-pitch
+    model: mdl.servo.xc430-t240bb
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.552, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.552, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: torso
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC430-T240BB on the right shoulder pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 46 mA x 12 V = 0.552 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-shoulder-roll-yaw
+    model: mdl.servo.2xc430-w250
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.588, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.588, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: right_shoulder_roll_link
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "2XC430-W250 on the right shoulder roll and yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 49 mA x 12 V = 0.588 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-elbow-roll-yaw
+    model: mdl.servo.2xc430-w250
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.588, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.588, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: right_elbow_roll_link
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "2XC430-W250 on the right elbow roll and yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 49 mA x 12 V = 0.588 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.right-wrist-pitch-roll
+    model: mdl.servo.2xc430-w250
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.588, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.588, unit: W}
+        - name: "stall"
+          draw: {value: 16.8, unit: W}
+    physical:
+      mount_frame: right_wrist_pitch_link
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "2XC430-W250 on the right wrist pitch and roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 49 mA x 12 V = 0.588 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.neck-yaw
+    model: mdl.servo.xc330-t288
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.204, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.204, unit: W}
+        - name: "stall"
+          draw: {value: 10.56, unit: W}
+    physical:
+      mount_frame: torso
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC330-T288 on the neck yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.neck-pitch
+    model: mdl.servo.xc330-t288
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.204, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.204, unit: W}
+        - name: "stall"
+          draw: {value: 10.56, unit: W}
+    physical:
+      mount_frame: head
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC330-T288 on the neck pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.waist-yaw
+    model: mdl.servo.xc330-t288
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.204, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.204, unit: W}
+        - name: "stall"
+          draw: {value: 10.56, unit: W}
+    physical:
+      mount_frame: torso
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC330-T288 on the waist yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.servo.waist-roll
+    model: mdl.servo.xc330-t288
+    power:
+      rail: rail.upper-body-12v
+      draw: {value: 0.204, unit: W}
+      modes:
+        - name: "standby"
+          draw: {value: 0.204, unit: W}
+        - name: "stall"
+          draw: {value: 10.56, unit: W}
+    physical:
+      mount_frame: pelvis_link
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-10-15
+      note: "XC330-T288 on the waist roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+  - id: dev.jetson-orin
+    model: mdl.computer.jetson-orin-nx-16gb
+    power:
+      rail: rail.battery-pack
+      draw: {value: 15, unit: W}
+    physical:
+      mount_frame: torso
+    owner: compute
+    provenance:
+      witness: w0
+      source: "https://arxiv.org/abs/2502.00893 appendix 8.7"
+      locked_at: 2026-10-15
+      note: "Paper: 'The computer and camera together consume approximately 15 W under typical operating conditions.' The paper's power board sends the battery voltage (14-19 V) straight to the Jetson, so it sits on the pack rail, not behind a converter."
+topology:
+  rails:
+    - id: rail.battery-pack
+      voltage: {value: 14.8, unit: V}
+      capacity: {value: 370, unit: W}
+      upstream: battery
+      provenance:
+        witness: w0
+        source: "https://arxiv.org/abs/2502.00893 appendix 8.7"
+        locked_at: 2026-10-15
+        note: "Paper: 'The peak power output from the battery is 14.8 V x 25 A = 370 W, sufficient to power all the joints.' The DIY pack guide (docs/features/03_diy_battery.rst) gives 14.8 V nominal and an XT30 'max rated discharge rate 25A'. topology.battery is that DIY pack, 4 cells of 21700 at 5000 mAh (paper): 5.0 Ah x 14.8 V = 74.0 Wh."
+    - id: rail.legs-12v
+      voltage: {value: 12, unit: V}
+      capacity: {value: 54, unit: W}
+      current_limit: {value: 4.5, unit: A}
+      upstream: rail.battery-pack
+      efficiency: 0.9
+      provenance:
+        witness: w0
+        source: "https://www.pololu.com/product/4095; https://arxiv.org/abs/2502.00893 appendix 8.7"
+        locked_at: 2026-10-15
+        note: "Legs converter. The paper's power board carries two 12 V step-down converters (Pololu D36V50F12, 12 V 4.5 A): 12 V x 4.5 A = 54 W. Efficiency 0.9 is the low end of Pololu's 'typical efficiency of 90% to 95%'. The split of servos between the two converters is author-chosen (not published)."
+    - id: rail.upper-body-12v
+      voltage: {value: 12, unit: V}
+      capacity: {value: 54, unit: W}
+      current_limit: {value: 4.5, unit: A}
+      upstream: rail.battery-pack
+      efficiency: 0.9
+      provenance:
+        witness: w0
+        source: "https://www.pololu.com/product/4095; https://arxiv.org/abs/2502.00893 appendix 8.7"
+        locked_at: 2026-10-15
+        note: "Upper-body converter (arms, neck, waist). The paper's power board carries two 12 V step-down converters (Pololu D36V50F12, 12 V 4.5 A): 12 V x 4.5 A = 54 W. Efficiency 0.9 is the low end of Pololu's 'typical efficiency of 90% to 95%'. The split of servos between the two converters is author-chosen (not published)."
+  # DIY 4-cell 21700 pack, 5000 mAh (paper appendix 8.7): 5.0 Ah x 14.8 V = 74.0 Wh. The stock
+  # 2000 mAh LiPo is not used: its voltage is not published. 4S is 14.8 V nominal (DIY pack guide).
+  battery:
+    capacity: {value: 74.0, unit: Wh}
+    voltage: {value: 14.8, unit: V}
+budgets:
+  - id: bud.legs-12v-power
+    kind: rail_power
+    rail: rail.legs-12v
+    limit: {value: 54, unit: W}
+    draw_mode: "stall"
+    owner: locomotion
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095"
+      locked_at: 2026-10-15
+      note: "Budget equals the converter rating: 12 V x 4.5 A = 54 W (an optimistic ceiling: 4.5 A is Pololu's 36 V-input, heat-limited figure; this pack is 14.8 V). Scored in the servos' stall mode, a worst case."
+  - id: bud.upper-body-12v-power
+    kind: rail_power
+    rail: rail.upper-body-12v
+    limit: {value: 54, unit: W}
+    draw_mode: "stall"
+    owner: upper-body
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095"
+      locked_at: 2026-10-15
+      note: "Budget equals the converter rating: 12 V x 4.5 A = 54 W (an optimistic ceiling: 4.5 A is Pololu's 36 V-input, heat-limited figure; this pack is 14.8 V). Scored in the servos' stall mode, a worst case."
+  - id: bud.battery-pack-power
+    kind: rail_power
+    rail: rail.battery-pack
+    limit: {value: 370, unit: W}
+    owner: compute
+    provenance:
+      witness: w0
+      source: "https://arxiv.org/abs/2502.00893 appendix 8.7"
+      locked_at: 2026-10-15
+      note: "Budget equals the paper's stated peak pack output: 14.8 V x 25 A = 370 W."

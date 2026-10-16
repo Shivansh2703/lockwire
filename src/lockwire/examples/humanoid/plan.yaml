@@ -1,0 +1,10 @@
+# Example plan for the humanoid starter: put the left knee servo in stall (the worst case it can
+# draw), then add a 10 W accessory on the battery pack. Check it with
+# `lockwire plan <lockfile> <plan>`.
+steps:
+  - kind: set_power_mode
+    device: dev.servo.left-knee
+    mode: stall
+  - kind: rail_load
+    rail: rail.battery-pack
+    draw: {value: 10, unit: W}

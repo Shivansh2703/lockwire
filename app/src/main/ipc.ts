@@ -1,10 +1,10 @@
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
 import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 
 import type { CheckFacePayload } from "../renderer/checkFacePayload";
-import { type CheckPayload, type DeclareFormPayload, type DiffPayload, type LogPayload, type PagePayload, type PlanPayload, type WhatIfPayload } from "../shared/api.gen";
+import { type CheckPayload, type DeclareFormPayload, type DiffPayload, type LogPayload, type PagePayload, type PlanPayload, type StartersPayload, type WhatIfPayload } from "../shared/api.gen";
 import {
   PERMITTED_COMMAND_CLASSES,
   MENU_OPENED_CHANNEL,
@@ -22,11 +22,12 @@ import {
   type ContractWriteRequest,
 } from "../shared/ipc-contract";
 import { checkPayloadToFace } from "./checkPayload";
-import { pickRobot } from "./dialogs";
+import { pickNewRobotLocation, pickRobot } from "./dialogs";
 import { hasOnlyKeys, hasStrings, isRecord, isStringArray, runSidecarCommand, type SidecarRunReply } from "./ipcKit";
 import {
   validateCheckPayload,
   validateStartPayload,
+  validateStartersPayload,
   validateDeclareFormPayload,
   validateDiffPayload,
   validateEditPayload,
@@ -312,8 +313,14 @@ async function handleWhatIf(args: unknown): Promise<WhatIfPayload> {
   return proMain ? proMain.validators.whatIf(reply.payload) : validateWhatIfPayload(reply.payload);
 }
 
-async function handlePlan(args: unknown): Promise<PlanPayload> {
+/** An empty `plan` means "the one beside the lockfile": `<lockfile stem>.plan.yaml`, or null when absent. */
+async function handlePlan(args: unknown): Promise<PlanPayload | null> {
   if (!isPlanRequest(args)) throw new Error("contract:plan: invalid arguments");
+  if (args.plan === "") {
+    const sibling = args.contract.replace(/\.[^./\\]*$/, "") + ".plan.yaml";
+    if (!existsSync(sibling)) return null;
+    args = { contract: args.contract, plan: sibling };
+  }
   const reply = await runSidecarCommand({ command: "plan", args });
   if (reply.refusal || !reply.payload) throw new Error(reply.refusal ?? "the sidecar returned no plan payload");
   return validatePlanPayload(reply.payload);
@@ -454,6 +461,35 @@ async function startFromPath(selected: string): Promise<StartUrdfResult> {
   return runStart(selected, undefined);
 }
 
+async function readStarters(): Promise<StartersPayload["starters"]> {
+  const reply = await runSidecarCommand({ command: "starters", args: {} });
+  if (reply.refusal || !reply.payload) throw new Error(reply.refusal ?? "starters returned no payload");
+  return validateStartersPayload(reply.payload).starters;
+}
+
+async function handleStarters(_args: unknown): Promise<StartersPayload["starters"]> {
+  return readStarters();
+}
+
+/** "New robot": a starter (named from the sidecar's own list, never a path) or null for blank; the sidecar writes it where the user chose, then it is opened like any lockfile. */
+async function handleNewRobot(args: unknown): Promise<StartUrdfResult> {
+  if (!isRecord(args) || !hasOnlyKeys(args, ["starter"]) || !(args.starter === null || typeof args.starter === "string")) {
+    throw new Error("file:new-robot: expected { starter: string | null }");
+  }
+  const starter = args.starter;
+  if (starter !== null && !(await readStarters()).some((s) => s.name === starter)) {
+    throw new Error(`file:new-robot: no starter named ${JSON.stringify(starter)}`);
+  }
+  const out = await pickNewRobotLocation(starter ?? "blank");
+  if (out === null) return { started: false };
+  const reply = await runSidecarCommand({
+    command: "start",
+    args: starter === null ? { blank: true, out } : { example: starter, out },
+  });
+  if (reply.refusal || !reply.payload) throw new Error(reply.refusal ?? "start returned no payload");
+  return { started: false, opened: await openContract(validateStartPayload(reply.payload).path) };
+}
+
 const DROPPABLE = /\.(urdf|sdf|xacro|ya?ml)$/i;
 
 async function handleOpenDropped(args: unknown): Promise<StartUrdfResult> {
@@ -540,6 +576,8 @@ const HANDLERS = {
   "file:open": handleFileOpen,
   "file:start-urdf": handleStartUrdf,
   "file:open-dropped": handleOpenDropped,
+  "file:new-robot": handleNewRobot,
+  "file:starters": handleStarters,
   "file:choose-plan": handleChoosePlan,
   "sidecar:state": handleSidecarState,
   "sidecar:restart": handleSidecarRestart,

@@ -34,7 +34,9 @@ from lockwire.plan import Plan, PlanReport, Step, validate_plan
 from lockwire.report import Verdict, verdict
 from lockwire.schema import Contract, _load_yaml_guarded, _reject_yaml_anchors_aliases, _yaml
 
-DEFAULT_CORPUS_PATH = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bench" / "corpus.yaml"
+DEFAULT_CORPUS_PATH = (
+    Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bench" / "corpus.yaml"
+)
 
 Category = Literal["violating", "compliant", "unscorable"]
 Evaluator = Callable[[Contract, Plan], PlanReport]

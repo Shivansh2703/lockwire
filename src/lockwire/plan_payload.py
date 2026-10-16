@@ -58,6 +58,9 @@ class Instead(_Strict):
 
     text: str
     kind: str
+    #: The rail and device the remedy names (``advice.Alternative``), for click-through.
+    rail: str | None = None
+    device: str | None = None
 
 
 class FindingLabel(_Strict):

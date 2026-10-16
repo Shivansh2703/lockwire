@@ -49,6 +49,14 @@ def _local_tag(tag: str) -> str:
     return tag
 
 
+def robot_name(path: Path) -> str:
+    """The URDF's own ``<robot name>``; the file stem when it has none."""
+    try:
+        return ET.parse(path).getroot().get("name") or path.stem
+    except (OSError, ET.ParseError):
+        return path.stem
+
+
 def _refuse_unresolved_xacro(root: ET.Element, path: Path) -> None:
     """Refuse unexpanded xacro rather than treat template tokens as robot links.
 

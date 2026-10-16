@@ -1,42 +1,153 @@
-# lockwire
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-dark.svg">
+  <img src="docs/img/logo-light.svg" alt="lockwire" height="64">
+</picture>
+</p>
 
 **Find out your robot won't work before you buy the parts.**
 
+![The drone in 3D with its power parts in red, and a NO-GO finding that the 5 V rail is overloaded](docs/img/hero.png)
+
 Every robot is a stack of numbers from a dozen datasheets: what each part weighs, what each power rail can supply, how much the bus can carry, how much torque each joint gets. Lockwire keeps those numbers in one file and tells you the moment they stop adding up. Use it while you're still planning a build, then keep it in CI so a part swap can't quietly break it later.
 
-Prefer clicking to typing? The free desktop app does the same visually: Open, Design, Declare, Plan, Check.
+## Try it in 30 seconds
 
-## Plan a robot from scratch
-
-Start from a URDF (one line is enough), add the parts you're thinking of buying, and check:
+Needs Python 3.12 or newer (the Python that ships with macOS is older).
 
 ```bash
-pip install "git+https://github.com/Shivansh2703/lockwire@v0.2.0"   # not on PyPI
-echo '<robot name="rover"><link name="base_link"/></robot>' > robot.urdf
-lockwire start robot.urdf
-lockwire add rail   lockwire.yaml --id rail.5v --voltage "5 V" --capacity "15 W" --source "UBEC datasheet: 5 V 3 A" --witness Sam
-lockwire add device lockwire.yaml --id dev.pi5   --family fam.pi    --model mod.pi5    --rail rail.5v --draw "12 W" --mass "46 g" --mount-frame base_link --owner you --source "Raspberry Pi 5 product brief" --witness Sam
-lockwire add device lockwire.yaml --id dev.servo --family fam.servo --model mod.mg996r --rail rail.5v --draw "6 W"  --mass "55 g" --mount-frame base_link --owner you --source "MG996R datasheet" --witness Sam
-lockwire add budget lockwire.yaml --id bud.5v --kind rail_power --rail rail.5v --limit "15 W" --owner you --source "UBEC datasheet" --witness Sam
+pipx install lockwire
+lockwire start --example servo-bench
+lockwire check
+```
+
+```console
+VIOLATION budgets/bud.power.servo-5v — observed 32.10 W, expected <= 15.00 W (Δ +17.10 W (+114%))
+  dependent: dev.pi5, dev.servo1, dev.servo2, dev.servo3, dev.servo4
+  ...
+NO-GO — 1 violation(s), 0 warning(s)
+```
+
+A Raspberry Pi 5 and four servos on one 3 A regulator: caught before you ordered either.
+
+## Try it on your robot
+
+Point it at your URDF and see what it flags:
+
+```bash
+lockwire start path/to/robot.urdf
+lockwire check
+```
+
+No URDF? Start from the example and swap in your parts:
+
+```bash
+lockwire start --example servo-bench
+lockwire add device lockwire.yaml --id dev.servo5 --family fam.servo --model mod.mg996r --rail rail.servo-5v --draw "6 W" --mass "55 g" --owner you --source "MG996R datasheet" --witness Sam
+lockwire check
+```
+
+See `lockwire add --help` for rails, budgets and the rest.
+
+## Download the app
+
+The free desktop app does the same visually. Get it from the [latest release](https://github.com/Shivansh2703/lockwire/releases/latest).
+
+![Open the app, click the Drone starter, and Lockwire shows the drone in 3D with a NO-GO on its 5 V power rail](docs/img/try-example.gif)
+
+- **macOS (Apple silicon):** unzip, open Lockwire. The first open shows a warning because the app is not notarized: open System Settings, Privacy & Security, scroll down and click "Open Anyway".
+- **Linux:** `chmod +x Lockwire-*.AppImage`, then run it. Ubuntu 22.04 needs `sudo apt install libfuse2`; Ubuntu 24.04 needs `sudo apt install libfuse2t64`.
+- **Windows app:** not yet.
+
+## Other ways to use it
+
+**Command line.** Make a lockfile and check it from a terminal.
+
+```
+pipx install lockwire
+```
+
+```
+lockwire start --example drone
+```
+
+Starters: `lockwire start --example <name>` with drone, rover, arm, quadruped or humanoid. Add your own: see [CONTRIBUTING](CONTRIBUTING.md).
+
+```
 lockwire check lockwire.yaml
 ```
 
-`--witness` is the person who read the number off the datasheet; use a real name, not "you".
+**Desktop app.** Download it above, click a New robot starter, or open your own lockfile.
 
-```console
-VIOLATION budgets/bud.5v — observed 18.00 W, expected <= 15.00 W (Δ +3.00 W (+20%))
-  dependent: dev.pi5, dev.servo
-  owner: you
-  source: UBEC datasheet: 5 V 3 A
-  action: shed load on rail 'rail.5v' or raise its capacity with provenance
-warning model/links/base_link/mass — observed zero or missing mass, expected a positive mass with units
-  …
-scored 2: 0 add up, 1 do not · 0 not scored
-
-NO-GO — 1 violation(s), 1 warning(s)
+```
+https://github.com/Shivansh2703/lockwire/releases/latest
 ```
 
-The check exits 1. A Pi 5 and one servo on a common 3 A regulator: caught before you ordered either. Swap in a 5 A regulator and it passes.
+**GitHub Action.** Run the check on every push and keep an HTML report.
+
+```
+- uses: actions/checkout@v4
+- uses: Shivansh2703/lockwire@v0
+  with:
+    contract: lockwire.yaml
+```
+
+**AI agents (MCP).** Let Claude Desktop, Claude Code or Cursor check your robot before it acts.
+
+```
+pipx install "lockwire[mcp]"
+```
+
+```
+claude mcp add lockwire -- lockwire mcp
+```
+
+```
+{
+  "mcpServers": {
+    "lockwire": { "command": "lockwire", "args": ["mcp"] }
+  }
+}
+```
+
+Claude Code: the claude mcp add line. Claude Desktop: put the JSON in claude_desktop_config.json. Cursor: put the JSON in .cursor/mcp.json (or ~/.cursor/mcp.json). If the app cannot find lockwire, use the full path from which lockwire. Then ask: Check my robot's lockwire.yaml and explain the NO-GO.
+
+**Agent plan and what-if.** Score an intended plan, or a proposed change, before anything executes.
+
+```
+lockwire plan lockwire.yaml plan.yaml
+```
+
+```
+lockwire what-if lockwire.yaml --change "devices/dev.onboard-computer/physical/mass=300 g" --source "my scale" --witness me
+```
+
+plan.yaml holds steps, for example: steps: [{kind: rail_load, rail: rail.supply-5v, draw: {value: 10, unit: W}}]
+
+**Python library.** Call the same check from your own script.
+
+```
+import lockwire.api as lw
+print(lw.check("lockwire.yaml")["verdict"])
+```
+
+**ROS, preflight and the local API.** The go/no-go gate for a powered-on robot, ROS and the local server.
+
+Part of Lockwire Pro.
+
+### Features
+
+- **Check:** See which numbers do not add up. `lockwire check lockwire.yaml`
+- **Declare a fact:** Set one value with a source and a witness. `lockwire declare lockwire.yaml devices/dev.power-module.pm02-v3/physical/mass "25 g" --source "my scale" --witness me`
+- **Add a part:** Add a device, rail, bus or battery block. `lockwire add --help`
+- **Design (place, move, rotate, reparent):** Put a part in the 3D model and move it. Switch on the Power, Data and Mechanical connection views to see them drawn on the robot, and use W, A, S, D to move the camera. `lockwire move lockwire.yaml dev.power-module.pm02-v3 --offset 0.01,0,0.02 --unit m --source "tape measure" --witness me`
+- **Plan and what-if:** Score a plan or a change without editing the lockfile. `lockwire plan lockwire.yaml plan.yaml`
+- **Report:** Write one HTML page to share. `lockwire report lockwire.yaml -o report.html --no-open`
+- **Describe:** Write a reference sheet per part. `lockwire describe lockwire.yaml --out ref`
+- **History (diff, log, blame):** See what changed, by whom, and why (needs git). `lockwire diff`
+- **Scene:** Read part positions from a 3D model. `lockwire scene import --help`
+- **Gearbox:** Add a gearbox with its ratio and joints. `lockwire gearbox --help`
+- **Upgrade:** Write a new lockfile from an older one. `lockwire upgrade --help`
 
 ## A real-world example: the X500 drone
 
@@ -109,8 +220,8 @@ The `scored N: …` line above the verdict is where a script should look.
     contract: lockwire.yaml
 ```
 
-Inputs: `contract` (default `lockwire.yaml`), `version` (default latest), `python-version` (default 3.12).
-Or just `pip install "git+https://github.com/Shivansh2703/lockwire@v0.2.0" && lockwire check lockwire.yaml`.
+Inputs: `contract` (default `lockwire.yaml`), `version` (pin a PyPI release; default installs the action's own code), `python-version` (default 3.12).
+Or just `pipx install lockwire && lockwire check lockwire.yaml`.
 
 ## Pre-commit
 
@@ -147,8 +258,7 @@ No physics simulation, no machine learning, no network. The answer is the same t
 - **Free forever (this repo):** the lockfile, all deterministic checks including
   power/thermal/bus/link/torque budgets, edit / describe / plan / what-if, the MCP server, the
   HTML report, and the desktop planning app (Open, Design, Declare, Plan, Check).
-- **Lockwire Pro** adds the powered-on preflight gate (Test, Run), recording analysis
-  (rosbag2 / ULog), and health.
+- **Lockwire Pro** is the paid tier (powered-on preflight, recording analysis).
 
 ## Development
 

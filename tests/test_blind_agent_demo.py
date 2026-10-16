@@ -162,8 +162,7 @@ def test_demo_refuses_missing_or_ambiguous_enforced_limits(demo, document, messa
 )
 def test_demo_refuses_invalid_enforced_limit_bounds(demo, bounds):
     document = (
-        "## Limits enforced\n\n"
-        f"- declared datasheet/model rating accel_z: [{bounds}] m/s^2\n"
+        f"## Limits enforced\n\n- declared datasheet/model rating accel_z: [{bounds}] m/s^2\n"
     )
 
     with pytest.raises(SystemExit):

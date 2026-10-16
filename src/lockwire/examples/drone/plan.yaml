@@ -1,0 +1,10 @@
+# Example plan for the drone starter: run the onboard computer in its 7 W mode (the lowest it
+# publishes), then add a 100 W payload on the motor power rail. Step 1 is still over the
+# supply rail (7 + 5 + 5.2 = 17.2 W > 15.6 W); step 2 fits (motors + 100 W < 888 W).
+steps:
+  - kind: set_power_mode
+    device: dev.onboard-computer
+    mode: "7W"
+  - kind: rail_load
+    rail: rail.motor-power
+    draw: {value: 100, unit: W}

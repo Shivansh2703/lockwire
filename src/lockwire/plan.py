@@ -28,6 +28,7 @@ from lockwire.schema import (
     Contract,
     DeviceInstance,
     PowerDraw,
+    Quantity,
     PowerQuantity,
     Rail,
     _load_yaml_guarded,
@@ -491,19 +492,35 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                     actuator = model.actuator if model is not None else None
                     if (
                         actuator is None
-                        or actuator.torque_continuous is None
+                        or (actuator.torque_continuous is None and actuator.torque_peak is None)
                         or actuator.gear_ratio is None
                     ):
                         out.append(
                             Finding(
                                 severity="not_scored",
                                 quantity=actuator_path,
-                                observed="actuator missing torque_continuous or gear_ratio",
-                                expected="both declared on the driving device's model",
-                                action="declare the actuator's continuous torque and gear ratio",
+                                observed="actuator missing torque_continuous (or torque_peak) or gear_ratio",
+                                expected="a torque rating and gear ratio declared on the driving device's model",
+                                action="declare the actuator's continuous or peak torque and gear ratio",
                             )
                         )
                         record(actuator_path, "UNSCORED")
+                    elif actuator.torque_continuous is None:
+                        # peak-only: same rule as check_torque_budgets
+                        peak = actuator.torque_peak * actuator.gear_ratio
+                        if abs(step.effort) > peak:
+                            out.append(
+                                Finding(
+                                    severity="violation",
+                                    quantity=actuator_path,
+                                    observed=f"{step.effort} N*m",
+                                    expected=f"<= {peak:.2f} N*m peak (stall) geared torque",
+                                    action=f"reduce the commanded effort or select a stronger actuator than {driver_device.id}",
+                                )
+                            )
+                            record(actuator_path, "FAIL")
+                        else:
+                            record(actuator_path, "PASS")
                     else:
                         continuous = actuator.torque_continuous * actuator.gear_ratio
                         peak = (
@@ -583,6 +600,9 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                                 f"<= {capacity_w:.2f} W capacity",
                                 ("capacity", checked_rail.capacity_enforced_by),
                             ),
+                            observed_quantity=Quantity(value=total_w, unit="W"),
+                            expected_quantity=Quantity(value=capacity_w, unit="W"),
+                            dependent=checked_rail.id,
                             action=f"shed load on rail {checked_rail.id!r} or raise its capacity",
                         )
                     )
@@ -692,6 +712,9 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                             f"<= {capacity_w:.2f} W capacity",
                             ("capacity", rail.capacity_enforced_by),
                         ),
+                        observed_quantity=Quantity(value=total_w, unit="W"),
+                        expected_quantity=Quantity(value=capacity_w, unit="W"),
+                        dependent=device.power.rail,
                         action=f"pick a lower power mode for {step.device!r} or shed other load",
                     )
                 )
@@ -838,10 +861,12 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
     if contract.model is not None:
         provenance = contract.model.provenance
         for finding in out:
-            if (
-                "/joint_target/" in finding.quantity
-                and finding.quantity.rsplit("/", 1)[-1] in {"joint", "position", "velocity", "effort"}
-            ):
+            if "/joint_target/" in finding.quantity and finding.quantity.rsplit("/", 1)[-1] in {
+                "joint",
+                "position",
+                "velocity",
+                "effort",
+            }:
                 finding.source = provenance.source
                 finding.witness = provenance.witness
                 finding.locked_at = provenance.locked_at

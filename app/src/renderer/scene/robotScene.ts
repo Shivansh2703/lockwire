@@ -6,9 +6,9 @@ import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import type { Card, Finding, FindingLabel, RobotJoint, RobotLink, Target } from "../../shared/api.gen";
-import type { SceneContext } from "./buildScene";
+import { type SceneContext } from "./buildScene";
 
-export type Level = "warn" | "bad" | "selected";
+export type Level = "warn" | "bad" | "pass" | "selected";
 export interface Highlight { id: string; level: Level; /** whole-robot finding: a faint tint, no outline */ faint?: boolean }
 type V3 = [number, number, number];
 export interface Skeleton {
@@ -133,6 +133,9 @@ export function highlightsFromCards(cards: Card[], joints: RobotJoint[]): Highli
   return [...byId].map(([id, level]) => ({ id, level }));
 }
 
+/** Check before anything is picked: only the top finding's parts are lit, so the overview is not a spray of red. */
+export const topHighlight = (cards: Card[], joints: RobotJoint[]): Highlight[] => highlightsFromCards(cards.filter((c) => c.severity === "violation" || c.severity === "warning").slice(0, 1), joints);
+
 /** A whole-robot finding (no targets, a bad/warn severity) tints every part faintly in its status colour. */
 export function wholeHighlight(severity: string, ids: string[]): Highlight[] {
   const level: Level | null = severity === "violation" ? "bad" : severity === "warning" ? "warn" : null;
@@ -190,7 +193,7 @@ export function highlightsFromFindings(findings: Finding[], joints: RobotJoint[]
 }
 
 /** `warn`/`bad` here are the 3D glow tokens (--glow-*), not the text colours. */
-export interface ThemeColors { canvas: THREE.Color; grid: THREE.Color; part: THREE.Color; warn: THREE.Color; bad: THREE.Color; accent: THREE.Color; outline: THREE.Color }
+export interface ThemeColors { canvas: THREE.Color; grid: THREE.Color; part: THREE.Color; warn: THREE.Color; bad: THREE.Color; pass: THREE.Color; accent: THREE.Color; outline: THREE.Color; /** opacity of ghosted parts (--ghost), per theme */ ghost?: number; /** opacity of the Docs whole-robot ghost (--fade) */ fade?: number }
 
 /** Tokens from the computed CSS (so light/dark both work); null when no theme is loaded
  * (e2e harness pages) and the scene keeps its default look. */
@@ -199,30 +202,33 @@ export function readThemeColors(el: Element = document.documentElement): ThemeCo
   const get = (n: string) => css.getPropertyValue(`--${n}`).trim();
   if (!get("canvas-a")) return null;
   const c = (n: string) => new THREE.Color(get(n));
-  return { canvas: c("canvas-a"), grid: c("grid"), part: c("part"), warn: c("glow-warn"), bad: c("glow-bad"), accent: c("accent"), outline: c("outline") };
+  return { canvas: c("canvas-a"), grid: c("grid"), part: c("part"), warn: c("glow-warn"), bad: c("glow-bad"), pass: c("go"), accent: c("accent"), outline: c("outline"), ghost: parseFloat(get("ghost")) || DIM, fade: parseFloat(get("fade")) || undefined };
 }
 
 /** Paint every mesh from its `userData.level` (undefined = plain part). */
 export function paint(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolean }, colors: ThemeColors | null = readThemeColors()): void {
   ctx.needsRender = true;
+  const ghost = colors?.ghost ?? DIM;
   for (const m of ctx.meshes) {
     // Docs dims the whole robot (fade); a selection dims every other part (dim). Transparent
     // parts do not write depth, so the ground grid stays behind the robot.
-    const opacity = m.userData.fade ? FADE : m.userData.dim ? DIM : 1;
+    const fade = colors?.fade ?? ghost;
+    const opacity = m.userData.fade ? fade : greyed(m) ? OUT_OF_LENS : m.userData.dim ? ghost : 1;
     const mat = m.material as THREE.MeshStandardMaterial;
+    if (mat.transparent !== opacity < 1) mat.needsUpdate = true; // the OPAQUE shader define is baked at compile time
     mat.transparent = opacity < 1;
     mat.opacity = opacity;
-    mat.depthWrite = opacity === 1;
+    mat.depthWrite = opacity === 1 || opacity === ghost || opacity === fade; // ghosted parts still hide the ones behind them, or dozens of overlapping meshes stack back to solid
   }
   if (!colors) return;
   for (const m of ctx.meshes) {
     const mat = m.material as THREE.MeshStandardMaterial;
     // A status colour stays under selection; a selected part with none is filled accent so a
     // buried or tiny part still reads. Bones/rings never fill.
-    const level = m.userData.bone ? undefined : (m.userData.level as "warn" | "bad" | undefined);
-    const pick = !level && !m.userData.bone && !m.userData.ring && !!m.userData.selected;
+    const level = m.userData.bone ? undefined : (m.userData.level as "warn" | "bad" | "pass" | undefined);
+    const pick = !level && !m.userData.ring && !!m.userData.selected;
     const glow = level ? colors[level] : pick ? colors.accent : null;
-    mat.color.copy(glow && m.userData.faint ? colors.part.clone().lerp(glow, FAINT) : glow ?? colors.part);
+    mat.color.copy(glow && m.userData.faint ? colors.part.clone().lerp(glow, FAINT_MIX) : glow ?? (greyed(m) ? colors.part.clone().lerp(colors.canvas, 0.7) : colors.part));
     mat.emissive.copy(glow ?? new THREE.Color(0));
     mat.emissiveIntensity = pick ? 0.6 : glow ? (m.userData.faint ? FAINT : 0.7) : 0;
     if (m.userData.ring) m.visible = !!m.userData.level || !!m.userData.selected;
@@ -230,7 +236,7 @@ export function paint(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolea
   setOutlines(ctx.meshes, colors);
 }
 
-const OUTLINE_FRACTION = 0.006; // hull thickness as a share of the robot's longest side
+const OUTLINE_FRACTION = 0.003; // hull thickness as a share of the robot's longest side
 /** Hull geometry with smoothed normals: weld coincident vertices (position only) and recompute, so
  * hard-edged meshes don't tear into spikes and notches when inflated. */
 function smoothHullGeometry(src: THREE.BufferGeometry): THREE.BufferGeometry {
@@ -257,7 +263,7 @@ function setOutlines(meshes: THREE.Mesh[], colors: ThemeColors): void {
   const box = new THREE.Box3();
   if (meshes.some(lit)) for (const m of meshes) box.expandByObject(m);
   const world = Math.max(...box.getSize(new THREE.Vector3()).toArray(), 0) * OUTLINE_FRACTION;
-  // A sheet thinner than the hull (a propeller blade) is all hull: it takes the accent, not the white outline.
+  // A sheet thinner than the hull (a propeller blade) is all hull: it takes the fill colour, not the darker rim.
   const thin = (m: THREE.Mesh) => Math.min(...new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3()).toArray()) < world * 2;
   for (const m of meshes) {
     const old = m.userData.outline as THREE.Mesh | undefined;
@@ -273,17 +279,32 @@ function setOutlines(meshes: THREE.Mesh[], colors: ThemeColors): void {
       m.add(hull);
     }
     const u = (hull.material as THREE.ShaderMaterial).uniforms;
-    // One style: the same hull as status, in the status colour when it has one. A selected bone
-    // (no status) gets an accent hull at the same thickness: clear in both themes, not a slab.
-    const lv = m.userData.bone ? undefined : (m.userData.level as "warn" | "bad" | undefined);
-    u.color!.value.copy(lv ? colors[lv] : m.userData.bone || thin(m) ? colors.accent : colors.outline);
+    // One grammar: a 1-2 px rim, a darker shade of the part's own fill (status token, else accent).
+    const lv = m.userData.bone ? undefined : (m.userData.level as "warn" | "bad" | "pass" | undefined);
+    const fill = lv ? colors[lv] : colors.accent;
+    u.color!.value.copy(thin(m) ? fill : fill.clone().multiplyScalar(RIM_SHADE));
     u.t!.value = world / Math.max(m.getWorldScale(new THREE.Vector3()).x, 1e-6);
   }
 }
 
-const FADE = 0.4;
-const DIM = 0.3;
-const FAINT = 0.06; // whole-robot tint (emissive and colour mix), far under a single flagged part's 0.7
+const OUT_OF_LENS = 0.35;
+/** Outside the active view and not lit: drawn light grey so the robot stays recognisable. */
+const greyed = (m: THREE.Object3D) => !!m.userData.outLens && !m.userData.selected && !m.userData.level;
+
+/** The lens mount: parts the payload puts in the view keep their colours; the rest stay drawn,
+ * greyed (and still pickable). Under "All" a part outside it is hidden, as before. */
+export function applyLens(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolean }, inLens: readonly boolean[], lens: string): void {
+  ctx.meshes.forEach((m, i) => {
+    if (inLens[i] === undefined) return; // ctx lags parts by one rebuild
+    m.visible = inLens[i] || lens !== "off";
+    m.userData.outLens = !inLens[i] && lens !== "off";
+  });
+  paint(ctx);
+}
+const DIM = 0.35; // ghosted parts while something is selected
+const RIM_SHADE = 0.55;
+const FAINT = 0.1; // whole-robot tint emissive, far under a single flagged part's 0.7
+const FAINT_MIX = 0.5; // whole-robot tint colour mix toward the status token, the same red/amber in both themes
 
 /** The selection wins over a finding's glow; while one is active every other part is dimmed so
  * the selection reads (Check: other findings; Design: the shell around an inner link). */
@@ -294,15 +315,17 @@ export function applyHighlight(ctx: SceneContext, highlight: Highlight[], select
   const live = ctx.meshes.some((m) => sel.has(m.userData.partId));
   for (const m of ctx.meshes) {
     const lv = levels.get(m.userData.partId);
-    m.userData.selected = sel.has(m.userData.partId) || lv === "selected";
+    // Joint-level selection lights the joint cap, not the link capsule that shares its id (a bone only when no cap exists).
+    const bare = m.userData.bone && ctx.meshes.some((o) => !o.userData.bone && !o.userData.ring && o.userData.partId === m.userData.partId);
+    m.userData.selected = !bare && (sel.has(m.userData.partId) || lv === "selected");
     m.userData.level = lv === "selected" ? undefined : lv;
     m.userData.faint = faint.has(m.userData.partId);
-    m.userData.dim = live && !sel.has(m.userData.partId);
+    m.userData.dim = live && !(m.userData.selected);
   }
   paint(ctx);
 }
 
-/** Docs: the robot stays the hero at about 40% opacity, the grid behind it. */
+/** Docs: the robot ghosts at the shared ghost opacity (--ghost), the grid behind it. */
 export function applyDim(ctx: SceneContext, dim: boolean): void {
   for (const m of ctx.meshes) m.userData.fade = dim;
   paint(ctx);

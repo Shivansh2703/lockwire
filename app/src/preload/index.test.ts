@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 
 describe("preload exposes a small, explicitly enumerated API", () => {
-  it("test_exposed_surface_is_exactly_the_twenty_named_methods", async () => {
+  it("test_exposed_surface_is_exactly_the_twenty_two_named_methods", async () => {
     await import("./index");
     expect(Object.keys(exposed.lockwire as object).sort()).toEqual([
       "checkPlan",
@@ -40,6 +40,8 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       "getDeclareForm",
       "getHistory",
       "getSidecarState",
+      "getStarters",
+      "newRobot",
       "onOpenedFromMenu",
       "onSidecarState",
       "openDroppedPath",

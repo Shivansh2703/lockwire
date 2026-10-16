@@ -69,9 +69,7 @@ def test_readme_matches_the_live_start_force_field_revert(tmp_path):
     assert edited != original, "fixture no longer has a robot.name line to hand-edit"
     contract.write_text(edited, encoding="utf-8")
 
-    second = runner.invoke(
-        app, ["start", str(urdf), "--out", str(contract), "--force"]
-    )
+    second = runner.invoke(app, ["start", str(urdf), "--out", str(contract), "--force"])
     assert second.exit_code == 0, second.output
 
     after = contract.read_text(encoding="utf-8")
@@ -83,3 +81,13 @@ def test_readme_matches_the_live_start_force_field_revert(tmp_path):
     readme_text = README.read_text(encoding="utf-8")
     assert "re-declare every fact in the lockfile by hand" in readme_text
     assert "silently overwritten back to the URDF-derived value" in readme_text
+
+
+def test_readme_quick_start_matches_reality():
+    """The top-of-README commands must name a shipped example and the real Python floor."""
+    text = README.read_text(encoding="utf-8")
+    top = text.split("## Download the app")[0]
+    name = re.search(r"lockwire start --example (\S+)", top).group(1)
+    assert (ROOT / "src/lockwire/examples" / f"{name}.yaml").exists(), name
+    assert "Python 3.12 or newer" in top
+    assert 'requires-python = ">=3.12"' in (ROOT / "pyproject.toml").read_text()

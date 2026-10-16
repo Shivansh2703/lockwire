@@ -25,6 +25,27 @@ jobs:
       # The hero example must keep catching the overload (exit 1 = caught).
       - run: uv run lockwire check tests/fixtures/x500/contract.yaml || test $? -eq 1
 
+  # The free CLI must install and run on Windows (no fcntl): help, the servo-bench NO-GO, a small test subset.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+      - run: uv sync --locked --dev --python 3.12
+      - run: uv run lockwire --help
+      - run: |
+          cd "$(mktemp -d)"
+          uv run --project "$GITHUB_WORKSPACE" lockwire start --example servo-bench
+          rc=0; uv run --project "$GITHUB_WORKSPACE" lockwire check || rc=$?
+          test "$rc" -eq 1
+      - run: uv run pytest -q tests/test_windows_import.py
+      # remove once the first Windows run is green
+      - run: uv run pytest -q tests/test_edit.py
+        continue-on-error: true
+
   # The free desktop app: types, tests, then the packaged Linux app driven end to end
   # (Open, Design, Declare, Plan, Check). Node pinned exactly; actions pinned by SHA.
   app:

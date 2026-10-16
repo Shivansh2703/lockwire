@@ -99,8 +99,7 @@ def test_import_mhs_refused_quotes_d108(tmp_path: Path) -> None:
     assert "REFUSED" in flat
     assert (
         "The inbound direction — importing a third-party manifest into a contract — is "
-        "refused until Anthropic publishes the standard; import is where lock-in happens."
-        in flat
+        "refused until Anthropic publishes the standard; import is where lock-in happens." in flat
     )
 
 

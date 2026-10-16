@@ -8,7 +8,7 @@ inputs:
     description: Path to the lockfile.
     default: lockwire.yaml
   version:
-    description: lockwire version to install (default latest).
+    description: pin a PyPI release; default installs the action's own code.
     default: ""
   python-version:
     description: Python version to run lockwire with.
@@ -24,7 +24,7 @@ runs:
       env:
         LW_VERSION: ${{ inputs.version }}
       run: |
-        if [ -n "$LW_VERSION" ]; then pip install "lockwire==$LW_VERSION"; else pip install lockwire || pip install "$GITHUB_ACTION_PATH"; fi
+        if [ -n "$LW_VERSION" ]; then pip install "lockwire==$LW_VERSION"; else pip install "$GITHUB_ACTION_PATH"; fi
     - name: lockwire check
       shell: bash
       env:

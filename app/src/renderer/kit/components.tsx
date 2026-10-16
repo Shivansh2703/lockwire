@@ -1,10 +1,12 @@
 // The Workbench kit: small parts every screen reuses. Styling lives in
 // theme.css under `.kit-*`; nothing here carries a colour of its own.
+import { fmtQty } from "./format";
 import {
   createContext,
   useContext,
   useEffect,
   useId,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type KeyboardEvent,
@@ -211,6 +213,9 @@ export function StatusPill({ status, children }: { status: Status; children: Rea
 
 /* ---------- findings and numbers ---------- */
 
+/** A finding row's chip: its short label, the full id as `title`; `more` makes it a "+N" that expands. */
+export type KitChip = { label: string; title?: string; more?: KitChip[]; dead?: boolean; rail?: boolean };
+
 export function FindingRow({
   severity,
   title,
@@ -218,30 +223,57 @@ export function FindingRow({
   note,
   selected,
   onSelect,
+  onChip,
 }: {
   severity: Status;
   title: ReactNode;
   /** A chip is its short label; `title` carries the full id for the tooltip. */
-  chips?: (string | { label: string; title?: string })[];
+  chips?: (string | KitChip)[];
   /** One muted line after the chips (e.g. the result when there are no chips). */
   note?: ReactNode;
   selected?: boolean;
   onSelect?: () => void;
+  /** Chips become buttons, drawn after the row button (a button cannot hold buttons). */
+  onChip?: (chip: KitChip) => void;
 }) {
-  return (
-    <button type="button" className={cx("kit-finding", selected && "is-selected")} aria-pressed={!!selected} onClick={onSelect}>
+  const [expanded, setExpanded] = useState(false);
+  const list = (chips ?? []).map((c) => (typeof c === "string" ? { label: c } : c)).flatMap((c) => (expanded && c.more ? c.more : [c]));
+  const head = (
+    <>
       <span className={`kit-mark kit-s-${severity}`} aria-hidden="true">{MARK[severity] ? <Icon name={MARK[severity]} /> : <i className="kit-dot" />}</span>
       <span className="kit-sr">{SEVERITY_WORD[severity]}: </span>
       <span className="kit-finding-head">
         <span className="kit-finding-title">{title}</span>
         {VISIBLE_WORD[severity] && <small className={`kit-finding-word kit-s-${severity}`} aria-hidden="true">{VISIBLE_WORD[severity]}</small>}
       </span>
-      {chips && chips.length > 0 && (
+    </>
+  );
+  if (onChip) {
+    return (
+      <>
+        <button type="button" className={cx("kit-finding", selected && "is-selected")} aria-pressed={!!selected} onClick={onSelect}>
+          {head}
+          {note && <span className="kit-finding-note">{note}</span>}
+        </button>
+        {list.length > 0 && (
+          <span className="kit-chips kit-chips-live">
+            {list.map((chip) => chip.dead ? <b key={chip.title ?? chip.label} className={cx("kit-chip", chip.rail && "kit-chip-rail")} title={chip.title}>{chip.label}</b> : (
+              <button key={chip.title ?? chip.label} type="button" className={cx("kit-chip kit-chip-btn", chip.more && "kit-chip-more", chip.rail && "kit-chip-rail")} title={chip.more ? `Show ${chip.title}` : chip.title}
+                aria-label={chip.more ? `Show ${chip.more.length} more` : `Show ${chip.label}`} onClick={() => (chip.more ? setExpanded(true) : onChip(chip))}>
+                {chip.label}
+              </button>
+            ))}
+          </span>
+        )}
+      </>
+    );
+  }
+  return (
+    <button type="button" className={cx("kit-finding", selected && "is-selected")} aria-pressed={!!selected} onClick={onSelect}>
+      {head}
+      {list.length > 0 && (
         <span className="kit-chips">
-          {chips.map((c) => {
-            const chip = typeof c === "string" ? { label: c } : c;
-            return <b key={chip.title ?? chip.label} className="kit-chip" title={chip.title}>{chip.label}</b>;
-          })}
+          {list.map((chip) => <b key={chip.title ?? chip.label} className={cx("kit-chip", chip.more && "kit-chip-more", chip.rail && "kit-chip-rail")} title={chip.title}>{chip.label}</b>)}
         </span>
       )}
       {note && <span className="kit-finding-note">{note}</span>}
@@ -256,9 +288,9 @@ const SEVERITY_WORD: Record<Status, string> = { go: "Pass", warn: "Warning", bad
 
 export type FigureKind = "declared" | "measured" | "derived" | "catalog" | "projected";
 
-/** Round to 4 significant figures, no trailing zeros; integers and strings are left exact. */
+/** The one number format (kit/format.ts); integers and strings are left exact. */
 export const fmtNum = (v: string | number): string =>
-  typeof v === "number" && !Number.isInteger(v) ? String(Number(v.toPrecision(4))) : String(v);
+  typeof v === "number" && !Number.isInteger(v) ? fmtQty(v) : String(v);
 
 /** a number always carries its kind word; catalog and projected also get the warn mark. */
 export function Figure({ value, unit, kind }: { value: string | number; unit?: string; kind: FigureKind }) {
@@ -277,6 +309,11 @@ export function Figure({ value, unit, kind }: { value: string | number; unit?: s
   );
 }
 
+/** Inline text that acts: a named thing (a part, a number, a source) that leads somewhere. */
+export function Jumper({ label, onClick, children, className }: { label: string; onClick: () => void; children: ReactNode; className?: string }) {
+  return <button type="button" className={cx("kit-link", className)} title={label} onClick={onClick}>{children}</button>;
+}
+
 export function FindingDetail({ rows }: { rows: { label: string; value: ReactNode }[] }) {
   return (
     <dl className="kit-kv">
@@ -292,7 +329,7 @@ export function FindingDetail({ rows }: { rows: { label: string; value: ReactNod
 
 export const Inspector = FindingDetail;
 
-type TreePart = { id: string; name: string; state?: Status; depth?: number; tip?: string; sel?: string; sels?: string[]; group?: { id: string; label: string; kind?: string } };
+type TreePart = { id: string; name: string; meta?: ReactNode; state?: Status; depth?: number; tip?: string; sel?: string; sels?: string[]; group?: { id: string; label: string; kind?: string; note?: string; open?: boolean } };
 const KIND_RANK: Record<string, number> = { device: 1, rail: 2, bus: 3, link: 4, other: 5 };
 const WORST_FIRST: Status[] = ["bad", "warn", "go", "muted"];
 
@@ -325,10 +362,20 @@ export function PartTree({
   useEffect(() => {
     if (selectedGroupOfPart) setOverride((o) => ({ ...o, [selectedGroupOfPart]: true }));
   }, [selectedGroupOfPart]);
+  const tree = useRef<HTMLDivElement>(null);
+  // A selection made elsewhere (the robot, another tab) scrolls its row into view.
+  // Once per selection: opening or closing a group must not yank the list to the selected row.
+  const scrolled = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (scrolled.current === selected) return;
+    const el = tree.current?.querySelector(".kit-tree-row.is-selected"); // not there yet while its group is still closed
+    if (el) { scrolled.current = selected; el.scrollIntoView?.({ block: "nearest" }); }
+  }, [selected, selectedGroup, override]);
   const row = (p: TreePart) => (
     <li key={p.id}>
-      <button type="button" className={cx("kit-tree-row", holds(p) && "is-selected")} aria-pressed={holds(p)} data-part-id={pick(p)} title={p.tip} style={p.depth ? { paddingLeft: `calc(var(--sp-2) + ${p.depth} * var(--sp-3))` } : undefined} onClick={() => onSelect?.(pick(p))}>
+      <button type="button" className={cx("kit-tree-row", holds(p) && "is-selected")} aria-pressed={holds(p)} data-part-id={pick(p)} title={p.tip} draggable={p.group?.kind === "device"} onDragStart={(e) => e.dataTransfer.setData("application/x-lockwire-part", pick(p))} style={p.depth ? { paddingLeft: `calc(var(--sp-2) + ${p.depth} * var(--sp-3))` } : undefined} onClick={() => onSelect?.(pick(p))}>
         <span>{p.name}</span>
+        {p.meta && <small className="kit-tree-meta">{p.meta}</small>}
         {p.state && p.state !== "go" && p.state !== "muted" && <i className={`kit-dot kit-s-${p.state}`} title={SEVERITY_WORD[p.state]} />}
       </button>
     </li>
@@ -336,30 +383,30 @@ export function PartTree({
   const search = <input className="kit-control" type="search" placeholder={placeholder} aria-label={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />;
   if (!parts.some((p) => p.group)) {
     return (
-      <div className="kit-tree">
+      <div className="kit-tree" ref={tree}>
         {search}
         <ul>{parts.filter((p) => p.name.toLowerCase().includes(needle)).map(row)}</ul>
       </div>
     );
   }
-  const groups = new Map<string, { label: string; kind?: string; all: TreePart[]; shown: TreePart[] }>();
+  const groups = new Map<string, { label: string; kind?: string; note?: string; open?: boolean; all: TreePart[]; shown: TreePart[] }>();
   for (const p of parts) {
     const g = p.group ?? { id: "other", label: "Other", kind: "other" };
-    const entry = groups.get(g.id) ?? { label: g.label, kind: g.kind, all: [], shown: [] };
+    const entry = groups.get(g.id) ?? { label: g.label, kind: g.kind, note: g.note, open: g.open, all: [], shown: [] };
     entry.all.push(p);
     if (!needle || p.name.toLowerCase().includes(needle) || g.label.toLowerCase().includes(needle)) entry.shown.push(p);
     groups.set(g.id, entry);
   }
   const ordered = [...groups.entries()].filter(([, g]) => g.shown.length).sort(([, a], [, b]) => (KIND_RANK[a.kind ?? ""] ?? 0) - (KIND_RANK[b.kind ?? ""] ?? 0));
-  const isOpen = (id: string, g: { all: TreePart[] }) =>
-    needle ? true : override[id] ?? g.all.some((p) => p.state === "bad" || p.state === "warn" || holds(p));
+  const isOpen = (id: string, g: { open?: boolean; all: TreePart[] }) =>
+    needle ? true : override[id] ?? g.open ?? g.all.some((p) => p.state === "bad" || p.state === "warn" || holds(p));
   return (
-    <div className="kit-tree">
+    <div className="kit-tree" ref={tree}>
       {search}
       <ul>
         {ordered.map(([id, g]) => {
-          // one-row groups (Declare) and a single part named like its group (Design) are just the row
-          const solo = g.kind === "solo" || (g.all.length === 1 && g.all[0]!.name === g.label); if (solo) return row(g.all[0]!);
+          // one-row groups (Declare) and a group of one part (Design) are just the row
+          const solo = g.kind === "solo" || g.all.length === 1; if (solo) return row(g.all[0]!);
           const open = isOpen(id, g);
           const worst = WORST_FIRST.find((st) => g.all.some((p) => p.state === st));
           const members = [...new Set(g.all.map(pick))];
@@ -376,7 +423,7 @@ export function PartTree({
                 </button>
                 <button type="button" className="kit-tree-label" aria-pressed={selectedGroup === id} data-group-id={id} onClick={() => { toggle(); onSelectGroup?.(id, members); }} onKeyDown={keys}>
                   <span>{g.label}</span>
-                  <span className="kit-tree-count">{g.all.length}</span>
+                  <span className="kit-tree-count">{g.note ?? g.all.length}</span>
                   {worst && worst !== "go" && worst !== "muted" && <i className={`kit-dot kit-s-${worst}`} title={SEVERITY_WORD[worst]} />}
                 </button>
               </div>
@@ -391,9 +438,9 @@ export function PartTree({
 
 /* ---------- the rest ---------- */
 
-export function Disclosure({ summary, children, open }: { summary: ReactNode; children?: ReactNode; open?: boolean }) {
+export function Disclosure({ summary, children, open, onOpen }: { summary: ReactNode; children?: ReactNode; open?: boolean; onOpen?: () => void }) {
   return (
-    <details className="kit-disclosure" open={open}>
+    <details className="kit-disclosure" open={open} onToggle={onOpen && ((e) => { if (e.currentTarget.open) onOpen(); })}>
       <summary>{summary}</summary>
       {children}
     </details>

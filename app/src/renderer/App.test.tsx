@@ -9,8 +9,9 @@ import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
 import { applyHighlight } from "./scene/robotScene";
 import { getSelectedPartId, setSelectedPartId } from "./scene/selectionStore";
 
+const canvasProps = vi.hoisted(() => ({ onDropPart: undefined as undefined | ((d: string, hit: null) => void) }));
 vi.mock("./scene/Canvas", () => ({
-  Canvas: ({ children }: { children?: React.ReactNode }) => <div data-testid="scene-canvas">{children}</div>,
+  Canvas: ({ children, onDropPart }: { children?: React.ReactNode; onDropPart?: (d: string, hit: null) => void }) => { canvasProps.onDropPart = onDropPart; return <div data-testid="scene-canvas">{children}</div>; },
   useScene: () => ({}),
 }));
 vi.mock("./scene/robotScene", async (orig) => ({ ...(await orig<typeof import("./scene/robotScene")>()), applyHighlight: vi.fn(), applyDim: vi.fn(), focusCamera: vi.fn() }));
@@ -143,12 +144,12 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     expect(headline).not.toBeNull();
     // The sentence moved to the pill's tooltip; the page shows the verdict and the count.
     expect(headline!.getAttribute("title")).toBe(X500_CHECK_PAYLOAD.headline);
-    expect(headline!.textContent).toMatch(/^NO-GO\d+ problems?( · \d+ not checked)?$/);
+    expect(headline!.textContent).toMatch(/^NO-GO\d+ problems?( · \d+ modes)?( · \d+ not checked)?$/);
   });
 });
 
 describe("App owns the mode tab router", () => {
-  async function openToCheckFace(page: PagePayload = PAGE) {
+  async function openToCheckFace(page: PagePayload = PAGE, form: unknown = DECLARE_FORM) {
     const writeContract = vi.fn().mockResolvedValue({ payload: { written: true }, refusal: null });
     const compareContractWhatIf = vi.fn().mockResolvedValue({
       current: { verdict: "NO-GO", scored: 1, findings: [{}] },
@@ -160,14 +161,14 @@ describe("App owns the mode tab router", () => {
     (window as unknown as { lockwire: object }).lockwire = {
       startFromUrdf: vi.fn().mockResolvedValue(picked({ opened: true, path: "/tmp/x500/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD })),
       getContractPage,
-      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM),
+      getDeclareForm: vi.fn().mockResolvedValue(form),
       getHistory: vi.fn().mockResolvedValue(HISTORY),
       diffContract: vi.fn().mockResolvedValue(DIFF),
       writeContract,
       compareContractWhatIf,
       undoContract,
       choosePlan: vi.fn().mockResolvedValue("/tmp/plan.yaml"),
-      checkPlan: vi.fn().mockResolvedValue(PLAN),
+      checkPlan: vi.fn().mockImplementation(async (r: { plan: string }) => (r.plan === "" ? null : PLAN)),
     };
     root = createRoot(container);
     act(() => root.render(<App />));
@@ -191,7 +192,7 @@ describe("App owns the mode tab router", () => {
     expect(firstCard?.dataset.shape).toBe(PAGE.cards[0]?.shape);
     expect(firstCard?.querySelector(".finding-info")?.getAttribute("title")).toBe(PAGE.cards[0]?.figure_note); // number-note: a tooltip, not body text
     expect(firstCard?.querySelector(".finding-fix")?.textContent).toBe(PAGE.cards[0]?.fix);
-    expect(cards.map((card) => card.dataset.shape)).toEqual(PAGE.cards.map((card) => card.shape));
+    expect(cards.map((card) => card.dataset.shape)).toEqual(PAGE.cards.map((card) => card.shape).filter((_, i) => i !== 1)); // the second budget card is the first rail's other mode: one row
   });
 
   it("test_page_faces_route from the generated page document", async () => {
@@ -202,6 +203,15 @@ describe("App owns the mode tab router", () => {
     expect(container.querySelector(".plan-input")).not.toBeNull();
     clickTab("Docs");
     expect(container.querySelector(".reference-face")).not.toBeNull();
+  });
+
+  it("a drop that lands on nothing, or with no witness name, says so instead of doing nothing", async () => {
+    await openToCheckFace(PAGE_WITH_SCENE);
+    act(() => canvasProps.onDropPart!("dev.x", null));
+    expect(container.querySelector(".open-face-error")?.textContent).toContain("Drop on the robot's body");
+    await openToCheckFace(PAGE_WITH_SCENE, { ...DECLARE_FORM, witness: { prefill: "" } });
+    act(() => canvasProps.onDropPart!("dev.x", null));
+    expect(container.querySelector(".open-face-error")?.textContent).toContain("Set your witness name");
   });
 
   it("test_switching_back_to_check_remounts_check_face", async () => {
@@ -215,18 +225,44 @@ describe("App owns the mode tab router", () => {
 
   it("a GO plan lights the parts its steps touch", async () => {
     await openToCheckFace(PAGE_WITH_SCENE);
-    vi.mocked(window.lockwire.checkPlan).mockResolvedValueOnce({ ...PLAN, steps: [{ path: "plan/steps/0/rail_load/draw", status: "PASS", not_scored_reason: null, targets: [{ kind: "rail", id: "rail.x", label: "x", parts: ["frame"] }] }] });
     clickTab("Plan");
+    await act(async () => {});
+    vi.mocked(window.lockwire.checkPlan).mockResolvedValueOnce({ ...PLAN, steps: [{ path: "plan/steps/0/rail_load/draw", status: "PASS", not_scored_reason: null, targets: [{ kind: "rail", id: "rail.x", label: "x", parts: ["frame"] }] }] });
     await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click());
-    expect(vi.mocked(applyHighlight).mock.lastCall?.[1]).toEqual([{ id: "frame", level: "selected" }]);
+    expect(vi.mocked(applyHighlight).mock.lastCall?.[1]).toEqual([{ id: "frame", level: "pass" }]);
+  });
+
+  it("a plan beside the lockfile loads itself, and with none the page stays empty", async () => {
+    await openToCheckFace();
+    clickTab("Plan");
+    await act(async () => {});
+    expect(window.lockwire.checkPlan).toHaveBeenCalledWith({ contract: "/tmp/x500/lockwire.yaml", plan: "" });
+    expect(container.querySelector(".verdict-word")).toBeNull();
+    act(() => root.unmount());
+    root = createRoot(container);
+    await openToCheckFace();
+    vi.mocked(window.lockwire.checkPlan).mockResolvedValue(PLAN);
+    clickTab("Plan");
+    await act(async () => {});
+    expect(container.querySelector(".verdict-word")?.textContent).toBe("GO");
+    expect(container.querySelector(".kit-filepick .kit-cli-text")?.textContent).toBe("lockwire plan");
+  });
+
+  it("a sibling plan that cannot be read says so in one line", async () => {
+    await openToCheckFace();
+    vi.mocked(window.lockwire.checkPlan).mockRejectedValue(new Error("bad plan file"));
+    clickTab("Plan");
+    await act(async () => {});
+    expect(container.querySelector(".plan-total")?.textContent).toBe("The example plan couldn't be read: bad plan file");
   });
 
   it("test_plan_file_runs_through_the_served_plan_channel", async () => {
     await openToCheckFace();
+    clickTab("Plan");
+    await act(async () => {});
     vi.mocked(window.lockwire.checkPlan)
       .mockResolvedValueOnce(PLAN)
       .mockResolvedValueOnce({ ...PLAN, verdict: "NOT_SCORED", exit_code: 3 });
-    clickTab("Plan");
     await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click());
     expect(window.lockwire.checkPlan).toHaveBeenCalledWith({
       contract: "/tmp/x500/lockwire.yaml",
@@ -295,7 +331,7 @@ describe("App owns the mode tab router", () => {
     let opens = 0;
     Object.assign(window, { lockwire: { startFromUrdf: () => (++opens === 1 ? first.promise : second.promise).then(picked),
       getContractPage: () => ++pages === 1 ? Promise.resolve(PAGE) : secondPage.promise, getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]),
-      choosePlan: vi.fn().mockResolvedValue("/tmp/plan"), checkPlan: () => plan.promise } });
+      choosePlan: vi.fn().mockResolvedValue("/tmp/plan"), checkPlan: (r: { plan: string }) => (r.plan === "" ? Promise.resolve(null) : plan.promise) } });
     root = createRoot(container); act(() => root.render(<App />)); clickOpenRobot(); clickOpenRobot();
     await act(async () => first.resolve({ opened: true, path: "/tmp/a.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }));
     await act(async () => second.resolve({ opened: true, path: "/tmp/b.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }));
@@ -330,6 +366,30 @@ describe("App owns the mode tab router", () => {
         expected_revision: "revision",
       },
     });
+  });
+
+  it("adding a catalog part writes it and reloads the page and check with no recheck press", async () => {
+    const catalog = { rails: ["rail.5v"], parts: [{ id: "cat.servo", name: "Servo", fits: ["rail.5v"],
+      numbers: [{ key: "draw_max", value: 7, unit: "W", kind: "datasheet" as const, source: "datasheet p1" }] }] };
+    const { getContractPage, writeContract } = await openToCheckFace(PAGE, { ...DECLARE_FORM, add_part: catalog });
+    clickTab("Declare");
+    const openLockfile = vi.fn().mockResolvedValue(picked({ opened: true, path: "/tmp/x500/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }));
+    Object.assign(window.lockwire, { openLockfile });
+    getContractPage.mockClear();
+    const set = (label: string, value: string) => {
+      const el = container.querySelector<HTMLSelectElement | HTMLInputElement>(`[aria-label="${label}"]`)!;
+      act(() => { el.value = value; el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true })); });
+    };
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "+ Add part")!.click()); // its own surface, from the Values header
+    set("catalog part", "cat.servo");
+    set("part witness", "Maya");
+    const add = [...container.querySelectorAll("button")].find((b) => b.textContent === "Add part")!;
+    await act(async () => add.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(writeContract).toHaveBeenLastCalledWith(expect.objectContaining({
+      command: "add", args: expect.objectContaining({ id: "dev.servo", fields: expect.objectContaining({ power_rail: "rail.5v", power_draw: "7 W" }) }),
+    }));
+    expect(openLockfile).toHaveBeenCalledWith({ contract: "/tmp/x500/lockwire.yaml" });
+    expect(getContractPage).toHaveBeenCalled(); // the refreshed page/check arrived without pressing recheck
   });
 
   it("test_review_routes_selected_value_and_surfaces_stale_revision_without_advancing_it", async () => {
@@ -477,10 +537,10 @@ describe("App owns the mode tab router", () => {
     expect(container.querySelector(".kit-notice-info")?.textContent).toBe("Written");
 
     clickTab("Design");
-    expect(getSelectedPartId()).toBeNull();
+    expect(getSelectedPartId()).toBe("frame"); // the chosen part outlives the tab
     act(() => container.querySelectorAll<HTMLButtonElement>('.kit-tree-chev[aria-expanded="false"]').forEach((c) => c.click()));
     const frame = container.querySelector<HTMLButtonElement>('[data-part-id="frame"]')!;
-    expect(frame.getAttribute("aria-pressed")).toBe("false");
+    expect(frame.getAttribute("aria-pressed")).toBe("true");
     act(() => frame.click());
     for (const [label, value] of [["Source", "caliper"], ["Witness", "Maya"]]) {
       const input = container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;

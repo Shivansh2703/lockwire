@@ -14,6 +14,7 @@ yet and therefore must never be represented as a Finding.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Self
@@ -71,6 +72,41 @@ def format_magnitude(value: float, unit: str) -> str:
     machine consumers never have to re-parse the rendered string.
     """
     return f"{value:.2f} {unit}"
+
+
+# kg -> g -> mg, m -> mm, A -> mA: the base units whose everyday values are fractions.
+_PREFIX = {"kg": ("kg", "g", "mg"), "m": ("m", "mm"), "A": ("A", "mA")}
+
+
+def _display(value: float, unit: str, extra: int) -> str:
+    if value != 0 and abs(value) < 1e-6:
+        return "≈0"  # below a millionth of the unit it is zero to a person
+    steps = _PREFIX.get(unit)
+    if steps:
+        n = 0
+        while n + 1 < len(steps) and abs(value) < 1 and value != 0:
+            value, n = value * 1000, n + 1
+        unit = steps[n]
+    if value == 0:
+        return f"0 {unit}".strip()
+    decimals = 1 if abs(value) >= 10 else 2 - math.floor(math.log10(abs(value)))
+    text = f"{value:.{decimals + extra}f}"
+    text = text.rstrip("0").rstrip(".") if "." in text else text
+    return f"{text} {unit}".strip()
+
+
+def format_display(value: float, unit: str, vs: float | None = None) -> str:
+    """The one human display of a number: at most 1 decimal from 10 up, 3 significant
+    figures below 10, no trailing zeros, g/mm/mA steps, "≈0" under a millionth.
+
+    Pass ``vs`` (the number it is compared with) and digits are added until the two
+    read differently, so rounding never turns "15.64 W of 15.60 W" into "15.6 W of 15.6 W".
+    """
+    for extra in range(7):
+        text = _display(value, unit, extra)
+        if vs is None or vs == value or text != _display(vs, unit, extra):
+            break
+    return text
 
 
 #: A `declare` that clears a violation by RAISING the limit rather
@@ -631,8 +667,7 @@ EXIT_CODE_TABLE: dict[str, dict[int, str]] = {
         "orphaned subtree, or a bad --source/--witness)",
     },
     "import": {
-        2: "REFUSED (the inbound direction is refused until Anthropic publishes the "
-        "standard)",
+        2: "REFUSED (the inbound direction is refused until Anthropic publishes the standard)",
     },
     "hw": {
         0: "recorded (including honest undetermined routing)",
@@ -704,6 +739,13 @@ def render(findings: list[Finding], console: Console | None = None) -> int:
             if finding.severity == "violation" and finding.quantity in scored_keys
         )
         reference_violations = decision.violations - comparison_violations
+        # A scored comparison can also end in a warning: the third bucket, so
+        # add up + do not + warn always equals "scored N".
+        comparison_warnings = sum(
+            1
+            for finding in findings
+            if finding.severity == "warning" and finding.quantity in scored_keys
+        )
         if findings.scored == 0:
             # A warning (an empty budget, say) is not a failed comparison — with
             # a zero denominator there is nothing to have agreed or disagreed,
@@ -715,9 +757,21 @@ def render(findings: list[Finding], console: Console | None = None) -> int:
             )
         else:
             adds_up = len(findings.scored_records)
+            # A structure-hash match counts toward the presence floor but
+            # compares no physics: its own bucket, so the line never claims it added up.
+            model_checks = int(
+                "model/structure_hash" in scored_keys
+                and not any(f.quantity == "model/structure_hash" for f in findings)
+            )
+            parts = []
+            if adds_up or comparison_violations or comparison_warnings:
+                parts += [f"{adds_up} add up", f"{comparison_violations} do not"]
+            if comparison_warnings:
+                parts.append(f"{comparison_warnings} warn")
+            if model_checks:
+                parts.append("1 model check (URDF unchanged since lock)")
             console.print(
-                f"scored {findings.scored}: {adds_up} add up, {comparison_violations} do not · "
-                f"{decision.not_scored} not scored"
+                f"scored {findings.scored}: {', '.join(parts)} · {decision.not_scored} not scored"
             )
         if reference_violations:
             noun = "reference" if reference_violations == 1 else "references"

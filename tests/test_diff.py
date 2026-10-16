@@ -226,8 +226,10 @@ def test_diff_ref_side_refuses_an_unsupported_schema_version(tmp_path):
     """
     repo = _repo(tmp_path, "5")
     contract = repo / "lockwire.yaml"
-    bad_text = (FIXTURES / "contract_clean.yaml").read_text(encoding="utf-8").replace(
-        'schema_version: "0.3"', 'schema_version: "0.1"'
+    bad_text = (
+        (FIXTURES / "contract_clean.yaml")
+        .read_text(encoding="utf-8")
+        .replace('schema_version: "0.3"', 'schema_version: "0.1"')
     )
     contract.write_text(bad_text, encoding="utf-8")
     _git("add", "-A", cwd=repo)

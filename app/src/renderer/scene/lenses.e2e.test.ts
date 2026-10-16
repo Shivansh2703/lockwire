@@ -11,10 +11,13 @@ import { describe, expect, it } from "vitest";
 // DOM click on a real lens tab button rather than calling app state directly.
 //
 // the proof, executed rather than read: a part tagged for exactly one lens in the payload
-// (`ScenePart.lenses`) is invisible under a DIFFERENT lens and visible under its own — settled by
+// (`ScenePart.lenses`) is invisible under "All" when not in it and drawn under its own — settled by
 // a raw framebuffer read, which a mounted-but-empty or mounted-but-always-visible component would
 // both fail differently (an always-hidden mesh never turns colored; an always-visible mesh is
-// already colored before the click).
+// already colored before the click). Under a connection view (Power/Data/Mechanical) a
+// non-member is no longer hidden but drawn greyed (owner pick "Keep body, greyed"); that
+// branch is `robotScene.applyLens`, unit-tested in robotScene.test.ts. "All" is unchanged, so
+// the assertions below (mounted under "All", then Power) still hold as written.
 
 function packVectorsI16(values: number[]) {
   const buf = Buffer.alloc(values.length * 2);
@@ -88,25 +91,27 @@ describe("a lens draws only the parts the payload puts in it, on a real mount", 
         },
       ];
 
-      const run = spawnSync(electronBin, [join(outDir, "check.cjs")], {
-        env: {
-          ...process.env,
-          LOCKWIRE_E2E_HTML_PATH: join(outDir, "lens-e2e-check.html"),
-          LOCKWIRE_E2E_PARTS: JSON.stringify(parts),
-          LOCKWIRE_E2E_GRAPH: JSON.stringify(GRAPH),
-          LOCKWIRE_E2E_SELECT_LENS: "power",
-        },
-        encoding: "utf8",
-        timeout: 20_000,
-      });
-
-      const line = run.stdout.trim().split("\n").filter(Boolean).pop();
-      expect(line, `electron exited ${run.status} signal ${run.signal}; stderr: ${run.stderr}`).toBeTruthy();
-      const result = JSON.parse(line!) as {
-        visible: boolean;
-        beforePixel: [number, number, number, number];
-        afterPixel: [number, number, number, number];
+      const look = (lens: string) => {
+        const run = spawnSync(electronBin, [join(outDir, "check.cjs")], {
+          env: {
+            ...process.env,
+            LOCKWIRE_E2E_HTML_PATH: join(outDir, "lens-e2e-check.html"),
+            LOCKWIRE_E2E_PARTS: JSON.stringify(parts),
+            LOCKWIRE_E2E_GRAPH: JSON.stringify(GRAPH),
+            LOCKWIRE_E2E_SELECT_LENS: lens,
+          },
+          encoding: "utf8",
+          timeout: 20_000,
+        });
+        const line = run.stdout.trim().split("\n").filter(Boolean).pop();
+        expect(line, `electron exited ${run.status} signal ${run.signal}; stderr: ${run.stderr}`).toBeTruthy();
+        return JSON.parse(line!) as {
+          visible: boolean;
+          beforePixel: [number, number, number, number];
+          afterPixel: [number, number, number, number];
+        };
       };
+      const result = look("power");
 
       expect(result.visible).toBe(false);
 
@@ -121,8 +126,12 @@ describe("a lens draws only the parts the payload puts in it, on a real mount", 
       // same part is now visible, so the center pixel is no longer the background color.
       const [afterR, afterG, afterB] = result.afterPixel;
       expect(afterR === 0 && afterG === 0 && afterB === 0).toBe(false);
+
+      // Under a view it is NOT in (Data), the part is greyed, not hidden: still drawn.
+      const [dataR, dataG, dataB] = look("data").afterPixel;
+      expect(dataR === 0 && dataG === 0 && dataB === 0).toBe(false);
     } finally {
       rmSync(outDir, { recursive: true, force: true });
     }
-  }, 25_000);
+  }, 45_000);
 });

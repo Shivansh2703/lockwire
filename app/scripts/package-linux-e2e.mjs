@@ -213,7 +213,7 @@ async function runFresh(name, sourceDir, urdfRel, expectText) {
   cpSync(sourceDir, dir, { recursive: true });
   return session((launched) => driveFresh({ ...launched, urdfPath: join(dir, urdfRel), expectText }));
 }
-const freshQarm = await runFresh("qarm", join(repoRoot, "tests/fixtures/qarm"), "QARM.urdf", "torque limit is unset");
+const freshQarm = await runFresh("qarm", join(repoRoot, "tests/fixtures/qarm"), "QARM.urdf", "joint effort limit from the datasheet");
 const freshAnymal = await runFresh("anymal", join(repoRoot, "tests/fixtures/e5_10_real_scenarios/official/anymal-d"), "urdf/anymal.urdf");
 if (freshQarm.visible !== false || freshAnymal.visible !== false) throw new Error("packaged app E2E window was visible");
 

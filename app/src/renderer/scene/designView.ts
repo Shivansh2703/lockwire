@@ -8,9 +8,13 @@ import { useSyncExternalStore } from "react";
 
 import type { LensId } from "./lenses";
 
-export interface DesignView { lens: LensId; callouts: boolean; overflow: number; analysis: boolean }
+export interface DesignView {
+  lens: LensId; callouts: boolean; overflow: number; analysis: boolean;
+  /** Ids a Connections row under the pointer lights, without moving the camera or the selection. */
+  hover: string[] | null;
+}
 
-const INITIAL: DesignView = { lens: "off", callouts: false, overflow: 0, analysis: false };
+const INITIAL: DesignView = { lens: "off", callouts: false, overflow: 0, analysis: false, hover: null };
 let state = INITIAL;
 const listeners = new Set<() => void>();
 

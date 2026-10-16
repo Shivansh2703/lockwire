@@ -4,6 +4,26 @@
 // a stale committed file fails the build (packaging/generate-types.md).
 
 
+export interface AddPartNumber {
+  key: string;
+  value: number;
+  unit: string;
+  kind: "datasheet" | "source_file" | "assumed";
+  source: string;
+}
+
+export interface AddPartOption {
+  id: string;
+  name: string;
+  numbers: (AddPartNumber)[];
+  fits: (string)[];
+}
+
+export interface AddPartPayload {
+  rails: (string)[];
+  parts: (AddPartOption)[];
+}
+
 export interface AddsUpRow {
   name: string;
   text: string;
@@ -18,6 +38,8 @@ export interface Alternative {
   unit: string;
   kind: string;
   mark?: string | null;
+  rail?: string | null;
+  device?: string | null;
 }
 
 export interface AssertionOutcome {
@@ -76,6 +98,8 @@ export interface Card {
   instead: (Instead)[];
   also_in_run: boolean;
   consumer?: (string)[] | null;
+  quantity?: string | null;
+  owner?: string | null;
 }
 
 export interface CheckPayload {
@@ -126,6 +150,7 @@ export interface DeclareFormPayload {
   rows: (DeclareRow)[];
   witness: DeclareWitnessBox;
   revision?: string | null;
+  add_part?: AddPartPayload;
 }
 
 export interface DeclareRow {
@@ -309,11 +334,15 @@ export interface GraphNode {
   label: string;
   sub: string;
   kind: "link" | "device" | "rail" | "source" | "host" | "bus";
+  value?: number | null;
+  limit?: number | null;
 }
 
 export interface Instead {
   text: string;
   kind: string;
+  rail?: string | null;
+  device?: string | null;
 }
 
 export interface LogEntry {
@@ -444,6 +473,7 @@ export interface ReferenceFace {
 
 export interface ReferenceFaceDevice {
   id: string;
+  name: string;
   text: string;
 }
 
@@ -459,6 +489,8 @@ export interface RobotJoint {
   type: "fixed" | "revolute" | "continuous" | "prismatic" | "floating" | "planar";
   parent: string;
   child: string;
+  parent_name: string;
+  child_name: string;
   position: (number)[];
   axis: (number)[];
   lower: number | null;
@@ -498,6 +530,7 @@ export interface ScenePart {
   translation: (number)[];
   lenses: ("off" | "mechanical" | "power" | "data" | "health")[];
   group: SceneGroup;
+  mount_frame?: string | null;
 }
 
 export interface ScenePayload {
@@ -546,6 +579,16 @@ export interface StartPayload {
   revision: string;
   written: boolean;
   note?: string | null;
+}
+
+export interface Starter {
+  name: string;
+  title: string;
+  based_on: string;
+}
+
+export interface StartersPayload {
+  starters: (Starter)[];
 }
 
 export interface Target {

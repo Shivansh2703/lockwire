@@ -81,7 +81,11 @@ def _ts_type(node: dict[str, Any]) -> str:
         return f"({_ts_type(node['items'])})[]"
     if kind == "object":
         values = node.get("additionalProperties")
-        return f"Record<string, {_ts_type(values)}>" if isinstance(values, dict) else "Record<string, unknown>"
+        return (
+            f"Record<string, {_ts_type(values)}>"
+            if isinstance(values, dict)
+            else "Record<string, unknown>"
+        )
     return "unknown"  # pragma: no cover — no union member emits an untyped leaf today
 
 

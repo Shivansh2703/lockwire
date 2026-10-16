@@ -7,7 +7,6 @@ The sidecar's HTTP surface is private to the app — these tests hold that
 shape, not a published contract.
 """
 
-
 import hashlib
 import inspect
 import json
@@ -93,7 +92,7 @@ def test_hello_ok(client: TestClient):
 FREE_COMMANDS = {
     "start", "check", "page", "declare-form", "declare", "add", "review", "commit", "undo",
     "place", "move", "rotate", "reparent", "mount-shape", "describe", "what-if", "plan", "diff",
-    "log", "report",
+    "log", "report", "starters",
 }  # fmt: skip
 
 
@@ -1633,3 +1632,24 @@ def test_plan_reply_steps_carry_targets_on_the_wire(client: TestClient, tmp_path
     )
     steps = response.json()["payload"]["steps"]
     assert steps[0]["targets"][0]["id"] == "rail.servo-motor"
+
+
+def test_served_start_example_writes_once_and_checks_no_go(client, tmp_path):
+    out = tmp_path / "ex" / "lockwire.yaml"
+
+    def run(args):
+        return client.post(
+            "/v1/run", headers=_auth(), json={"command": "start", "args": args}
+        ).json()
+
+    first = run({"example": "servo-bench", "out": str(out)})
+    assert first["payload"]["written"] is True and out.is_file()
+    assert run({"example": "servo-bench", "out": str(out)})["payload"]["written"] is False
+    assert run({"example": "../x", "out": str(out)})["refusal"]
+    drone = tmp_path / "drone" / "lockwire.yaml"
+    assert run({"example": "drone", "out": str(drone)})["payload"]["written"] is True
+    assert drone.with_suffix(".glb").is_file()
+    checked = client.post(
+        "/v1/run", headers=_auth(), json={"command": "check", "args": {"contract": str(out)}}
+    ).json()
+    assert checked["verdict"] == "NO-GO"

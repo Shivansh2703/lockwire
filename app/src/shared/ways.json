@@ -1,0 +1,68 @@
+{
+  "ways": [
+    {
+      "id": "cli",
+      "title": "Command line",
+      "use": "Make a lockfile and check it from a terminal.",
+      "code": ["pipx install lockwire", "lockwire start --example drone", "lockwire check lockwire.yaml"]
+    },
+    {
+      "id": "app",
+      "title": "Desktop app",
+      "use": "You are in it. Click a New robot starter, or open your own lockfile.",
+      "code": ["https://github.com/Shivansh2703/lockwire/releases/latest"]
+    },
+    {
+      "id": "action",
+      "title": "GitHub Action",
+      "use": "Run the check on every push and keep an HTML report.",
+      "code": ["- uses: actions/checkout@v4\n- uses: Shivansh2703/lockwire@v0\n  with:\n    contract: lockwire.yaml"]
+    },
+    {
+      "id": "mcp",
+      "title": "AI agents (MCP)",
+      "use": "Let Claude Desktop, Claude Code or Cursor check your robot before it acts.",
+      "code": [
+        "pipx install \"lockwire[mcp]\"",
+        "claude mcp add lockwire -- lockwire mcp",
+        "{\n  \"mcpServers\": {\n    \"lockwire\": { \"command\": \"lockwire\", \"args\": [\"mcp\"] }\n  }\n}"
+      ],
+      "note": "Claude Code: the claude mcp add line. Claude Desktop: put the JSON in claude_desktop_config.json. Cursor: put the JSON in .cursor/mcp.json (or ~/.cursor/mcp.json). If the app cannot find lockwire, use the full path from which lockwire. Then ask: Check my robot's lockwire.yaml and explain the NO-GO."
+    },
+    {
+      "id": "plan",
+      "title": "Agent plan and what-if",
+      "use": "Score an intended plan, or a proposed change, before anything executes.",
+      "code": [
+        "lockwire plan lockwire.yaml plan.yaml",
+        "lockwire what-if lockwire.yaml --change \"devices/dev.onboard-computer/physical/mass=300 g\" --source \"my scale\" --witness me"
+      ],
+      "note": "plan.yaml holds steps, for example: steps: [{kind: rail_load, rail: rail.supply-5v, draw: {value: 10, unit: W}}]"
+    },
+    {
+      "id": "python",
+      "title": "Python library",
+      "use": "Call the same check from your own script.",
+      "code": ["import lockwire.api as lw\nprint(lw.check(\"lockwire.yaml\")[\"verdict\"])"]
+    },
+    {
+      "id": "pro",
+      "title": "ROS, preflight and the local API",
+      "use": "The go/no-go gate for a powered-on robot, ROS and the local server.",
+      "pro": true
+    }
+  ],
+  "features": [
+    { "id": "check", "name": "Check", "how": "See which numbers do not add up.", "code": "lockwire check lockwire.yaml" },
+    { "id": "declare", "name": "Declare a fact", "how": "Set one value with a source and a witness.", "code": "lockwire declare lockwire.yaml devices/dev.power-module.pm02-v3/physical/mass \"25 g\" --source \"my scale\" --witness me" },
+    { "id": "add", "name": "Add a part", "how": "Add a device, rail, bus or battery block.", "code": "lockwire add --help" },
+    { "id": "design", "name": "Design (place, move, rotate, reparent)", "how": "Put a part in the 3D model and move it. Switch on the Power, Data and Mechanical connection views to see them drawn on the robot, and use W, A, S, D to move the camera.", "code": "lockwire move lockwire.yaml dev.power-module.pm02-v3 --offset 0.01,0,0.02 --unit m --source \"tape measure\" --witness me" },
+    { "id": "plan", "name": "Plan and what-if", "how": "Score a plan or a change without editing the lockfile.", "code": "lockwire plan lockwire.yaml plan.yaml" },
+    { "id": "report", "name": "Report", "how": "Write one HTML page to share.", "code": "lockwire report lockwire.yaml -o report.html --no-open" },
+    { "id": "describe", "name": "Describe", "how": "Write a reference sheet per part.", "code": "lockwire describe lockwire.yaml --out ref" },
+    { "id": "history", "name": "History (diff, log, blame)", "how": "See what changed, by whom, and why (needs git).", "code": "lockwire diff" },
+    { "id": "scene", "name": "Scene", "how": "Read part positions from a 3D model.", "code": "lockwire scene import --help" },
+    { "id": "gearbox", "name": "Gearbox", "how": "Add a gearbox with its ratio and joints.", "code": "lockwire gearbox --help" },
+    { "id": "upgrade", "name": "Upgrade", "how": "Write a new lockfile from an older one.", "code": "lockwire upgrade --help" }
+  ]
+}

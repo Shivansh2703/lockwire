@@ -13,17 +13,23 @@
  * `ScenePayload` (has `.parts`) has anything to draw; `SceneUnchanged` (`{unchanged: true}`) and
  * `null` both mean "nothing to show yet", same as no payload at all.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import * as THREE from "three";
 
 import type { CheckPayload, PagePayload, RobotJoint, SceneLabel, ScenePart as ApiScenePart } from "../shared/api.gen";
 import { useScene } from "./scene/Canvas";
 import { DesignControls, type DesignEditReply, type DesignEditRequest } from "./DesignControls";
 import { CalloutLayer, type CalloutAnchor } from "./scene/CalloutLayer";
-import { Disclosure, EmptyState, IconButton, Inspector, Notice, Panel, PartTree, PillTabs, Figure, type Status } from "./kit";
+import { Icon } from "./kit/icons";
+import { limbOf } from "./kit/limb";
+import { Disclosure, EmptyState, Field, IconButton, Inspector, Jumper, Notice, Panel, PartTree, PillTabs, Figure, type Status } from "./kit";
+import type { OnJump } from "./jump";
 import { highlightsFromCards } from "./scene/robotScene";
 import { LENS_IDS, type LensedPart } from "./scene/lenses";
 import { pro } from "./proRegistry";
+import { PRODUCT_NAME } from "../shared/branding";
+import { ConnectionLines, ConnectionsPanel } from "./Connections";
+import { CONN_LENSES, type ConnLens } from "./scene/connections";
 import { resetDesignView, setDesignView, useDesignView } from "./scene/designView";
 import {
   readPaintedSilhouetteBounds,
@@ -131,6 +137,7 @@ export function toScenePart(part: ApiScenePart): ScenePart & LensedPart {
 
 type Payload = CheckPayload | PagePayload | null;
 
+const linksOf = (payload: Payload): string[] => [...new Set([...(payload && "links" in payload ? payload.links.map((l) => l.name) : []), ...jointsOf(payload).flatMap((j) => [j.parent, j.child])])];
 export const jointsOf = (payload: Payload): RobotJoint[] => (payload && "joints" in payload ? payload.joints : []);
 
 const STATE: Record<ApiScenePart["state"], Status> = { fault: "bad", warn: "warn", affected: "muted", ok: "go", unchecked: "muted", plain: "muted" };
@@ -145,6 +152,7 @@ type TreeRow = { id: string; name: string; state?: Status; depth?: number; sel?:
 const WORST: Status[] = ["bad", "warn", "go", "muted"];
 const DOT_WORDS: Partial<Record<Status, string>> = { bad: "fault", warn: "warn", go: "ok", muted: "unchecked" };
 const PART_STATE_WORDS: Record<string, string> = { fault: "Fails", warn: "Check", affected: "Affected", ok: "OK", unchecked: "Not checked", plain: "Not checked" };
+const stateValue = (state: string | undefined) => { const st = STATE[state as ApiScenePart["state"]] ?? "muted"; const w = PART_STATE_WORDS[state ?? "unchecked"]; return <span className="design-state"><i className={`kit-dot kit-s-${st}`} aria-hidden="true" />{w}</span>; };
 const KIND_WORDS: Record<string, string> = { device: "Device", rail: "Power rail", bus: "Data bus", link: "Link", other: "Structure" };
 
 /** Parts come from the mesh scene: one row per mesh node, listed under the engine's own `group`
@@ -152,8 +160,6 @@ const KIND_WORDS: Record<string, string> = { device: "Device", rail: "Power rail
  * (QArm, ANYmal) lists its links as a tree from the root, each row picking the joint that carries
  * the link, dotted from the Check cards' own findings; each top-level chain (a leg) is a group
  * when there is more than one. */
-/** "base_link" -> "Base", "END-EFFECTOR" -> "End-effector". */
-const plainLink = (name: string) => { const w = name.replace(/_link$/i, "").replace(/_/g, " ").toLowerCase(); return w.charAt(0).toUpperCase() + w.slice(1); };
 function rowsOf(payload: Payload): TreeRow[] {
   const scene = sceneOf(payload);
   if (scene && scene.parts.length > 0) {
@@ -169,7 +175,18 @@ function rowsOf(payload: Payload): TreeRow[] {
       }
       else folded.set(key, { id: part.node, sel: part.id ?? part.node, sels: [part.id ?? part.node], name: part.name, state: STATE[part.state], group: part.group, n: 1 });
     }
-    return [...folded.values()].map(({ n, ...row }) => (n > 1 ? { ...row, name: `${row.name} ×${n}` } : row));
+    const rows = [...folded.values()].map(({ n, ...row }) => (n > 1 ? { ...row, name: `${row.name} ×${n}` } : row));
+    // A robot of many one-part links (ANYmal) gets Legs / Shells / Cameras drop-downs instead of 80 flat rows.
+    const solo = (r: TreeRow) => r.group && rows.filter((o) => o.group?.id === r.group!.id).length === 1;
+    if (rows.filter(solo).length < 8) return rows;
+    const bucket = (name: string) => /camera/i.test(name) ? "Cameras" : /\b(hip|thigh|shank|foot|knee)\b/i.test(name) ? "Legs" : /shell|face|body/i.test(name) ? "Shells" : null;
+    return rows.map((r) => {
+      if (!solo(r)) return r;
+      const l = limbOf(r.name);
+      if (l) return { ...r, name: l.rest, group: { id: `limb:${l.label}`, label: l.label, kind: r.group!.kind } };
+      const b = bucket(r.name);
+      return b ? { ...r, group: { id: `bucket:${b}`, label: b, kind: r.group!.kind } } : r;
+    });
   }
   const joints = jointsOf(payload);
   const level = new Map(highlightsFromCards(payload && "cards" in payload ? payload.cards : [], joints).map((h) => [h.id, h.level]));
@@ -178,7 +195,7 @@ function rowsOf(payload: Payload): TreeRow[] {
     for (const joint of joints.filter((j) => j.parent === link && !seen.has(j.name))) {
       const state: Status = level.get(joint.name) === "bad" ? "bad" : level.get(joint.name) === "warn" ? "warn" : "go";
       const g = group ?? { id: joint.name, label: joint.child };
-      out.push({ id: joint.name, name: plainLink(joint.child), state, depth, group: g });
+      out.push({ id: joint.name, name: joint.child_name, state, depth, group: g });
       walk(joint.child, depth + 1, new Set(seen).add(joint.name), g);
     }
   };
@@ -193,7 +210,13 @@ function rowsOf(payload: Payload): TreeRow[] {
 export function DesignParts({ payload }: { payload: Payload }) {
   const selected = useSelectedPartId();
   const group = useSelectedGroup();
-  const rows = rowsOf(payload);
+  const { lens } = useDesignView();
+  // Rails and wires belong to the Power / Data lens (the connection list), not the part tree.
+  const rows = rowsOf(payload).filter((r) => !payload?.graph || (r.group?.kind !== "rail" && r.group?.kind !== "bus"));
+  if (payload?.graph && CONN_LENSES.includes(lens)) {
+    const drawn = new Set(sceneOf(payload)?.parts.map((p) => p.id ?? p.node));
+    return <ConnectionsPanel payload={payload} lens={lens as ConnLens} drawn={drawn} />;
+  }
   if (rows.length === 0) return null;
   const words = WORST.filter((st) => rows.some((r) => r.state === st));
   return (
@@ -222,9 +245,10 @@ export function DesignLens({ payload }: { payload: Payload }) {
           <PillTabs
             label="Lens"
             value={lens}
-            onChange={(id) => setDesignView({ lens: id })}
-            tabs={LENS_IDS.map((id) => ({ id, label: id === "off" ? "All" : graph[id].label }))}
+            onChange={(id) => setDesignView({ lens: id, hover: null })}
+            tabs={LENS_IDS.filter((id) => pro || id !== "health").map((id) => ({ id, label: id === "off" ? "All" : graph[id].label }))}
           />
+          {!pro && <span className="shell-pro-tab" aria-disabled="true" title={`Health is in ${PRODUCT_NAME} Pro`}>{graph.health.label}<span className="shell-pro-badge">Pro</span></span>}
         </div>
       )}
     </>
@@ -252,11 +276,12 @@ export function DesignTools({ payload, canAnalyse }: { payload: Payload; canAnal
 
 /** Mounted inside the Shell's RobotView: the e2e readback hook and, when on, the callouts. */
 export function DesignSceneExtras({ payload }: { payload: Payload }) {
-  const { callouts } = useDesignView();
+  const { callouts, lens } = useDesignView();
   const scene = sceneOf(payload);
   return (
     <>
       <SceneCapture />
+      {CONN_LENSES.includes(lens) && <ConnectionLines payload={payload} lens={lens as ConnLens} />}
       {callouts && scene && <MountedCallouts labels={scene.labels} onOverflowChange={(overflow) => setDesignView({ overflow })} />}
     </>
   );
@@ -270,6 +295,8 @@ export function DesignPanel({
   onEdit,
   onReopen,
   onPayload,
+  onJump,
+  onPlace,
 }: {
   payload: Payload;
   contract?: string;
@@ -277,21 +304,24 @@ export function DesignPanel({
   onEdit?: (request: DesignEditRequest) => Promise<DesignEditReply>;
   onReopen?: (contract: string) => Promise<CheckPayload | PagePayload>;
   onPayload?: (payload: CheckPayload | PagePayload) => void;
+  /** State, Why and Findings open the first Check card about the selection. */
+  onJump?: OnJump;
+  /** Keyboard route for dragging a part onto the body: mount the device at a frame's origin. */
+  onPlace?: (device: string, frame: string) => Promise<string | null>;
 }) {
+  const [placeRefusal, setPlaceRefusal] = useState<string | null>(null);
   const selectedPartId = useSelectedPartId();
   const selectedGroup = useSelectedGroup();
   const view = useDesignView();
   const scenePayload = sceneOf(payload);
-  const sceneKey = scenePayload ? `${contract ?? "preview"}:${scenePayload.hash}` : undefined;
+  // Same key as App's: a new robot or asset drops the selection; leaving the tab keeps it.
+  const sceneKey = `${contract ?? "preview"}:${scenePayload?.hash ?? "skeleton"}`;
   const rows = rowsOf(payload);
   const assetIdentity = scenePayload?.expected_asset_sha256
     ? `Selected asset ${scenePayload.asset_path ?? scenePayload.source} matches the declared model identity ${scenePayload.expected_asset_sha256}.`
     : `Selected scene ${scenePayload?.asset_path ?? scenePayload?.source}; declared model identity is unavailable.`;
 
-  useEffect(() => {
-    setSelectionSceneKey(sceneKey);
-    return () => setSelectionSceneKey(undefined);
-  }, [sceneKey]);
+  useEffect(() => setSelectionSceneKey(sceneKey), [sceneKey]);
   useEffect(() => resetDesignView, []);
 
   useEffect(() => {
@@ -355,42 +385,55 @@ export function DesignPanel({
     );
   }
 
-  const groupParts = selectedGroup ? scenePayload?.parts.filter((p) => p.group.id === selectedGroup.id) ?? [] : [];
   const groupRows = selectedGroup ? rows.filter((r) => r.group?.id === selectedGroup.id) : [];
-  const groupHead = groupParts[0]?.group ?? groupRows[0]?.group;
+  const groupParts = selectedGroup ? scenePayload?.parts.filter((p) => groupRows.some((r) => r.sels?.includes(p.id ?? p.node))) ?? [] : [];
+  const groupHead = groupRows[0]?.group ?? groupParts[0]?.group; // the list's own group label (limb groups included)
   const part = scenePayload?.parts.find((candidate) => (candidate.id ?? candidate.node) === selectedPartId);
+  // The inspector is titled with the name its list row shows (limb grouping may shorten a part's own name).
+  const listRow = rows.find((r) => r.sels?.includes(selectedPartId ?? ""));
+  const listBase = listRow?.name.replace(/ ×\d+$/, "");
+  const listName = listRow && listBase ? (listRow.group?.id.startsWith("limb:") ? `${listRow.group.label} · ${listBase}` : listBase) : part?.name;
   const joint = part ? undefined : jointsOf(payload).find((candidate) => candidate.name === selectedPartId);
   const unit = joint ? UNIT[joint.type] : undefined;
   const limit = (value: number | null) => value === null ? "none" : <Figure value={Number(value.toPrecision(4))} unit={unit} kind="declared" />;
-  const findings = part ? scenePayload!.labels.filter((label) => label.part === part.id).length : 0;
-  const partsInGroup = part ? rows.filter((r) => r.group?.id === part.group.id).length : 0; // folded rows, like the badge
   const partLenses = part?.lenses.filter((l) => l !== "off").map((l) => l.charAt(0).toUpperCase() + l.slice(1)).join(", ");
   const worstOf = (states: string[]) => (["fault", "warn", "affected", "ok", "unchecked", "plain"] as const).find((st) => states.includes(st));
   type Row = { label: string; value: React.ReactNode };
-  const stateWord = (st?: string) => (st === "fault" ? "Fails" : st === "warn" ? "Check" : undefined);
-  const stateRow = (st?: string): Row[] => (stateWord(st) ? [{ label: "State", value: stateWord(st) }] : []);
-  const findingsRow = (n: number): Row[] => (n > 0 ? [{ label: "Findings", value: <Figure value={n} kind="derived" /> }] : []);
-  const whyRow = (id: string | null): Row[] => { const t = scenePayload!.labels.find((l) => l.part === id)?.title; return t ? [{ label: "Why", value: t }] : []; };
-  const groupFindings = groupParts.length ? scenePayload!.labels.filter((l) => groupParts.some((p) => p.id === l.part)).length : 0;
+  // The first Check card that lights any of these ids: State, Why and Findings lead to it.
+  const cards = payload && "cards" in payload ? payload.cards : [];
+  const ids = groupParts.length ? groupParts.map((p) => p.id ?? p.node) : selectedPartId ? [selectedPartId] : [];
+  const card = cards.findIndex((c) => highlightsFromCards([c], jointsOf(payload)).some((h) => ids.includes(h.id)));
+  const toCard = (node: React.ReactNode) => (onJump && card >= 0 ? <Jumper label="Open its finding in Check" onClick={() => onJump({ findingIdx: card })}>{node}</Jumper> : node);
+  // Findings read Check's own cards (same targets that light the robot there), never the callout labels.
+  const hit = cards.filter((c) => (c.severity === "violation" || c.severity === "warning") && highlightsFromCards([c], jointsOf(payload)).some((h) => ids.includes(h.id)));
+  const findingsOf = hit.length === 0 ? "No findings" : toCard(<><i className={`kit-mark kit-s-${hit.some((c) => c.severity === "violation") ? "bad" : "warn"}`} aria-hidden="true"><Icon name={hit.some((c) => c.severity === "violation") ? "fail" : "alert"} /></i>{hit.length} · {hit[0]!.title}</>);
+  const lensWords = part?.lenses.filter((l) => l !== "off") ?? [];
+  // A mesh named like the frame a device mounts on (the humanoid torso under its Jetson) is that frame, not part of the device.
+  const partGroup = listRow?.group ?? part?.group; // the list's own group label
+  const parentJoint = joint && jointsOf(payload).find((j) => j.child === joint.parent);
   // `details` is always visible; `more` sits behind "Details".
   const details: Row[] = groupHead
     ? [
         ...(groupHead.kind ? [{ label: "Kind", value: KIND_WORDS[groupHead.kind] ?? groupHead.kind }] : []),
         { label: "Parts", value: String(groupRows.length) }, // the tree's own (folded) rows, so it matches the group badge
-        { label: "State", value: PART_STATE_WORDS[worstOf(groupParts.map((p) => p.state)) ?? "unchecked"] },
-        { label: "Findings", value: groupFindings > 0 ? <Figure value={groupFindings} kind="derived" /> : "No findings" },
+        ...(["fault", "warn", "ok"].includes(worstOf(groupParts.map((p) => p.state)) ?? "") ? [{ label: "State", value: toCard(stateValue(worstOf(groupParts.map((p) => p.state)))) }] : []),
+        { label: "Findings", value: findingsOf },
       ]
     : part
     ? [
-        { label: "Group", value: part.group.label !== part.name ? [part.group.label, KIND_WORDS[part.group.kind ?? ""]].filter(Boolean).join(" · ") : `${partsInGroup} part${partsInGroup === 1 ? "" : "s"}` },
-        { label: "State", value: PART_STATE_WORDS[part.state] },
-        ...whyRow(part.id),
-        { label: "Findings", value: findings > 0 ? <Figure value={findings} kind="derived" /> : "No findings" },
-        ...(partLenses ? [{ label: "Lens", value: partLenses }] : []),
+        ...(partGroup && partGroup.label !== listName && !(partGroup.kind === "device" && part.mount_frame === part.node) ? [{ label: "Part of", value: <Jumper label={`Select the ${partGroup.label} group`} onClick={() => setSelectedGroup({ id: partGroup.id, members: rows.filter((r) => r.group?.id === partGroup.id).flatMap((r) => r.sels ?? [r.id]) })}>{partGroup.label}</Jumper> }] : []),
+        ...(["fault", "warn", "ok"].includes(part.state) ? [{ label: "State", value: toCard(stateValue(part.state)) }] : []),
+        { label: "Findings", value: findingsOf },
       ]
     : joint
-      ? [{ label: "Type", value: joint.type }, { label: "From", value: joint.parent }]
+      ? joint.type === "fixed"
+        ? [{ label: "Attached", value: <>Fixed to {parentJoint ? <Jumper label={`Select ${joint.parent}`} onClick={() => setSelectedPartId(parentJoint.name)}>{joint.parent_name}</Jumper> : joint.parent_name}</> }]
+        : [{ label: "Type", value: joint.type }, { label: "From", value: parentJoint ? <Jumper label={`Select ${joint.parent}`} onClick={() => setSelectedPartId(parentJoint.name)}>{joint.parent}</Jumper> : joint.parent }]
       : [];
+  const lensRow: Row[] = partLenses ? [{ label: "Lens", value: <>{lensWords.map((l, i) => (
+    <span key={l}>{i > 0 && ", "}{l === view.lens ? l.charAt(0).toUpperCase() + l.slice(1)
+      : <Jumper label={`Show the ${l} lens`} onClick={() => setDesignView({ lens: l })}>{l.charAt(0).toUpperCase() + l.slice(1)}</Jumper>}</span>
+  ))}</> }] : [];
   const more: Row[] = groupHead
     ? []
     : joint
@@ -400,27 +443,32 @@ export function DesignPanel({
           ...(joint.effort !== null ? [{ label: "Effort", value: <Figure value={Number(joint.effort.toPrecision(4))} unit={joint.type === "prismatic" ? "N" : "N·m"} kind="declared" /> }] : []),
         ]
       : [];
+  more.push(...lensRow);
   if (scenePayload) {
     const name = String(scenePayload.asset_path ?? scenePayload.source).split("/").pop();
     more.push({ label: "Model", value: <span className="scene-asset-identity" title={assetIdentity}>{name}</span> });
   }
   if (!part && !joint && !groupHead) {
-    return (
-      <>
-        <Panel title="Inspector"><div className="design-face" role="status">Pick a part</div></Panel>
-        {analysis}
-      </>
-    );
+    return analysis;
   }
   return (
     <>
-      <Panel title={groupHead?.label ?? part?.name ?? (joint && plainLink(joint.child)) ?? "Inspector"}>
+      <Panel title={groupHead?.label ?? listName ?? (joint && joint.child_name) ?? "Inspector"}>
         <div className="design-face">
           <>
           {details.length > 0 && <Inspector rows={details} />}
           <Disclosure summary="Details"><Inspector rows={more} /></Disclosure>
           {!groupHead && contract && expectedRevision && onEdit && onReopen && onPayload && (
             <Disclosure summary="Edit placement">
+              {part?.group.kind === "device" && onPlace && (
+                <>
+                  <Field label="Place on…" control="select" aria-label="Place on" value="" onChange={(e: { target: { value: string } }) => { const frame = e.target.value; if (frame) void onPlace(part.id ?? part.node, frame).then(setPlaceRefusal); }}>
+                    <option value="">Pick a frame</option>
+                    {linksOf(payload).map((l) => <option key={l} value={l}>{l}</option>)}
+                  </Field>
+                  {placeRefusal && <Notice kind="error">{placeRefusal}</Notice>}
+                </>
+              )}
               <DesignControls
                 contract={contract}
                 expectedRevision={expectedRevision}

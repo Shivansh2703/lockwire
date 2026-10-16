@@ -8,7 +8,7 @@ import { useEffect, useMemo, type ReactNode } from "react";
 
 import type { RobotJoint, RobotLink } from "../../shared/api.gen";
 import { Canvas, useScene } from "./Canvas";
-import type { ScenePart, ViewInset } from "./buildScene";
+import type { SceneHit, ScenePart, ViewInset } from "./buildScene";
 import type { LensedPart, LensId } from "./lenses";
 import { applyDim, applyHighlight, buildSkeleton, focusCamera, type Highlight } from "./robotScene";
 import { useSelectedPartId } from "./selectionStore";
@@ -32,7 +32,7 @@ function Effects({ highlight, selected, focus, dim, joints }: { highlight: Highl
 }
 
 export function RobotView({
-  sceneKey, parts = [], joints = [], links = [], highlight = [], selected, focus, onPick, lens = "off", dim = false, children, viewInset,
+  sceneKey, parts = [], joints = [], links = [], highlight = [], selected, focus, onPick, onDropPart, lens = "off", dim = false, children, viewInset,
 }: {
   sceneKey: string;
   parts?: (ScenePart & LensedPart)[];
@@ -42,6 +42,7 @@ export function RobotView({
   selected?: string | string[] | null;
   focus?: string[];
   onPick?: (id: string | null) => void;
+  onDropPart?: (part: string, hit: SceneHit | null) => void;
   /** Design lens: dims parts outside it. */
   lens?: LensId;
   /** Docs: the robot at ~40% opacity, grid behind it. */
@@ -57,7 +58,7 @@ export function RobotView({
     [parts.length, joints, links],
   );
   return (
-    <Canvas parts={parts} sceneKey={sceneKey} lens={lens} skeleton={skeleton} onPick={onPick} inset={viewInset}>
+    <Canvas parts={parts} sceneKey={sceneKey} lens={lens} skeleton={skeleton} onPick={onPick} onDropPart={onDropPart} inset={viewInset}>
       <Effects highlight={highlight} selected={[(selected === undefined ? stored : selected) ?? []].flat()} focus={focus} dim={dim} joints={joints} />
       {children}
     </Canvas>

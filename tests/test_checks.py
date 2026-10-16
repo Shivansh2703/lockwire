@@ -23,6 +23,7 @@ from lockwire.checks import (
     check_compared_from,
     check_edge_tolerance,
     check_envelopes_vs_hard_limits,
+    check_zero_mass,
     check_link_budget,
     check_rail_current,
     check_rail_topology,
@@ -120,14 +121,18 @@ def _assert_clean_baseline(findings):
     assert "relative path" in urdf.observed
     assert "not resolvable" in urdf.observed
     bandwidth = next(f for f in not_scored if f.quantity == "topology/buses/bus.serial0/bandwidth")
-    assert bandwidth.observed == "no declared traffic on this bus"  # bites the not-scored disclosure regressing
+    assert (
+        bandwidth.observed == "no declared traffic on this bus"
+    )  # bites the not-scored disclosure regressing
     for quantity in (
         "devices/dev.barometer/physical/mass",
         "devices/dev.gnss/physical/mass",
         "devices/dev.esc.busless/physical/mass",
     ):
         mass_gap = next(f for f in not_scored if f.quantity == quantity)
-        assert mass_gap.observed == "mass not declared"  # bites missing-mass disclosure regressing to a silent skip
+        assert (
+            mass_gap.observed == "mass not declared"
+        )  # bites missing-mass disclosure regressing to a silent skip
     assert isinstance(findings, RecordReport)
     assert findings.scored is not None and findings.scored > 0, (
         "clean fixture scored denominator must be positive — vacuous GO otherwise"
@@ -657,6 +662,7 @@ def test_draw_mode_single_draw_finding_is_byte_identical(clean_contract):
                 unit="W",
                 kind="projected",
                 mark="projected",
+                rail="rail.5v",
             ),
         ),
     )
@@ -892,9 +898,7 @@ def test_edge_tolerance_drift_past_the_band_is_a_violation(clean_contract):
     A supplied current reading 100x the declared value is a real, scored
     drift — the decisive bite the first attempt could not pass, because
     it never compared anything."""
-    findings = check_edge_tolerance(
-        clean_contract, {"devices/dev.imu/physical/mass": 100.0}
-    )
+    findings = check_edge_tolerance(clean_contract, {"devices/dev.imu/physical/mass": 100.0})
     violations = [f for f in findings if f.severity == "violation"]
     assert len(violations) == 1
     assert violations[0].quantity == "devices/dev.imu/physical/mass"
@@ -975,8 +979,57 @@ def test_zero_mass_is_derived_from_links_not_cache(clean_contract):
 
     findings = run_record_checks(clean_contract)
     assert any(  # bites trusting stale zero_mass_links over the canonical links
-        f.quantity == "model/links/imu_link/mass" and f.severity == "warning" for f in findings
+        f.quantity == "model/links/massless_frames" and "imu_link" in f.observed for f in findings
     )
+
+
+def test_massless_leaf_frames_fold_into_one_line(clean_contract):
+    m = clean_contract.model
+    tip = m.links[1].model_copy(update={"name": "tip", "mass": None})  # leaf under imu_link
+    m.links.append(tip)
+    mount = m.joints[0].model_copy(update={"name": "tip_mount", "parent": "imu_link"})
+    m.joints.append(mount.model_copy(update={"child": "tip"}))
+    m.links[0].mass = None  # carries massive imu_link: keeps its own warning
+    ours = [
+        f.quantity
+        for f in run_record_checks(clean_contract)
+        if f.quantity.startswith("model/links/")
+    ]
+    assert [q for q in ours if q.endswith("/mass")] == [
+        "model/links/base_link/mass"
+    ]  # bites folding links that carry children
+    assert ours.count("model/links/massless_frames") == 1  # bites one line per frame
+
+
+def test_massless_fixed_root_frame_folds_not_warns(clean_contract):
+    m = clean_contract.model
+    m.links.append(m.links[0].model_copy(update={"name": "base_footprint", "mass": None}))
+    m.joints.append(
+        m.joints[0].model_copy(
+            update={"name": "fp", "type": "fixed", "parent": "footprint", "child": "base_link"}
+        )
+    )
+    ours = [
+        f.quantity
+        for f in run_record_checks(clean_contract)
+        if f.quantity.startswith("model/links/")
+    ]
+    assert "model/links/base_footprint/mass" not in ours  # bites a mass warning on a pure frame
+    assert "model/links/massless_frames" in ours
+
+
+def test_massless_base_link_root_keeps_own_warning(clean_contract):
+    m = clean_contract.model
+    m.links[0].mass, m.joints[0].type = None, "fixed"  # massless, unmounted root, only fixed joints
+    for d in clean_contract.devices:
+        if d.physical:
+            d.physical.mount_frame = "imu_link"
+    ours = [
+        f.quantity
+        for f in run_record_checks(clean_contract)
+        if f.quantity.startswith("model/links/")
+    ]
+    assert "model/links/base_link/mass" in ours  # bites folding a real massless body into frames
 
 
 def test_render_exit_codes(clean_contract, capsys):
@@ -1822,6 +1875,17 @@ def test_urdf_drift_relative_path_is_not_scored(tmp_path, testbot_urdf):
     assert "relative path" in findings[0].observed
     assert "not resolvable" in findings[0].observed
     assert _violations(findings) == []
+
+
+def test_urdf_drift_web_link_says_web_link(testbot_urdf):
+    model = parse_urdf(testbot_urdf)
+    url = "https://example.com/robot.urdf"
+    model.provenance = Provenance(witness="w2", source=url, locked_at="2026-07-26")
+    model.source = url
+    findings = check_urdf_drift(Contract(robot=RobotInfo(name="testbot"), model=model))
+    assert [f.severity for f in findings] == ["not_scored"]
+    assert "web link" in findings[0].observed  # bites the relative-path wording
+    assert "download the URDF" in findings[0].action  # bites 'restore' advice for a link
 
 
 def test_urdf_drift_matching_urdf_is_silent(tmp_path, testbot_urdf):
@@ -3249,13 +3313,55 @@ def test_torque_constraint_row_uses_the_checks_own_numbers(clean_contract):
 
     clean_contract.model.joints[0].limits.effort = 4.0
     joint = clean_contract.model.joints[0].name
-    row = next(
-        r for r in constraint_rows(clean_contract, []) if r["id"] == f"joint-torque.{joint}"
-    )
+    row = next(r for r in constraint_rows(clean_contract, []) if r["id"] == f"joint-torque.{joint}")
     assert (row["used"], row["limit"], row["status"]) == (4.0, 3.0, "bad")  # same 3.00 vs 4.00
     assert (row["used_kind"], row["limit_kind"]) == ("declared", "derived")
     clean_contract.model.joints[0].limits.effort = 1.0
-    row = next(
-        r for r in constraint_rows(clean_contract, []) if r["id"] == f"joint-torque.{joint}"
-    )
+    row = next(r for r in constraint_rows(clean_contract, []) if r["id"] == f"joint-torque.{joint}")
     assert row["status"] == "ok"
+
+
+def test_zero_mass_action_names_the_declare_command(testbot_urdf):
+    contract = Contract(robot=RobotInfo(name="testbot"), model=parse_urdf(testbot_urdf))
+    [finding] = check_zero_mass(contract, contract_path=Path("my.yaml"))
+    assert (  # bites a warning that names no runnable fix
+        "lockwire declare my.yaml model/links/sensor_mount/mass" in finding.action
+    )
+
+
+def _actuator(c):
+    return c.device_model(next(d for d in c.devices if d.drives_joint).model).actuator
+
+
+def test_peak_only_actuator_below_effort_limit_is_flagged(clean_contract):
+    """A servo declared with only its stall torque can still never reach the limit."""
+    from lockwire.checks import check_torque_budgets
+
+    a = _actuator(clean_contract)
+    a.torque_continuous = None
+    a.torque_peak = 1.0
+    clean_contract.model.joints[0].limits.effort = a.gear_ratio * 1.0 + 4.0
+    [f] = check_torque_budgets(clean_contract)
+    assert f.severity == "violation"  # bites ignoring torque_peak (GO on a peak-only servo)
+    assert "peak (stall) geared torque" in f.observed
+    assert "joint effort limit" in f.expected
+
+
+def test_peak_only_actuator_above_effort_limit_passes(clean_contract):
+    from lockwire.checks import check_torque_budgets
+
+    a = _actuator(clean_contract)
+    a.torque_continuous = None
+    a.torque_peak = 1.0
+    clean_contract.model.joints[0].limits.effort = a.gear_ratio * 1.0 - 0.5
+    assert check_torque_budgets(clean_contract) == []  # bites flagging when peak covers the limit
+
+
+def test_continuous_failure_is_not_double_reported_with_peak(clean_contract):
+    from lockwire.checks import check_torque_budgets
+
+    a = _actuator(clean_contract)
+    a.torque_peak = a.torque_continuous * 1.5
+    clean_contract.model.joints[0].limits.effort = a.torque_continuous * a.gear_ratio + 1.0
+    [f] = check_torque_budgets(clean_contract)  # bites a second finding for the same joint
+    assert "continuous" in f.observed

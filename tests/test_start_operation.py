@@ -52,7 +52,9 @@ def test_start_shared_writer_adjacent_existing_and_stale(tmp_path: Path):
     assert target.read_bytes() == changed
     with pytest.raises(ValueError, match="changed since"):
         api.start(source, overwrite=True)
-    replacement = api.start(source, overwrite=True, expected_revision=hashlib.sha256(changed).hexdigest())
+    replacement = api.start(
+        source, overwrite=True, expected_revision=hashlib.sha256(changed).hexdigest()
+    )
     assert replacement["written"] is True
     cli = CliRunner().invoke(app, ["start", str(source), "--out", str(target)])
     assert cli.exit_code == 0, cli.output
@@ -68,7 +70,9 @@ def test_native_start_sidecar_refuses_stale_and_robot_write(tmp_path: Path):
         result = client.post("/v1/run", headers=headers, json=body).json()
         start = StartPayload.model_validate(result["payload"])
         assert start.written and result["refusal"] is None
-        assert client.post("/v1/run", headers=headers, json=body).json()["payload"]["written"] is False
+        assert (
+            client.post("/v1/run", headers=headers, json=body).json()["payload"]["written"] is False
+        )
         target = Path(start.path)
         target.write_bytes(target.read_bytes() + b"\n# changed\n")
         before = target.read_bytes()
@@ -120,14 +124,21 @@ def _ros_package(root: Path, a: str, b: str) -> Path:
     return root / "urdf/robot.urdf"
 
 
-@pytest.mark.parametrize("a,b", [("package://pkg/meshes/a.stl", "package://pkg/meshes/b.stl"),
-                                 ("../meshes/a.stl", "../meshes/b.stl")])
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        ("package://pkg/meshes/a.stl", "package://pkg/meshes/b.stl"),
+        ("../meshes/a.stl", "../meshes/b.stl"),
+    ],
+)
 def test_start_pins_meshes_in_a_sibling_folder_of_the_package(tmp_path: Path, a: str, b: str):
     urdf = _ros_package(tmp_path / "pkg", a, b)
     result = api.start(urdf)
     assert "note" not in result
     assert sorted(x.path for x in load_contract(Path(result["path"])).model.external_assets) == [
-        "meshes/a.stl", "meshes/b.stl"]
+        "meshes/a.stl",
+        "meshes/b.stl",
+    ]
     scene, _ = api.load_scene(result["path"], None)
     assert scene.parts
     (tmp_path / "pkg/meshes/b.stl").write_text(_STL.replace("vertex 1 0 0", "vertex 2 0 0"))
@@ -142,3 +153,59 @@ def test_start_does_not_pin_a_mesh_outside_the_package(tmp_path: Path):
     result = api.start(urdf)
     assert "not found inside the robot's package" in result["note"]
     assert load_contract(Path(result["path"])).model.external_assets == []
+
+
+def test_start_takes_robot_name_from_the_urdf(tmp_path: Path):
+    source = tmp_path / "file_stem.urdf"
+    source.write_text('<robot name="anymal"><link name="base"/></robot>')
+    api.start(source)
+    assert load_contract(tmp_path / "lockwire.yaml").robot.name == "anymal"  # bites the file stem
+
+
+def test_starters_list_and_blank_start_checks_not_scored(tmp_path: Path):
+    headers = {"X-Lockwire-Token": "token"}
+    with TestClient(create_app("token"), base_url="http://127.0.0.1") as client:
+        run = lambda body: client.post("/v1/run", headers=headers, json=body).json()  # noqa: E731
+        listed = run({"command": "starters", "args": {}})["payload"]["starters"]
+        assert {"drone": "Drone", "rover": "Rover", "quadruped": "Quadruped"}.items() <= {
+            s["name"]: s["title"] for s in listed
+        }.items()
+        assert all(s["based_on"] for s in listed) and "servo-bench" not in {
+            s["name"] for s in listed
+        }
+        out = tmp_path / "blank" / "lockwire.yaml"
+        started = run({"command": "start", "args": {"blank": True, "out": str(out)}})["payload"]
+        assert started["written"] is True and load_contract(out).robot.name == "New robot"
+        assert (
+            run({"command": "start", "args": {"blank": True, "out": str(out)}})["payload"][
+                "written"
+            ]
+            is False
+        )
+        checked = run({"command": "check", "args": {"contract": str(out)}})
+        # No model and no parts: nothing to compare, so honestly NOT SCORED (GO needs a model start).
+        assert (
+            checked["refusal"] is None
+            and checked["exit_code"] == 3
+            and checked["verdict"] == "NOT_SCORED"
+        )
+
+
+def test_blank_robot_page_says_what_to_do(tmp_path: Path):
+    from lockwire.page import build_payload
+
+    out = tmp_path / "lockwire.yaml"
+    start_operation.start_blank(out)
+    cards = build_payload(load_contract(out), contract_path=out)["cards"]
+    assert "Nothing to check yet. Add a part to start checking." in [c["body"] for c in cards]
+
+
+def test_example_start_copies_its_plan_beside_the_lockfile_and_keeps_an_existing_one(tmp_path: Path):
+    from lockwire.start_operation import start_example
+
+    kept = tmp_path / "mine.plan.yaml"
+    kept.write_text("mine", encoding="utf-8")
+    start_example("drone", tmp_path / "mine.yaml")
+    start_example("drone", tmp_path / "bot.yaml")
+    assert kept.read_text() == "mine"
+    assert api.plan(tmp_path / "bot.yaml", tmp_path / "bot.plan.yaml")["steps"]

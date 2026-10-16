@@ -48,10 +48,10 @@ describe("Check panel", () => {
 
     const rows = [...container.querySelectorAll<HTMLButtonElement>(".kit-finding")];
     expect(rows).toHaveLength(2);
-    expect([...rows[0]!.querySelectorAll(".kit-chip")].map((c) => c.textContent)).toEqual(["Elbow joint"]);
-    expect(rows[0]!.querySelector(".kit-chip")!.getAttribute("title")).toBe("elbow"); // the full id is the tooltip
+    expect([...rows[0]!.parentElement!.querySelectorAll(".kit-chip")].map((c) => c.textContent)).toEqual(["Elbow joint"]); // chips are buttons beside the row
+    expect(rows[0]!.parentElement!.querySelector(".kit-chip")!.getAttribute("title")).toBe("elbow"); // the full id is the tooltip
     let props = robotView.mock.lastCall![0];
-    expect(props.highlight).toEqual([{ id: "elbow", level: "bad" }, { id: "wrist", level: "warn" }]);
+    expect(props.highlight).toEqual([{ id: "elbow", level: "bad" }]); // nothing picked: only the top finding lights (r9 scene)
     expect(props.selected).toBeNull();
 
     act(() => rows[1]!.click());
@@ -92,8 +92,8 @@ describe("Check panel", () => {
     await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Open robot")!.click());
     await act(async () => {});
     const rows = [...container.querySelectorAll<HTMLButtonElement>(".kit-finding")];
-    expect([...rows[0]!.querySelectorAll(".kit-chip")]).toHaveLength(0);
-    expect([...rows[1]!.querySelectorAll(".kit-chip")].map((c) => c.textContent)).toEqual(["Whole robot"]);
+    expect([...rows[0]!.parentElement!.querySelectorAll(".kit-chip")]).toHaveLength(0);
+    expect([...rows[1]!.parentElement!.querySelectorAll(".kit-chip")].map((c) => c.textContent)).toEqual(["Whole robot"]);
     act(() => rows[0]!.click());
     expect(robotView.mock.lastCall![0].highlight).toEqual([]);
     act(() => rows[1]!.click());
@@ -120,9 +120,48 @@ describe("Check panel", () => {
     const page = { ...PAGE, cards: [mk("violation", 0), mk("violation", 1), mk("not_scored", 2), mk("not_scored", 3), mk("not_scored", 4)] };
     root = createRoot(container);
     act(() => root.render(<CheckPanel payload={page as never} selected={null} onSelect={() => {}} />));
-    expect(container.querySelector(".check-count")!.textContent).toBe("2 problems \u00b7 3 not checked");
+    expect([...container.querySelectorAll(".check-count")].map((c) => c.textContent).join("")).toBe("2 problems \u00b7 3 not checked");
     expect(container.querySelector(".check-list > .kit-disclosure summary")!.textContent).toBe("3 not checked");
     expect(container.querySelectorAll(".check-list > .kit-disclosure .kit-finding")).toHaveLength(3);
     expect(container.querySelectorAll(".check-list > div > .kit-finding")).toHaveLength(2);
+  });
+
+  it("frames without mass is a quiet note under the rows, not a counted problem", () => {
+    const raw = "WARNING model/links/massless_frames\n  observed   3 massless frames (sensor/mount frames, normal): base_footprint, imu_link, ...";
+    const note = { ...first!, severity: "warning" as const, quantity: "model/links/massless_frames", raw, targets: [] };
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, cards: [cards[0]!, note] } as never} selected={null} onSelect={() => {}} />));
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 problem");
+    expect(container.querySelectorAll(".kit-finding")).toHaveLength(1);
+    expect(container.querySelector(".check-note")!.textContent).toBe("3 frames without mass — normal for sensor and mount frames");
+  });
+});
+
+describe("Check mode header", () => {
+  it("one rail's per-mode findings are one row; its mode blocks lead with the typed numbers, the figures behind the exact finding", () => {
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={X500_CHECK_PAYLOAD} selected={0} onSelect={() => {}} />));
+    const rows = [...container.querySelectorAll(".kit-finding")].map((r) => r.textContent);
+    expect(rows.filter((t) => /rail overloaded/.test(t!))).toHaveLength(1);
+    expect(rows.join("|")).not.toMatch(/ mode/);
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 problem · 2 modes"); // one row, two engine findings (the verdict says 2)
+    expect(container.querySelectorAll(".check-detail .finding-alt").length).toBeGreaterThan(0);
+    expect([...container.querySelectorAll(".check-detail .finding-alt")].every((a) => a.closest(".check-detail > .kit-disclosure") === null)).toBe(true); // Instead sits under Fix, not inside the exact-finding disclosure
+    const heads = [...container.querySelectorAll(".check-detail")].map((d) => d.closest("details")!.querySelector("summary")!.textContent);
+    expect(heads).toEqual(["Nominal \u00b7 35.2 W of 15.6 W", "7W \u00b7 17.2 W of 15.6 W"]);
+  });
+});
+
+describe("Check owner pills", () => {
+  const html = (owners: string[]) => {
+    const p = { ...X500_CHECK_PAYLOAD, findings: owners.map((owner) => ({ ...X500_CHECK_PAYLOAD.findings[0]!, owner })) };
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={p as never} selected={null} onSelect={() => {}} />));
+    return container.querySelector(".check-pills");
+  };
+  it("a lone owner shows no pill row; two owners do", () => {
+    expect(html(["you"])).toBeNull();
+    act(() => root.unmount());
+    expect(html(["you", "lab"])).not.toBeNull();
   });
 });

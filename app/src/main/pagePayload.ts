@@ -10,6 +10,7 @@ import type {
   PlanPayload,
   WhatIfPayload,
   StartPayload,
+  StartersPayload,
 } from "../shared/api.gen";
 import schemaDocument from "../renderer/schema.json";
 
@@ -36,6 +37,11 @@ const validatePage = payloadValidator<PagePayload>("PagePayload");
 const validatePlan = payloadValidator<PlanPayload>("PlanPayload");
 const validateWhatIf = payloadValidator<WhatIfPayload>("WhatIfPayload");
 const validateStart = payloadValidator<StartPayload>("StartPayload");
+const validateStarters = payloadValidator<StartersPayload>("StartersPayload");
+
+export function validateStartersPayload(payload: unknown): StartersPayload {
+  return validated(payload, validateStarters, "file:starters");
+}
 
 export function validateStartPayload(payload: unknown): StartPayload {
   return validated(payload, validateStart, "file:start-urdf");

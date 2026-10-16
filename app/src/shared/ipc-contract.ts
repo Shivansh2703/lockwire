@@ -27,6 +27,8 @@ export const PERMITTED_COMMAND_CLASSES = [
   "file:open",
   "file:start-urdf",
   "file:open-dropped",
+  "file:new-robot",
+  "file:starters",
   "file:choose-plan",
   "sidecar:state",
   "sidecar:restart",

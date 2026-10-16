@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 import xml.etree.ElementTree as ET
@@ -31,10 +32,14 @@ def _find_meshes(root: ET.Element, source: Path, target: Path) -> tuple[list[Art
         except (SceneRefusal, ValueError):
             problems.append(uri)
     if problems:
-        return [], (f"{len(problems)} of {len(uris)} mesh files not found inside the robot's package folder "
-                    f"(e.g. {problems[0]}); the 3D model is not recorded.")
-    refs = [ArtifactRef(path=rel, sha256=hashlib.sha256(p.read_bytes()).hexdigest())
-            for rel, p in sorted(found.items())]
+        return [], (
+            f"{len(problems)} of {len(uris)} mesh files not found inside the robot's package folder "
+            f"(e.g. {problems[0]}); the 3D model is not recorded."
+        )
+    refs = [
+        ArtifactRef(path=rel, sha256=hashlib.sha256(p.read_bytes()).hexdigest())
+        for rel, p in sorted(found.items())
+    ]
     return refs, ""
 
 
@@ -55,7 +60,9 @@ def start_contract(
         if exists and not overwrite:
             return {"path": str(target), "revision": contract_revision(target), "written": False}
         if overwrite and (
-            not exists or expected_revision is None or expected_revision != contract_revision(target)
+            not exists
+            or expected_revision is None
+            or expected_revision != contract_revision(target)
         ):
             raise ValueError("lockfile changed since it was opened; reload before overwriting")
         raw = source.read_bytes()
@@ -64,12 +71,14 @@ def start_contract(
         model = parse_sdf(source) if xml.tag == "sdf" else parse_urdf(source)
         spelling = relative_source(target, source)
         meshes, note = _find_meshes(xml, source, target)
-        model = model.model_copy(update={
-            "external_assets": meshes,
-            "source": spelling,
-            "provenance": model.provenance.model_copy(update={"source": spelling}),
-        })
-        contract = Contract(robot=RobotInfo(name=source.stem), model=model)
+        model = model.model_copy(
+            update={
+                "external_assets": meshes,
+                "source": spelling,
+                "provenance": model.provenance.model_copy(update={"source": spelling}),
+            }
+        )
+        contract = Contract(robot=RobotInfo(name=xml.get("name") or source.stem), model=model)
         fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
         os.close(fd)
         try:
@@ -84,9 +93,78 @@ def start_contract(
                 try:
                     os.link(temporary, target)
                 except FileExistsError as exc:
-                    raise ValueError("lockfile appeared during start; open it before overwriting") from exc
+                    raise ValueError(
+                        "lockfile appeared during start; open it before overwriting"
+                    ) from exc
         finally:
             Path(temporary).unlink(missing_ok=True)
         done: dict[str, str | bool] = {
-            "path": str(target), "revision": contract_revision(target), "written": True}
+            "path": str(target),
+            "revision": contract_revision(target),
+            "written": True,
+        }
         return {**done, "note": note} if note else done
+
+
+EXAMPLES = Path(__file__).parent / "examples"
+
+
+# Hidden aliases: the 0.2.1 model names still work but are never listed.
+ALIASES = {"x500": "drone", "pi-servos": "servo-bench"}
+
+
+def example_names() -> list[str]:
+    """Bundled examples: ``<name>.yaml``, or ``<name>/contract.yaml`` with an optional ``scene.glb``."""
+    return sorted(
+        {p.stem for p in EXAMPLES.glob("*.yaml")}
+        | {p.parent.name for p in EXAMPLES.glob("*/contract.yaml")}
+    )
+
+
+def write_example(name: str, target: Path) -> None:
+    """Write the example's lockfile to ``target`` and its scene and example plan (if any) beside it as ``<target stem>.glb`` / ``<target stem>.plan.yaml``."""
+    name = ALIASES.get(name, name)
+    folder = EXAMPLES / name
+    source = folder / "contract.yaml" if folder.is_dir() else EXAMPLES / f"{name}.yaml"
+    target.write_bytes(source.read_bytes())
+    scene = folder / "scene.glb"
+    if scene.is_file():
+        target.with_suffix(".glb").write_bytes(scene.read_bytes())
+    plan = folder / "plan.yaml"
+    sibling = target.with_name(f"{target.stem}.plan.yaml")
+    if plan.is_file() and not sibling.exists():
+        sibling.write_bytes(plan.read_bytes())
+
+
+def start_example(name: str, out: Path | str) -> dict[str, str | bool]:
+    """Copy a bundled example to ``out``; an existing file is kept, never overwritten."""
+    name = ALIASES.get(name, name)
+    if name not in example_names() or "/" in name or "\\" in name:
+        raise ValueError(f"no example named {name!r}")
+    target = Path(out).resolve()
+    if target.exists():
+        return {"path": str(target), "revision": contract_revision(target), "written": False}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_example(name, target)
+    return {"path": str(target), "revision": contract_revision(target), "written": True}
+
+
+def starters() -> list[dict[str, str]]:
+    """The "New robot" starters: every examples folder that has a ``starter.json``."""
+    found = []
+    for meta in sorted(EXAMPLES.glob("*/starter.json")):
+        info = json.loads(meta.read_text(encoding="utf-8"))
+        found.append(
+            {"name": meta.parent.name, "title": info["title"], "based_on": info["based_on"]}
+        )
+    return found
+
+
+def start_blank(out: Path | str) -> dict[str, str | bool]:
+    """Write a contract holding only the robot's name; an existing file is kept, never overwritten."""
+    target = Path(out).resolve()
+    if target.exists():
+        return {"path": str(target), "revision": contract_revision(target), "written": False}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    save_contract(Contract(robot=RobotInfo(name="New robot")), target)
+    return {"path": str(target), "revision": contract_revision(target), "written": True}

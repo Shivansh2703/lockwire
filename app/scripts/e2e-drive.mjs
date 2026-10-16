@@ -15,6 +15,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Launch the app hidden. `executablePath` = packaged binary; or pass `args: ["."], cwd` for a built tree. */
 export async function launchApp({ executablePath, args = [], cwd, env = {} }) {
   const readyFile = join(mkdtempSync(join(tmpdir(), "lockwire-e2e-")), "ready");
+  // Always isolate from the owner's real userData/logs unless the caller passed its own dir.
+  if (!args.some((a) => a.startsWith("--user-data-dir"))) {
+    args = [...args, `--user-data-dir=${mkdtempSync(join(tmpdir(), "lockwire-e2e-ud-"))}`];
+  }
   const app = await _electron.launch({
     executablePath, args, cwd, timeout: 60_000,
     env: { ...process.env, ...env, LOCKWIRE_GATE_READY_FILE: readyFile },
@@ -340,7 +344,7 @@ export async function driveOpen({ app, page, openPath, planPath, planStepPath, r
     await clickTab(page, mode);
     await paint(page);
     const state = await page.evaluate(`(() => {
-      const targets = { Design: ${JSON.stringify(analysisE2e || emptyDesignExpected ? ".design-face-empty, .design-face" : ".design-face")}, Declare: '.declare-face input, .declare-face select', Check: '.check-headline', Plan: ${JSON.stringify(planPath ? ".verdict-word" : ".plan-input")}, Test: ${JSON.stringify(recordingPath ? ".verdict-word" : ".test-input")}, Run: ${JSON.stringify(run ? ".run-face" : ".run-panel")}, Docs: '.reference-face' };
+      const targets = { Design: ${JSON.stringify(analysisE2e || emptyDesignExpected ? ".design-face-empty, .design-face, .kit-tree" : ".kit-tree")}, Declare: '.declare-face input, .declare-face select', Check: '.check-headline', Plan: ${JSON.stringify(planPath ? ".verdict-word" : ".plan-input")}, Test: ${JSON.stringify(recordingPath ? ".verdict-word" : ".test-input")}, Run: ${JSON.stringify(run ? ".run-face" : ".run-panel")}, Docs: '.reference-face' };
       const activeMode = document.querySelector('.shell-tabs [role="tab"][aria-selected="true"]')?.textContent?.trim() ?? '';
       const targetSelector = targets[${JSON.stringify(mode)}];
       return { activeMode, targetSelector, targetPresent: Boolean(document.querySelector(targetSelector)) };
@@ -351,7 +355,7 @@ export async function driveOpen({ app, page, openPath, planPath, planStepPath, r
   }
   const referenceProof = await page.evaluate(`(() => {
     const face = document.querySelector('.reference-face');
-    return { title: document.querySelector('.kit-panel-title')?.textContent?.trim() ?? '',
+    return { title: face ? 'Docs' : '', // the Docs panel has no separate title: its segment is the name
       material: face?.querySelectorAll('.reference-device, .reference-drawer').length ?? 0 };
   })()`);
   if (!referenceProof.title || referenceProof.material === 0) throw new Error("Reference did not render robot-specific material");

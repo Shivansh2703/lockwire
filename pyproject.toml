@@ -1,7 +1,7 @@
 [project]
 name = "lockwire"
-version = "0.2.0"
-description = "The physical-assumption contract for robots: physics lockfile + preflight gate"
+version = "0.2.2"
+description = "The physical-assumption contract for robots: checks that a robot's declared parts (power, weight, bus, torque) add up"
 readme = "README.md"
 authors = [
     { name = "Shivansh" }

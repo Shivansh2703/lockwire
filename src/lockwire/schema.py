@@ -194,13 +194,16 @@ AreaQuantity = Annotated[
 ]
 SecondMomentQuantity = Annotated[
     Quantity,
-    AfterValidator(_quantity_dimension("second_moment", "second moment", positive=True, finite=True)),
+    AfterValidator(
+        _quantity_dimension("second_moment", "second moment", positive=True, finite=True)
+    ),
 ]
 PressureQuantity = Annotated[
     Quantity, AfterValidator(_quantity_dimension("pressure", "pressure", finite=True))
 ]
 PositivePressureQuantity = Annotated[
-    Quantity, AfterValidator(_quantity_dimension("pressure", "pressure", positive=True, finite=True))
+    Quantity,
+    AfterValidator(_quantity_dimension("pressure", "pressure", positive=True, finite=True)),
 ]
 DensityQuantity = Annotated[
     Quantity, AfterValidator(_quantity_dimension("density", "density", positive=True, finite=True))
@@ -217,13 +220,17 @@ PositiveTimeQuantity = Annotated[
 LinearStiffnessQuantity = Annotated[
     Quantity,
     AfterValidator(
-        _quantity_dimension("linear_stiffness", "translational stiffness", positive=True, finite=True)
+        _quantity_dimension(
+            "linear_stiffness", "translational stiffness", positive=True, finite=True
+        )
     ),
 ]
 RotationalStiffnessQuantity = Annotated[
     Quantity,
     AfterValidator(
-        _quantity_dimension("rotational_stiffness", "rotational stiffness", positive=True, finite=True)
+        _quantity_dimension(
+            "rotational_stiffness", "rotational stiffness", positive=True, finite=True
+        )
     ),
 ]
 LinearDampingQuantity = Annotated[
@@ -251,7 +258,10 @@ ContactDampingQuantity = Annotated[
     ),
 ]
 InverseTimeQuantity = Annotated[
-    Quantity, AfterValidator(_quantity_dimension("inverse_time", "Rayleigh alpha", nonnegative=True, finite=True))
+    Quantity,
+    AfterValidator(
+        _quantity_dimension("inverse_time", "Rayleigh alpha", nonnegative=True, finite=True)
+    ),
 ]
 VelocityQuantity = Annotated[
     Quantity, AfterValidator(_quantity_dimension("velocity", "linear velocity", finite=True))
@@ -261,7 +271,9 @@ AngularRateQuantity = Annotated[
 ]
 AngularAccelerationQuantity = Annotated[
     Quantity,
-    AfterValidator(_quantity_dimension("angular_acceleration", "angular acceleration", finite=True)),
+    AfterValidator(
+        _quantity_dimension("angular_acceleration", "angular acceleration", finite=True)
+    ),
 ]
 InertiaQuantity = Annotated[
     Quantity, AfterValidator(_quantity_dimension("inertia", "rotational inertia", finite=True))
@@ -270,7 +282,8 @@ AccelerationQuantity = Annotated[
     Quantity, AfterValidator(_quantity_dimension("acceleration", "acceleration", finite=True))
 ]
 DimensionlessQuantity = Annotated[
-    Quantity, AfterValidator(_quantity_dimension("dimensionless", "dimensionless quantity", finite=True))
+    Quantity,
+    AfterValidator(_quantity_dimension("dimensionless", "dimensionless quantity", finite=True)),
 ]
 
 
@@ -1630,8 +1643,14 @@ class TransientDCEvidenceBinding(Base):
     provenance_artifacts: list[ArtifactRef] = Field(default_factory=list)
 
     @field_validator(
-        "channel", "part", "supply_rail", "source_node", "receiver_node", "return_node",
-        "time_basis_clock_domain", "time_basis_epoch",
+        "channel",
+        "part",
+        "supply_rail",
+        "source_node",
+        "receiver_node",
+        "return_node",
+        "time_basis_clock_domain",
+        "time_basis_epoch",
     )
     @classmethod
     def _nonempty_text(cls, value: str | None) -> str | None:
@@ -1641,9 +1660,10 @@ class TransientDCEvidenceBinding(Base):
 
     @model_validator(mode="after")
     def _positive_limits_and_provenance(self) -> "TransientDCEvidenceBinding":
-        if any(limit is not None and limit.base() <= 0 for limit in (
-            self.voltage_min, self.current_max, self.response_latency_max
-        )):
+        if any(
+            limit is not None and limit.base() <= 0
+            for limit in (self.voltage_min, self.current_max, self.response_latency_max)
+        ):
             raise ValueError("transient DC voltage, current, and latency limits must be positive")
         return self
 
@@ -1977,7 +1997,9 @@ class MaterialInput(Base):
             strains = [point.equivalent_plastic_strain.base() for point in self.plastic_curve]
             stresses = [point.von_mises_yield_stress.base() for point in self.plastic_curve]
             if strains[0] != 0.0:
-                raise ValueError("plastic curve first equivalent plastic strain must be exactly zero")
+                raise ValueError(
+                    "plastic curve first equivalent plastic strain must be exactly zero"
+                )
             if any(right <= left for left, right in zip(strains, strains[1:], strict=False)):
                 raise ValueError("plastic curve strain must increase strictly")
             if any(right < left for left, right in zip(stresses, stresses[1:], strict=False)):
@@ -2332,7 +2354,9 @@ class ContactNormalLaw(Base):
             self.clearance_distance,
             self.zero_clearance_pressure,
         )
-        if self.kind == "hard" and (any(value is not None for value in scalar_values) or self.points):
+        if self.kind == "hard" and (
+            any(value is not None for value in scalar_values) or self.points
+        ):
             raise ValueError("hard contact has no numeric contract default")
         if self.kind == "linear" and self.pressure_overclosure_slope is None:
             raise ValueError("linear contact requires pressure-overclosure slope")
@@ -2609,7 +2633,9 @@ class StructuralInputs(Base):
             if frame.id in frame_ids:
                 raise ValueError(f"duplicate or reserved frame id {frame.id!r}")
             if frame.parent not in frame_ids and not frame.parent.startswith("model_link:"):
-                raise ValueError(f"frame {frame.id!r} has unknown or forward parent {frame.parent!r}")
+                raise ValueError(
+                    f"frame {frame.id!r} has unknown or forward parent {frame.parent!r}"
+                )
             frame_ids.add(frame.id)
         for orientation in self.orientations:
             if orientation.frame not in frame_ids:
@@ -2667,7 +2693,9 @@ class StructuralInputs(Base):
                     assignment = assignments[assignment_id]
                     section = sections[assignment.section_id]
                     has_density = materials[section.material_id].density is not None
-                    explicit_here = [row for row in selected_masses if row.region == assignment.region]
+                    explicit_here = [
+                        row for row in selected_masses if row.region == assignment.region
+                    ]
                     if has_density and explicit_here:
                         raise ValueError(
                             f"procedure {procedure.id!r} double-counts density and explicit mass"
@@ -2869,10 +2897,17 @@ class ControllerInput(Base):
         if self.kind == "disabled":
             if self.implicit_hold:
                 raise ValueError("disabled controller requires implicit_hold=False")
-            if any(
-                value is not None for value in (self.config, self.admitted_identity, self.update_period)
-            ) or self.command_interfaces or self.state_interfaces:
-                raise ValueError("disabled controller accepts no executable configuration or interfaces")
+            if (
+                any(
+                    value is not None
+                    for value in (self.config, self.admitted_identity, self.update_period)
+                )
+                or self.command_interfaces
+                or self.state_interfaces
+            ):
+                raise ValueError(
+                    "disabled controller accepts no executable configuration or interfaces"
+                )
         elif (
             self.config is None
             or self.admitted_identity is None
@@ -2880,7 +2915,9 @@ class ControllerInput(Base):
             or not self.command_interfaces
             or not self.state_interfaces
         ):
-            raise ValueError("enabled controller requires config, admitted identity, period, and maps")
+            raise ValueError(
+                "enabled controller requires config, admitted identity, period, and maps"
+            )
         return self
 
 
@@ -2944,17 +2981,13 @@ class X500Scenario(Base):
     def _fixed_x500_case(self) -> "X500Scenario":
         if not math.isclose(self.target_altitude.base(), 2.0, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError("X500 target altitude must be exactly 2 m")
-        if not math.isclose(
-            self.settled_hover_duration.base(), 10.0, rel_tol=0.0, abs_tol=1e-12
-        ):
+        if not math.isclose(self.settled_hover_duration.base(), 10.0, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError("X500 settled hover must be exactly 10 s")
         if not math.isclose(self.deadline.base(), 90.0, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError("X500 landing/disarm deadline must be exactly 90 s")
         if set(self.phase_durations) != {"takeoff", "settle", "hover", "land"}:
             raise ValueError("X500 phase allocation must declare takeoff/settle/hover/land")
-        if not math.isclose(
-            self.phase_durations["hover"].base(), 10.0, rel_tol=0.0, abs_tol=1e-12
-        ):
+        if not math.isclose(self.phase_durations["hover"].base(), 10.0, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError("X500 hover phase allocation must be 10 s")
         if not math.isclose(
             sum(value.base() for value in self.phase_durations.values()),
@@ -2983,9 +3016,7 @@ class AnymalScenario(Base):
     trajectory: Literal["smooth"]
     knee_targets: dict[str, AngleQuantity]
     compensating_hip_targets: dict[str, AngleQuantity]
-    phase_durations: dict[
-        Literal["stand", "cycle_1", "cycle_2", "recover"], PositiveTimeQuantity
-    ]
+    phase_durations: dict[Literal["stand", "cycle_1", "cycle_2", "recover"], PositiveTimeQuantity]
     max_abs_roll_pitch: AngleQuantity
     random_seed: Annotated[int, Field(strict=True, ge=0)]
     simulated_time: PositiveTimeQuantity
@@ -2998,9 +3029,7 @@ class AnymalScenario(Base):
 
     @model_validator(mode="after")
     def _fixed_anymal_case(self) -> "AnymalScenario":
-        if not math.isclose(
-            self.knee_cycle_amplitude.base(), 0.15, rel_tol=0.0, abs_tol=1e-12
-        ):
+        if not math.isclose(self.knee_cycle_amplitude.base(), 0.15, rel_tol=0.0, abs_tol=1e-12):
             raise ValueError("ANYmal knee cycle amplitude must be exactly 0.15 rad")
         if not self.knee_targets or not self.compensating_hip_targets:
             raise ValueError("ANYmal requires predeclared knee and compensating hip targets")
@@ -3152,7 +3181,9 @@ class SimulationInputs(Base):
             }
             for label, (row_id, inventory) in references.items():
                 if row_id not in inventory:
-                    raise ValueError(f"scenario {scenario.id!r} references unknown {label} {row_id!r}")
+                    raise ValueError(
+                        f"scenario {scenario.id!r} references unknown {label} {row_id!r}"
+                    )
             plant = plants[scenario.plant_id]
             controller = controllers[scenario.controller_id]
             negative = controllers[scenario.negative_controller_id]
@@ -3183,7 +3214,9 @@ class SimulationInputs(Base):
             ):
                 raise ValueError("controller state map must reference independent plant feedback")
             if negative.kind != "disabled" or negative.implicit_hold:
-                raise ValueError("scenario negative requires a disabled controller without implicit hold")
+                raise ValueError(
+                    "scenario negative requires a disabled controller without implicit hold"
+                )
             if not physical.collision_contact_enabled:
                 raise ValueError("declared simulation scenarios require collision/contact enabled")
             if scenario.random_seed != physical.random_seed or not math.isclose(
@@ -3208,10 +3241,14 @@ class SimulationInputs(Base):
                     "horizontal_displacement": 0.5,
                 }
                 landing = [row for row in selected if isinstance(row, X500LandingLimit)]
-                if position != expected_position or len(landing) != 1 or not math.isclose(
-                    landing[0].deadline.base(), 90.0, abs_tol=1e-12
+                if (
+                    position != expected_position
+                    or len(landing) != 1
+                    or not math.isclose(landing[0].deadline.base(), 90.0, abs_tol=1e-12)
                 ):
-                    raise ValueError("X500 scenario requires the fixed position and land/disarm limits")
+                    raise ValueError(
+                        "X500 scenario requires the fixed position and land/disarm limits"
+                    )
             else:
                 tracking = [row for row in selected if isinstance(row, AnymalTrackingLimit)]
                 contact = [row for row in selected if isinstance(row, AnymalBodyContactLimit)]
@@ -3228,7 +3265,9 @@ class SimulationInputs(Base):
                         abs_tol=1e-12,
                     )
                 ):
-                    raise ValueError("ANYmal scenario requires fixed tracking/contact/attitude limits")
+                    raise ValueError(
+                        "ANYmal scenario requires fixed tracking/contact/attitude limits"
+                    )
         return self
 
 
@@ -3391,7 +3430,9 @@ class Contract(Base):
 
     @model_validator(mode="after")
     def _valid_structural_simulation_sections(self) -> "Contract":
-        if (self.structural is not None or self.simulation is not None) and self.schema_version != "0.4":
+        if (
+            self.structural is not None or self.simulation is not None
+        ) and self.schema_version != "0.4":
             raise ValueError("structural and simulation sections require schema_version '0.4'")
         if self.structural is not None:
             if self.model is None:
@@ -3407,7 +3448,9 @@ class Contract(Base):
                 if frame.parent.startswith("model_link:"):
                     link = frame.parent.removeprefix("model_link:")
                     if link not in known_links:
-                        raise ValueError(f"frame {frame.id!r} references unknown model link {link!r}")
+                        raise ValueError(
+                            f"frame {frame.id!r} references unknown model link {link!r}"
+                        )
         return self
 
     # -- lookups ---------------------------------------------------------
@@ -3574,7 +3617,9 @@ def load_contract_bytes(raw: bytes) -> Contract:
     """Validate one caller-held contract byte sequence without reopening its path."""
 
     if len(raw) > MAX_CONTRACT_BYTES:
-        raise ValueError(f"contract file exceeds size limit ({len(raw)} bytes > {MAX_CONTRACT_BYTES})")
+        raise ValueError(
+            f"contract file exceeds size limit ({len(raw)} bytes > {MAX_CONTRACT_BYTES})"
+        )
     data = _load_yaml_guarded(_yaml(), StringIO(raw.decode("utf-8")))
     _reject_yaml_anchors_aliases(data)
     declared = data.get("schema_version", SCHEMA_VERSION) if isinstance(data, dict) else None

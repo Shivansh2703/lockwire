@@ -1,0 +1,110 @@
+name: release
+
+# Public repo only. On a full vX.Y.Z tag: build the Mac zip on a free macOS runner and the Linux
+# AppImage, upload both as workflow artifacts, then open a DRAFT release. Nothing here publishes:
+# he reviews the draft and presses publish himself.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"  # full versions only: the floating tag v0 must never fire this
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    if: github.ref_name != 'v0'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.22.2"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Assert the tag matches pyproject.toml's version
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [ "${GITHUB_REF_NAME#v}" != "$VERSION" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match pyproject.toml version ${VERSION}"
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+      # the packaged build freezes the sidecar with PyInstaller from the dev group
+      - run: uv sync --locked --dev
+      - working-directory: app
+        run: npm ci --engine-strict
+      - working-directory: app
+        run: npm run package -- --mac --arm64
+      - name: Zip, then verify the zip (no ._ files, signature intact)
+        run: |
+          set -euo pipefail
+          ditto -c -k --norsrc --keepParent app/dist/mac-arm64/Lockwire.app "Lockwire-${VERSION}-mac-arm64.zip"
+          scripts/verify_mac_zip.sh "Lockwire-${VERSION}-mac-arm64.zip"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lockwire-mac-arm64-zip
+          path: Lockwire-*-mac-arm64.zip
+          if-no-files-found: error
+
+  linux:
+    if: github.ref_name != 'v0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.22.2"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Assert the tag matches pyproject.toml's version
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [ "${GITHUB_REF_NAME#v}" != "$VERSION" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match pyproject.toml version ${VERSION}"
+            exit 1
+          fi
+      - run: uv sync --locked --dev
+      - working-directory: app
+        run: npm ci --engine-strict
+      - working-directory: app
+        run: npm run package -- --linux --x64
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lockwire-linux-x64-appimage
+          path: app/dist/*.AppImage
+          if-no-files-found: error
+
+  draft-release:
+    if: github.ref_name != 'v0'
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          path: assets
+          merge-multiple: true
+      # --draft is the whole point: this creates an unpublished release for him to review.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "release $GITHUB_REF_NAME already exists and is published; refusing to touch it" >&2
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --draft --title "$GITHUB_REF_NAME" --generate-notes
+          fi

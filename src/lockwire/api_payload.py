@@ -240,6 +240,10 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "Counts.violation": _build_kind_declaration("derived", "report.verdict"),
     "Counts.warning": _build_kind_declaration("derived", "report.verdict"),
     "Counts.not_scored": _build_kind_declaration("derived", "report.verdict"),
+    # --- the Add part picker: a catalog number; its own `kind` field says datasheet or assumed
+    "AddPartNumber.value": _build_kind_declaration(
+        "catalog", "catalog.SourcedNumber", mark="catalog"
+    ),
     # --- one finding's numbers
     "Finding.stage": _build_kind_declaration("declared", "schema.Contract (contract section 3.2)"),
     "Quantity.value": _build_kind_declaration("declared", "schema.Contract"),
@@ -257,6 +261,8 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "PagePayload.unchecked": _build_kind_declaration("derived", "report.verdict"),
     "Card.count": _build_kind_declaration("derived", "gui._cards"),
     "BudgetRow.value": _build_kind_declaration("derived", "gui._budget_rows"),
+    "GraphNode.value": _build_kind_declaration("derived", "report_html._graph"),
+    "GraphNode.limit": _build_kind_declaration("declared", "schema.Contract"),
     "BudgetRow.limit": _build_kind_declaration("declared", "schema.Contract"),
     "Constraint.used": _build_kind_declaration("derived", "constraints.constraint_rows"),
     "Constraint.limit": _build_kind_declaration("declared", "constraints.constraint_rows"),
@@ -424,6 +430,8 @@ class RobotJoint(_Strict):
     type: Literal["fixed", "revolute", "continuous", "prismatic", "floating", "planar"]
     parent: str
     child: str
+    parent_name: str  # copy.human_name of parent / child: what the app calls the two links
+    child_name: str
     position: list[float]  # metres, robot frame
     axis: list[float]  # joint axis in the robot frame
     lower: float | None
@@ -463,6 +471,10 @@ class Card(_Strict):
     instead: list[Instead]
     also_in_run: bool
     consumer: list[str] | None = None
+    #: The first finding's quantity path, so a number or fix can open its Declare row.
+    quantity: str | None = None
+    #: The first finding's owner, so an owner pill can select that owner's card.
+    owner: str | None = None
 
 
 class AddsUpRow(_Strict):
@@ -530,6 +542,11 @@ class GraphNode(_Strict):
     label: str
     sub: str
     kind: Literal["link", "device", "rail", "source", "host", "bus"]
+    #: The number ``sub`` words, in base units: W (power: device draw, rail load),
+    #: bit/s (bus), kg (mechanical). None when undeclared or not summable.
+    value: float | None = None
+    #: A rail's capacity in W; ``value > limit`` is an overloaded rail.
+    limit: float | None = None
 
 
 class GraphEdge(_Strict):
@@ -609,6 +626,8 @@ class ScenePart(_Strict):
     #: role, same join `report_html._graph` uses for the wiring diagram.
     lenses: list[LensId]
     group: SceneGroup
+    #: A device part's declared physical.mount_frame; a drop on it places the dragged part there.
+    mount_frame: str | None = None
 
 
 class SceneLabel(_Strict):
@@ -697,6 +716,7 @@ class PlanFace(_Strict):
 
 class ReferenceFaceDevice(_Strict):
     id: str
+    name: str  # copy.human_name of the id; the id stays the jump target
     text: str
 
 
@@ -778,6 +798,31 @@ class DeclareWitnessBox(_Strict):
     prefill: str
 
 
+class AddPartNumber(_Strict):
+    """One sourced catalog number, pre-filled in the Add part form with its badge."""
+
+    key: str
+    value: float
+    unit: str
+    kind: Literal["datasheet", "source_file", "assumed"]
+    source: str
+
+
+class AddPartOption(_Strict):
+    """A catalog part the Add part form can pick, and the contract rails its voltage fits."""
+
+    id: str
+    name: str
+    numbers: list[AddPartNumber]
+    #: ids of the contract's rails inside the part's input voltage range; empty = none, never a guess.
+    fits: list[str]
+
+
+class AddPartPayload(_Strict):
+    rails: list[str]
+    parts: list[AddPartOption]
+
+
 class DeclareFormPayload(_Strict):
     """``gui.build_declare_form`` — every declarable quantity plus the witness
     box (E4-df). Unenveloped like the page (seam 1): this box's face render is
@@ -787,6 +832,7 @@ class DeclareFormPayload(_Strict):
     rows: list[DeclareRow]
     witness: DeclareWitnessBox
     revision: str | None = None
+    add_part: AddPartPayload = Field(default_factory=lambda: AddPartPayload(rails=[], parts=[]))
 
 
 # --------------------------------------------------------------------- the page
@@ -797,6 +843,18 @@ class StartPayload(_Strict):
     revision: str
     written: bool
     note: str | None = None
+
+
+class Starter(_Strict):
+    """A bundled "New robot" starter: its folder name, the archetype title, and the real robot it is based on."""
+
+    name: str
+    title: str
+    based_on: str
+
+
+class StartersPayload(_Strict):
+    starters: list[Starter]
 
 
 class PagePayload(_Strict):
@@ -926,6 +984,7 @@ ALL_MEMBERS: tuple[type[BaseModel], ...] = (
     BlamePayload,
     DeclareFormPayload,
     StartPayload,
+    StartersPayload,
 )
 
 

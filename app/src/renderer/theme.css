@@ -276,13 +276,13 @@ button {
 .actuator-case-evidence {
   display: grid;
   gap: 4px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   color: var(--muted);
 }
 
 .actuator-claim {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   padding: 8px;
   border: 1px solid var(--line);
 }
@@ -299,7 +299,7 @@ button {
 
 .actuator-claim-context {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .actuator-claim-context ul {
@@ -310,7 +310,7 @@ button {
   display: grid;
   gap: 6px;
   padding-left: 18px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .actuator-claim-gaps li {
@@ -326,7 +326,7 @@ button {
   gap: 4px 8px;
   padding: 4px 8px;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .plan-outcome-reason { flex-basis: 100%; color: var(--muted); font-size: 12px; }
@@ -335,7 +335,7 @@ button {
 
 .plan-finding {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .finding-card-header {
@@ -1193,11 +1193,24 @@ table {
 .kit-chips {
   grid-column: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* Test: one line, overflow folds into the +N chip */
+  align-items: center; /* Check: every chip on one baseline */
+  min-width: 0;
   gap: var(--sp-1);
 }
 
 .kit-chip {
+  /* one height, text centred (Check) and cut with an ellipsis, never wrapped (Test); inline-block so the ellipsis works */
+  display: inline-block;
+  box-sizing: border-box;
+  min-height: 20px;
+  line-height: 18px;
+  vertical-align: middle;
+  text-align: left;
+  min-width: min(9ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 1px 6px;
   border-radius: 5px;
   background: var(--field);
@@ -1405,28 +1418,29 @@ table {
 .app-no-drag { -webkit-app-region: no-drag; }
 
 /* ---------- App shell (box 4) ---------- */
-.shell { height: 100%; }
+.shell { height: 100%; --head: 102px; } /* name row, then the nav row; panels start below both */
 .shell-drag { position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 0; }
 .shell .kit-slot { pointer-events: none; }
 .shell .kit-slot > * { pointer-events: auto; }
 .shell .kit-slot-topLeft { left: 84px; top: 10px; }
 .shell .kit-slot-bottomLeft { left: 12px; bottom: 12px; }
-.shell .kit-slot-top, .shell .kit-slot-topRight { top: 10px; }
-.shell .kit-slot-right { top: 56px; bottom: auto; max-height: calc(100% - 56px - 64px); }
+.shell .kit-slot-topRight { top: 10px; }
+.shell .kit-slot-top { top: 56px; }
+.shell .kit-slot-right { top: var(--head); bottom: auto; max-height: calc(100% - var(--head) - 64px); }
 .shell .kit-slot-right > .kit-panel { min-height: 0; }
 .shell .kit-panel-body { overflow: auto; min-height: 0; }
 .shell-scene { position: absolute; inset: 0; transition: opacity 0.2s; }
-.shell-chip { padding: 6px 12px; border-radius: 999px; background: var(--panel); box-shadow: var(--shadow); font: 600 12px var(--sans); color: var(--ink); max-width: min(420px, 30vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-chip { padding: 8px 16px; background: var(--panel); box-shadow: var(--shadow); font: 600 16px var(--sans); color: var(--ink); max-width: calc(100vw - 84px - 72px); border-radius: 20px; overflow-wrap: break-word; }
 .shell-center { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .shell-center > * { pointer-events: auto; }
 .shell-center .kit-panel { min-width: 320px; }
-.shell-notices { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; gap: var(--sp-2); max-width: 90%; }
+.shell-notices { position: absolute; top: var(--head); left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; gap: var(--sp-2); max-width: 90%; }
 .open-face { display: flex; flex-direction: column; gap: var(--sp-2); }
 .open-face .kit-panel-title { font-size: 18px; }
 .open-face-actions { display: flex; }
 .open-face-recents-empty { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .check-headline { display: inline-flex; align-items: center; gap: 6px; }
-.check-count { font-weight: 600; font-size: 12px; }
+.check-count { font-weight: 600; font-size: 12px; white-space: nowrap; }
 .check-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--sp-2); }
 .check-list { display: flex; flex-direction: column; gap: 2px; }
 .check-detail { padding: 4px 8px 10px 22px; }
@@ -1464,14 +1478,14 @@ table {
 .history-message { grid-column: 1 / -1; margin: 0; }
 .history-entry > .kit-disclosure, .history-no-parent { grid-column: 1 / -1; }
 .history-entry-actions { grid-column: 1 / -1; display: flex; gap: var(--sp-1); }
-.history-changes { list-style: none; margin: 0; padding: 0; font-size: 12px; overflow-wrap: anywhere; }
+.history-changes { list-style: none; margin: 0; padding: 0; font-size: 12px; overflow-wrap: break-word; }
 .history-write-actions { display: grid; grid-template-columns: 1fr auto; gap: var(--sp-2); align-items: end; padding-top: var(--sp-3); border-top: 1px solid var(--line); }
 .history-undo-plan-result, .history-write-status { grid-column: 1 / -1; margin: 0; }
-.history-diff-result { display: flex; flex-direction: column; gap: 2px; font-size: 12px; overflow-wrap: anywhere; }
+.history-diff-result { display: flex; flex-direction: column; gap: 2px; font-size: 12px; overflow-wrap: break-word; }
 .history-diff-row { display: block; }
 
 /* ---------- Design page (floating panels over the shared RobotView) ---------- */
-.shell .kit-slot-left { top: 56px; bottom: 56px; }
+.shell .kit-slot-left { top: var(--head); bottom: 56px; }
 .shell .kit-slot-left > .kit-panel { min-height: 0; }
 .shell .kit-slot-left .kit-panel-body,
 .shell .kit-slot-right .kit-panel-body { overflow: auto; min-height: 0; }
@@ -1485,7 +1499,7 @@ table {
 .design-controls-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); }
 .analysis-result { display: grid; gap: var(--sp-2); }
 .analysis-result .kit-kv-row { grid-template-columns: minmax(80px, 36%) 1fr; }
-.analysis-result dd { overflow-wrap: anywhere; }
+.analysis-result dd { overflow-wrap: break-word; }
 .analysis-result pre { margin: var(--sp-2) 0 0; overflow: auto; max-height: 200px; font: 11px var(--mono); }
 .shell .kit-slot-right:has(> .kit-panel + .kit-panel) { overflow: auto; }
 .shell .kit-slot-right > .kit-panel:not(:only-child) { flex: none; }
@@ -1493,7 +1507,7 @@ table {
 /* ---------- r2c: Design + Declare polish ---------- */
 .design-legend { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin: var(--sp-2) 0 0; font-size: 12px; color: var(--muted); }
 .design-legend span { display: inline-flex; align-items: center; gap: var(--sp-1); }
-.design-lens { margin-bottom: var(--sp-2); } /* lens pills sit >= 12px clear of the command bar (gap + this) */
+.design-lens { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-2); } /* lens pills sit >= 12px clear of the command bar (gap + this) */
 .design-controls .kit-btn-primary { justify-self: start; }
 .design-controls .kit-seg-opt { padding-inline: var(--sp-2); }
 .shell .kit-tree-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1512,16 +1526,17 @@ table {
 .run-footer { position: sticky; bottom: 0; margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-2); background: var(--panel); }
 .run-actions { display: flex; gap: var(--sp-2); }
 .run-actions .run-start { flex: 1; align-self: stretch; }
+.kit-btn.kit-btn-primary.run-start:disabled { background: var(--field); color: var(--muted); }
 .run-controls .kit-disclosure { display: flex; flex-direction: column; gap: var(--sp-2); }
-.run-controls .kit-disclosure > summary { margin-bottom: var(--sp-2); }
+.run-controls .kit-disclosure[open] > summary { margin-bottom: var(--sp-2); }
 .reference-drawer-cli { margin: var(--sp-1) 0; max-height: none; overflow: visible; display: flex; }
 .reference-sheet { display: flex; flex-direction: column; gap: var(--sp-2); font-size: 12px; min-width: 0; }
 .reference-sheet-h { margin: var(--sp-2) 0 0; font-size: 13px; }
 .reference-sheet-h[data-level="1"] { font-size: 15px; }
-.reference-sheet-p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
-.reference-sheet-v { white-space: pre-wrap; overflow-wrap: anywhere; }
+.reference-sheet-p { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; color: var(--muted); }
+.reference-sheet-v { white-space: pre-wrap; overflow-wrap: break-word; }
 .reference-sheet-table { width: 100%; border-collapse: collapse; }
-.reference-sheet-table th, .reference-sheet-table td { text-align: left; padding: 3px 6px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.reference-sheet-table th, .reference-sheet-table td { text-align: left; padding: 3px 6px; border-top: 1px solid var(--line); overflow-wrap: break-word; }
 .reference-sheet-table th { white-space: nowrap; color: var(--muted); font-weight: 600; border-top: 0; }
 .reference-face-devices .kit-field { margin: var(--sp-2) 0; }
 .history-drawer-panel .history-write-actions { position: sticky; bottom: 0; background: var(--panel); margin-top: auto; }
@@ -1542,7 +1557,8 @@ table {
 .shell-bottom .kit-toolpill { width: min(640px, 100%); align-items: center; }
 .shell-bottom .kit-cli { flex: 1; min-width: 0; }
 .shell-tabs { display: flex; align-items: center; gap: 12px; }
-.shell-pro-line { font: 500 12px var(--sans); color: var(--muted); cursor: default; user-select: none; white-space: nowrap; }
+.shell-pro-tab { display: inline-flex; align-items: center; gap: 6px; font: 500 12px var(--sans); color: var(--muted); opacity: 0.6; cursor: default; user-select: none; white-space: nowrap; }
+.shell-pro-badge { font: 600 10px var(--sans); padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); }
 .shell-bottom-spacer { flex: 1; }
 .shell-bottom .kit-iconbtn:disabled { opacity: 0.4; cursor: default; }
 .kit-tab:disabled { opacity: 0.4; cursor: default; }
@@ -1550,8 +1566,7 @@ table {
 .shell-center .kit-panel { width: 360px; padding: 28px; }
 .shell-center .open-face { align-items: center; text-align: center; gap: var(--sp-3); }
 .open-face-hero { display: grid; justify-items: center; gap: var(--sp-2); }
-.open-face-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--accent); color: var(--on-accent); }
-.open-face-mark .kit-icon { width: 24px; height: 24px; }
+.open-face-mark { width: 48px; height: 48px; }
 .open-face-wordmark { margin: 0; font: 700 22px var(--sans); color: var(--ink); }
 .open-face-hint { margin: 0; color: var(--muted); font-size: 12px; }
 .open-face-actions { justify-content: center; }
@@ -1571,13 +1586,16 @@ table {
 /* R2b: findings wording and grouping (Check / Plan / Test panel content). */
 .check-detail { position: relative; }
 .check-detail .kit-kv-row { grid-template-columns: 72px 1fr; }
+.check-detail .finding-alt { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-detail .kit-kv-row dd { min-width: 0; }
+.check-detail .kit-link:has(.finding-alt) { display: block; max-width: 100%; text-align: left; }
 .finding-info {
   position: absolute; top: 2px; right: 4px;
   width: 16px; height: 16px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--field); color: var(--muted); font: 600 10px var(--sans); cursor: help;
 }
-.finding-path { font: 11px var(--mono); overflow-wrap: anywhere; }
+.finding-path { font: 11px var(--mono); overflow-wrap: break-word; }
 .check-group { padding: 2px 0 6px 14px; }
 .check-group-note { margin: 0 0 4px 8px; color: var(--muted); font-size: 12px; }
 .plan-input, .test-input { flex-direction: column; align-items: flex-start; }
@@ -1619,7 +1637,7 @@ table {
 .declare-title { display: inline-flex; flex-direction: column; gap: 2px; }
 .declare-title-part { font: 600 10px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .declare-face-cli-line .kit-cli { border-radius: var(--radius-sm); }
-.declare-face-cli-line .kit-cli-text { white-space: normal; overflow-wrap: anywhere; }
+.declare-face-cli-line .kit-cli-text { white-space: normal; overflow-wrap: break-word; }
 /* Plan / Test: file button and chip share one row. */
 .plan-input, .test-input { flex-direction: row; align-items: center; }
 .plan-input .kit-filepick, .test-input .kit-filepick { flex-direction: row; align-items: center; }
@@ -1636,7 +1654,6 @@ table {
 .reference-face .kit-disclosure summary, .history-drawer-panel .kit-disclosure summary { font: 600 13px var(--sans); color: var(--ink); }
 .reference-table-wrap { overflow-x: auto; overflow-y: visible; } /* the panel body is the only vertical scroller */
 .reference-sheet-table th { white-space: nowrap; }
-.shell[data-wide] .shell-scene { opacity: 0.45; }
 .history-undo { grid-column: 1 / -1; }
 /* ---------- collapsible part groups in PartTree ---------- */
 .kit-tree-head { display: flex; align-items: center; gap: 0; padding: 0; }
@@ -1665,3 +1682,183 @@ table {
 /* r5-10: one Test panel width across robots; the mode pill never overflows. */
 .shell .kit-slot-right:has(.test-input) { width: min(440px, 60%); min-width: 0; }
 .test-mode { flex: none; }
+.test-input .kit-filepick .kit-cli-text { font-family: var(--sans); }
+.kit-chips .kit-chip:last-child:not(:first-child) { flex: none; }
+
+.ways-face { display: grid; gap: var(--sp-2); }
+.ways-card { padding: var(--sp-2) 0; }
+.ways-card[data-pro="true"] { opacity: 0.5; }
+.ways-card h4, .ways-card p { margin: 0 0 4px; }
+.ways-note { color: var(--muted); font-size: 12px; }
+.ways-code { margin-top: 4px; }
+.ways-code .kit-cli { border-radius: var(--radius-sm); }
+.ways-code .kit-cli-text { white-space: pre-wrap; overflow-wrap: break-word; }
+
+/* ---------- click-through: named things that act ---------- */
+.kit-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 60%, transparent);
+  text-underline-offset: 3px;
+}
+.kit-link:hover { color: var(--accent); text-decoration: underline solid var(--accent); }
+.kit-chip-btn { border: 0; color: var(--ink); cursor: pointer; transition: background var(--motion), color var(--motion); }
+.kit-chip-btn:hover { background: color-mix(in srgb, var(--accent) 18%, var(--field)); color: var(--accent); }
+.kit-chip-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kit-chips-live { display: flex; padding: 0 var(--sp-2) var(--sp-2) calc(var(--sp-2) * 2 + 16px); }
+.kit-tree-meta { grid-column: 1 / -1; margin-top: -2px; color: var(--muted); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-headline-btn { display: inline-flex; align-items: center; gap: var(--sp-2); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: var(--radius-sm); }
+.check-headline-btn:hover .check-count, .check-count.kit-link:hover { color: var(--accent); }
+.kit-pill-btn { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; border-radius: 999px; }
+.kit-pill-btn:hover .kit-pill { outline: 1px solid var(--accent); }
+.plan-outcome-btn { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }
+.plan-outcome-btn:hover { background: var(--field); }
+.shell-chip-btn { border: 0; cursor: pointer; }
+.shell-chip-btn:hover { color: var(--accent); }
+
+/* Connections panel (Design: Power / Data / Mechanical) */
+.conn-tree { margin: 0; padding: 0; list-style: none; }
+.conn-row small { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+.conn-row small.kit-s-bad { color: var(--bad); }
+.conn-row small.kit-s-warn { color: var(--warn); }
+.shell .conn-row > span:first-child { white-space: normal; overflow-wrap: break-word; line-height: 1.25; } /* long names wrap to a second line, never "Pixhawk T…" */
+.conn-row.is-plain { cursor: default; }
+.conn-row.is-plain:hover { background: none; }
+.conn-bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--go) calc(var(--f) * 100%), var(--line) 0); }
+.conn-bar.is-over { background: var(--bad); }
+.conn-empty { margin: 0; color: var(--muted); font-size: 13px; }
+.open-face-new { width: 100%; }
+.open-face-new ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.open-face-new li button { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: var(--sp-2); width: 100%; height: auto; text-align: left; padding-block: var(--sp-2); }
+.open-face-new li button span { display: block; min-width: 0; }
+.open-face-glyph { flex: none; width: 22px; height: 22px; color: var(--muted); }
+.open-face-new li[data-blank] button { border-style: dashed; background: transparent; font-weight: 400; color: var(--muted); }
+.open-face-label { margin: 0; color: var(--ink); font-size: 12px; font-weight: 600; text-align: left; }
+.open-face-recents { text-align: left; }
+
+/* Plan: one panel width on every robot (as Test); the Declare link sits under its reason. */
+.shell .kit-slot-right:has(.plan-input) { width: min(440px, 60%); min-width: 0; }
+.plan-outcome-wrap { display: flex; flex-direction: column; align-items: flex-start; padding-left: 8px; }
+
+/* ---------- r7: Design tree + inspector ---------- */
+.shell .kit-slot-left .kit-panel-body { overflow-x: hidden; scrollbar-gutter: stable; } /* the scrollbar never covers the count column */
+.design-state { display: inline-flex; align-items: center; gap: var(--sp-1); }
+
+/* Docs: the drawer scrolls to its true end and never sideways (tables scroll inside their own wrap). */
+.shell .reference-face { padding-bottom: var(--sp-5, 24px); }
+.shell .kit-panel-body:has(.reference-face) { overflow-x: hidden; }
+.reference-tree { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.reference-tree li:first-child { font-weight: 600; }
+.reference-face-devices { margin-top: calc(-1 * var(--sp-2)); }
+.reference-sheet .kit-detail + .reference-sheet-h, .reference-sheet-h:not(:first-child) { margin-top: var(--sp-4); }
+.reference-drawer-content { padding-bottom: var(--sp-4); }
+
+/* ---------- r7: Declare ---------- */
+.shell .kit-slot-left:has(.declare-values) { width: clamp(260px, 22%, 320px); } /* Design's Parts width + 40px */
+.declare-values .kit-tree-row > span:first-child,
+.declare-values .kit-tree-label > span:first-child { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; } /* long names wrap, never "Front Lowe..." */
+.kit-field select.kit-control { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 15px) 55%, calc(100% - 10px) 55%; background-size: 5px 5px; background-repeat: no-repeat; cursor: pointer; } /* a picker looks like one */
+.add-part-numbers, .add-part-sources { margin: 0; padding-left: var(--sp-4); font-size: 12px; color: var(--muted); }
+.add-part-sources { overflow-wrap: anywhere; }
+
+/* r8: docs */
+.reference-why { color: var(--muted); }
+
+/* r8: declare */
+.declare-values .kit-tree > input[type="search"] { position: sticky; top: 0; z-index: 1; } /* search stays pinned while the list scrolls */
+.declare-values .kit-tree-row { scroll-margin-top: 44px; } /* a revealed row clears the pinned search */
+.add-part-help { color: var(--muted); font-size: 12px; margin-top: calc(-1 * var(--sp-1)); }
+.add-part .kit-btn.kit-btn-primary:disabled { background: var(--field); color: var(--muted); } /* the shared grey disabled button */
+.declare-title-part .kit-link { color: inherit; text-decoration: none; }
+.declare-title-part .kit-link:hover { text-decoration: underline; }
+
+/* r8: design */
+.shell .kit-slot-right:has(.design-face) { width: min(var(--panel-w-max), 60%); min-width: 0; } /* one inspector width in every state, the Check panel's */
+
+/* r8: plan */
+.shell .kit-slot-right:has(.plan-input) { width: fit-content; min-width: 300px; max-width: min(440px, 60%); }
+.plan-outcome-btn { width: fit-content; max-width: 100%; }
+.plan-unscored { margin-left: 6px; color: var(--muted); font-size: 12px; }
+.plan-input .kit-cli { font-family: var(--sans); }
+
+/* r8: test */
+.kit-kind-lead { margin: 0 6px 0 0; white-space: nowrap; }
+.plan-finding .kit-disclosure { margin-left: 22px; }
+.test-input .kit-cli { font: 12px var(--sans); }
+.test-rows { padding-bottom: 0; }
+.test-rows .kit-chips { flex-wrap: wrap; }
+.test-rows .kit-chip { max-width: 100%; }
+/* r9: run */
+.run-panel .day-one-notice { margin: 0; padding: 0; text-align: left; color: var(--muted); font-size: 12px; }
+.run-rows:has(.day-one-notice) { -webkit-mask-image: none; mask-image: none; }
+
+/* r9: check */
+.kit-chip-more { min-width: 0; flex: none; }
+.kit-chip-rail { flex: none; max-width: 100%; }
+.check-list > div:not(.plan-finding) .kit-chip { min-width: 0; }
+.check-list .kit-chips .kit-chip { height: 20px; padding-block: 0; line-height: 20px; margin: 0; }
+
+/* r9: open */
+.shell-center .open-face .kit-panel { width: 420px; }
+.open-face-folder, .open-face-new .open-face-folder { font-size: 12px; }
+.open-face-recents li .kit-btn { color: var(--ink); font-weight: 500; padding-inline: 8px; margin-inline: -8px; width: calc(100% + 16px); border-color: transparent; background: transparent; }
+.open-face-recents li .kit-btn:hover:not(:disabled) { background: var(--field); }
+
+/* r9: scene ghost opacity (selection and Docs): dark needs more, the same grey reads far fainter on a dark canvas */
+:root { --ghost: 0.35; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ghost: 0.6; } }
+:root[data-theme="dark"] { --ghost: 0.6; }
+
+/* r9: declare */
+.declare-title-part { font: 400 12px var(--sans); letter-spacing: 0; text-transform: none; color: var(--muted); } /* caption under the title: 12px regular grey */
+
+/* r9: test */
+.test-rows .kit-chips { flex-wrap: nowrap; }
+.plan-finding .check-detail .kit-kv-row { grid-template-columns: 48px 1fr; }
+.plan-finding .check-detail .kit-kv-row dd { text-wrap: pretty; }
+
+/* r9: docs */
+.shell .reference-face { padding-bottom: 0; } /* closed sheets: panel hugs its content */
+
+/* r9: plan */
+.shell .kit-slot-right:has(.plan-input) { width: min(var(--panel-w-max), 60%); min-width: 0; max-width: 60%; } /* the shared right-panel width, same as Design */
+.plan-outcome-row, .plan-outcome-btn { padding: 4px 4px; } /* one indent for every step row, under the Choose plan link */
+.plan-outcome-wrap { padding-left: 0; }
+.plan-outcome-wrap .kit-btn { padding-left: 4px; }
+.plan-total { margin: var(--sp-2) 0 0; padding: 0 4px; color: var(--muted); font-size: 12px; }
+
+/* r10: declare */
+.declare-values .kit-tree-row { scroll-margin-bottom: 12px; } /* a revealed row clears the panel edge */
+
+/* r10: check, test */
+.check-note { margin: var(--sp-2) 0 var(--sp-3); padding: 0 4px; color: var(--muted); font-size: 12px; }
+.test-rows .check-detail .kit-kv-row { grid-template-columns: 56px 1fr; }
+.test-rows .check-detail .kit-kv-row dd { text-wrap: pretty; }
+
+/* r10: docs */
+:root { --fade: 0.9; } /* r11: the Docs robot reads solid in both themes, like Check's resting look */
+
+.reference-sheet-table, .reference-tree { font-size: 12px; }
+.reference-tree-fold { margin-left: 8px; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+
+/* r10: open */
+.shell-center .open-face .kit-panel { width: 440px; }
+.shell-center .open-face .kit-panel-body { overflow-x: hidden; } /* the bleeding hover rows made a grey scrollbar */
+.open-face-recents li .kit-btn { width: calc(100% + 16px); transition: background var(--motion), border-color var(--motion); }
+.open-face-recents li .kit-btn:hover:not(:disabled), .open-face-recents li .kit-btn:focus-visible { background: var(--field); border-color: var(--line); }
+
+/* r10: run */
+.run-controls-inline { flex-direction: row; align-items: flex-end; flex-wrap: nowrap; }
+.run-controls-inline > :first-child { flex: 1; min-width: 0; }
+.run-controls-inline .run-actions { margin-left: auto; flex: none; }
+
+/* r10: plan */
+.plan-finding .check-detail .kit-kv-row { grid-template-columns: max-content 1fr; column-gap: var(--sp-3); } /* r11: Fix text takes the panel width */
+.plan-finding .check-detail .kit-kv dt { white-space: nowrap; }

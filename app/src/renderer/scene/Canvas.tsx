@@ -6,7 +6,7 @@
  * never read it.
  *
  * The lens mount (E2-f3): `parts[i]` and `ctx.meshes[i]` share an index (buildScene.ts's
- * `.map`), so which mesh is visible for the active lens is exactly `partsForLens(parts, lens)`
+ * `.map`), so which mesh is coloured for the active lens is exactly `partsForLens(parts, lens)`
  * (`./lenses`) — the payload's own `ScenePart.lenses`, nothing composed here. No lens word is
  * read or written in this file.
  *
@@ -20,20 +20,23 @@
  */
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { PART_MIME } from "./placeOnBody";
 import {
   buildScene,
   disposeScene,
   applyViewInset,
+  attachWasd,
   handleResize,
   refit,
-  pickPart,
+  pickHit,
+  type SceneHit,
   updatePixelRatio,
   type ScenePart,
   type SceneContext,
   type ViewInset,
 } from "./buildScene";
 import { setSelectedPartId } from "./selectionStore";
-import { applyTheme, skeletonMeshes, type Skeleton } from "./robotScene";
+import { applyLens, applyTheme, skeletonMeshes, type Skeleton } from "./robotScene";
 import { partsForLens, type LensId, type LensedPart } from "./lenses";
 
 const SceneReactContext = createContext<SceneContext | null>(null);
@@ -51,6 +54,7 @@ export function Canvas({
   lens,
   skeleton,
   onPick,
+  onDropPart,
   inset,
   children,
 }: {
@@ -62,6 +66,8 @@ export function Canvas({
   skeleton?: Skeleton;
   /** Called with the picked part/joint id (or null) alongside the selection-store write. */
   onPick?: (id: string | null) => void;
+  /** A listed part dropped on the canvas: its id and what the drop point hit (null on empty space). */
+  onDropPart?: (part: string, hit: SceneHit | null) => void;
   /** Px of the canvas under floating UI; the robot is framed in the rest. */
   inset?: ViewInset;
   children?: ReactNode;
@@ -75,6 +81,8 @@ export function Canvas({
   skeletonRef.current = skeleton;
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
+  const onDropRef = useRef(onDropPart);
+  onDropRef.current = onDropPart;
   const insetRef = useRef(inset);
   insetRef.current = inset;
 
@@ -103,7 +111,11 @@ export function Canvas({
     let raf = 0;
     // Render on demand: orbiting ('change'), or anything that sets needsRender, draws one frame.
     sceneCtx.controls.addEventListener("change", () => { sceneCtx.needsRender = true; });
-    const tick = () => {
+    const wasd = attachWasd(sceneCtx);
+    let last = performance.now();
+    const tick = (now = performance.now()) => {
+      wasd.step(Math.min((now - last) / 1000, 0.1));
+      last = now;
       sceneCtx.controls.update();
       if (sceneCtx.needsRender) {
         sceneCtx.needsRender = false;
@@ -143,18 +155,34 @@ export function Canvas({
       const rect = canvas.getBoundingClientRect();
       const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       const ndcY = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
-      const id = pickPart(sceneCtx, ndcX, ndcY);
+      const id = pickHit(sceneCtx, ndcX, ndcY)?.id ?? null;
       setSelectedPartId(id);
       onPickRef.current?.(id);
     };
     canvas.addEventListener("pointerdown", handlePick);
+    // A part dragged from the list: raycast at the drop point like a pick, but select nothing.
+    const allow = (event: DragEvent) => { if (event.dataTransfer?.types.includes(PART_MIME)) event.preventDefault(); };
+    const handleDrop = (event: DragEvent) => {
+      const part = event.dataTransfer?.getData(PART_MIME);
+      if (!part) return;
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+      onDropRef.current?.(part, pickHit(sceneCtx, ndcX, ndcY));
+    };
+    canvas.addEventListener("dragover", allow);
+    canvas.addEventListener("drop", handleDrop);
 
     return () => {
       cancelAnimationFrame(raf);
+      wasd.dispose();
       themeObserver.disconnect();
       observer.disconnect();
       mql?.removeEventListener("change", onRatioChange);
       canvas.removeEventListener("pointerdown", handlePick);
+      canvas.removeEventListener("dragover", allow);
+      canvas.removeEventListener("drop", handleDrop);
       disposeScene(sceneCtx);
       setCtx(null);
     };
@@ -168,16 +196,13 @@ export function Canvas({
     refit(ctx);
   }, [ctx, insetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Lens membership only — never rebuilds geometry, just toggles which already-built mesh
-  // renders. `partsForLens` is the one join (payload `ScenePart.lenses`); this file composes no
-  // lens word or rule of its own.
+  // Lens membership only — never rebuilds geometry. `partsForLens` is the one join (payload
+  // `ScenePart.lenses`); members keep their colours, the rest are greyed under a view (hidden
+  // only under "All"), see `applyLens`. This file composes no lens word or rule of its own.
   useEffect(() => {
     if (!ctx) return;
-    const visible = new Set(partsForLens(parts, lens));
-    parts.forEach((part, i) => {
-      if (ctx.meshes[i]) ctx.meshes[i]!.visible = visible.has(part); // ctx lags parts by one rebuild
-    });
-    ctx.needsRender = true;
+    const members = new Set(partsForLens(parts, lens));
+    applyLens(ctx, parts.map((part) => members.has(part)), lens);
   }, [ctx, parts, lens]);
 
   return (

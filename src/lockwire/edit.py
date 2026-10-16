@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime as dt
 import difflib
-import fcntl
 import hashlib
 import io
 import json
@@ -45,7 +44,7 @@ from lockwire.schema import (
     UnsupportedSchemaVersion,
     load_contract,
 )
-from lockwire import units
+from lockwire import _filelock, units
 from lockwire.report import LIMIT_RAISED_MARK
 
 
@@ -102,10 +101,14 @@ def _contract_lock(path: Path) -> Iterator[None]:
     lock_path = path.with_name(f".{path.name}.lock")
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        _filelock.lock(fd)
+    except TimeoutError:
+        os.close(fd)
+        raise EditConflict("contract is locked by another lockwire process; retry") from None
+    try:
         yield
     finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
+        _filelock.unlock(fd)
         os.close(fd)
 
 

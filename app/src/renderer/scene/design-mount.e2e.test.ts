@@ -138,7 +138,7 @@ describe("the Design tab mounts the real scene from a real check payload", () =>
       const openW = width - inset.left - inset.right;
       const openH = height - inset.top - inset.bottom;
       const fill = Math.max((maxX - minX) / openW, (maxY - minY) / openH);
-      expect(fill).toBeGreaterThanOrEqual(0.6);
+      expect(fill).toBeGreaterThanOrEqual(0.45); // one shared framing: about half the open area
       expect(fill).toBeLessThanOrEqual(0.95);
       expect(minX).toBeGreaterThanOrEqual(inset.left);
       expect(maxX).toBeLessThanOrEqual(width - inset.right);

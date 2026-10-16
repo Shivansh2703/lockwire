@@ -26,6 +26,7 @@ from lockwire.api_payload import (
     LogPayload,
     PagePayload,
     StartPayload,
+    StartersPayload,
 )
 
 #: The discriminated union of everything ``report_json.envelope`` leads (free members).
@@ -47,6 +48,7 @@ MACHINE_DOCUMENT = TypeAdapter(MachineDocument)
 #: the caller names them, which is exactly what the seams say is missing.
 UNENVELOPED: dict[str, type[BaseModel]] = {
     "start": StartPayload,
+    "starters": StartersPayload,
     "page": PagePayload,
     "diff": DiffPayload,
     "log": LogPayload,
@@ -196,7 +198,6 @@ STRING_FIGURE_EXEMPTIONS: dict[str, str] = {
     "ScoredRecord.observed": "existing checker prose; observed_quantity is its typed twin",
     "ScoredRecord.expected": "existing checker prose; expected_quantity is its typed twin",
     "ScoredRecord.margin": "existing checker comparison margin prose",
-
     # producer-owned prose: checks.py assembles number + words at ~20 sites
     "AddsUpRow.margin": "checks.py builds `<magnitude> <words>` at ~20 sites (its box, not this one)",
     "AddsUpRow.name": "gui._scored_title's sentence, built from the same check-record prose",

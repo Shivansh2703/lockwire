@@ -1,11 +1,15 @@
 import { useState } from "react";
 
+import { fmtQty } from "./kit/format";
+import { limbOf } from "./kit/limb";
 import type { DeclareFormPayload } from "../shared/api.gen";
 
 import { useShellCommand } from "./Shell";
-import { Button, CommandLine, Disclosure, Field, FindingDetail, Figure, IconButton, Notice, Panel, PartTree, Segmented } from "./kit";
+import { Button, CommandLine, Disclosure, Field, FindingDetail, Figure, IconButton, Jumper, Notice, Panel, PartTree, Segmented } from "./kit";
 import { MeasureCompareDeclare } from "./MeasureCompareDeclare";
+import type { AddPartSubmission } from "./AddPartForm";
 
+export type { AddPartSubmission };
 export type { DeclareFormPayload } from "../shared/api.gen";
 
 // The Declare mode of the window (box e4-b, plan v8 §4/§7 E4): a form whose fields,
@@ -57,12 +61,16 @@ export interface DeclareFaceProps {
   /** Reviews use the existing contract writer; this face supplies the selected
    * declared path and the reviewer's explicit judgement. */
   onReview: (submission: ReviewSubmission) => Promise<DeclareSubmitResult>;
+  /** Arrived from a source or witness elsewhere: the Review section starts open. */
+  reviewOpen?: boolean;
+  /** The title (the part's name) opens that part in Design. */
+  onShowPart?: () => void;
 }
 
-/** Display only: 4 significant figures for a plain number; anything else (vectors, text) as typed. */
-export function shortValue(value: string): string {
+/** Display only: the one number format (kit/format.ts) for a plain number; anything else (vectors, text) as typed. */
+export function shortValue(value: string, unit = ""): string {
   const n = Number(value);
-  return value.trim() !== "" && Number.isFinite(n) && /^-?\d+(?:\.\d+)?(?:e-?\d+)?$/i.test(value.trim()) ? String(Number(n.toPrecision(4))) : value;
+  return value.trim() !== "" && Number.isFinite(n) && /^-?\d+(?:\.\d+)?(?:e-?\d+)?$/i.test(value.trim()) ? fmtQty(n, unit) : `${value}${unit && ` ${unit}`}`;
 }
 
 function shellQuote(value: string): string {
@@ -86,14 +94,36 @@ function valueWithDisplayedUnit(value: string, unit: string | null): string {
 }
 
 /** The left Panel: every declarable value, searchable; the pick lights up its joint on the robot. */
-export function DeclareValues({ payload, selectedPath, onSelect }: { payload: DeclareFormPayload; selectedPath: string; onSelect: (path: string) => void }) {
+const GROUP_NAMES: Record<string, string> = { Topology: "Battery", Structural: "Structure analysis" }; // Design's names, plain words
+const groupName = (g: string) => GROUP_NAMES[g] ?? g;
+
+export function DeclareValues({ payload, selectedPath, onSelect, onAddPart }: { payload: DeclareFormPayload; selectedPath: string; onSelect: (path: string) => void; onAddPart?: () => void }) {
+  const rows = payload.rows.filter((row) => row.group !== "World"); // the fixed ground frame is never something to declare
   const size = new Map<string, number>();
-  for (const row of payload.rows) size.set(row.group, (size.get(row.group) ?? 0) + 1);
+  for (const row of rows) size.set(row.group, (size.get(row.group) ?? 0) + 1);
+  const unset = new Set([...size.keys()].filter((g) => rows.every((r) => r.group !== g || r.value === null)));
+  // A frame row ("Depth Camera Front Lower Depth Optical Frame") sits under its part ("Depth Front Lower Camera") as just its own tail ("Depth Optical Frame").
+  const words = (s: string) => s.split(" ");
+  const partOf = (g: string) => [...size.keys()].find((p) => size.get(p)! > 1 && words(p).every((w) => g.includes(w)) && p !== g && g.split(" ").length > words(p).length);
+  const frameTail = (g: string, p: string) => { const rest = words(g); for (const w of words(p)) rest.splice(rest.indexOf(w), 1); return rest[0] === words(p).slice(-1)[0] ? rest.slice(1).join(" ") || rest.join(" ") : rest.join(" "); };
+  const massRows = rows.filter((r) => r.short === "Model mass" && size.get(r.group) === 1 && !r.group.includes(" · ") && !partOf(r.group));
+  const asMass = massRows.length > 1 ? new Set(massRows) : new Set<typeof rows[number]>(); // "Model mass" once as a group header, not on every row
   return (
-    <Panel title="Values">
-      <div className="declare-values"><PartTree placeholder="Search values" parts={payload.rows.map((row) => {
+    <Panel title="Values" actions={onAddPart && <Button variant="quiet" onClick={onAddPart}>+ Add part</Button>}>
+      <div className="declare-values"><PartTree placeholder="Search values" parts={rows.map((row) => {
         const solo = size.get(row.group) === 1; // one-row group: a single "Group · value" row, no drop-down
-        return { id: row.path, name: solo ? (row.group.includes(" · ") ? `${row.group.split(" · ").slice(-1)[0]} · ${row.short} · ${row.group.split(" · ")[0]}` : `${row.group} · ${row.short}`) : row.short, tip: row.label, group: { id: row.group, label: row.group, ...(solo && { kind: "solo" }) } };
+        if (asMass.has(row)) {
+          const meta = row.value === null ? "unset" : `${shortValue(valueToString(row.value), row.unit ?? "")} · ${row.kind}`;
+          // Display only: a geometry-less "… Body" frame carries the URDF's 0.001 kg placeholder, not a real mass.
+          if (row.value === 0.001 && row.unit === "kg" && / Body$/.test(row.group)) return { id: row.path, meta: "frame (no mass)", name: groupName(row.group), tip: row.label, group: { id: "frames", label: "Frame (no mass)", kind: "other", open: false } };
+          const l = massRows.length >= 8 ? limbOf(row.group) : null; // a robot of many links groups per limb, as Design does
+          if (l) return { id: row.path, meta, name: l.rest, tip: row.label, group: { id: `limb:${l.label}`, label: l.label, open: false } };
+          return { id: row.path, meta, name: groupName(row.group), tip: row.label, group: { id: "Model mass", label: "Model mass", open: true } };
+        }
+        const part = solo && !row.group.includes(" · ") ? partOf(row.group) : undefined;
+        const meta = row.value === null ? (part ? `${row.short} · unset` : "unset") : `${shortValue(valueToString(row.value), row.unit ?? "")} · ${row.kind}`;
+        const name = !solo ? row.short : part ? frameTail(row.group, part) : row.group.includes(" · ") ? `${row.group.split(" · ").slice(-1)[0]} · ${row.short} · ${row.group.split(" · ")[0]}` : `${groupName(row.group)} · ${row.short}`;
+        return { id: row.path, meta, name, tip: row.label, ...(part && { depth: 2 }), group: { id: row.group, label: groupName(row.group), ...(solo && { kind: "solo" }), ...(unset.has(row.group) && !solo && { note: `${size.get(row.group)} unset` }) } };
       })} selected={selectedPath} onSelect={onSelect} /></div>
     </Panel>
   );
@@ -108,6 +138,8 @@ export function DeclareFace({
   expectedRevision,
   onSubmit,
   onReview,
+  reviewOpen,
+  onShowPart,
 }: DeclareFaceProps) {
   const selectedRow = payload.rows.find((row) => row.path === selectedPath) ?? null;
   const [value, setValue] = useState(() => valueToString(selectedRow?.value ?? null));
@@ -211,12 +243,13 @@ export function DeclareFace({
   const reviewable = selectedRow !== null && selectedRow.value !== null && selectedRow.provenance !== null;
 
   return (
-    <Panel title={selectedRow ? <span className="declare-title">{selectedRow.short}<small className="declare-title-part">{selectedRow.group}</small></span> : "Declare"}>
+    <Panel title={selectedRow ? <span className="declare-title">{selectedRow.short}<small className="declare-title-part">{onShowPart
+      ? <Jumper label={`Show ${selectedRow.group} in Design`} onClick={onShowPart}>{groupName(selectedRow.group)}</Jumper> : groupName(selectedRow.group)}</small></span> : "Declare"}>
       <div className="declare-face" onKeyDown={(event) => { if (event.key === "Escape") cancelDraft(); }}>
         <Field
-          label={<>{selectedUnit ? `Value (${selectedUnit})` : "Value"} <span className="kit-kind">{selectedRow?.value === null ? "unset" : selectedRow?.kind ?? "declared"}</span></>}
+          label={<>{selectedUnit && valueFocused ? `Value (${selectedUnit})` : "Value"} <span className="kit-kind">{selectedRow?.value === null ? "unset" : selectedRow?.kind ?? "declared"}</span></>}
           aria-label="value"
-          value={valueFocused ? value : shortValue(value)}
+          value={valueFocused ? value : shortValue(value, selectedUnit ?? "")}
           onFocus={() => setValueFocused(true)}
           onBlur={() => setValueFocused(false)}
           onChange={(event: { target: { value: string } }) => setValue(event.target.value)} />
@@ -245,7 +278,7 @@ export function DeclareFace({
         </div>
         {status === "written" && <Notice kind="info">Written</Notice>}
         {status === "refused" && <Notice kind="error">{refusal ?? "Refused"}</Notice>}
-        <Disclosure summary="Review">
+        <Disclosure summary="Review" open={reviewOpen || undefined}>
           <div className="declare-review" aria-label="Review declared value">
             {reviewable ? (
               <FindingDetail

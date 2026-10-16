@@ -254,8 +254,17 @@ def test_a_reparent_moves_the_structure_hash_and_says_so(tmp_path):
 
     result = runner.invoke(
         app,
-        ["reparent", str(contract), "elbow", "--to", "base",
-         "--source", "notes/layout.md", "--witness", "Maya Chen"],
+        [
+            "reparent",
+            str(contract),
+            "elbow",
+            "--to",
+            "base",
+            "--source",
+            "notes/layout.md",
+            "--witness",
+            "Maya Chen",
+        ],
     )
     assert result.exit_code == 0, result.output
     output = plain(result.output).replace("\n", " ")
@@ -282,8 +291,17 @@ def test_a_device_reparent_leaves_the_structure_hash_alone(tmp_path):
 
     result = runner.invoke(
         app,
-        ["reparent", str(contract), "dev.gripper", "--to", "elbow",
-         "--source", "notes/layout.md", "--witness", "Maya Chen"],
+        [
+            "reparent",
+            str(contract),
+            "dev.gripper",
+            "--to",
+            "elbow",
+            "--source",
+            "notes/layout.md",
+            "--witness",
+            "Maya Chen",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "structure hash moved" not in plain(result.output), result.output

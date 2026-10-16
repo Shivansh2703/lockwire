@@ -20,11 +20,11 @@ from pydantic import BaseModel
 from lockwire import plugins
 from lockwire.checks import _ScoreBook, check_scene_placement, run_record_checks
 from lockwire.constraints import constraint_rows
-from lockwire.describe import describe_all, render_power_tree
+from lockwire.describe import describe_all, engineer_detail, render_power_tree
 from lockwire.edit import resolve_witness
 from lockwire.report import (
     Finding,
-    format_magnitude,
+    format_display,
     RecordReport,
     VerdictCode,
     limit_raised_mark,
@@ -42,7 +42,15 @@ from lockwire.report_html import (
 from lockwire.scene import Scene
 from lockwire.scene_view import _rail_consumers
 from lockwire.scene_view import scene_payload as _scene_payload
-from lockwire.copy import check_label, fix_text, group_title, human_name, instead_row, value_name
+from lockwire.copy import (
+    check_label,
+    fix_text,
+    group_title,
+    human_name,
+    instead_row,
+    robot_title,
+    value_name,
+)
 from lockwire.schema import Contract, Provenance, Quantity
 
 _KIND_PREFIXES = ("dev.", "rail.", "bus.", "bud.", "host.")
@@ -118,21 +126,39 @@ def finding_label(finding: Finding) -> str:
 
 
 def _instead(alternatives: Any) -> list[dict[str, str]]:
-    return [instead_row(a.text, a.kind) for a in alternatives]
+    return [
+        {**instead_row(a.text, a.kind), "rail": a.rail, "device": a.device} for a in alternatives
+    ]
 
 
 def finding_labels(contract: Contract, findings: list[Finding]) -> list[dict[str, Any]]:
     """Per finding (same order): its label and typed targets, for Plan and Test rows."""
-    return [
-        {
-            "label": finding_label(f),
-            "targets": _targets(contract, [f]),
-            "whole": _whole(contract, f),
-            "instead": _instead(f.alternatives),
-            "fix": fix_text(f.action),
-        }
-        for f in findings
-    ]
+    out = []
+    for f in findings:
+        targets = _targets(contract, [f])
+        label = finding_label(f)
+        # One name for one fault: a rail over its capacity reads like Check's card title.
+        budget = _budget(contract, f.quantity)
+        rail = next((t for t in targets if t["kind"] == "rail"), None)
+        if (
+            f.severity == "violation"
+            and rail
+            and (
+                (budget is not None and budget.kind == "rail_power")
+                or f.quantity.endswith("/set_power_mode/draw")
+            )
+        ):
+            label = f"{human_name(short_name(rail['id']))} rail overloaded"
+        out.append(
+            {
+                "label": label,
+                "targets": targets,
+                "whole": _whole(contract, f),
+                "instead": _instead(f.alternatives),
+                "fix": fix_text(f.action),
+            }
+        )
+    return out
 
 
 def _subject(finding: Finding) -> str:
@@ -159,7 +185,8 @@ def _magnitude(finding: Finding, which: str) -> str:
     quantity = getattr(finding, f"{which}_quantity", None)
     if quantity is None:
         return getattr(finding, which)
-    return format_magnitude(quantity.value, quantity.unit)
+    other = getattr(finding, f"{'observed' if which == 'expected' else 'expected'}_quantity", None)
+    return format_display(quantity.value, quantity.unit, other.value if other else None)
 
 
 def _upper_first(text: str) -> str:
@@ -258,6 +285,11 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
         # `scored` is a coverage disclosure, not a part of the robot. Left to the
         # generic path it came out as "I couldn't check scored", which names an
         # internal quantity to a student as though it were something on the bench.
+        if contract.model is None and not contract.devices:  # a blank "New robot"
+            return (
+                "Nothing could be compared yet",
+                "Nothing to check yet. Add a part to start checking.",
+            )
         return (
             "Nothing could be compared yet",
             "Every check here compares two numbers that were written down separately - "
@@ -272,6 +304,9 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
             "No URDF file is recorded against this lockfile, so if someone moves a mount "
             "or swaps the frame, nothing here notices.",
         )
+
+    if first.quantity == "model/links/massless_frames":  # _shape blanks the last segment
+        return ("Frames without mass", measured)
 
     if shape == "model/links/*/mass":
         # G2 audit 2 §5: a URDF link with no `<inertial>` is usually a fixed
@@ -321,6 +356,8 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
         )
 
     who = human_name(_subject(first))
+    if shape == "topology/rails/*/current_limit" and stopped:
+        return (f"{who} over its current limit", measured)
     if first.stage is not None and stopped:
         return (f"{who}: recording differs from lockfile", measured)
     if stopped:
@@ -424,7 +461,9 @@ def _targets(contract: Contract, group: list[Finding]) -> list[dict[str, Any]]:
             add("link", parts[2])
         elif len(parts) >= 2 and parts[0] == "devices" and parts[1] in devices:
             device(parts[1])
-        elif len(parts) >= 3 and parts[0] == "topology" and parts[1] == "rails" and parts[2] in rails:
+        elif (
+            len(parts) >= 3 and parts[0] == "topology" and parts[1] == "rails" and parts[2] in rails
+        ):
             add("rail", parts[2])
         elif len(parts) >= 3 and parts[0] == "topology" and parts[1] == "buses":
             for d in devices.values():  # a bus finding is about the parts that talk on it
@@ -432,7 +471,12 @@ def _targets(contract: Contract, group: list[Finding]) -> list[dict[str, Any]]:
                     device(d.id)
         else:  # preflight/... and other paths: first known id among the segments and dependents
             names = [*parts, *(n.strip() for n in (finding.dependent or "").split(","))]
-            for known, kind in ((devices, "device"), (joints, "joint"), (links, "link"), (rails, "rail")):
+            for known, kind in (
+                (devices, "device"),
+                (joints, "joint"),
+                (links, "link"),
+                (rails, "rail"),
+            ):
                 match = next((n for n in names if n in known), None)
                 if match:
                     device(match) if kind == "device" else add(kind, match)
@@ -459,8 +503,12 @@ def step_targets(contract: Contract, plan_path: str | Path) -> list[list[dict[st
         }.get(step.kind, "")
 
     return [
-        _targets(contract, [Finding(severity="not_scored", quantity=q, observed="", expected="", action="")])
-        if (q := path(step)) else []
+        _targets(
+            contract,
+            [Finding(severity="not_scored", quantity=q, observed="", expected="", action="")],
+        )
+        if (q := path(step))
+        else []
         for step in load_plan(Path(plan_path)).steps
     ]
 
@@ -478,9 +526,7 @@ def _robot_model(contract: Contract) -> dict[str, list[dict[str, Any]]]:
     for joint in model.joints:
         kids.setdefault(joint.parent, []).append(joint)
     children = {joint.child for joint in model.joints}
-    link_pose = {
-        link.name: _IDENTITY_POSE for link in model.links if link.name not in children
-    }
+    link_pose = {link.name: _IDENTITY_POSE for link in model.links if link.name not in children}
     joint_rows: dict[str, dict[str, Any]] = {}
     stack = list(link_pose)
     while stack:
@@ -497,6 +543,8 @@ def _robot_model(contract: Contract) -> dict[str, list[dict[str, Any]]]:
                 "type": joint.type,
                 "parent": joint.parent,
                 "child": joint.child,
+                "parent_name": human_name(joint.parent),
+                "child_name": human_name(joint.child),
                 "position": list(frame[1]),
                 "axis": list(_apply_r(frame[0], axis)),
                 "lower": limits.lower if limits else None,
@@ -543,10 +591,10 @@ def _hits(contract: Contract, group: list[Finding]) -> list[str]:
 
 def _consumer_files(contract: Contract, group: list[Finding]) -> list[str] | None:
     """The repo file(s) a `DependencyEdge` names as depending on a finding's quantity
-   . Display only: this is exactly `DependencyEdge.code`, keyed off the exact
-    quantity path an edge declares — never a filename inferred from a device id or a
-    naming convention. ``None`` when no edge names this quantity: not every
-    finding comes from an edge, and that absence must render as absence, not a guess.
+    . Display only: this is exactly `DependencyEdge.code`, keyed off the exact
+     quantity path an edge declares — never a filename inferred from a device id or a
+     naming convention. ``None`` when no edge names this quantity: not every
+     finding comes from an edge, and that absence must render as absence, not a guess.
     """
     by_quantity = {edge.quantity: edge for edge in contract.edges}
     found: list[str] = []
@@ -643,6 +691,8 @@ def _card(
     targets: list[dict[str, Any]] | None = None,
     whole: bool = False,
     count_by: str = "gui._cards",
+    quantity: str | None = None,
+    owner: str | None = None,
 ) -> dict[str, Any]:
     """The one constructor for every `api_payload.Card`-shaped dict `gui.py` emits.
 
@@ -681,6 +731,8 @@ def _card(
         "group_title": group_title,
         "instead": instead or [],
         "also_in_run": also_in_run,
+        "quantity": quantity,
+        "owner": owner,
     }
 
 
@@ -723,6 +775,8 @@ def _cards(
                 group_title=group_title(_shape(group[0])),
                 instead=_instead([a for f in group for a in f.alternatives]),
                 also_in_run=any(_finding_key(finding) in echoed for finding in group),
+                quantity=group[0].quantity,
+                owner=group[0].owner,
             )
         )
     return cards
@@ -753,7 +807,7 @@ def _card_figures(
                     "declared",
                     "schema.Contract.topology.rails.capacity",
                 ),
-                "Numeric finding prose withheld; the figures below carry recorded kinds.",
+                "Both numbers are as declared in your contract: the budget's limit and the rail's capacity.",
             )
         return (
             _figure(finding.observed_quantity, "derived", "checks.check_budgets"),
@@ -762,9 +816,9 @@ def _card_figures(
                 "declared",
                 "schema.Contract.budgets.limit",
             ),
-            "Numeric finding prose withheld; the figures below carry recorded kinds.",
+            "Observed is the check's sum of your declared draws; Expected is your declared limit.",
         )
-    return None, None, "Numeric finding prose withheld because its source kind is unavailable."
+    return None, None, "Numbers not shown: this check can't yet say where they came from."
 
 
 def _figure(quantity: Quantity | None, kind: str, by: str) -> dict[str, Any] | None:
@@ -808,9 +862,7 @@ def _scene_labels(contract: Contract, findings: list[Finding]) -> list[dict[str,
                 "part": faults[0],
                 "severity": first.severity,
                 "title": title,
-                "observed": _figure(
-                    first.observed_quantity, "derived", "checks.run_record_checks"
-                ),
+                "observed": _figure(first.observed_quantity, "derived", "checks.run_record_checks"),
                 "comparator": _comparator(first.expected),
                 "expected": _figure(first.expected_quantity, "declared", "schema.Contract"),
             }
@@ -1133,6 +1185,7 @@ _COMMAND_MODES = {
     "api-types": "reference",  # e1-d3: the app's TypeScript types, generated from the same union
 }
 
+
 def _design_face(contract: Contract) -> dict[str, Any]:
     """Render the Design face showing declared parts with their power info.
 
@@ -1276,14 +1329,65 @@ def _declare_rows(
                     ident = getattr(item, "id", None) or getattr(item, "name", None)
                     if ident is None:
                         continue  # not id/name-addressable -> `declare` cannot reach it either
-                    rows.extend(_declare_rows(item_type, item, f"{child_path}/{ident}", (*label_parts, str(ident)), provenance, f"{group} · {human_name(str(ident))}" if group else human_name(str(ident)), ()))
+                    rows.extend(
+                        _declare_rows(
+                            item_type,
+                            item,
+                            f"{child_path}/{ident}",
+                            (*label_parts, str(ident)),
+                            provenance,
+                            f"{group} · {human_name(str(ident))}"
+                            if group
+                            else human_name(str(ident)),
+                            (),
+                        )
+                    )
         elif isinstance(base, type) and issubclass(base, BaseModel):
-            rows.extend(_declare_rows(base, value, child_path, (*label_parts, name), provenance, group, (*short_parts, name) if group is not None else ()))
+            rows.extend(
+                _declare_rows(
+                    base,
+                    value,
+                    child_path,
+                    (*label_parts, name),
+                    provenance,
+                    group,
+                    (*short_parts, name) if group is not None else (),
+                )
+            )
     return rows
 
 
 def _humanize_path(parts: tuple[str, ...]) -> str:
     return " ".join(part.replace("_", " ") for part in parts)
+
+
+def _add_part_options(contract: Contract) -> dict[str, Any]:
+    """The Add part picker: powered catalog parts (those with a draw) and the rails each fits."""
+    from lockwire.advice import input_range, rails_for_voltage  # noqa: PLC0415
+    from lockwire.catalog import load_catalog  # noqa: PLC0415
+
+    parts = []
+    for part in load_catalog().parts:
+        if "draw_max" not in part.numbers:
+            continue
+        value = {k: n.value for k, n in part.numbers.items()}
+        band = input_range(
+            value.get("input_voltage_min"),
+            value.get("input_voltage_max"),
+            value.get("nominal_voltage"),
+        )
+        parts.append(
+            {
+                "id": part.id,
+                "name": part.name,
+                "numbers": [{"key": k, **n.model_dump()} for k, n in part.numbers.items()],
+                "fits": [r.id for r in rails_for_voltage(contract, *band)] if band else [],
+            }
+        )
+    return {
+        "rails": [r.id for r in (contract.topology.rails if contract.topology else [])],
+        "parts": parts,
+    }
 
 
 def build_declare_form(contract: Contract) -> dict[str, Any]:
@@ -1294,6 +1398,7 @@ def build_declare_form(contract: Contract) -> dict[str, Any]:
     return {
         "rows": _declare_rows(Contract, contract, "", (), None),
         "witness": {"prefill": resolve_witness(None)},
+        "add_part": _add_part_options(contract),
     }
 
 
@@ -1316,14 +1421,14 @@ def _plan_face(
 
 def _reference_face(contract: Contract, contract_path: Path | None) -> dict[str, Any]:
     """The Reference face: four drawers over what the CLI already produces —
-    describe, report, scan — plus the per-device reference sheets
-   . Each drawer's ``cli_line`` uses the command's real flags
-    (``report``'s printed line is ``-o/--out`` + ``--no-open``, never
-    ``--html`` — measured, that flag does not exist)."""
+     describe, report, scan — plus the per-device reference sheets
+    . Each drawer's ``cli_line`` uses the command's real flags
+     (``report``'s printed line is ``-o/--out`` + ``--no-open``, never
+     ``--html`` — measured, that flag does not exist)."""
     cpath = str(contract_path) if contract_path is not None else "lockwire.yaml"
     files = describe_all(contract, human=True)
     devices = [
-        {"id": name.removesuffix(".md"), "text": text}
+        {"id": name.removesuffix(".md"), "name": human_name(name.removesuffix(".md")), "text": text}
         for name, text in files.items()
         if name != "SYSTEM.md"
     ]
@@ -1337,7 +1442,8 @@ def _reference_face(contract: Contract, contract_path: Path | None) -> dict[str,
         {
             "title": "Engineer report",
             "content": "A kept, versioned, print-ready document: an identity line and "
-            "provenance on every page — what a student hands a supervisor.",
+            "provenance on every page — what a student hands a supervisor.\n\n"
+            + engineer_detail(contract),
             "provenance": "generated from the contract, deterministic",
             "cli_line": f"lockwire report {cpath} -o report.html --no-open",
         },
@@ -1422,7 +1528,7 @@ def build_payload(
         cards = [_empty_state_card()]
 
     payload: dict[str, Any] = {
-        "robot": contract.robot.name,
+        "robot": robot_title(contract.robot.name),
         "contract_id": contract.robot.id or "contract",
         "state": state,
         "headline": headline,
@@ -1482,4 +1588,3 @@ def build_payload(
         else None,
     )
     return payload
-

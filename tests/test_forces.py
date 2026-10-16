@@ -51,7 +51,7 @@ def _every_figure(node: Any) -> list[dict[str, Any]]:
 
 # ---------------------------------------------------------------- the gate
 # Stage one must clear its own closed-form gate before it scores anything
-#. The three cases are the textbook ones, in reaction form, with g = 9.81.
+# . The three cases are the textbook ones, in reaction form, with g = 9.81.
 
 
 def test_the_closed_form_gate_holds_before_anything_is_scored():

@@ -30,7 +30,11 @@ vi.mock("./proRegistry", () => ({ proMain: null }));
 
 const OPEN_ARGS = { contract: "/tmp/robot/lockwire.yaml" };
 const pickRobotMock = vi.fn();
-vi.mock("./dialogs", () => ({ pickRobot: () => pickRobotMock() }));
+const pickNewRobotLocationMock = vi.fn();
+vi.mock("./dialogs", () => ({
+  pickRobot: () => pickRobotMock(),
+  pickNewRobotLocation: (...args: unknown[]) => pickNewRobotLocationMock(...args),
+}));
 
 const callSidecarMock = vi.fn();
 const getSidecarStateMock = vi.fn();
@@ -556,6 +560,21 @@ describe("dispatch: plan", () => {
     await expect(dispatch(TRUSTED_EVENT, "contract:plan", { contract: "c", plan: "p" })).resolves.toEqual(payload);
   });
 
+  it("an empty plan path means the sibling <stem>.plan.yaml, resolved here, or null when absent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "plan-"));
+    const contract = join(dir, "bot.yaml");
+    await expect(dispatch(TRUSTED_EVENT, "contract:plan", { contract, plan: "" })).resolves.toBeNull();
+    writeFileSync(join(dir, "bot.plan.yaml"), "steps: []\n");
+    const payload = {
+      format_version: "2", schema_version: "1", robot: "X500", verdict: "GO", exit_code: 0,
+      counts: { violation: 0, warning: 0, not_scored: 0 }, scored: 1, findings: [],
+      artifact_type: "lockwire-plan-report", steps: [],
+    };
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve(runReply(payload, "lockwire plan c p")) });
+    await dispatch(TRUSTED_EVENT, "contract:plan", { contract, plan: "" });
+    expect(JSON.stringify(callSidecarMock.mock.lastCall)).toContain(join(dir, "bot.plan.yaml").replace(/\\/g, "\\\\"));
+  });
+
   it.each([
     ["contract:plan", { contract: "c", plan: "p" }],
   ])("refuses an invalid %s payload before the renderer", async (command, request) => {
@@ -860,6 +879,36 @@ describe("dispatch: argument validation runs in the main process", () => {
     await expect(dispatch(TRUSTED_EVENT, "robot:command", { params: {} })).rejects.toThrow(
       "robot:command: invalid arguments",
     );
+  });
+});
+
+describe("dispatch: file:new-robot starter check", () => {
+  const sentCommands = () => callSidecarMock.mock.calls.map(([, init]) => JSON.parse(init.body).command);
+
+  beforeEach(() => {
+    pickNewRobotLocationMock.mockReset().mockResolvedValue("/tmp/out");
+    callSidecarMock.mockImplementation((_path: string, init: { body: string }) => {
+      const { command } = JSON.parse(init.body);
+      const payload =
+        command === "starters"
+          ? { starters: [{ name: "drone", title: "Drone", based_on: "..." }] }
+          : command === "start"
+            ? { path: "/tmp/out/lockwire.yaml", revision: "r", written: true }
+            : null;
+      return Promise.resolve({ json: () => Promise.resolve(runReply(payload)) });
+    });
+  });
+
+  it.each(["../etc", "nope"])("refuses starter %j without calling start", async (starter) => {
+    await expect(dispatch(TRUSTED_EVENT, "file:new-robot", { starter })).rejects.toThrow("no starter named");
+    expect(sentCommands()).not.toContain("start");
+  });
+
+  it("lets a listed starter through to start with that example", async () => {
+    await dispatch(TRUSTED_EVENT, "file:new-robot", { starter: "drone" });
+    expect(callSidecarMock).toHaveBeenCalledWith("/v1/run", expect.objectContaining({
+      body: JSON.stringify({ command: "start", args: { example: "drone", out: "/tmp/out" } }),
+    }));
   });
 });
 

@@ -3,7 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Finding, ReferenceFace as ReferenceFacePayload } from "../shared/api.gen";
-import { ReferenceFace } from "./ReferenceFace";
+import { parseSheet, ReferenceFace } from "./ReferenceFace";
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const payload: ReferenceFacePayload = {
   title: "Reference",
@@ -13,7 +14,7 @@ const payload: ReferenceFacePayload = {
     { title: "Saved baseline", content: "baseline content", provenance: "from a recording", cli_line: "lockwire baseline <recording-dir> --context <context>" },
     { title: "Hardware scan", content: "scan content", provenance: "from this machine, unreviewed", cli_line: "lockwire scan --robot robot-x" },
   ],
-  devices: [{ id: "dev.camera", text: "identity: bus.usb0\nprovenance: camera.pdf\npower tree: rail.5v" }],
+  devices: [{ id: "dev.camera", name: "Camera", text: "identity: bus.usb0\nprovenance: camera.pdf\npower tree: rail.5v" }],
   power_tree: null,
 };
 
@@ -43,10 +44,11 @@ describe("ReferenceFace", () => {
 
   it("groups devices under one searchable Devices disclosure and middle-ellipsises a long command", () => {
     const long = "lockwire describe /Users/someone/very/long/path/to/the/contract/lockwire.yaml";
-    act(() => root.render(<ReferenceFace payload={{ ...payload, drawers: [{ ...payload.drawers[0]!, cli_line: long }] }} />));
+    act(() => root.render(<ReferenceFace payload={{ ...payload, drawers: [payload.drawers[0]!, { ...payload.drawers[0]!, title: "Engineer report", cli_line: long }] }} />));
     expect(container.querySelector(".kit-cli-text")!.textContent).toMatch(/^.{20}….+/);
     expect(container.querySelector(".kit-cli-text")!.textContent!.length).toBeLessThan(long.length);
     expect(container.querySelector(".reference-face-devices summary")!.textContent).toBe("Devices (1)");
+    expect(container.querySelector(".reference-device summary")!.textContent).toBe("Camera"); // the name, never dev.camera
     const input = container.querySelector<HTMLInputElement>('input[aria-label="Search devices"]')!;
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "zzz");
@@ -68,16 +70,17 @@ describe("ReferenceFace", () => {
       const rendered = drawers[index]!;
       expect(rendered.querySelector("summary")?.textContent).toBe(drawer.title);
       expect(rendered.querySelector<HTMLElement>(".reference-drawer summary [title]")?.title).toBe(drawer.provenance);
-      expect(rendered.querySelector<HTMLElement>(".kit-cli")?.title).toBe(drawer.cli_line);
+      // the default sheet carries no command chip; the other drawers keep theirs
+      expect(rendered.querySelector<HTMLElement>(".kit-cli")?.title).toBe(index === 0 ? undefined : drawer.cli_line);
     });
   });
 
-  it("uses native disclosures: closed by default, opening one leaves the rest closed", () => {
+  it("uses native disclosures: only the Reference sheets open by default, opening one leaves the rest alone", () => {
     act(() => root.render(<ReferenceFace payload={payload} />));
     const all = [...container.querySelectorAll<HTMLDetailsElement>(".reference-drawer details")];
-    expect(all.map((d) => d.open)).toEqual([false, false, false, false]);
-    act(() => { all[0]!.open = true; });
     expect(all.map((d) => d.open)).toEqual([true, false, false, false]);
+    act(() => { all[1]!.open = true; });
+    expect(all.map((d) => d.open)).toEqual([true, true, false, false]);
   });
 
   it("renders no power tree when the optional backend field is null", () => {
@@ -120,5 +123,24 @@ describe("ReferenceFace", () => {
     expect([...selected.querySelectorAll<HTMLElement>("li")].map((item) => item.dataset.kind)).toEqual([
       "physical", "model_calibration", "spec_design",
     ]);
+  });
+});
+
+describe("power tree", () => {
+  it("keeps Battery, rail, load indentation", () => {
+    const [, tree] = parseSheet("## Power tree\n\nBattery\n  - 5 V rail\n    - Camera · 5 W");
+    expect(tree).toEqual({ t: "tree", rows: [{ depth: 0, text: "Battery" }, { depth: 1, text: "5 V rail" }, { depth: 2, text: "Camera · 5 W" }] });
+  });
+
+  it("folds a long run of loads behind one toggle and prints numbers in the shared format", () => {
+    const loads = Array.from({ length: 7 }, (_, i) => `      - Servo ${i} · 0.5520001 W`).join("\n");
+    const md = `## Power tree\n\nBattery\n  - Legs 12 V\n${loads}`;
+    act(() => root.render(<ReferenceFace payload={{ ...payload, drawers: [{ ...payload.drawers[0]!, content: md.replace(/\n      - /g, "\n    - ") }] }} />));
+    expect(container.querySelectorAll(".reference-tree li")).toHaveLength(2);
+    const btn = container.querySelector<HTMLButtonElement>(".reference-tree-fold")!;
+    expect(btn.textContent).toBe("Show 7 more");
+    act(() => btn.click());
+    expect(container.querySelectorAll(".reference-tree li")).toHaveLength(9);
+    expect(container.querySelector(".reference-tree")!.textContent).toContain("Servo 0 · 0.552 W");
   });
 });

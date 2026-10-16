@@ -4,7 +4,7 @@ import { PRODUCT_NAME } from "../shared/branding";
 import { MODES, type Mode } from "./Frame";
 import { pro } from "./proRegistry";
 import { Button, CommandLine, IconButton, PillTabs, StatusPill, ToolPill, Workspace } from "./kit";
-import type { ViewInset } from "./scene/buildScene";
+import { FRAME_INSET, type ViewInset } from "./scene/buildScene";
 import { currentTheme, initTheme } from "./theme";
 import { ThemeToggle } from "./ThemeToggle";
 import "./theme.css";
@@ -24,25 +24,27 @@ export function useShellCommand(command: string | null): boolean {
 }
 
 const GAP = 12;
-const NONE: ViewInset = { top: 0, right: 0, bottom: 0, left: 0 };
 
-// What the floating pieces cover: below the tab bar, right of the left panel, left of the right panel, above the view pill.
-function measureInset(root: HTMLElement): ViewInset {
+// What the floating pieces cover: a side with a panel is cleared by its measured rect + gap, a side without one keeps only a small margin, so the robot centres in the open area that is really visible. Top/bottom keep the bar floors.
+const SIDE_MARGIN = 24;
+export function measureInset(root: HTMLElement): ViewInset {
   const box = root.getBoundingClientRect();
-  const slot = (n: string) => root.querySelector(`.kit-slot-${n}`)?.getBoundingClientRect();
+  const slot = (n: string) => { const r = root.querySelector(`.kit-slot-${n}`)?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? r : undefined; };
   const top = slot("top"), right = slot("right"), bottom = slot("bottom"), left = slot("left");
   return {
-    top: top ? Math.max(0, top.bottom - box.top + GAP) : 0,
-    right: right ? Math.max(0, box.right - right.left + GAP) : 0,
-    bottom: bottom ? Math.max(0, box.bottom - bottom.top + GAP) : 0,
-    left: left ? Math.max(0, left.right - box.left + GAP) : 0,
+    top: Math.max(FRAME_INSET.top, top ? top.bottom - box.top + GAP : 0),
+    right: right ? box.right - right.left + GAP : SIDE_MARGIN,
+    bottom: Math.max(FRAME_INSET.bottom, bottom ? box.bottom - bottom.top + GAP : 0),
+    left: left ? left.right - box.left + GAP : SIDE_MARGIN,
   };
 }
 
 export function Shell({
-  robotName, mode, onModeChange, scene, sceneSummary, locked, connected, cliLine, onFit, onOverwrite, notices, wide, center, left, above, tools, children,
+  robotName, onRobot, mode, onModeChange, scene, sceneSummary, locked, connected, cliLine, onFit, onOverwrite, notices, wide, center, left, above, tools, children,
 }: {
   robotName?: string;
+  /** The robot's name chip opens Design on the whole robot. */
+  onRobot?: () => void;
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   /** The RobotView, behind everything; a function gets the px the floating UI covers. */
@@ -73,7 +75,7 @@ export function Shell({
   const ref = useRef<HTMLDivElement>(null);
   const [pageCommand, setPageCommand] = useState<string | null>(null);
   const command = pageCommand ?? cliLine ?? null;
-  const [inset, setInset] = useState(NONE);
+  const [inset, setInset] = useState(FRAME_INSET);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -92,8 +94,12 @@ export function Shell({
     <div className="shell" ref={ref} data-wide={wide || undefined}>
       <div className="app-drag shell-drag" />
       <Workspace
-        topLeft={robotName ? <span className="shell-chip app-no-drag" title={robotName}>{robotName}</span> : undefined}
-        top={locked ? undefined : <div className="app-no-drag shell-tabs"><PillTabs tabs={TABS} value={mode} onChange={onModeChange} label="Mode" />{!pro && <span className="shell-pro-line">Test / Run: {PRODUCT_NAME} Pro</span>}</div>}
+        topLeft={robotName ? onRobot
+          ? <button type="button" className="shell-chip shell-chip-btn app-no-drag" title={`Show all of ${robotName}`} onClick={onRobot}>{robotName}</button>
+          : <span className="shell-chip app-no-drag" title={robotName}>{robotName}</span> : undefined}
+        top={locked ? undefined : <div className="app-no-drag shell-tabs"><PillTabs tabs={TABS} value={mode} onChange={onModeChange} label="Mode" />{!pro && ["Test", "Run"].map((t) => (
+          <span key={t} className="shell-pro-tab" aria-disabled="true" title={`Test and Run are in ${PRODUCT_NAME} Pro`}>{t}<span className="shell-pro-badge">Pro</span></span>
+        ))}</div>}
         topRight={<div className="app-no-drag"><ToolPill label="App"><ThemeToggle /></ToolPill></div>}
         left={left}
         right={children}

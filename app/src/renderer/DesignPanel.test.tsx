@@ -64,12 +64,16 @@ const payload = {
     parts: [
       { id: "hub", node: "Front hub", name: "Front hub", state: "fault", positions: {}, normals: null, indices: {}, color: [], translation: [], lenses: [], group: { id: "hub", label: "Hub", kind: "device" } },
       { id: "frame", node: "Frame", name: "Frame", state: "ok", positions: {}, normals: null, indices: {}, color: [], translation: [], lenses: [], group: { id: "frame", label: "Chassis", kind: "link" } },
+      { id: "hub2", node: "Hub cap", name: "Hub cap", state: "ok", positions: {}, normals: null, indices: {}, color: [], translation: [], lenses: [], group: { id: "hub", label: "Hub", kind: "device" } },
+      { id: "frame2", node: "Rail", name: "Rail", state: "ok", positions: {}, normals: null, indices: {}, color: [], translation: [], lenses: [], group: { id: "frame", label: "Chassis", kind: "link" } },
     ],
     labels: [
       { part: "hub", severity: "fault", title: "first", observed: null, comparator: "", expected: null },
       { part: "hub", severity: "fault", title: "second", observed: null, comparator: "", expected: null },
     ],
   },
+  // Findings come from Check's cards: two failing ones light the hub (the labels above are only callouts).
+  cards: ["first", "second"].map((title) => ({ severity: "violation", title, targets: [{ kind: "device", id: "hub", label: "Hub", parts: ["hub"] }] })),
   graph: {
     off: { nodes: [], edges: [], label: "off", caption: "Drag to orbit" },
     power: { nodes: [], edges: [], label: "Power", caption: "What feeds what" },
@@ -117,29 +121,29 @@ describe("Parts drop-downs", () => {
 
   it("starts collapsed except the group holding a finding", () => {
     act(() => root.render(<Page payload={payload} />));
-    expect(shown()).toEqual(["Front hub"]);
+    expect(shown()).toEqual(["Front hub", "Hub cap"]);
     expect(head("frame").closest("li")?.getAttribute("data-open")).toBe("false");
-    expect(container.querySelector(".kit-tree-count")?.textContent).toBe("1");
+    expect(container.querySelector(".kit-tree-count")?.textContent).toBe("2");
   });
 
   it("folds same-named parts into one row and says No findings when a group has none", () => {
     const part = (id: string) => ({ ...(payload.scene as ScenePayload).parts[1]!, id, node: id, name: "Fan blade", group: { id: "fan", label: "Fan", kind: "device" } });
-    const fans = { ...payload, scene: { ...(payload.scene as ScenePayload), parts: [part("fan.001"), part("fan.002")], labels: [] } } as unknown as CheckPayload;
+    const fans = { ...payload, scene: { ...(payload.scene as ScenePayload), parts: [part("fan.001"), part("fan.002"), { ...part("fan.hub"), name: "Fan hub" }], labels: [] } } as unknown as CheckPayload;
     act(() => root.render(<Page payload={fans} />));
     expandAll();
-    expect(shown()).toEqual(["Fan blade ×2"]);
+    expect(shown()).toEqual(["Fan blade ×2", "Fan hub"]);
     act(() => head("fan").click());
     expect(container.querySelector(".design-face")?.textContent).toContain("No findings");
-    expect(container.querySelector(".design-face .kit-kv")?.textContent).toContain(`Parts${head("fan").querySelector(".kit-tree-count")!.textContent}`); // folded rows: 1, not 2
+    expect(container.querySelector(".design-face .kit-kv")?.textContent).toContain(`Parts${head("fan").querySelector(".kit-tree-count")!.textContent}`); // folded rows: 2, not 3
   });
 
   it("a folded row shows any member's selection and opens its group", () => {
     const part = (id: string) => ({ ...(payload.scene as ScenePayload).parts[1]!, id, node: id, name: "Fan blade", group: { id: "fan", label: "Fan blade", kind: "device" } });
-    const fans = { ...payload, scene: { ...(payload.scene as ScenePayload), parts: [part("fan.001"), part("fan.002")], labels: [] } } as unknown as CheckPayload;
+    const fans = { ...payload, scene: { ...(payload.scene as ScenePayload), parts: [part("fan.001"), part("fan.002"), { ...part("fan.hub"), name: "Fan hub" }], labels: [] } } as unknown as CheckPayload;
     act(() => root.render(<Page payload={fans} />));
     act(() => setSelectedPartId("fan.002"));
     expect(container.querySelector(".kit-tree-group ul .kit-tree-row.is-selected")?.textContent).toBe("Fan blade ×2");
-    expect(container.querySelector(".design-face .kit-kv")?.textContent).toContain(`Group${head("fan").querySelector(".kit-tree-count")!.textContent} part`); // folded rows: 1, not 2
+    expect(container.querySelector(".design-face .kit-kv")?.textContent).not.toContain("Group"); // a group named like its part is not a row
   });
 
   it("selecting a part expands its group", () => {
@@ -151,7 +155,7 @@ describe("Parts drop-downs", () => {
   it("a header selects every member and the Inspector summarises the group", () => {
     act(() => root.render(<Page payload={payload} />));
     act(() => head("hub").click());
-    expect(getSelectedGroup()).toEqual({ id: "hub", members: ["hub"] });
+    expect(getSelectedGroup()).toEqual({ id: "hub", members: ["hub", "hub2"] });
     expect(container.querySelector(".design-face")?.textContent).toContain("Device");
     expect(container.textContent).toContain("Findings");
     act(() => setSelectedPartId("frame"));
@@ -177,10 +181,9 @@ describe("Parts drop-downs", () => {
 });
 
 describe("DesignPanel", () => {
-  it("with nothing picked the inspector asks for a part, not a count", () => {
+  it("with nothing picked there is no inspector card at all", () => {
     act(() => root.render(<Page payload={payload} />));
-    expect(container.querySelector(".kit-panel .design-face")?.textContent).toBe("Pick a part");
-    expect(container.querySelector(".design-face .kit-kv")).toBeNull();
+    expect(container.querySelector(".design-face")).toBeNull();
   });
 
   it("a picked part's inspector has no Name row", () => {
@@ -189,10 +192,17 @@ describe("DesignPanel", () => {
     expect(container.querySelector(".design-face")?.textContent).not.toMatch(/Name/);
   });
 
+  it("a link grouped under a device does not read 'Part of <device>'", () => {
+    const torso = { ...(payload.scene as ScenePayload).parts[1]!, id: "dev.jetson", node: "torso", mount_frame: "torso", name: "Torso", group: { id: "dev.jetson", label: "Jetson Orin", kind: "device" } };
+    act(() => root.render(<Page payload={{ ...payload, scene: { ...(payload.scene as ScenePayload), parts: [torso], labels: [] } } as unknown as CheckPayload} />));
+    act(() => setSelectedPartId("dev.jetson"));
+    expect(container.querySelector(".design-face .kit-kv")?.textContent).not.toContain("Part of");
+  });
+
   it("a part with no findings still shows group, state and findings", () => {
     act(() => root.render(<Page payload={payload} />));
     act(() => setSelectedPartId("frame"));
-    expect(container.querySelector(".design-face .kit-kv")?.textContent).toMatch(/GroupChassis · LinkStateOKFindingsNo findings/);
+    expect(container.querySelector(".design-face .kit-kv")?.textContent).toMatch(/Part ofChassisStateOKFindingsNo findings/);
   });
 
   it("the tool pill keeps Callouts (disabled) when nothing applies", () => {
@@ -225,9 +235,9 @@ describe("DesignPanel", () => {
     act(() => root.render(<Page payload={payload} />));
     expandAll();
     const rows = [...container.querySelectorAll<HTMLButtonElement>(".kit-tree-group ul .kit-tree-row")];
-    expect(rows.map((r) => r.textContent)).toEqual(["Front hub", "Frame"]);
+    expect(rows.map((r) => r.textContent)).toEqual(["Front hub", "Hub cap", "Frame", "Rail"]);
     expect(rows[0]!.querySelector(".kit-s-bad")).not.toBeNull();
-    expect(rows[1]!.querySelector(".kit-s-go")).toBeNull();
+    expect(rows[2]!.querySelector(".kit-s-go")).toBeNull();
     expect(container.querySelector("[data-testid=scene-canvas]")).toBeNull();
   });
 
@@ -236,16 +246,47 @@ describe("DesignPanel", () => {
     act(() => row("Front hub").click());
     expect(getSelectedPartId()).toBe("hub");
     expect([...container.querySelectorAll(".kit-panel-title")].map((t) => t.textContent)).toContain("Front hub");
-    expect(container.querySelector(".design-face")?.textContent).toContain("Findings2derived");
+    expect(container.querySelector(".design-face")?.textContent).toContain("Findings2 · first");
     act(() => setSelectedPartId("frame"));
     expect(row("Frame").getAttribute("aria-pressed")).toBe("true");
     expect(container.querySelector(".design-face")?.textContent).toContain("No findings");
   });
 
+  it("the inspector says Fails with the finding title, and a fixed joint reads Fixed to World", () => {
+    act(() => root.render(<Page payload={payload} />));
+    act(() => row("Front hub").click());
+    expect(container.querySelector(".design-face .kit-kv")?.textContent).toContain("StateFails");
+    expect(container.querySelector(".design-face")?.textContent).toContain("2 · first");
+    expect(container.querySelector(".design-face .kit-kv")?.textContent).not.toContain("Lens");
+    const skeleton = { scene: null, graph: null, joints: [{ name: "mount", type: "fixed", parent: "world", child: "base", parent_name: "World", child_name: "Base", position: [0, 0, 0], axis: [0, 0, 1], lower: null, upper: null, effort: null }], links: [] } as unknown as CheckPayload;
+    act(() => root.render(<Page payload={skeleton} />));
+    act(() => row("Base").click());
+    expect(container.querySelector(".design-face")?.textContent).toContain("Fixed to World");
+  });
+
+  it("a solo device bucketed into Cameras stays draggable", () => {
+    const mk = (id: string, name: string, kind: string) => ({ id, node: name, name, state: "ok", positions: {}, normals: null, indices: {}, color: [], translation: [], lenses: [], group: { id, label: name, kind } });
+    const many = { ...payload, scene: { ...payload.scene, parts: [mk("cam", "Camera", "device"), ...Array.from({ length: 8 }, (_, i) => mk(`l${i}`, `Hip ${i}`, "link"))] } } as unknown as CheckPayload;
+    act(() => root.render(<Page payload={many} />));
+    expect(row("Camera").getAttribute("draggable")).toBe("true");
+  });
+
+  it("groups many one-part sided links under their limb", () => {
+    const mk = (id: string, name: string) => ({ id, node: name, name, state: "ok", positions: {}, normals: null, indices: {}, color: [], translation: [], lenses: [], group: { id, label: `${name} Link`, kind: "link" } });
+    const names = ["Left Hip Pitch", "Left Knee", "Right Hip Pitch", "Right Knee", "Left Elbow", "Left Wrist", "Right Elbow", "Right Wrist", "Head"];
+    const many = { ...payload, scene: { ...payload.scene, parts: names.map((n, i) => mk(`p${i}`, n)) } } as unknown as CheckPayload;
+    act(() => root.render(<Page payload={many} />));
+    const heads = [...container.querySelectorAll(".kit-tree-label")].map((e) => e.textContent);
+    expect(heads).toEqual(["Left leg2", "Right leg2", "Left arm2", "Right arm2"]);
+    act(() => (container.querySelector(".kit-tree-label") as HTMLElement).click()); // open "Left leg"
+    act(() => (container.querySelector('[data-part-id="p1"]') as HTMLElement).click());
+    expect([...container.querySelectorAll(".kit-panel-title")].pop()?.textContent).toBe("Left leg · Knee"); // the side survives in the inspector title
+  });
+
   it("switches the lens from the payload's own words, caption as tooltip", () => {
     act(() => root.render(<Page payload={payload} />));
     const tabs = [...container.querySelectorAll<HTMLElement>('[role="tab"]')];
-    expect(tabs.map((t) => t.textContent)).toEqual(["All", "Power", "Data", "Mechanical", "Health"]);
+    expect(tabs.map((t) => t.textContent).slice(0, 4)).toEqual(["All", "Power", "Data", "Mechanical"]); // Health: a tab in Pro, a greyed label in free
     act(() => tabs[1]!.click());
     expect(getDesignView().lens).toBe("power");
     expect(tabs[1]!.parentElement!.parentElement!.getAttribute("title")).toBe("What feeds what");
@@ -255,7 +296,7 @@ describe("DesignPanel", () => {
     const skeleton = {
       scene: null,
       graph: null,
-      joints: [{ name: "shoulder", type: "revolute", parent: "base", child: "arm", position: [0, 0, 0], axis: [0, 0, 1], lower: -1.5, upper: 1.5, effort: null }],
+      joints: [{ name: "shoulder", type: "revolute", parent: "base", child: "arm", parent_name: "Base", child_name: "Arm", position: [0, 0, 0], axis: [0, 0, 1], lower: -1.5, upper: 1.5, effort: null }],
       links: [],
     } as unknown as CheckPayload;
     act(() => root.render(<Page payload={skeleton} />));
@@ -271,7 +312,7 @@ describe("DesignPanel", () => {
   it("draws the links as a tree from the root and shows a part drawn as two meshes under one group", () => {
     const chain = {
       scene: null,
-      joints: ["a", "b", "c"].map((child, i) => ({ name: `j${child}`, type: "fixed", parent: ["base", "a", "b"][i], child, position: [0, 0, 0], axis: [0, 0, 1], lower: null, upper: null, effort: null })),
+      joints: ["a", "b", "c"].map((child, i) => ({ name: `j${child}`, type: "fixed", parent: ["base", "a", "b"][i], child, parent_name: ["Base", "A", "B"][i], child_name: child.toUpperCase(), position: [0, 0, 0], axis: [0, 0, 1], lower: null, upper: null, effort: null })),
       links: [],
     } as unknown as CheckPayload;
     act(() => root.render(<Page payload={chain} />));
@@ -279,13 +320,13 @@ describe("DesignPanel", () => {
       ["A", ""], ["B", "calc(var(--sp-2) + 1 * var(--sp-3))"], ["C", "calc(var(--sp-2) + 2 * var(--sp-3))"],
     ]);
     const part = (state: string) => ({ ...(payload.scene as ScenePayload).parts[0]!, id: "lidar", node: "lidar", name: "lidar", state });
-    const twin = { ...payload, scene: { ...(payload.scene as ScenePayload), parts: [part("ok"), part("warn")] } } as unknown as CheckPayload;
+    const twin = { ...payload, scene: { ...(payload.scene as ScenePayload), parts: [part("ok"), part("warn"), { ...part("ok"), id: "lidar-base", node: "lidar-base", name: "Lidar base" }] } } as unknown as CheckPayload;
     act(() => root.render(<Page payload={twin} />));
     expandAll();
     const rows = [...container.querySelectorAll<HTMLElement>(".kit-tree-group ul .kit-tree-row")];
-    expect(rows.map((r) => r.textContent)).toEqual(["lidar ×2"]); // same-named meshes fold into one row, under the one group
+    expect(rows.map((r) => r.textContent)).toEqual(["lidar ×2", "Lidar base"]); // same-named meshes fold into one row, under the one group
     expect(container.querySelector(".kit-tree-head .kit-s-warn")).not.toBeNull(); // the group dot is the worst of its parts
-    expect(container.querySelector(".design-legend")?.textContent).toBe("warn");
+    expect(container.querySelector(".design-legend")?.textContent).toBe("warnok");
   });
 
   it("keeps row selection on the shared store used by the canvas", () => {
@@ -326,7 +367,7 @@ describe("DesignPanel", () => {
 
     act(() => setSelectedPartId("frame"));
     act(() => root.render(<></>));
-    expect(getSelectedPartId()).toBeNull();
+    expect(getSelectedPartId()).toBe("frame"); // leaving Design keeps the part chosen
   });
 
   it("renders an active label on its mounted payload-id mesh and selects that same id", () => {

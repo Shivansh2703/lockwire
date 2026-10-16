@@ -63,6 +63,7 @@ def required_correction_category(proposal_kind: str) -> CorrectionCategory | Non
         return "model_calibration"
     return None
 
+
 _IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*\Z")
 
 

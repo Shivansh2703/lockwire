@@ -6,6 +6,7 @@ title or chip comes from here (via gui.py), so the app never parses a contract p
 
 from __future__ import annotations
 
+import math
 import re
 
 # Path segments that only say where a thing lives, never what was checked.
@@ -96,6 +97,8 @@ CHECK_LABELS: dict[str, str] = {
     "scored": "Checks compared",
     "rail_load": "Rail load",
     "rail_load/rail": "Rail load",
+    "rail_load/draw": "Rail load",
+    "set_power_mode/draw": "Power draw",
     "joint_target/effort": "Joint effort",
     "joint_target": "Joint target",
     "link_budget": "Radio link",
@@ -129,15 +132,24 @@ def check_label(quantity: str) -> str:
     if not words and parts[0] == "budgets":
         # "bud.mass-model" -> "mass": the budget's own word, so two totals read differently.
         kind = re.split(r"[.-]", parts[1].removeprefix("bud."))[0] if len(parts) > 1 else ""
-        return f"{CHECK_LABELS['budgets']} \u00b7 {kind}" if kind else CHECK_LABELS["budgets"]
+        return f"Total {kind} budget" if kind else CHECK_LABELS["budgets"]
     # Unmapped: still readable, still no underscores (the test lists every known path).
     last = (words[-1] if words else quantity.split("/")[-1]).replace("_", " ").replace("-", " ")
     text = " ".join(last.replace("|", "").split())
     return text[:1].upper() + text[1:] or "Check"
 
 
-ACRONYMS = {"imu", "esc", "gnss", "gps", "cpu", "can", "uart", "usb", "spi", "hbc"}
-_PART_NUMBER = re.compile(r"^[a-z]+-\d+-[a-z]", re.I)  # "icm-42688-p": one part number, keep its hyphens
+ACRONYMS = {"imu", "esc", "gnss", "gps", "cpu", "can", "uart", "usb", "spi", "hbc", "nx"}
+_MIXED_CASE = {
+    "dronecan": "DroneCAN",
+    "opencr": "OpenCR",
+    "here3": "Here3",
+    "anymal": "ANYmal",
+    "so101": "SO-101",
+}
+_PART_NUMBER = re.compile(
+    r"^[a-z]+-\d+-[a-z]", re.I
+)  # "icm-42688-p": one part number, keep its hyphens
 # ponytail: fixed list of the standard legged-robot convention (ANYmal); extend when another
 # convention shows up. Matched only on the upper-case token, as written in the id.
 LEG_CODES = {
@@ -145,6 +157,10 @@ LEG_CODES = {
     "RF": "right front",
     "LH": "left hind",
     "RH": "right hind",
+    "FL": "front left",
+    "FR": "front right",
+    "HL": "hind left",
+    "HR": "hind right",
     "HAA": "hip abduction",
     "HFE": "hip flexion",
     "KFE": "knee",
@@ -163,19 +179,35 @@ def human_name(identifier: str) -> str:
         if identifier.startswith(prefix):
             identifier = identifier[len(prefix) :]
     identifier = re.sub(r"(\d)([vV])\b", r"\1 V", identifier)
+    # "opencr-1-0" is version 1.0: a lone digit pair after a word; "~" keeps the dot through the split.
+    identifier = re.sub(r"(?<=[A-Za-z])[-_ ](\d)[-_ ](\d)$", r" \1~\2", identifier)
     words: list[str] = []
     for token in identifier.replace(".", " ").replace("_", " ").split():
         words += [token] if _PART_NUMBER.match(token) else token.split("-")
     words = [x for w in words for x in LEG_CODES.get(w, w).split() if w]
+    # Filler words of CAD/URDF naming: "freejoint", a trailing "link"/"BOX0", and a model tag
+    # ("so101 v1") that sits before that trailing word. Never empties the name.
+    words = [w for w in words if w.lower() != "freejoint"] or words
+    tail = len(words) > 1 and (
+        words[-1].lower() in ("link",)
+        or re.fullmatch(r"(box|sphere|cylinder|mesh|geom)\d+", words[-1], re.I)
+    )
+    if tail:
+        words.pop()
+        if len(words) > 2 and re.fullmatch(r"v\d+", words[-1], re.I):
+            del words[-2:]
     kept = [
         w
         for i, w in enumerate(words)
-        if not (w == words[-1] and i + 1 < len(words)) and not (len(w) >= 3 and i + 1 < len(words) and words[i + 1].startswith(w))
+        if not (w == words[-1] and i + 1 < len(words))
+        and not (len(w) >= 3 and i + 1 < len(words) and words[i + 1].startswith(w))
     ]
 
     def case(w: str) -> str:
         if w.lower() in ACRONYMS:
             return w.upper()
+        if w.lower() in _MIXED_CASE:
+            return _MIXED_CASE[w.lower()]
         m = re.match(r"([a-z]{6,})(\d+)$", w, re.I)
         if m:
             return f"{m[1].capitalize()} {m[2]}"
@@ -183,7 +215,14 @@ def human_name(identifier: str) -> str:
             return w.upper()
         return w.capitalize()
 
-    return " ".join(case(w) for w in kept) or identifier
+    return " ".join(case(w) for w in kept).replace("~", ".") or identifier
+
+
+def robot_title(name: str) -> str:
+    """The robot's name as the app titles it: "anymal" -> "ANYmal", "my arm" -> "My arm"."""
+    words = [_MIXED_CASE.get(w.lower(), w) for w in name.split()]
+    text = " ".join(words)
+    return text[:1].upper() + text[1:]
 
 
 _QUOTED = re.compile(r"'([^']+)'")
@@ -192,13 +231,20 @@ _QUOTED = re.compile(r"'([^']+)'")
 def instead_row(text: str, kind: str) -> dict[str, str]:
     """One short "Instead" row: a verb, the number, and the kind word. The quoted ids in the
     engine's sentence become part names, and "derived-by-<check>" becomes "derived"."""
-    m = re.match(r"move the device to rail '([^']+)', which has (.+) free$", text)
+    m = re.match(r"move '([^']+)' to rail '([^']+)' \((.+) free\); (.+)$", text)
     if m:
-        short = f"Move to {human_name(m[1])} rail, {m[2]} free"
+        w = re.match(
+            r"[\d.]+", m[3]
+        )  # whole watts; the trailing "clears the overload" clause is dropped
+        x = float(w[0]) if w else 0.0  # headroom is floored, never rounded up
+        free = (
+            (f"{math.floor(x)} W" if x >= 10 else f"{math.floor(x * 10) / 10:g} W") if w else m[3]
+        )
+        short = f"Move {' '.join(human_name(m[1]).split()[:2])} to {re.sub(r' Motor$', '', human_name(m[2]))} rail · {free} free"
     else:
         m = re.match(r"add a (.+) regulator fed from rail '([^']+)'$", text)
         if m:
-            short = f"Add {m[1]} regulator"
+            short = f"Add {math.ceil(round(float(m[1].split()[0]) * 10, 6)) / 10:g} W regulator"  # capacity rounds up
         elif text.startswith("no other rail has headroom"):
             short = "No other rail has room"
         else:
@@ -281,7 +327,9 @@ _VALUE_NAMES: dict[tuple[str, ...], str] = {
     ("radio", "air_rate"): "Radio data rate",
     ("runtime", "max_wall_time"): "Longest run time",
     ("physical", "mass"): "Device mass",
-    ("mass",): "Model mass",  # a model link's own mass; the device on the same part says "Device mass"
+    (
+        "mass",
+    ): "Model mass",  # a model link's own mass; the device on the same part says "Device mass"
     ("physical", "mount_xyz"): "Mount position",
     ("power", "draw"): "Power draw",
     ("thermal", "resistance"): "Heat resistance",
@@ -292,7 +340,7 @@ _VALUE_NAMES: dict[tuple[str, ...], str] = {
 
 
 def value_name(parts: tuple[str, ...]) -> str:
-    """"input_voltage_range/min" -> "Lowest voltage"; anything unmapped is just capitalised words."""
+    """ "input_voltage_range/min" -> "Lowest voltage"; anything unmapped is just capitalised words."""
     for n in (2, 1):
         if (hit := _VALUE_NAMES.get(parts[-n:])) is not None and len(parts) >= n:
             return hit

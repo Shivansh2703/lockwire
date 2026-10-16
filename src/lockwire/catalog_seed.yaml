@@ -48,17 +48,19 @@ parts:
       source: NVIDIA Jetson Orin Nano module datasheet + NVIDIA power-mode docs, 25
         W power mode; locked 2026-07-26
     input_voltage_min:
-      value: 5
+      value: 4.75
       unit: V
       kind: datasheet
-      source: NVIDIA Jetson Orin Nano module datasheet — VDD_IN pin rating, locked
-        2026-07-26
+      source: NVIDIA Jetson Orin NX series data sheet DS-10712-001 Table 5-1 (VDD_IN, MODULE_ID
+        low = legacy 5 V module), https://developer.nvidia.com/downloads/jetson-orin-nx-module-series-data-sheet;
+        the Orin Nano dev-kit carrier spec SP-11324-001 says VDD_IN is 5 V only; read 2026-10-15
     input_voltage_max:
-      value: 20
+      value: 5.25
       unit: V
       kind: datasheet
-      source: NVIDIA Jetson Orin Nano module datasheet — VDD_IN pin rating, locked
-        2026-07-26
+      source: NVIDIA Jetson Orin NX series data sheet DS-10712-001 Table 5-1 (VDD_IN, MODULE_ID
+        low = legacy 5 V module), https://developer.nvidia.com/downloads/jetson-orin-nx-module-series-data-sheet;
+        read 2026-10-15
   note: Module-only mass is UNKNOWN (the published 176 g dev-kit figure is a different
     product) and is not carried here.
 - id: x500.gnss.here3-plus
@@ -110,6 +112,21 @@ parts:
       kind: datasheet
       source: RFD900x datasheet v1.2, Power Requirements (60 mA standby x 5.2 V),
         fetched 2026-09-06
+    draw_max:
+      value: 5.2
+      unit: W
+      kind: datasheet
+      source: "RFD900x datasheet v1.2, Power Requirements: 1 A peak TX x 5.2 V (same arithmetic as draw_transmit); https://files.rfdesign.com.au/Files/documents/RFD900x%20DataSheet%20V1.2.pdf"
+    input_voltage_min:
+      value: 5
+      unit: V
+      kind: datasheet
+      source: "RFD900x datasheet v1.2, Power Requirements (+5 V min); https://files.rfdesign.com.au/Files/documents/RFD900x%20DataSheet%20V1.2.pdf"
+    input_voltage_max:
+      value: 5.5
+      unit: V
+      kind: datasheet
+      source: "RFD900x datasheet v1.2, Power Requirements (+5.5 V max, +6 V absolute max); https://files.rfdesign.com.au/Files/documents/RFD900x%20DataSheet%20V1.2.pdf"
   note: Default air rate 64 kbit/s, default serial 57600 bps per the same datasheet.
 - id: x500.camera.oak-d-lite
   family: fam.camera.stereo
@@ -543,3 +560,213 @@ parts:
       source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
         replace before use.
   note: Placeholder for higher-grade navigation than the MEMS IMUs above.
+- id: dynamixel.xl430-w250
+  family: fam.servo.smart
+  name: ROBOTIS Dynamixel XL430-W250 smart servo
+  numbers:
+    mass:
+      value: 57.2
+      unit: g
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Weight), read 2026-10-15"
+    input_voltage_min:
+      value: 6.5
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Input Voltage 6.5 ~ 12.0 V), read 2026-10-15"
+    input_voltage_max:
+      value: 12.0
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Input Voltage 6.5 ~ 12.0 V), read 2026-10-15"
+    draw_max:
+      value: 14.43
+      unit: W
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Stall Torque row: 1.3 A at 11.1 V, the recommended voltage); 1.3 A x 11.1 V = 14.43 W, read 2026-10-15"
+    draw_typical:
+      value: 0.577
+      unit: W
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Standby Current 52 mA); 52 mA x 11.1 V = 0.577 W, read 2026-10-15"
+  note: "draw_max is stall (wheel blocked) at the recommended 11.1 V; draw_typical is the standby current, not a running draw. Same numbers as the rover starter."
+- id: dynamixel.xm430-w350
+  family: fam.servo.smart
+  name: ROBOTIS Dynamixel XM430-W350 smart servo
+  numbers:
+    mass:
+      value: 82
+      unit: g
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/ (Weight), read 2026-10-15"
+    input_voltage_min:
+      value: 10.0
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/ (Input Voltage 10.0 ~ 14.8 V), read 2026-10-15"
+    input_voltage_max:
+      value: 14.8
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/ (Input Voltage 10.0 ~ 14.8 V), read 2026-10-15"
+    draw_max:
+      value: 27.6
+      unit: W
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/ (Stall Torque row: 2.3 A at 12.0 V, the recommended voltage); 2.3 A x 12.0 V = 27.6 W, read 2026-10-15"
+    draw_typical:
+      value: 0.48
+      unit: W
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/ (Standby Current 40 mA); 40 mA x 12.0 V = 0.48 W, read 2026-10-15"
+  note: "draw_max is stall at the recommended 12.0 V; draw_typical is the standby current, not a running draw."
+- id: dynamixel.xc330-t288
+  family: fam.servo.smart
+  name: ROBOTIS Dynamixel XC330-T288 smart servo
+  numbers:
+    mass:
+      value: 23
+      unit: g
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/ (Weight), read 2026-10-15"
+    input_voltage_min:
+      value: 6.5
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/ (Input Voltage 6.5 ~ 12.0 V), read 2026-10-15"
+    input_voltage_max:
+      value: 12.0
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/ (Input Voltage 6.5 ~ 12.0 V), read 2026-10-15"
+    draw_max:
+      value: 8.88
+      unit: W
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/ (Stall Torque row: 0.8 A at 11.1 V, the recommended voltage); 0.8 A x 11.1 V = 8.88 W, read 2026-10-15"
+    draw_typical:
+      value: 0.189
+      unit: W
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/ (Standby Current 17 mA); 17 mA x 11.1 V = 0.189 W, read 2026-10-15"
+  note: "draw_max is stall at the recommended 11.1 V; draw_typical is the standby current, not a running draw. Page lists the XC330-T288 and -M288 variants together; the T288 row is used."
+- id: robotis.lds-02
+  family: fam.lidar.scanning
+  name: ROBOTIS LDS-02 2D lidar
+  numbers:
+    mass:
+      value: 131
+      unit: g
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/appendix_lds_02/ (Weight), read 2026-10-15"
+    input_voltage_min:
+      value: 4.5
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/appendix_lds_02/ (Operating supply voltage 5 V DC +/-10%), read 2026-10-15"
+    input_voltage_max:
+      value: 5.5
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/appendix_lds_02/ (Operating supply voltage 5 V DC +/-10%), read 2026-10-15"
+    draw_max:
+      value: 2.0
+      unit: W
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/appendix_lds_02/ (start-up current 400 mA); 0.4 A x 5 V = 2 W, read 2026-10-15"
+    draw_typical:
+      value: 1.2
+      unit: W
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/appendix_lds_02/ (current consumption 240 mA); 0.24 A x 5 V = 1.2 W, read 2026-10-15"
+  note: "Same numbers as the rover starter."
+- id: nvidia.jetson-nano-devkit
+  family: fam.companion.sbc
+  name: NVIDIA Jetson Nano Developer Kit
+  numbers:
+    input_voltage_min:
+      value: 4.75
+      unit: V
+      kind: datasheet
+      source: "Jetson Nano Developer Kit User Guide DA_09402_003 (module requires a minimum of 4.75 V), https://developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf, read 2026-10-15"
+    input_voltage_max:
+      value: 5.25
+      unit: V
+      kind: datasheet
+      source: "Jetson Nano Developer Kit User Guide DA_09402_003: no maximum is published; 5.25 V is the output of the NVIDIA-validated supply it names, https://developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf, read 2026-10-15"
+    draw_max:
+      value: 11.25
+      unit: W
+      kind: datasheet
+      source: "Jetson Nano Developer Kit User Guide DA_09402_003: default module budget 10 W + carrier board 1.25 W at 4 A = 11.25 W, no peripherals; https://developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf, read 2026-10-15"
+  note: "Power-mode budgets, not a measured draw; peripherals add to it. The 5.25 V upper bound is the validated supply's output, not a published limit. Same numbers as the rover starter."
+- id: nvidia.jetson-orin-nano-devkit
+  family: fam.companion.sbc
+  name: NVIDIA Jetson Orin Nano Developer Kit
+  numbers:
+    input_voltage_min:
+      value: 9
+      unit: V
+      kind: datasheet
+      source: "Jetson Orin Nano Developer Kit carrier board specification SP-11324-001 (DC Jack: 9-20 V), https://developer.nvidia.com/downloads/assets/embedded/secure/jetson/orin_nano/docs/jetson_orin_nano_devkit_carrier_board_specification_sp.pdf, read 2026-10-15"
+    input_voltage_max:
+      value: 20
+      unit: V
+      kind: datasheet
+      source: "Jetson Orin Nano Developer Kit carrier board specification SP-11324-001 (DC Jack: 9-20 V), https://developer.nvidia.com/downloads/assets/embedded/secure/jetson/orin_nano/docs/jetson_orin_nano_devkit_carrier_board_specification_sp.pdf, read 2026-10-15"
+    draw_max:
+      value: 25
+      unit: W
+      kind: datasheet
+      source: "NVIDIA Jetson Linux developer guide r36.4.3, Orin Nano 8GB Super power budget 25 W, https://docs.nvidia.com/jetson/archives/r36.4.3/DeveloperGuide/SD/PlatformPowerAndPerformance/JetsonOrinNanoSeriesJetsonOrinNxSeriesAndJetsonAgxOrinSeries.html, read 2026-10-15"
+  note: "The 9-20 V is the dev kit's barrel jack; the carrier regulates it to 5 V for the module. 25 W is the module's power-mode budget; carrier board and peripherals are not included. 19 V adapter is supplied."
+- id: rpi.pi4b
+  family: fam.companion.sbc
+  name: Raspberry Pi 4 Model B
+  numbers:
+    nominal_voltage:
+      value: 5
+      unit: V
+      kind: datasheet
+      source: "Raspberry Pi 4 Model B datasheet 4.1 Power Requirements (5 V at 3 A), https://datasheets.raspberrypi.com/rpi4/raspberry-pi-4-datasheet.pdf, read 2026-10-15"
+    draw_max:
+      value: 6.4
+      unit: W
+      kind: datasheet
+      source: "Raspberry Pi 4B stress-test maximum 1.25 A (power table, bare board, HDMI monitor and USB keyboard/mouse, Ethernet); 1.25 A x 5.1 V = 6.375 W, rounded up to 6.4 W. Board current only; the 5 V / 3 A supply rating is not a draw and USB peripherals are extra; https://www.raspberrypi.com/documentation/computers/raspberry-pi.html, read 2026-10-15"
+  note: "No operating voltage range is published (absolute max 6.0 V), so the picker uses nominal 5 V +/-5%. Mass is not in the datasheet."
+- id: rpi.pi5
+  family: fam.companion.sbc
+  name: Raspberry Pi 5
+  numbers:
+    nominal_voltage:
+      value: 5
+      unit: V
+      kind: datasheet
+      source: "Raspberry Pi 5 product brief (5V/5A DC power via USB-C), https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-product-brief.pdf, read 2026-10-15"
+    draw_max:
+      value: 4.1
+      unit: W
+      kind: datasheet
+      source: "Raspberry Pi 5 typical bare-board active current 800 mA (power table; no stress maximum is published); 0.8 A x 5.1 V = 4.08 W, rounded up to 4.1 W. Typical active, not peak, so not a ceiling; USB peripherals are extra (up to 1.6 A with a 5 A supply); https://www.raspberrypi.com/documentation/computers/raspberry-pi.html, read 2026-10-15"
+  note: "No operating voltage range is published, so the picker uses nominal 5 V +/-5%. Mass is not in the product brief."
+- id: feetech.st3215
+  family: fam.servo.smart
+  name: Feetech ST3215 smart servo (12 V class)
+  numbers:
+    input_voltage_min:
+      value: 6
+      unit: V
+      kind: datasheet
+      source: "Waveshare ST3215 servo wiki, Specification (Input Voltage 6-12.6 V), https://www.waveshare.com/wiki/ST3215_Servo, read 2026-10-15"
+    input_voltage_max:
+      value: 12.6
+      unit: V
+      kind: datasheet
+      source: "Waveshare ST3215 servo wiki, Specification (Input Voltage 6-12.6 V), https://www.waveshare.com/wiki/ST3215_Servo, read 2026-10-15"
+    stall_current:
+      value: 2.7
+      unit: A
+      kind: datasheet
+      source: "Waveshare ST3215 servo wiki, Specification (Locked-rotor Current 2.7 A), https://www.waveshare.com/wiki/ST3215_Servo, read 2026-10-15"
+  note: "Distributor page, not Feetech's own. The page does not say at what voltage the 2.7 A locked-rotor current is measured, so no draw_max (watts) is carried and the picker does not offer this part."

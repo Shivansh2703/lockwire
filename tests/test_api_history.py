@@ -116,7 +116,12 @@ def test_log_api_and_cli_follow_a_renamed_contract_and_keep_the_fact_diff(tmp_pa
 
     entries = api.log(new)
 
-    assert [entry["message"] for entry in entries] == ["capacity 13", "rename", "capacity 8", "capacity 1"]
+    assert [entry["message"] for entry in entries] == [
+        "capacity 13",
+        "rename",
+        "capacity 8",
+        "capacity 1",
+    ]
     assert entries[0]["fact_diff"]["changes"] == [
         {
             "path": "topology/rails/rail.5v/capacity/value",
@@ -248,11 +253,14 @@ def test_blame_public_transport_preserves_rows_across_rename_and_unrelated_edit(
     monkeypatch.chdir(repo)
 
     expected = rows(new)
-    assert next(row for row in expected[0] if row["witness"] == "human-w1")[
-        "last_changing_commit"
-    ] == witness
+    assert (
+        next(row for row in expected[0] if row["witness"] == "human-w1")["last_changing_commit"]
+        == witness
+    )
     assert api.blame(new) == expected
-    assert BlamePayload.model_validate(api.blame(new)[0]).model_dump(exclude_unset=True) == expected[0]
+    assert (
+        BlamePayload.model_validate(api.blame(new)[0]).model_dump(exclude_unset=True) == expected[0]
+    )
 
     json_result = runner.invoke(app, ["blame", str(new), "--json"])
     assert json_result.exit_code == 0, json_result.output
@@ -299,8 +307,9 @@ def test_follow_is_single_path_full_history_only_and_retains_rename_attribution(
     assert next(row for row in actual if row["witness"] == "w1")["last_changing_commit"] == witness
 
 
-@pytest.mark.parametrize("field,value", [("source", 123), ("witness", None),
-                                        ("value", []), ("invented", "metadata")])
+@pytest.mark.parametrize(
+    "field,value", [("source", 123), ("witness", None), ("value", []), ("invented", "metadata")]
+)
 def test_blame_carrier_rejects_malformed_actual_rows(tmp_path, monkeypatch, field, value):
     repo = _repo(tmp_path)
     monkeypatch.chdir(repo)

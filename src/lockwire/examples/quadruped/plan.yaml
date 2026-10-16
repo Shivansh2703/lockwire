@@ -1,0 +1,5 @@
+# Example plan for the Solo-12 starter: an agent about to command a jump from one knee.
+steps:
+  - kind: set_power_mode
+    device: dev.motor.front-left-knee
+    mode: jump

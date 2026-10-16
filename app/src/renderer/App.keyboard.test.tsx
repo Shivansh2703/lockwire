@@ -105,7 +105,7 @@ describe("E2.3 -- each face's primary control is reachable and Enter-operable", 
     }} />));
     const details = container.querySelector(".reference-drawer details") as HTMLDetailsElement;
     expect(details.querySelector("summary")!.textContent).toBe("Frame"); // a native <summary> is keyboard-reachable
-    expect(details.open).toBe(false);
+    expect(details.open).toBe(true); // the first drawer opens by default (Docs r8)
   });
 
   // The Shell's theme toggle is the one always-present, self-contained control, so it stands in as the primary one.

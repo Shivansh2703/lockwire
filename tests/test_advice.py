@@ -26,12 +26,15 @@ robot:
 topology:
   rails:
     - id: rail.over
+      voltage: {value: 5, unit: V}
       capacity: {value: 10, unit: W}
       upstream: battery
     - id: rail.free
-      capacity: {value: 10, unit: W}
+      voltage: {value: 5, unit: V}
+      capacity: {value: 20, unit: W}
       upstream: battery
     - id: rail.unknown
+      voltage: {value: 5, unit: V}
       capacity: {value: 10, unit: W}
       upstream: battery
   battery:
@@ -58,7 +61,7 @@ budgets:
   - id: bud.free
     kind: rail_power
     rail: rail.free
-    limit: {value: 5, unit: W}
+    limit: {value: 12, unit: W}
     owner: shivansh
   - id: bud.unknown
     kind: rail_power
@@ -70,8 +73,8 @@ budgets:
 
 @pytest.fixture
 def over_budget_contract(tmp_path: Path) -> Contract:
-    """rail.over draws 8 W against a 5 W limit; rail.free has 3 W headroom
-    against its own 5 W limit; rail.unknown carries an undeclared draw, so it
+    """rail.over draws 8 W against a 5 W limit; rail.free has 10 W headroom
+    against its own 12 W limit; rail.unknown carries an undeclared draw, so it
     must never be offered as an alternative."""
     path = tmp_path / "contract_rail_over_budget.yaml"
     path.write_text(_CONTRACT_YAML)
@@ -94,6 +97,20 @@ def test_every_alternative_number_carries_its_kind(over_budget_contract: Contrac
     kinds = {alt.kind for alt in finding.alternatives}
     assert "derived-by-check_budgets" in kinds
     assert "projected" in kinds
+
+
+def test_a_move_names_the_load_and_how_much_it_relieves(over_budget_contract: Contract) -> None:
+    (move,) = [a for a in _rail_finding(over_budget_contract).alternatives if a.kind != "projected"]
+    assert move.text == "move 'dev.over' to rail 'rail.free' (10.00 W free); clears the overload"
+    assert (move.rail, move.device) == ("rail.free", "dev.over")  # typed, never parsed from text
+    (partial, _) = build_rail_alternatives(
+        over_budget_contract,
+        over_rail_id="rail.over",
+        deficit_w=20.0,
+        rail_totals={"rail.free": 2.0},
+        rail_unknown={},
+    )
+    assert partial.text.endswith("; frees 8.00 W of the 20.00 W over")
 
 
 def test_a_suggested_rating_is_marked_projected(over_budget_contract: Contract) -> None:
@@ -156,3 +173,17 @@ budgets:
     assert alternatives, "an empty list silently offers nothing"
     assert all(isinstance(a, Alternative) for a in alternatives)
     assert alternatives[0].kind == "none"
+
+
+def test_rails_for_voltage_never_returns_a_rail_outside_the_range(
+    over_budget_contract: Contract,
+) -> None:
+    from lockwire.advice import input_range, rails_for_voltage
+
+    assert {r.id for r in rails_for_voltage(over_budget_contract, 4.75, 5.25)} == {
+        "rail.over",
+        "rail.free",
+        "rail.unknown",
+    }
+    assert rails_for_voltage(over_budget_contract, 11.0, 13.0) == []  # a 12 V part: no 5 V rail
+    assert input_range(None, None, None) is None  # no voltage -> never guessed

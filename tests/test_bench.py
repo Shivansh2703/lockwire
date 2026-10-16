@@ -93,7 +93,9 @@ def test_seeded_detection_hole_raises_missed_count_and_exits_nonzero():
         # Seed a real detection hole on one named violating case: score it as
         # if it passed, exactly the shape a broken/regressed check produces.
         if getattr(step, "rail", None) == "rail.pm02-5v" and step.draw.value == 0.1:
-            return PlanReport([], [AssertionOutcome(path="plan/steps/0/rail_load/draw", status="PASS")])
+            return PlanReport(
+                [], [AssertionOutcome(path="plan/steps/0/rail_load/draw", status="PASS")]
+            )
         return validate_plan(c, plan)
 
     result, _sink = run_bench(contract, cases, evaluator=hole_evaluator)

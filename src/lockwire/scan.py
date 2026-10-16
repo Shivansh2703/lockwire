@@ -194,24 +194,41 @@ def ssh_runner(
         if "ros2" in command:
             inner = f"source /opt/ros/{ros_distro}/setup.bash && {inner}"
         argv = (
-            "ssh", "-T", "-p", str(port), "-i", str(identity_file),
-            "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=yes",
-            "-o", f"UserKnownHostsFile={known_hosts}",
-            "-o", "GlobalKnownHostsFile=/dev/null",
-            "-o", f"ConnectTimeout={max(1, int(timeout))}",
-            "--", f"{user}@{host}", cli_line("bash", "-lc", inner),
+            "ssh",
+            "-T",
+            "-p",
+            str(port),
+            "-i",
+            str(identity_file),
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            f"UserKnownHostsFile={known_hosts}",
+            "-o",
+            "GlobalKnownHostsFile=/dev/null",
+            "-o",
+            f"ConnectTimeout={max(1, int(timeout))}",
+            "--",
+            f"{user}@{host}",
+            cli_line("bash", "-lc", inner),
         )
         try:
             completed = subprocess.run(
                 argv, check=False, capture_output=True, text=True, timeout=timeout
             )
         except FileNotFoundError as error:
-            return CommandResult(127, stderr=_ssh_error_detail(str(error), identity_file, known_hosts))
+            return CommandResult(
+                127, stderr=_ssh_error_detail(str(error), identity_file, known_hosts)
+            )
         except (OSError, subprocess.TimeoutExpired) as error:
-            return CommandResult(1, stderr=_ssh_error_detail(str(error), identity_file, known_hosts))
+            return CommandResult(
+                1, stderr=_ssh_error_detail(str(error), identity_file, known_hosts)
+            )
         return CommandResult(
-            completed.returncode, completed.stdout,
+            completed.returncode,
+            completed.stdout,
             _ssh_error_detail(completed.stderr, identity_file, known_hosts),
         )
 
@@ -229,9 +246,9 @@ def _is_live_capture_dir(remote_dir: str) -> bool:
 
 def _ssh_bag_manifest(runner: CommandRunner, remote_dir: str) -> dict[str, tuple[str, int]]:
     """Read the finalized bag identity from the verified SSH target."""
-    entries = runner((
-        "find", remote_dir, "-mindepth", "1", "-maxdepth", "1", "-printf", "%f\t%y\n"
-    ))
+    entries = runner(
+        ("find", remote_dir, "-mindepth", "1", "-maxdepth", "1", "-printf", "%f\t%y\n")
+    )
     if entries.returncode != 0:
         raise OSError(f"remote bag listing failed: {entries.stderr.strip()}")
     manifest: dict[str, tuple[str, int]] = {}
@@ -271,18 +288,33 @@ def ssh_fetch(
     if not _is_live_capture_dir(remote_dir):
         raise ValueError(f"invalid live capture directory {remote_dir!r}")
     runner = ssh_runner(
-        host, port=port, identity_file=identity_file, known_hosts=known_hosts,
-        user=user, timeout=timeout,
+        host,
+        port=port,
+        identity_file=identity_file,
+        known_hosts=known_hosts,
+        user=user,
+        timeout=timeout,
     )
     # The SSH host key anchors the expected source bytes before transfer.
     expected = _ssh_bag_manifest(runner, remote_dir)
     argv = (
-        "scp", "-q", "-r", "-P", str(port), "-i", str(identity_file),
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=yes",
-        "-o", f"UserKnownHostsFile={known_hosts}",
-        "-o", "GlobalKnownHostsFile=/dev/null",
-        f"{user}@{host}:{remote_dir}", str(local_dir),
+        "scp",
+        "-q",
+        "-r",
+        "-P",
+        str(port),
+        "-i",
+        str(identity_file),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        "-o",
+        "GlobalKnownHostsFile=/dev/null",
+        f"{user}@{host}:{remote_dir}",
+        str(local_dir),
     )
     try:
         completed = subprocess.run(
@@ -293,7 +325,10 @@ def ssh_fetch(
             f"scp fetch failed: {_ssh_error_detail(str(error), identity_file, known_hosts)}"
         ) from None
     if completed.returncode != 0:
-        detail = _ssh_error_detail(completed.stderr.strip(), identity_file, known_hosts) or f"scp exited {completed.returncode}"
+        detail = (
+            _ssh_error_detail(completed.stderr.strip(), identity_file, known_hosts)
+            or f"scp exited {completed.returncode}"
+        )
         raise OSError(f"scp fetch {host}:{remote_dir}: {detail}")
     if _ssh_bag_manifest(runner, remote_dir) != expected:
         raise OSError("remote bag changed during SSH transfer")

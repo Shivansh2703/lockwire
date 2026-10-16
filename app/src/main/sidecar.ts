@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { app } from "electron";
 
 import { PRODUCT_NAME } from "../shared/branding";
+import { logDirectory } from "./log";
 
 const STARTUP_TIMEOUT_MS = 10_000;
 // built from the one branding constant rather than typed again, so the header
@@ -131,7 +132,10 @@ export function startSidecar(overrides: SidecarOverrides = {}): void {
 
   const proc = spawn(resolved.command, args, {
     stdio: ["pipe", "pipe", "pipe"],
-    env: overrides.env ?? process.env,
+    // --user-data-dir runs (e2e/capture) keep the sidecar's log out of the real ~/Library/Logs.
+    env: app?.commandLine?.hasSwitch("user-data-dir")
+      ? { ...(overrides.env ?? process.env), LOCKWIRE_LOG_DIR: logDirectory() }
+      : (overrides.env ?? process.env),
   });
   child = proc;
   proc.stdin.on("error", () => {}); // EPIPE if the child exits before we ever write

@@ -315,9 +315,24 @@ class MountShapeArgs(_StrictArgs):
 class StartArgs(_StrictArgs):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    urdf: str
+    urdf: str | None = None
     overwrite: bool = False
     expected_revision: str | None = None
+    #: A bundled example (e.g. "servo-bench") written to ``out`` instead of starting from ``urdf``.
+    example: str | None = None
+    #: A contract holding only the robot's name, written to ``out``.
+    blank: bool = False
+    out: str | None = None
+
+
+class StartersArgs(_StrictArgs):
+    pass
+
+
+class StartersCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["starters"] = "starters"
+    args: StartersArgs = Field(default_factory=StartersArgs)
 
 
 class StartCommand(BaseModel):
@@ -379,8 +394,6 @@ class DeclareFormCommand(BaseModel):
 class ReportCommand(BaseModel):
     command: Literal["report"] = "report"
     args: ReportArgs
-
-
 
 
 class PageCommand(BaseModel):
@@ -472,10 +485,9 @@ def _cached_scene(contract_path: Path) -> tuple[Any, str | None]:
     if scene_path is None:
         return None, None
     loaded_contract = load_contract(contract_path)
-    external_assets = api._selected_external_meshes(
-        loaded_contract, contract_path, scene_path
-    )
+    external_assets = api._selected_external_meshes(loaded_contract, contract_path, scene_path)
     from hashlib import sha256
+
     digest = sha256(scene_path.read_bytes()).hexdigest()
     key = (str(scene_path.resolve()), digest)
     # An external mesh can change without changing the selected root's digest.
@@ -518,8 +530,12 @@ def _handle_check(command: CheckCommand) -> RunReply:
         scene, scene_source = _cached_scene(Path(args.contract))
         loaded_contract = load_contract(Path(args.contract))
         from lockwire.scene_view import scene_asset_identity
-        identity = (scene_asset_identity(loaded_contract, scene, Path(args.contract))
-                    if scene is not None else {})
+
+        identity = (
+            scene_asset_identity(loaded_contract, scene, Path(args.contract))
+            if scene is not None
+            else {}
+        )
     except (*_LOAD_ERRORS, SceneRefusal) as error:
         return _refusal(cli_line, 1, _no_contract(Path(args.contract)) or str(error))
     if scene is not None:
@@ -921,8 +937,37 @@ def _handle_mount_shape(args: MountShapeArgs) -> RunReply:
     )
 
 
+def _handle_starters(args: StartersArgs) -> RunReply:
+    from lockwire.start_operation import starters
+
+    return _ok("lockwire starters", exit_code=0, verdict=None, payload={"starters": starters()})
+
+
 def _handle_start(args: StartArgs) -> RunReply:
-    cli_line = f"lockwire start {args.urdf} --out {Path(args.urdf).resolve().parent / 'lockwire.yaml'}"
+    if args.blank:
+        from lockwire.start_operation import start_blank
+
+        cli_line = f"lockwire start --blank --out {args.out}"
+        if args.out is None or args.example is not None or args.urdf is not None:
+            return _refusal(cli_line, 2, "a blank robot needs an out path and nothing else")
+        return _ok(cli_line, exit_code=0, verdict=None, payload=start_blank(args.out))
+    if args.example is not None:
+        from lockwire.start_operation import start_example
+
+        cli_line = f"lockwire start --example {args.example} --out {args.out}"
+        if args.out is None:
+            return _refusal(cli_line, 2, "an example needs an out path")
+        try:
+            return _ok(
+                cli_line, exit_code=0, verdict=None, payload=start_example(args.example, args.out)
+            )
+        except _LOAD_ERRORS as error:
+            return _refusal(cli_line, 2, str(error))
+    if args.urdf is None:
+        return _refusal("lockwire start", 2, "give a model (urdf) or an example")
+    cli_line = (
+        f"lockwire start {args.urdf} --out {Path(args.urdf).resolve().parent / 'lockwire.yaml'}"
+    )
     try:
         result = api.start(
             args.urdf, overwrite=args.overwrite, expected_revision=args.expected_revision
@@ -934,6 +979,7 @@ def _handle_start(args: StartArgs) -> RunReply:
 
 _FREE_COMMANDS = {
     "start": plugins.ServeCommand(_handle_start, StartArgs, StartCommand),
+    "starters": plugins.ServeCommand(_handle_starters, StartersArgs, StartersCommand),
     "check": plugins.ServeCommand(_handle_check, CheckArgs, CheckCommand),
     "what-if": plugins.ServeCommand(_handle_what_if, WhatIfArgs, WhatIfCommand),
     "plan": plugins.ServeCommand(_handle_plan, PlanArgs, PlanCommand),
@@ -965,11 +1011,24 @@ def request_type(table: dict[str, plugins.ServeCommand] | None = None) -> Any:
     """The `/v1/run` body: a discriminated union of the table's command models, built
     when the app is, so a plugin's commands are in it and nothing else is."""
     table = commands() if table is None else table
-    return Annotated[Union[tuple(c.command for c in table.values())], Field(discriminator="command")]
+    return Annotated[
+        Union[tuple(c.command for c in table.values())], Field(discriminator="command")
+    ]
 
 
 _REVISION_GUARDED_COMMANDS = frozenset(
-    {"declare", "add", "review", "commit", "undo", "place", "move", "rotate", "reparent", "mount-shape"}
+    {
+        "declare",
+        "add",
+        "review",
+        "commit",
+        "undo",
+        "place",
+        "move",
+        "rotate",
+        "reparent",
+        "mount-shape",
+    }
 )
 
 

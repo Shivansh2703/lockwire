@@ -1,19 +1,31 @@
 import { useState, type ReactNode } from "react";
 
 import type { Finding, ReferenceFace as ReferenceFacePayload } from "../shared/api.gen";
-import { CommandLine, Disclosure, Field, FindingDetail, StatusPill } from "./kit";
+import { tidyNumbers } from "./kit/format";
+import { linkTo } from "./FindingList";
+import { insteadJump, type Jump, type OnJump } from "./jump";
+import { CommandLine, Disclosure, Field, FindingDetail, Jumper, StatusPill } from "./kit";
 
 export interface ReferenceFaceProps {
   payload: ReferenceFacePayload;
   selectedPlanFinding?: Finding | null;
+  /** Names the robot knows (part ids, group labels): a sheet cell holding one selects it. */
+  names?: Set<string>;
+  onJump?: OnJump;
 }
+
+/** A sheet's word that names a part, rail or device acts: it lights that thing on the robot. */
+type Named = { names?: Set<string>; onJump?: OnJump };
+const named = (text: string, { names, onJump }: Named, node: ReactNode): ReactNode =>
+  onJump && names?.has(text) && onJump.can({ name: text }) ? <Jumper label={`Show ${text}`} onClick={() => onJump({ name: text })}>{node}</Jumper> : node;
 
 type Row = { label: string; value: string };
 type Block =
   | { t: "h"; n: number; text: string }
   | { t: "p"; text: string }
   | { t: "table"; head: string[]; rows: string[][] }
-  | { t: "kv"; rows: Row[] };
+  | { t: "kv"; rows: Row[] }
+  | { t: "tree"; rows: { depth: number; text: string }[] };
 
 const cells = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
 
@@ -23,13 +35,19 @@ export function parseSheet(text: string): Block[] {
   const out: Block[] = [];
   const lines = text.split("\n");
   let parent = "";
+  let heading = "";
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     const last = out[out.length - 1];
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
     const li = /^(\s*)- (.*)$/.exec(line);
     if (!line.trim()) { parent = ""; continue; }
-    if (h) out.push({ t: "h", n: h[1]!.length, text: h[2]! });
+    if (h) { heading = h[2]!; out.push({ t: "h", n: h[1]!.length, text: heading }); }
+    else if (heading === "Power tree") {
+      // Battery, then rail, then load: depth is the engine's own two-space indent.
+      const row = { depth: (/^ */.exec(line)![0].length) / 2, text: line.trim().replace(/^- /, "") };
+      if (last?.t === "tree") last.rows.push(row); else out.push({ t: "tree", rows: [row] });
+    }
     else if (line.trim().startsWith("|")) {
       const head = cells(line);
       const rows: string[][] = [];
@@ -66,19 +84,42 @@ const EMPTY = new Set(["-", "—", ""]);
 
 // "NOT SCORED — reason" -> a pill; the reason stays in the tooltip and for screen readers.
 const NOT_SCORED = /^NOT SCORED\s*[—-]\s*([\s\S]*)$/;
-function Val({ text }: { text: string }): ReactNode {
+function Val({ text, why }: { text: string; why?: boolean }): ReactNode {
+  text = tidyNumbers(text);
   const m = NOT_SCORED.exec(text);
-  return m ? <span title={m[1]}><StatusPill status="muted">Not scored</StatusPill><span className="kit-sr"> {m[1]}</span></span> : text;
+  return m ? <span title={m[1]}><StatusPill status="muted">Not scored</StatusPill><span className={why && !/Engineer report/.test(m[1]!) ? "reference-why" : "kit-sr"}> {m[1]}</span></span> : text;
 }
 
-export function Sheet({ text }: { text: string }) {
+type TreeRow = { depth: number; text: string };
+// A branch whose direct children are all leaves and number more than 6 start folded (the humanoid's 12 servos per rail).
+const FOLD = 6;
+function Tree({ rows, nm }: { rows: TreeRow[]; nm: Named }) {
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const kids = (i: number) => { const out: number[] = []; for (let j = i + 1; j < rows.length && rows[j]!.depth > rows[i]!.depth; j++) out.push(j); return out; };
+  const foldable = (i: number) => { const k = kids(i); return k.length > FOLD && k.every((j) => rows[j]!.depth === rows[i]!.depth + 1 && kids(j).length === 0); };
+  const shown: ReactNode[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const at = i, r = rows[i]!, text = tidyNumbers(r.text), fold = foldable(i);
+    shown.push(
+      <li key={i} style={{ paddingLeft: r.depth * 16 }}>
+        {named(text, nm, text)}
+        {fold && <button type="button" className="reference-tree-fold" aria-expanded={open.has(at)} onClick={() => setOpen((o) => { const n = new Set(o); if (!n.delete(at)) n.add(at); return n; })}>{open.has(at) ? "Hide" : `Show ${kids(i).length} more`}</button>}
+      </li>,
+    );
+    if (fold && !open.has(at)) i += kids(i).length;
+  }
+  return <ul className="reference-tree">{shown}</ul>;
+}
+
+export function Sheet({ text, ...nm }: { text: string } & Named) {
   return (
     <div className="reference-sheet">
       {parseSheet(text).map((b, i): ReactNode => {
-        if (b.t === "h") return <h4 key={i} className="reference-sheet-h" data-level={b.n}>{b.text}</h4>;
+        if (b.t === "h") return <h4 key={i} className="reference-sheet-h" data-level={b.n}>{tidyNumbers(b.text)}</h4>;
         if (b.t === "p") return <p key={i} className="reference-sheet-p"><Val text={b.text} /></p>;
+        if (b.t === "tree") return <Tree key={i} rows={b.rows} nm={nm} />;
         if (b.t === "kv") {
-          const rows = b.rows.map((r) => ({ label: r.label, value: <span className="reference-sheet-v"><Val text={r.value} /></span> }));
+          const rows = b.rows.map((r) => ({ label: r.label, value: <span className="reference-sheet-v">{named(tidyNumbers(r.value), nm, <Val text={r.value} why />)}</span> }));
           const shown = rows.filter((_, n) => !BOOKKEEPING.has(b.rows[n]!.label));
           return shown.length > 0 ? <FindingDetail key={i} rows={shown} /> : null;
         }
@@ -87,7 +128,7 @@ export function Sheet({ text }: { text: string }) {
           <div key={i} className="reference-table-wrap" tabIndex={0} role="region" aria-label="Table">
             <table className="reference-sheet-table">
               <thead><tr>{b.head.map((c, j) => keep[j] && <th key={j}>{humanHeader(c)}</th>)}</tr></thead>
-              <tbody>{b.rows.map((r, j) => <tr key={j}>{r.map((c, k) => keep[k] && <td key={k} title={c}><Val text={c} /></td>)}</tr>)}</tbody>
+              <tbody>{b.rows.map((r, j) => <tr key={j}>{r.map((c, k) => keep[k] && <td key={k} title={tidyNumbers(c)}>{named(tidyNumbers(c), nm, <Val text={c} />)}</td>)}</tr>)}</tbody>
             </table>
           </div>
         );
@@ -99,26 +140,31 @@ export function Sheet({ text }: { text: string }) {
 const middle = (s: string, max = 44) => (s.length <= max ? s : `${s.slice(0, 20)}…${s.slice(-(max - 21))}`);
 
 /** Reference shows static material plus the explicitly selected served-plan evidence. */
-export function ReferenceFace({ payload, selectedPlanFinding: f = null }: ReferenceFaceProps) {
+export function ReferenceFace({ payload, selectedPlanFinding: f = null, names, onJump }: ReferenceFaceProps) {
   const [q, setQ] = useState("");
-  const devices = payload.devices.filter((d) => d.id.toLowerCase().includes(q.trim().toLowerCase()));
+  const nm = { names, onJump };
+  // The plan finding's quantity, numbers and fix open its Declare row; source and witness its review.
+  const to = (label: string, node: ReactNode, jump: Jump) => linkTo(onJump, label, node, jump);
+  const at = f ? `Go to ${f.quantity}` : "";
+  const own = { path: f?.quantity }, review = { path: f?.quantity, review: true };
+  const devices = payload.devices.filter((d) => d.name.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <section className="reference-face" aria-label="Docs">
       {f !== null && (
         <section className="reference-plan-finding" aria-label="Selected plan finding">
           <FindingDetail
             rows={[
-              { label: "Quantity", value: <code>{f.quantity}</code> },
+              { label: "Quantity", value: to(at, <code>{f.quantity}</code>, own) },
               { label: "Severity", value: <span className="reference-plan-finding-severity" data-severity={f.severity}>{f.severity}</span> },
-              { label: "Observed", value: <span className="reference-plan-finding-observed">{f.observed}</span> },
-              { label: "Expected", value: <span className="reference-plan-finding-expected">{f.expected}</span> },
-              { label: "Fix", value: <span className="reference-plan-finding-action">{f.action}</span> },
-              { label: "Source", value: f.source ?? "source unknown" },
-              { label: "Witness", value: f.witness ?? "witness unknown" },
+              { label: "Observed", value: to(at, <span className="reference-plan-finding-observed">{f.observed}</span>, own) },
+              { label: "Expected", value: to(at, <span className="reference-plan-finding-expected">{f.expected}</span>, own) },
+              { label: "Fix", value: to(at, <span className="reference-plan-finding-action">{f.action}</span>, own) },
+              { label: "Source", value: to(`Go to the review of ${f.quantity}`, f.source ?? "source unknown", review) },
+              { label: "Witness", value: to(`Go to the review of ${f.quantity}`, f.witness ?? "witness unknown", review) },
               { label: "Locked", value: <span className="reference-plan-finding-locked-at">{f.locked_at ?? "date unknown"}</span> },
               ...((f.alternatives ?? []).length ? [{
                 label: "Instead",
-                value: <ul>{(f.alternatives ?? []).map((a, i) => <li key={i} data-kind={a.kind}>{a.text} ({a.kind})</li>)}</ul>,
+                value: <ul>{(f.alternatives ?? []).map((a, i) => <li key={i} data-kind={a.kind}>{to(`Show ${a.text}`, <>{a.text} ({a.kind})</>, insteadJump(a))}</li>)}</ul>,
               }] : []),
             ]}
           />
@@ -128,9 +174,9 @@ export function ReferenceFace({ payload, selectedPlanFinding: f = null }: Refere
         {payload.drawers.map((drawer, index) => (
           <div key={`${drawer.title}-${index}`} className="reference-drawer">
             {/* provenance is a tooltip: the sentence names where the sheet came from, not what it says */}
-            <Disclosure summary={<span title={drawer.provenance}>{drawer.title}</span>}>
-              <div className="reference-drawer-cli"><CommandLine command={drawer.cli_line} display={middle(drawer.cli_line)} /></div>
-              <div className="reference-drawer-content"><Sheet text={drawer.content} /></div>
+            <Disclosure open={index === 0} summary={<span title={drawer.provenance}>{drawer.title}</span>}>
+              {index > 0 && <div className="reference-drawer-cli"><CommandLine command={drawer.cli_line} display={middle(drawer.cli_line)} /></div>}
+              <div className="reference-drawer-content"><Sheet text={drawer.content} {...nm} /></div>
             </Disclosure>
           </div>
         ))}
@@ -143,7 +189,7 @@ export function ReferenceFace({ payload, selectedPlanFinding: f = null }: Refere
             <div className="reference-device-list">
               {devices.map((device) => (
                 <div key={device.id} className="reference-device">
-                  <Disclosure summary={device.id}><div className="reference-device-text"><Sheet text={device.text} /></div></Disclosure>
+                  <Disclosure summary={device.name} onOpen={onJump && (() => onJump({ name: device.id }))}><div className="reference-device-text"><Sheet text={device.text} {...nm} /></div></Disclosure>
                 </div>
               ))}
             </div>

@@ -35,16 +35,23 @@ def test_explicit_upgrade_writes_new_v04_without_changing_legacy_bytes(tmp_path)
     for version in ("0.2", "0.3"):
         source = tmp_path / f"legacy-{version}.yaml"
         original = (
-            f'# retained legacy comment\nschema_version: "{version}"\n'
-            "robot:\n  name: legacy\n"
+            f'# retained legacy comment\nschema_version: "{version}"\nrobot:\n  name: legacy\n'
         ).encode()
         source.write_bytes(original)
         output = tmp_path / f"upgraded-{version}.yaml"
         digest = hashlib.sha256(original).hexdigest()
 
-        result = runner.invoke(app, [
-            "upgrade", str(source), "--out", str(output), "--expected-revision", digest,
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "upgrade",
+                str(source),
+                "--out",
+                str(output),
+                "--expected-revision",
+                digest,
+            ],
+        )
 
         assert result.exit_code == 0, result.output
         assert source.read_bytes() == original
@@ -69,10 +76,17 @@ def test_explicit_upgrade_refuses_changed_source_and_occupied_targets(tmp_path):
         (source, output, digest, "exists"),
     )
     for selected_source, selected_output, selected_digest, refusal in attempts:
-        result = runner.invoke(app, [
-            "upgrade", str(selected_source), "--out", str(selected_output),
-            "--expected-revision", selected_digest,
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "upgrade",
+                str(selected_source),
+                "--out",
+                str(selected_output),
+                "--expected-revision",
+                selected_digest,
+            ],
+        )
         assert result.exit_code == 2, result.output
         assert refusal in plain(result.output)
         assert source.read_bytes() == original
@@ -90,10 +104,17 @@ def test_explicit_upgrade_refuses_nonlegacy_and_unsupported_content(tmp_path):
         original = (f'schema_version: "{version}"\nrobot: {{name: legacy}}\n' + extra).encode()
         source.write_bytes(original)
         output = tmp_path / f"output-{version}-{len(extra)}.yaml"
-        result = runner.invoke(app, [
-            "upgrade", str(source), "--out", str(output),
-            "--expected-revision", hashlib.sha256(original).hexdigest(),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "upgrade",
+                str(source),
+                "--out",
+                str(output),
+                "--expected-revision",
+                hashlib.sha256(original).hexdigest(),
+            ],
+        )
         assert result.exit_code == 2, result.output
         assert refusal in plain(result.output)
         assert source.read_bytes() == original
@@ -103,10 +124,17 @@ def test_explicit_upgrade_refuses_nonlegacy_and_unsupported_content(tmp_path):
     raw = b"robot: {name: ambiguous}\n"
     unversioned.write_bytes(raw)
     output = tmp_path / "unversioned-output.yaml"
-    result = runner.invoke(app, [
-        "upgrade", str(unversioned), "--out", str(output),
-        "--expected-revision", hashlib.sha256(raw).hexdigest(),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "upgrade",
+            str(unversioned),
+            "--out",
+            str(output),
+            "--expected-revision",
+            hashlib.sha256(raw).hexdigest(),
+        ],
+    )
     assert result.exit_code == 2, result.output
     assert "requires an explicit legacy schema_version" in plain(result.output)
     assert unversioned.read_bytes() == raw
@@ -913,15 +941,32 @@ def test_add_rail_cli(tmp_path):
 def test_gearbox_cli_writes_gearbox_template(tmp_path):
     contract_path = tmp_path / "contract.yaml"
     contract_path.write_bytes((FIXTURES / "armtree.yaml").read_bytes())
-    result = runner.invoke(app, [
-        "gearbox", str(contract_path), "--id", "gbx.shoulder", "--ratio", "4.0",
-        "--input-joint", "base_to_shoulder", "--output-joint", "shoulder_to_elbow",
-        "--source", "arm datasheet", "--witness", "Maya Chen",
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "gearbox",
+            str(contract_path),
+            "--id",
+            "gbx.shoulder",
+            "--ratio",
+            "4.0",
+            "--input-joint",
+            "base_to_shoulder",
+            "--output-joint",
+            "shoulder_to_elbow",
+            "--source",
+            "arm datasheet",
+            "--witness",
+            "Maya Chen",
+        ],
+    )
     assert result.exit_code == 0, result.output
     gearbox = YAML().load(contract_path.read_text())["gearboxes"][0]
     assert (gearbox["id"], gearbox["ratio"], gearbox["input_joint"], gearbox["output_joint"]) == (
-        "gbx.shoulder", 4.0, "base_to_shoulder", "shoulder_to_elbow"
+        "gbx.shoulder",
+        4.0,
+        "base_to_shoulder",
+        "shoulder_to_elbow",
     )
     assert gearbox["provenance"]["witness"] == "Maya Chen"
 
@@ -1092,9 +1137,10 @@ def test_add_prints_the_three_records_and_one_replayable_cli_line(tmp_path):
     assert argv[0] == "lockwire"
     replayed = runner.invoke(app, argv[1:])
     assert replayed.exit_code == 0, replayed.output
-    assert hashlib.sha256(contract_a.read_bytes()).hexdigest() == hashlib.sha256(
-        contract_b.read_bytes()
-    ).hexdigest()
+    assert (
+        hashlib.sha256(contract_a.read_bytes()).hexdigest()
+        == hashlib.sha256(contract_b.read_bytes()).hexdigest()
+    )
 
 
 def test_add_device_unknown_model_refused_exit_2(tmp_path):
@@ -1172,6 +1218,7 @@ def test_check_nothing_comparable_is_not_scored_exit_3():
 # faked, and the spec's claims are read off the frozen-binary spec as text. The one
 # thing neither can prove — that the built binary actually starts and answers — is the
 # box's manual accept line, run by hand and pasted into the report.
+
 
 def test_start_without_out_refuses_when_frozen(monkeypatch, tmp_path, testbot_urdf):
     """Same guard on `start`, whose --out names the lockfile it would create."""
@@ -1319,26 +1366,58 @@ def test_each_pose_command_prints_a_replayable_cli_line(tmp_path):
     b.write_bytes((FIXTURES / "armtree.yaml").read_bytes())
 
     invocations = [
-        ["move", str(a), "dev.gripper", "--offset", "0.010,0.000,0.025", "--unit", "m",
-         "--source", "notes/layout.md", "--witness", "Maya Chen",
-         "--locked-at", "2026-09-08"],
-        ["rotate", str(a), "wrist", "--rpy", "0,0,1.5708", "--unit", "rad",
-         "--source", "notes/layout.md", "--witness", "Maya Chen",
-         "--locked-at", "2026-09-08"],
-        ["reparent", str(a), "elbow", "--to", "base",
-         "--source", "notes/layout.md", "--witness", "Maya Chen",
-         "--locked-at", "2026-09-08"],
+        [
+            "move",
+            str(a),
+            "dev.gripper",
+            "--offset",
+            "0.010,0.000,0.025",
+            "--unit",
+            "m",
+            "--source",
+            "notes/layout.md",
+            "--witness",
+            "Maya Chen",
+            "--locked-at",
+            "2026-09-08",
+        ],
+        [
+            "rotate",
+            str(a),
+            "wrist",
+            "--rpy",
+            "0,0,1.5708",
+            "--unit",
+            "rad",
+            "--source",
+            "notes/layout.md",
+            "--witness",
+            "Maya Chen",
+            "--locked-at",
+            "2026-09-08",
+        ],
+        [
+            "reparent",
+            str(a),
+            "elbow",
+            "--to",
+            "base",
+            "--source",
+            "notes/layout.md",
+            "--witness",
+            "Maya Chen",
+            "--locked-at",
+            "2026-09-08",
+        ],
     ]
     replays = []
     for argv in invocations:
         result = runner.invoke(app, argv)
         assert result.exit_code == 0, result.output
         line = next(
-            ln
-            for ln in strip_ansi(result.output).splitlines()
-            if ln.startswith("ran: lockwire ")
+            ln for ln in strip_ansi(result.output).splitlines() if ln.startswith("ran: lockwire ")
         )
-        replays.append(shlex.split(line[len("ran: "):])[1:])
+        replays.append(shlex.split(line[len("ran: ") :])[1:])
 
     for argv in replays:
         assert argv[1] == str(a), argv
@@ -1374,10 +1453,90 @@ def test_each_pose_command_refuses_with_exit_2_and_writes_nothing(tmp_path):
 
     result = runner.invoke(
         app,
-        ["rotate", str(contract), "wrist", "--rpy", "0,0,1.5708",
-         "--source", "notes/layout.md", "--witness", "Maya Chen"],
+        [
+            "rotate",
+            str(contract),
+            "wrist",
+            "--rpy",
+            "0,0,1.5708",
+            "--source",
+            "notes/layout.md",
+            "--witness",
+            "Maya Chen",
+        ],
     )
     assert result.exit_code == 2, result.output
     assert "--unit is required" in plain(result.output).replace("\n", " "), result.output
 
     assert hashlib.sha256(contract.read_bytes()).hexdigest() == before
+
+
+def test_start_example_then_check_is_no_go(tmp_path, monkeypatch):
+    """Two commands from nothing to a first NO-GO: the shipped example lockfile."""
+    from typer.testing import CliRunner
+
+    import difflib
+
+    from lockwire.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(app, ["start", "--example", "servo-bench"]).exit_code == 0
+    checked = runner.invoke(app, ["check"])
+    assert checked.exit_code == 1  # bites losing the example or its violation
+    assert "NO-GO" in checked.output
+    # x500 carries its drone model beside the lockfile, and is the same lockfile as the fixture.
+    assert runner.invoke(app, ["start", "--example", "drone", "--out", "drone.yaml"]).exit_code == 0
+    assert (tmp_path / "drone.glb").stat().st_size > 100_000
+    fixture = (Path(__file__).parent / "fixtures/x500/contract.yaml").read_text()
+    from importlib.util import module_from_spec, spec_from_file_location
+
+    spec = spec_from_file_location(
+        "drone_scene", Path(__file__).parents[1] / "scripts/starters/drone_scene.py"
+    )
+    drone_scene = module_from_spec(spec)
+    spec.loader.exec_module(drone_scene)
+    renamed = "# Based on Holybro X500 V2 PX4 reference quadrotor.\n" + drone_scene.rename(
+        fixture
+    ).replace("name: Holybro X500 V2 PX4 reference quadrotor", "name: Drone", 1)
+    # only the archetype name, its header, mount frames and the descriptive ids (drone_scene.RENAMES) differ
+    added = [
+        d[2:].strip()
+        for d in difflib.ndiff(
+            renamed.splitlines(), (tmp_path / "drone.yaml").read_text().splitlines()
+        )
+        if d[:2] in ("+ ", "- ")
+    ]
+    assert set(added) <= {"physical:", "mount_frame: x500_frame"}, added
+    drone = runner.invoke(app, ["check", "drone.yaml"])
+    assert drone.exit_code == 1 and "NO-GO" in drone.output
+    bad = runner.invoke(app, ["start", "--example", "nope", "--out", "other.yaml"])
+    assert bad.exit_code == 1 and "servo-bench" in bad.output and "pi-servos" not in bad.output
+
+
+def test_fresh_start_summary_claims_no_comparison_and_stays_go(testbot_urdf, tmp_path):
+    """A fresh start stays GO with notes, but the scored line names the hash match."""
+    contract = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["start", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
+    result = runner.invoke(app, ["check", str(contract)])
+    out = plain(result.output)
+    assert result.exit_code == 0, out
+    line = next(x for x in strip_ansi(result.output).splitlines() if x.startswith("scored "))
+    assert "add up" not in line, line  # bites "scored 1: 0 add up, 0 do not" / "1 add up"
+    assert "1 model check" in line, line
+
+
+def test_old_example_names_still_work_but_are_never_listed(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+    from lockwire.start_operation import example_names
+
+    assert {"drone", "servo-bench"} <= set(example_names())
+    assert not {"x500", "pi-servos"} & set(example_names())
+    monkeypatch.chdir(tmp_path)
+    for old in ("x500", "pi-servos"):
+        assert (
+            CliRunner().invoke(app, ["start", "--example", old, "--out", f"{old}.yaml"]).exit_code
+            == 0
+        )

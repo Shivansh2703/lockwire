@@ -1,0 +1,476 @@
+# Quadruped starter: the Open Dynamic Robot Initiative's Solo-12, 12 actuators on one 24 V bench supply.
+# Based on Solo-12 (BSD-3-Clause, https://github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware;
+# 3D body from https://github.com/open-dynamic-robot-initiative/robot_properties_solo, see NOTICE).
+#
+# Deliberate real-world finding (ODRI maintainer, open_robot_actuator_hardware issue #42): a builder
+# sizes the supply from the average draw (3-5 A at 24 V) and buys the smaller listed lab supply, a
+# 20 A one. The maintainer: "all the motors will draw a high current at the same instance" on a jump,
+# the voltage sags, and below 8 V the motor-driver microcontrollers reset (ODRI used a 30 A supply).
+# `lockwire check` on this file ends NO-GO: 12 x 56.55 W = 678.6 W peak against 24 V x 20 A = 480 W.
+# NO-GO holds even on this lower bound.
+# The walking budget (96 W) passes; only the jump budget fails. Master board, micro-driver boards and
+# IMU draw are not published in the ODRI repos read, so they are left out (not guessed).
+schema_version: "0.2"
+robot:
+  name: Quadruped
+  id: solo-12
+model:
+  source: https://raw.githubusercontent.com/open-dynamic-robot-initiative/robot_properties_solo/2201f454f4caffa0cad307fa8cbd1d64dd844008/src/robot_properties_solo/resources/xacro/solo12.urdf.xacro
+  source_sha256: 4246b7a555735652db611446fea89efe707c86637da534839b1d5464b83c4fe3
+  structure_hash: 0caad19666484d6b36ed1e057ffcb81bd0c58e819fd1e7b97508f0bd7377c9f1
+  links:
+  - name: base_link
+    mass: {value: 1.25123725, unit: kg}
+    frame: base_link
+  - name: FL_SHOULDER
+    mass: {value: 0.14196048, unit: kg}
+    frame: FL_SHOULDER
+  - name: FL_UPPER_LEG
+    mass: {value: 0.14737324, unit: kg}
+    frame: FL_UPPER_LEG
+  - name: FL_LOWER_LEG
+    mass: {value: 0.02318294, unit: kg}
+    frame: FL_LOWER_LEG
+  - {name: FL_FOOT}
+  - name: FR_SHOULDER
+    mass: {value: 0.14196048, unit: kg}
+    frame: FR_SHOULDER
+  - name: FR_UPPER_LEG
+    mass: {value: 0.14737324, unit: kg}
+    frame: FR_UPPER_LEG
+  - name: FR_LOWER_LEG
+    mass: {value: 0.02318294, unit: kg}
+    frame: FR_LOWER_LEG
+  - {name: FR_FOOT}
+  - name: HL_SHOULDER
+    mass: {value: 0.14196048, unit: kg}
+    frame: HL_SHOULDER
+  - name: HL_UPPER_LEG
+    mass: {value: 0.14737324, unit: kg}
+    frame: HL_UPPER_LEG
+  - name: HL_LOWER_LEG
+    mass: {value: 0.02318294, unit: kg}
+    frame: HL_LOWER_LEG
+  - {name: HL_FOOT}
+  - name: HR_SHOULDER
+    mass: {value: 0.14196048, unit: kg}
+    frame: HR_SHOULDER
+  - name: HR_UPPER_LEG
+    mass: {value: 0.14737324, unit: kg}
+    frame: HR_UPPER_LEG
+  - name: HR_LOWER_LEG
+    mass: {value: 0.02318294, unit: kg}
+    frame: HR_LOWER_LEG
+  - {name: HR_FOOT}
+  joints:
+  - name: FL_HAA
+    type: revolute
+    parent: base_link
+    child: FL_SHOULDER
+    origin:
+      xyz: [0.2141, 0.08750000000000001, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: FL_HFE
+    type: revolute
+    parent: FL_SHOULDER
+    child: FL_UPPER_LEG
+    origin:
+      xyz: [-0.0195, 0.014, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: FL_KFE
+    type: revolute
+    parent: FL_UPPER_LEG
+    child: FL_LOWER_LEG
+    origin:
+      xyz: [0.0, 0.037450000000000004, -0.16]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: FL_ANKLE
+    type: fixed
+    parent: FL_LOWER_LEG
+    child: FL_FOOT
+    origin:
+      xyz: [0.0, 0.009000000000000001, -0.16]
+      rpy: [0.0, 0.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: FR_HAA
+    type: revolute
+    parent: base_link
+    child: FR_SHOULDER
+    origin:
+      xyz: [0.2141, -0.08750000000000001, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: FR_HFE
+    type: revolute
+    parent: FR_SHOULDER
+    child: FR_UPPER_LEG
+    origin:
+      xyz: [-0.0195, -0.014, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: FR_KFE
+    type: revolute
+    parent: FR_UPPER_LEG
+    child: FR_LOWER_LEG
+    origin:
+      xyz: [0.0, -0.037450000000000004, -0.16]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: FR_ANKLE
+    type: fixed
+    parent: FR_LOWER_LEG
+    child: FR_FOOT
+    origin:
+      xyz: [0.0, -0.009000000000000001, -0.16]
+      rpy: [0.0, 0.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: HL_HAA
+    type: revolute
+    parent: base_link
+    child: HL_SHOULDER
+    origin:
+      xyz: [-0.2141, 0.08750000000000001, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: HL_HFE
+    type: revolute
+    parent: HL_SHOULDER
+    child: HL_UPPER_LEG
+    origin:
+      xyz: [0.0195, 0.014, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: HL_KFE
+    type: revolute
+    parent: HL_UPPER_LEG
+    child: HL_LOWER_LEG
+    origin:
+      xyz: [0.0, 0.037450000000000004, -0.16]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: HL_ANKLE
+    type: fixed
+    parent: HL_LOWER_LEG
+    child: HL_FOOT
+    origin:
+      xyz: [0.0, 0.009000000000000001, -0.16]
+      rpy: [0.0, 0.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: HR_HAA
+    type: revolute
+    parent: base_link
+    child: HR_SHOULDER
+    origin:
+      xyz: [-0.2141, -0.08750000000000001, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [1.0, 0.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: HR_HFE
+    type: revolute
+    parent: HR_SHOULDER
+    child: HR_UPPER_LEG
+    origin:
+      xyz: [0.0195, -0.014, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: HR_KFE
+    type: revolute
+    parent: HR_UPPER_LEG
+    child: HR_LOWER_LEG
+    origin:
+      xyz: [0.0, -0.037450000000000004, -0.16]
+      rpy: [0.0, 0.0, 0.0]
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  - name: HR_ANKLE
+    type: fixed
+    parent: HR_LOWER_LEG
+    child: HR_FOOT
+    origin:
+      xyz: [0.0, -0.009000000000000001, -0.16]
+      rpy: [0.0, 0.0, 0.0]
+    limits: {lower: -10.0, upper: 10.0, effort: 1000.0, velocity: 1000.0}
+  zero_mass_links: [FL_FOOT, FR_FOOT, HL_FOOT, HR_FOOT]
+  provenance:
+    witness: w0
+    source: https://raw.githubusercontent.com/open-dynamic-robot-initiative/robot_properties_solo/2201f454f4caffa0cad307fa8cbd1d64dd844008/src/robot_properties_solo/resources/xacro/solo12.urdf.xacro
+    locked_at: 2026-10-15
+    note: "Link masses are the <mass> values of solo12.urdf.xacro and its leg.xacro include at open-dynamic-robot-initiative/robot_properties_solo@2201f45, expanded with xacro, read 2026-10-15; the sha256 is of solo12.urdf.xacro. Links and joints are lockwire's own URDF import (lockwire start) of the expanded URDF, with inertia and centre-of-mass columns dropped; structure_hash is of the expanded file. Each actuator mounts on the link its joint (HAA, HFE, KFE) drives, the link whose mesh its scene node draws."
+
+families:
+  - id: fam.actuator.module
+    name: Brushless actuator module with micro-driver channel
+device_models:
+  - id: mdl.actuator.odri-4004-9to1
+    family: fam.actuator.module
+    provenance:
+      witness: w0
+      source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware mechanics/actuator_module_v1/README.md; electronics/micro_driver_electronics/README.md; arxiv.org/abs/1910.00093"
+      locked_at: 2026-10-15
+      note: "T-Motor Antigravity 4004 300KV, dual-stage timing belt 3:1 x 3:1 = 9:1 (actuator README; paper II-A). Paper: k_i = 0.025 N m/A, tau_joint = 0.225 i, tau_max = 2.7 N m at 12 A. Micro-driver board input 5-32 V, 'we operate our robots at 24 V' (micro-driver README), used as the input range."
+    input_voltage_range:
+      min: {value: 5, unit: V}
+      max: {value: 32, unit: V}
+devices:
+  - id: dev.motor.front-left-hip-abduction
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: FL_SHOULDER
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.front-left-hip-flexion
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: FL_UPPER_LEG
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.front-left-knee
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: FL_LOWER_LEG
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.front-right-hip-abduction
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: FR_SHOULDER
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.front-right-hip-flexion
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: FR_UPPER_LEG
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.front-right-knee
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: FR_LOWER_LEG
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.hind-left-hip-abduction
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: HL_SHOULDER
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.hind-left-hip-flexion
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: HL_UPPER_LEG
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.hind-left-knee
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: HL_LOWER_LEG
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.hind-right-hip-abduction
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: HR_SHOULDER
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.hind-right-hip-flexion
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: HR_UPPER_LEG
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+  - id: dev.motor.hind-right-knee
+    model: mdl.actuator.odri-4004-9to1
+    power:
+      rail: rail.bench-supply-24v
+      draw: {value: 56.55, unit: W}
+      modes:
+        - name: "walk"
+          draw: {value: 8, unit: W}
+        - name: "jump"
+          draw: {value: 56.55, unit: W}
+    physical:
+      mount_frame: HR_LOWER_LEG
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: peak-power model from ODRI figures; walk from open_robot_actuator_hardware issue #42"
+      locked_at: 2026-10-15
+      note: "ODRI publishes no peak power per actuator. Jump 56.55 W is a lower bound on electrical draw: ideal mechanical output at the 12 A torque limit 2.7 N m and half no-load speed (300 rpm/V x 24 V / 9 = 83.78 rad/s), 2.7 x 83.78 / 4 = 56.55 W, losses ignored; electrical input is higher. The paper's 12 A x 24 V = 288 W per actuator is the outer ceiling. Walk: maintainer says average draw is typically 3-5 A at 24 V (issue #42); 4 A x 24 V = 96 W, / 12 = 8 W."
+topology:
+  rails:
+    - id: rail.bench-supply-24v
+      voltage: {value: 24, unit: V}
+      capacity: {value: 480, unit: W}
+      provenance:
+        witness: w0
+        source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply)"
+        locked_at: 2026-10-15
+        note: "The lab supply VOLTCRAFT DPPS-32-20 (1-32 V DC, 0-20 A, 640 W, '20A max.') is the smaller of the two the ODRI table lists (the other is the DPPS-32-30, 30 A). Run at the 24 V ODRI operates at (micro-driver README): 24 V x 20 A = 480 W. Solo-12 v1 is tethered, no battery (quadruped README: 'a connection wire for power supply and ethernet')."
+budgets:
+  - id: bud.power.bench-supply-24v
+    kind: rail_power
+    rail: rail.bench-supply-24v
+    limit: {value: 480, unit: W}
+    draw_mode: "jump"
+    owner: you
+    provenance:
+      witness: w0
+      source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply)"
+      locked_at: 2026-10-15
+      note: "Limit equals the rail: 24 V x 20 A = 480 W. Jump draw: 12 x 56.55 W = 678.6 W, over by 198.6 W."
+  - id: bud.power.bench-supply-24v.walk
+    kind: rail_power
+    rail: rail.bench-supply-24v
+    limit: {value: 480, unit: W}
+    draw_mode: "walk"
+    owner: you
+    provenance:
+      witness: w0
+      source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply)"
+      locked_at: 2026-10-15
+      note: "Same limit, walking draw: 12 x 8 W = 96 W, within 480 W. This is the budget the builder sized the supply from."

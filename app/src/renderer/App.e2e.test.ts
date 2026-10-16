@@ -212,7 +212,7 @@ describe("the app opens real lockfiles through the IPC door and both tabs read t
       }
       expect(result.tabOrder).toEqual(["Design", "Declare", "Check", "Plan", ...(hasPro ? ["Test", "Run"] : []), "Docs"]);
       expect(result.modeStates).toEqual([
-        { mode: "Design", targetSelector: ".design-face", targetPresent: true },
+        { mode: "Design", targetSelector: ".kit-tree", targetPresent: true },
         { mode: "Declare", targetSelector: ".declare-face input, .declare-face select", targetPresent: true },
         { mode: "Check", targetSelector: ".check-headline", targetPresent: true },
         { mode: "Plan", targetSelector: process.env.LOCKWIRE_APP_FIXTURE_PATH ? ".plan-input" : ".verdict-word", targetPresent: true },

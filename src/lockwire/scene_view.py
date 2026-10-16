@@ -70,7 +70,9 @@ def part_groups(contract: Contract, part_ids: tuple[str | None, ...]) -> list[di
     belongs to the contract component it resolved to (device, rail, bus or link); a part
     with no contract id, or one the contract does not know, goes under "other". The label
     is ``copy.human_name`` of the id, the same plain name every other face shows."""
-    kinds: dict[str, str] = {link.name: "link" for link in contract.model.links} if contract.model else {}
+    kinds: dict[str, str] = (
+        {link.name: "link" for link in contract.model.links} if contract.model else {}
+    )
     kinds |= {d.id: "device" for d in contract.devices}
     if contract.topology is not None:
         kinds |= {r.id: "rail" for r in contract.topology.rails}
@@ -293,7 +295,9 @@ def _display_part(part: ScenePart, stride: int) -> ScenePart:
     )
 
 
-def scene_asset_identity(contract: Contract, scene: Scene, contract_path: Path | None) -> dict[str, Any]:
+def scene_asset_identity(
+    contract: Contract, scene: Scene, contract_path: Path | None
+) -> dict[str, Any]:
     """Bind only the selected root file, never its external asset graph."""
     expected = None
     if contract_path is not None and contract.model is not None and scene.asset_path is not None:
@@ -303,10 +307,15 @@ def scene_asset_identity(contract: Contract, scene: Scene, contract_path: Path |
         if declared.resolve() == Path(scene.asset_path).resolve():
             expected = contract.model.source_sha256
             if scene.asset_sha256 != expected:
-                raise SceneRefusal(f"{scene.asset_path}: selected asset sha256 {scene.asset_sha256} "
-                                   f"does not match declared source sha256 {expected}.")
-    return {"asset_path": scene.asset_path, "asset_sha256": scene.asset_sha256,
-            "expected_asset_sha256": expected}
+                raise SceneRefusal(
+                    f"{scene.asset_path}: selected asset sha256 {scene.asset_sha256} "
+                    f"does not match declared source sha256 {expected}."
+                )
+    return {
+        "asset_path": scene.asset_path,
+        "asset_sha256": scene.asset_sha256,
+        "expected_asset_sha256": expected,
+    }
 
 
 def scene_payload(
@@ -333,6 +342,11 @@ def scene_payload(
     states = part_states(contract, cards, scored_records)
     lenses = part_lenses(contract)
     groups = part_groups(contract, resolved.part_ids)
+    mounts = {
+        d.id: d.physical.mount_frame
+        for d in contract.devices
+        if d.physical and d.physical.mount_frame
+    }
     triangles = sum(len(part.indices) // 3 for part in scene.parts)
     stride = max(1, (triangles + _DISPLAY_TRIANGLES - 1) // _DISPLAY_TRIANGLES) if decimate else 1
     display_parts = [_display_part(part, stride) for part in scene.parts]
@@ -357,6 +371,7 @@ def scene_payload(
             # the whole-scene overlays) rather than falling out of the sweep.
             "group": group,
             "lenses": lenses.get(part_id, sorted({"mechanical", *_OVERLAY_LENSES})),
+            "mount_frame": mounts.get(part_id),
         }
         for part, part_id, group in zip(display_parts, resolved.part_ids, groups, strict=True)
     ]

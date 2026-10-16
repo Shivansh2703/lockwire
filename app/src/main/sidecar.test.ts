@@ -35,8 +35,11 @@ vi.mock("node:child_process", async (importOriginal) => {
 // and see resolveSidecarCommand() react -- proves the switch is app.isPackaged, not
 // process.resourcesPath's truthiness (which Electron sets in dev too, e2-sp).
 let mockIsPackaged = false;
+let mockUserDataDirSwitch = false;
 vi.mock("electron", () => ({
   app: {
+    commandLine: { hasSwitch: (name: string) => mockUserDataDirSwitch && name === "user-data-dir" },
+    getPath: (name: string) => `/tmp/mock-${name}`,
     get isPackaged() {
       return mockIsPackaged;
     },
@@ -89,6 +92,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
   mockIsPackaged = false;
+  mockUserDataDirSwitch = false;
   (process as unknown as { resourcesPath?: string }).resourcesPath = undefined;
 });
 
@@ -190,6 +194,18 @@ describe("the sidecar's lifecycle and token (e2-t)", () => {
     start({ FAKE_SIDECAR_MODE: "ready" });
     await waitFor(() => sidecar.getSidecarState().phase === "ready");
     expect(lastSpawnArgs()).toContain("--exit-on-stdin-close");
+  });
+
+  it("test_user_data_dir_runs_point_the_sidecar_log_dir_at_the_app_log_dir", () => {
+    mockUserDataDirSwitch = true;
+    start();
+    const env = vi.mocked(spawn).mock.calls[0]?.[2]?.env;
+    expect(env?.LOCKWIRE_LOG_DIR).toBe("/tmp/mock-userData/logs");
+    sidecar.stopSidecar();
+    vi.clearAllMocks();
+    mockUserDataDirSwitch = false;
+    start();
+    expect(vi.mocked(spawn).mock.calls[0]?.[2]?.env?.LOCKWIRE_LOG_DIR).toBe(process.env.LOCKWIRE_LOG_DIR);
   });
 
   it("test_a_child_exit_emits_the_stopped_event_and_fails_every_in_flight_call", async () => {

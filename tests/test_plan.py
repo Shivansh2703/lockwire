@@ -193,6 +193,34 @@ def test_joint_effort_over_actuator_rating_is_violation(clean_contract):
     assert "3.00 N*m" in finding.expected  # bites omitting continuous torque times gear ratio
 
 
+def _peak_only(clean_contract):
+    contract = _armed_joint(clean_contract)
+    contract.model.joints[0].limits = JointLimits(lower=-1.0, upper=1.0, velocity=2.0, effort=10.0)
+    actuator = next(
+        m.actuator for m in contract.device_models if m.actuator and m.actuator.torque_continuous
+    )
+    actuator.torque_peak = actuator.torque_continuous * 2
+    actuator.torque_continuous = None
+    return contract, actuator.torque_peak * actuator.gear_ratio
+
+
+def test_peak_only_actuator_effort_over_peak_is_violation(clean_contract):
+    contract, peak = _peak_only(clean_contract)
+    plan = Plan(steps=[JointTarget(joint="imu_mount", effort=peak + 0.5)])
+    finding = next(
+        f
+        for f in _violations(validate_plan(contract, plan))
+        if f.quantity == "plan/steps/0/joint_target/effort_actuator"
+    )
+    assert f"{peak:.2f} N*m peak (stall) geared torque" in finding.expected
+
+
+def test_peak_only_actuator_effort_under_peak_passes_and_is_scored(clean_contract):
+    contract, peak = _peak_only(clean_contract)
+    findings = validate_plan(contract, Plan(steps=[JointTarget(joint="imu_mount", effort=peak)]))
+    assert not any(f.quantity.endswith("effort_actuator") for f in findings)
+
+
 def test_unknown_joint_is_not_scored_and_exits_3(clean_contract):
     plan = Plan(steps=[JointTarget(joint="ghost_joint", position=0.1)])
 
@@ -546,6 +574,16 @@ def _plan_rail_base_w(contract, rail_id: str) -> float:
     finding = next(f for f in validate_plan(contract, plan) if f.severity == "violation")
     observed_w = float(finding.observed.split(" W", 1)[0])
     return observed_w - extra
+
+
+def test_overload_finding_carries_typed_watts_and_names_its_rail(x500_contract):
+    """The panel draws "194 W of 60 W" and lights the rail from these, not from the text."""
+    extra = x500_contract.rail("rail.servo-motor").capacity.base() + 1.0
+    plan = Plan(steps=[RailLoad(rail="rail.servo-motor", draw={"value": extra, "unit": "W"})])
+    f = next(f for f in validate_plan(x500_contract, plan) if f.severity == "violation")
+    assert f.dependent == "rail.servo-motor"
+    assert (f.observed_quantity.unit, f.expected_quantity.unit) == ("W", "W")
+    assert f.observed_quantity.value > f.expected_quantity.value
 
 
 @pytest.mark.parametrize("rail_id", ["rail.pm02-5v", "rail.servo-motor"])

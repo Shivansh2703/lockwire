@@ -39,20 +39,6 @@
       "stage": null,
       "alternatives": [
         {
-          "text": "move the device to rail 'rail.pixhawk-telem1-5v', which has 2.60 W free",
-          "value": 2.5999999999999996,
-          "unit": "W",
-          "kind": "derived-by-check_budgets",
-          "mark": null
-        },
-        {
-          "text": "move the device to rail 'rail.servo-motor', which has 641.32 W free",
-          "value": 641.3199999999999,
-          "unit": "W",
-          "kind": "derived-by-check_budgets",
-          "mark": null
-        },
-        {
           "text": "add a 19.60 W regulator fed from rail 'battery'",
           "value": 19.6,
           "unit": "W",
@@ -87,20 +73,6 @@
       "cluster_members": [],
       "stage": null,
       "alternatives": [
-        {
-          "text": "move the device to rail 'rail.pixhawk-telem1-5v', which has 2.60 W free",
-          "value": 2.5999999999999996,
-          "unit": "W",
-          "kind": "derived-by-check_budgets",
-          "mark": null
-        },
-        {
-          "text": "move the device to rail 'rail.servo-motor', which has 641.32 W free",
-          "value": 641.3199999999999,
-          "unit": "W",
-          "kind": "derived-by-check_budgets",
-          "mark": null
-        },
         {
           "text": "add a 1.60 W regulator fed from rail 'battery'",
           "value": 1.5999999999999996,
@@ -7196,97 +7168,113 @@
           "id": "x500_frame",
           "label": "x500_frame",
           "sub": "0.610 kg",
-          "kind": "link"
+          "kind": "link",
+          "value": 0.61
         },
         {
           "id": "dev.companion.jetson-orin-nano",
           "label": "dev.companion.jetson-orin-nano",
           "sub": "mass unknown",
-          "kind": "device"
+          "kind": "device",
+          "value": null
         },
         {
           "id": "dev.gnss.here3-plus",
           "label": "dev.gnss.here3-plus",
           "sub": "0.052 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.0518
         },
         {
           "id": "dev.radio.rfd900x",
           "label": "dev.radio.rfd900x",
           "sub": "0.015 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.0145
         },
         {
           "id": "dev.camera.oak-d-lite",
           "label": "dev.camera.oak-d-lite",
           "sub": "mass unknown",
-          "kind": "device"
+          "kind": "device",
+          "value": null
         },
         {
           "id": "dev.flight-controller.pixhawk-6c",
           "label": "dev.flight-controller.pixhawk-6c",
           "sub": "0.059 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.0593
         },
         {
           "id": "dev.power-module.pm02-v3",
           "label": "dev.power-module.pm02-v3",
           "sub": "0.020 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.02
         },
         {
           "id": "dev.magnetometer.ist8310",
           "label": "dev.magnetometer.ist8310",
           "sub": "mass unknown",
-          "kind": "device"
+          "kind": "device",
+          "value": null
         },
         {
           "id": "dev.motor.m1",
           "label": "dev.motor.m1",
           "sub": "0.080 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.08
         },
         {
           "id": "dev.motor.m2",
           "label": "dev.motor.m2",
           "sub": "0.080 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.08
         },
         {
           "id": "dev.motor.m3",
           "label": "dev.motor.m3",
           "sub": "0.080 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.08
         },
         {
           "id": "dev.motor.m4",
           "label": "dev.motor.m4",
           "sub": "0.080 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.08
         },
         {
           "id": "dev.esc.esc1",
           "label": "dev.esc.esc1",
           "sub": "0.050 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.05
         },
         {
           "id": "dev.esc.esc2",
           "label": "dev.esc.esc2",
           "sub": "0.050 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.05
         },
         {
           "id": "dev.esc.esc3",
           "label": "dev.esc.esc3",
           "sub": "0.050 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.05
         },
         {
           "id": "dev.esc.esc4",
           "label": "dev.esc.esc4",
           "sub": "0.050 kg",
-          "kind": "device"
+          "kind": "device",
+          "value": 0.05
         }
       ],
       "edges": [
@@ -7365,69 +7353,82 @@
         {
           "id": "rail.pm02-5v",
           "label": "rail.pm02-5v",
-          "sub": "5.2 V \u00b7 cap 15.60 W",
-          "kind": "rail"
+          "sub": "5.2 V · cap 15.60 W",
+          "kind": "rail",
+          "value": 35.2,
+          "limit": 15.6
         },
         {
           "id": "rail.pixhawk-telem1-5v",
           "label": "rail.pixhawk-telem1-5v",
-          "sub": "5.2 V \u00b7 cap 7.80 W",
-          "kind": "rail"
+          "sub": "5.2 V · cap 7.80 W",
+          "kind": "rail",
+          "value": 5.2,
+          "limit": 7.8
         },
         {
           "id": "rail.servo-motor",
           "label": "rail.servo-motor",
-          "sub": "14.8 V \u00b7 cap 888.00 W",
-          "kind": "rail"
+          "sub": "14.8 V · cap 888.00 W",
+          "kind": "rail",
+          "value": 246.68,
+          "limit": 888.0
         },
         {
           "id": "dev.companion.jetson-orin-nano",
           "label": "dev.companion.jetson-orin-nano",
           "sub": "25.00 W",
-          "kind": "device"
+          "kind": "device",
+          "value": 25.0
         },
         {
           "id": "dev.radio.rfd900x",
           "label": "dev.radio.rfd900x",
           "sub": "5.20 W",
-          "kind": "device"
+          "kind": "device",
+          "value": 5.2
         },
         {
           "id": "dev.camera.oak-d-lite",
           "label": "dev.camera.oak-d-lite",
           "sub": "5.00 W",
-          "kind": "device"
+          "kind": "device",
+          "value": 5.0
         },
         {
           "id": "dev.motor.m1",
           "label": "dev.motor.m1",
           "sub": "61.67 W",
-          "kind": "device"
+          "kind": "device",
+          "value": 61.67
         },
         {
           "id": "dev.motor.m2",
           "label": "dev.motor.m2",
           "sub": "61.67 W",
-          "kind": "device"
+          "kind": "device",
+          "value": 61.67
         },
         {
           "id": "dev.motor.m3",
           "label": "dev.motor.m3",
           "sub": "61.67 W",
-          "kind": "device"
+          "kind": "device",
+          "value": 61.67
         },
         {
           "id": "dev.motor.m4",
           "label": "dev.motor.m4",
           "sub": "61.67 W",
-          "kind": "device"
+          "kind": "device",
+          "value": 61.67
         }
       ],
       "edges": [
         {
           "from": "rail.pm02-5v",
           "to": "rail.pixhawk-telem1-5v",
-          "label": "\u03b7 1.00"
+          "label": "η 1.00"
         },
         {
           "from": "rail.pm02-5v",
@@ -7485,32 +7486,37 @@
         {
           "id": "bus.can.dronecan",
           "label": "bus.can.dronecan",
-          "sub": "can \u00b7 8e+06 bit/s",
-          "kind": "bus"
+          "sub": "can · 8e+06 bit/s",
+          "kind": "bus",
+          "value": 8000000.0
         },
         {
           "id": "bus.uart.telemetry",
           "label": "bus.uart.telemetry",
-          "sub": "serial \u00b7 57600 bit/s",
-          "kind": "bus"
+          "sub": "serial · 57600 bit/s",
+          "kind": "bus",
+          "value": 57600.0
         },
         {
           "id": "bus.uart.companion",
           "label": "bus.uart.companion",
-          "sub": "serial \u00b7 921600 bit/s",
-          "kind": "bus"
+          "sub": "serial · 921600 bit/s",
+          "kind": "bus",
+          "value": 921600.0
         },
         {
           "id": "bus.usb.companion",
           "label": "bus.usb.companion",
-          "sub": "usb \u00b7 5e+09 bit/s",
-          "kind": "bus"
+          "sub": "usb · 5e+09 bit/s",
+          "kind": "bus",
+          "value": 5000000000.0
         },
         {
           "id": "bus.i2c.external",
           "label": "bus.i2c.external",
           "sub": "i2c",
-          "kind": "bus"
+          "kind": "bus",
+          "value": null
         },
         {
           "id": "dev.companion.jetson-orin-nano",

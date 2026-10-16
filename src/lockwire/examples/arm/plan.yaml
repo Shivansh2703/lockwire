@@ -1,0 +1,9 @@
+# Example plan for the Arm starter: hold the gripper closed on a part (gripper servo at stall),
+# then lift with the shoulder (shoulder-lift servo at stall). Modes are the starter's own.
+steps:
+  - kind: set_power_mode
+    device: dev.gripper-servo
+    mode: stall
+  - kind: set_power_mode
+    device: dev.shoulder-lift-servo
+    mode: stall

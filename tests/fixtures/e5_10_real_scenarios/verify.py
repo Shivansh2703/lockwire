@@ -11,9 +11,7 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 LEG_JOINTS = {
-    f"{leg}_{joint}"
-    for leg in ("LF", "RF", "LH", "RH")
-    for joint in ("HAA", "HFE", "KFE")
+    f"{leg}_{joint}" for leg in ("LF", "RF", "LH", "RH") for joint in ("HAA", "HFE", "KFE")
 }
 
 
@@ -60,9 +58,10 @@ def verify_official_models() -> None:
     assert {match for match in re.findall(r"model://x500_base/([^<]+)", x500_base)}
     for relative in re.findall(r"model://x500_base/([^<]+)", x500_base):
         assert (px4_root / "x500_base" / relative).is_file(), relative
-    assert "<init_from>CF.png</init_from>" in (
-        px4_root / "x500_base/meshes/NXP-HGD-CF.dae"
-    ).read_text()
+    assert (
+        "<init_from>CF.png</init_from>"
+        in (px4_root / "x500_base/meshes/NXP-HGD-CF.dae").read_text()
+    )
     for sensor in ("air_pressure", "magnetometer", "imu", "navsat"):
         assert f'type="{sensor}"' in x500_base
 

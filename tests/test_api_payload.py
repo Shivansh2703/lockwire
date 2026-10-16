@@ -11,7 +11,6 @@ The union is walked from `api.FUNCTIONS`, not from a list written here, so a
 new library door with no member is a failure rather than an omission.
 """
 
-
 from __future__ import annotations
 
 import ast
@@ -31,7 +30,7 @@ from typer.testing import CliRunner
 
 import lockwire
 from lockwire import api
-from lockwire import plugins
+from lockwire import plugins, start_operation
 from lockwire.advice import Alternative
 from lockwire.api_payload import (
     ALL_MEMBERS,
@@ -41,6 +40,7 @@ from lockwire.api_payload import (
     NUMBER_KINDS,
     CheckPayload,
     DeclareFormPayload,
+    StartersPayload,
     DescribePayload,
     EditPayload,
     LensId,
@@ -155,10 +155,17 @@ def _documents(tmp_path: Path) -> dict[str, Any]:
     return {
         "start": api.start(start_source),
         "check": api.check(X500),
-        "what-if": api.what_if(writable, [Change(
-            path="devices/dev.flight-controller.pixhawk-6c/physical/mount_xyz",
-            value="0.12 0 0.05 m", source="hand measurement", witness="tester",
-        )]),
+        "what-if": api.what_if(
+            writable,
+            [
+                Change(
+                    path="devices/dev.flight-controller.pixhawk-6c/physical/mount_xyz",
+                    value="0.12 0 0.05 m",
+                    source="hand measurement",
+                    witness="tester",
+                )
+            ],
+        ),
         "plan": api.plan(X500, _plan_file(tmp_path)),
         "describe": api.describe(X500),
         "diff": api.diff(X500, "HEAD"),
@@ -189,25 +196,48 @@ def _documents(tmp_path: Path) -> dict[str, Any]:
             dry_run=True,
         ),
         "move": api.move(
-            posable, "dev.gripper", (0.010, 0.0, 0.025),
-            unit="m", source="notes/layout.md", witness="tester", dry_run=True,
+            posable,
+            "dev.gripper",
+            (0.010, 0.0, 0.025),
+            unit="m",
+            source="notes/layout.md",
+            witness="tester",
+            dry_run=True,
         ),
         "rotate": api.rotate(
-            posable, "wrist", (0.0, 0.0, 1.5708),
-            unit="rad", source="notes/layout.md", witness="tester", dry_run=True,
+            posable,
+            "wrist",
+            (0.0, 0.0, 1.5708),
+            unit="rad",
+            source="notes/layout.md",
+            witness="tester",
+            dry_run=True,
         ),
         "reparent": api.reparent(
-            posable, "elbow", "base",
-            source="notes/layout.md", witness="tester", dry_run=True,
+            posable,
+            "elbow",
+            "base",
+            source="notes/layout.md",
+            witness="tester",
+            dry_run=True,
         ),
         "place": api.place(
-            posable, "dev.gripper", "elbow", (10.0, 0.0, 25.0),
-            unit="mm", source="notes/layout.md", witness="tester", dry_run=True,
+            posable,
+            "dev.gripper",
+            "elbow",
+            (10.0, 0.0, 25.0),
+            unit="mm",
+            source="notes/layout.md",
+            witness="tester",
+            dry_run=True,
         ),
         "mount-shape": api.mount_shape(
-            posable, "dev.gripper",
+            posable,
+            "dev.gripper",
             {"kind": "plate", "dimensions_mm": [100.0, 50.0, 3.0]},
-            source="notes/layout.md", witness="tester", dry_run=True,
+            source="notes/layout.md",
+            witness="tester",
+            dry_run=True,
         ),
     }
 
@@ -258,7 +288,11 @@ def test_mutation_bite_new_build_payload_key_fails_the_drift_test():
     with pytest.raises(ValidationError):
         PagePayload.model_validate(top)
 
-    nested = dict(payload, cards=[dict(payload["cards"][0], a_brand_new_card_key="surprise")]) if payload["cards"] else None
+    nested = (
+        dict(payload, cards=[dict(payload["cards"][0], a_brand_new_card_key="surprise")])
+        if payload["cards"]
+        else None
+    )
     if nested is not None:
         with pytest.raises(ValidationError):
             PagePayload.model_validate(nested)
@@ -328,9 +362,7 @@ def test_translation_is_an_origin_not_a_transform():
     # fluke on a part whose translation happens to be the zero vector, which
     # `moved` was chosen specifically to rule out).
     shifted = [decoded[i] - moved.translation[i % 3] for i in range(len(decoded))]
-    assert any(
-        abs(shifted[i] - want) > scale / 2 + 1e-9 for i, want in enumerate(moved.positions)
-    )
+    assert any(abs(shifted[i] - want) > scale / 2 + 1e-9 for i, want in enumerate(moved.positions))
 
 
 def test_api_serves_parts_undecimated():
@@ -430,10 +462,7 @@ def test_check_payload_refuses_a_blank_headline(tmp_path, headline):
 def test_plan_emits_the_generated_steps_with_each_unscored_reason(tmp_path):
     plan = tmp_path / "plan.yaml"
     plan.write_text(
-        "steps:\n"
-        "  - kind: joint_target\n"
-        "    joint: absent-joint\n"
-        "    position: 0.1\n",
+        "steps:\n  - kind: joint_target\n    joint: absent-joint\n    position: 0.1\n",
         encoding="utf-8",
     )
 
@@ -452,7 +481,8 @@ def test_plan_joint_limit_finding_cites_declared_model_provenance():
         {"steps": [{"kind": "joint_target", "joint": "imu_mount", "effort": 3.0}]},
     )
     finding = next(
-        item for item in document["findings"]
+        item
+        for item in document["findings"]
         if item["quantity"] == "plan/steps/0/joint_target/effort"
     )
     assert finding["severity"] == "violation"
@@ -466,7 +496,8 @@ def test_plan_joint_limit_finding_cites_declared_model_provenance():
         {"steps": [{"kind": "joint_target", "joint": "imu_mount", "effort": 999.0}]},
     )
     actuator = next(
-        item for item in beyond_actuator["findings"]
+        item
+        for item in beyond_actuator["findings"]
         if item["quantity"] == "plan/steps/0/joint_target/effort_actuator"
     )
     assert actuator["source"] is None and actuator["witness"] is None
@@ -478,19 +509,24 @@ def test_plan_unknown_joint_cites_and_offers_declared_model_joint():
         {"steps": [{"kind": "joint_target", "joint": "ghost_joint", "position": 0.1}]},
     )
     finding = next(
-        item for item in document["findings"]
+        item
+        for item in document["findings"]
         if item["quantity"] == "plan/steps/0/joint_target/joint"
     )
     assert finding["severity"] == "not_scored"
     assert finding["source"] == "testbot.urdf"
     assert finding["witness"] == "w0"
-    assert finding["alternatives"] == [{
-        "text": "use declared model joint 'imu_mount'",
-        "value": 1.0,
-        "unit": "count",
-        "kind": "model",
-        "mark": None,
-    }]
+    assert finding["alternatives"] == [
+        {
+            "text": "use declared model joint 'imu_mount'",
+            "value": 1.0,
+            "unit": "count",
+            "kind": "model",
+            "mark": None,
+            "rail": None,
+            "device": None,
+        }
+    ]
     assert PlanPayload.model_validate(document).findings
 
 
@@ -597,7 +633,9 @@ def test_every_declared_row_the_payload_emits_survives_declares_own_resolver(tmp
     for row in document.rows:
         if row.kind != "declared" or row.value is None:
             continue  # undeclared rows carry no round-trippable value here
-        value = " ".join(str(v) for v in row.value) if isinstance(row.value, list) else str(row.value)
+        value = (
+            " ".join(str(v) for v in row.value) if isinstance(row.value, list) else str(row.value)
+        )
         if row.unit:
             value = f"{value} {row.unit}"
         try:
@@ -625,10 +663,9 @@ def test_extra_key_on_any_member_is_rejected(tmp_path):
     documents = _documents(tmp_path)
     documents["page"] = build_payload(load_contract(CLEAN))
     documents["declare_form"] = api.declare_form(X500)
+    documents["starters"] = {"starters": start_operation.starters()}
     by_model = {
-        type(validate_document(d)).__name__: d
-        for k, d in documents.items()
-        if k not in UNENVELOPED
+        type(validate_document(d)).__name__: d for k, d in documents.items() if k not in UNENVELOPED
     }
     for door, model in UNENVELOPED.items():
         if door in documents:
@@ -752,6 +789,7 @@ def _every_document(tmp_path: Path) -> dict[str, BaseModel]:
     x500 = load_contract(X500)
     documents["page"] = PagePayload.model_validate(build_payload(x500, contract_path=X500))
     documents["declare_form"] = DeclareFormPayload.model_validate(api.declare_form(x500))
+    documents["starters"] = StartersPayload.model_validate({"starters": start_operation.starters()})
     documents["page+scene"] = PagePayload.model_validate(
         build_payload(
             x500,
@@ -819,15 +857,25 @@ def test_no_door_emits_a_preformatted_number_outside_the_named_exemptions(tmp_pa
     digest = "7" * 64  # deliberate leading-digit identifier corpus, not a measured artifact
     documents["start"] = documents["start"].model_copy(update={"revision": digest})
     scene = documents["page+scene"].scene
-    documents["scene_identity_corpus"] = scene.model_copy(update={
-        "asset_sha256": digest, "expected_asset_sha256": digest,
-    })
-    documents["scene_unchanged_corpus"] = SceneUnchanged(
-        unchanged=True, asset_sha256=digest, expected_asset_sha256=digest,
+    documents["scene_identity_corpus"] = scene.model_copy(
+        update={
+            "asset_sha256": digest,
+            "expected_asset_sha256": digest,
+        }
     )
-    blame_corpus = BlamePayload.model_validate([
-        {**api.blame(X500)[0][0], "last_changing_commit": "7abc1234567890abcdef1234567890abcdef1234"}
-    ])
+    documents["scene_unchanged_corpus"] = SceneUnchanged(
+        unchanged=True,
+        asset_sha256=digest,
+        expected_asset_sha256=digest,
+    )
+    blame_corpus = BlamePayload.model_validate(
+        [
+            {
+                **api.blame(X500)[0][0],
+                "last_changing_commit": "7abc1234567890abcdef1234567890abcdef1234",
+            }
+        ]
+    )
     documents["blame_corpus"] = blame_corpus
     # Budget.draw_mode is a name reference in the existing schema, not a
     # magnitude. Apply that field meaning only to the raw budget row; every
@@ -840,12 +888,14 @@ def test_no_door_emits_a_preformatted_number_outside_the_named_exemptions(tmp_pa
             for field, value in row.value.items():
                 if row.path.startswith("budgets/") and field == "draw_mode":
                     continue
-                probe = BlamePayload.model_validate([
-                    {
-                        **row.model_dump(mode="json", exclude_none=True),
-                        "value": {field: value},
-                    }
-                ])
+                probe = BlamePayload.model_validate(
+                    [
+                        {
+                            **row.model_dump(mode="json", exclude_none=True),
+                            "value": {field: value},
+                        }
+                    ]
+                )
                 findings.update(string_figures(probe))
         return findings
 
@@ -858,7 +908,8 @@ def test_no_door_emits_a_preformatted_number_outside_the_named_exemptions(tmp_pa
             found.setdefault(key, (door, value))
 
     budget = next(
-        row for row in blame.root
+        row
+        for row in blame.root
         if row.path.startswith("budgets/") and row.value.get("draw_mode") == "7W"
     )
     assert budget.value["draw_mode"] == "7W"
@@ -876,7 +927,7 @@ def test_no_door_emits_a_preformatted_number_outside_the_named_exemptions(tmp_pa
     )
     stale = sorted(set(STRING_FIGURE_EXEMPTIONS) - set(found))
     assert not stale, (
-        "STRING_FIGURE_EXEMPTIONS names fields that no longer carry a number: " f"{stale}"
+        f"STRING_FIGURE_EXEMPTIONS names fields that no longer carry a number: {stale}"
     )
     for key, reason in STRING_FIGURE_EXEMPTIONS.items():
         assert len(reason) > 20, f"{key} is exempted but gives no real reason"
@@ -946,9 +997,7 @@ def test_every_string_figure_exemption_satisfies_the_admission_rule(tmp_path):
         if _looks_like_magnitude(value):
             if key in known_violations:
                 # Mark as xfail with the row id that will fix it
-                pytest.xfail(
-                    f"{key} = {value!r} is a magnitude (exempt until e1-gl: {door_name})"
-                )
+                pytest.xfail(f"{key} = {value!r} is a magnitude (exempt until e1-gl: {door_name})")
             else:
                 failures.append(
                     f"  {key} = {value!r} (from `{door_name}`) looks like a magnitude "
@@ -984,7 +1033,8 @@ def test_every_scene_label_across_the_fixtures_carries_both_magnitudes(path: Pat
             assert path == FIXTURES / "actuator_review_e2e" / "contract.yaml"
             assert label["part"] == "mdl.motor"
             structural = [
-                finding for finding in findings
+                finding
+                for finding in findings
                 if finding.quantity == "device_models/mdl.motor/family"
             ]
             assert len(structural) == 1
@@ -1104,7 +1154,9 @@ def test_self_kinded_and_marked_kinds_match_real_producers():
     # kind it actually produces (`advice.build_rail_alternatives`'s
     # `"projected"` regulator suggestion), which is precisely the gap this
     # respin closes: a `projected` figure reaching a door with no mark.
-    assert "projected" in MARKED_KINDS, "MARKED_KINDS must still cover the kind Alternative produces"
+    assert "projected" in MARKED_KINDS, (
+        "MARKED_KINDS must still cover the kind Alternative produces"
+    )
     with pytest.raises(ValidationError, match="must carry its own word"):
         Alternative(text="x", value=1.0, unit="W", kind="projected")
     assert Alternative(text="x", value=1.0, unit="W", kind="projected", mark="projected")
@@ -1162,6 +1214,9 @@ def test_every_scene_part_is_in_at_least_one_lens():
     assert not uncovered, f"parts in no lens at all: {uncovered}"
     unknown_lens = sorted({lens for part in parts for lens in part["lenses"]} - LENS_IDS)
     assert not unknown_lens, f"part lenses outside the named set: {unknown_lens}"
+    assert any(part["mount_frame"] for part in parts), (
+        "a device part carries its mount_frame (drag-to-place)"
+    )
 
 
 # ---------------------------------------------------------- e4-pf: Reference drawers
@@ -1361,8 +1416,10 @@ def layout_reaching_number_slots(tree: ast.Module, filename: str) -> list[tuple[
                         break
             elif isinstance(node, ast.Dict) and _is_number_slot_dict(node):
                 for key, value in zip(node.keys, node.values):
-                    if isinstance(key, ast.Constant) and key.value == "value" and _mentions_layout(
-                        value, tainted
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "value"
+                        and _mentions_layout(value, tainted)
                     ):
                         violations.append((filename, node.lineno, '{"value": ...} dict literal'))
     return violations
@@ -1397,8 +1454,9 @@ def test_no_layout_value_reaches_a_number_slot():
         tree = ast.parse(path.read_text(), filename=str(path))
         violations.extend(layout_reaching_number_slots(tree, path.name))
 
-    assert not violations, "a layout value (bounds/translation) reaches a number slot:\n" + "\n".join(
-        f"  {name}:{lineno} — {shape}" for name, lineno, shape in violations
+    assert not violations, (
+        "a layout value (bounds/translation) reaches a number slot:\n"
+        + "\n".join(f"  {name}:{lineno} — {shape}" for name, lineno, shape in violations)
     )
 
 
@@ -1434,9 +1492,9 @@ def test_layout_sweep_catches_synthetic_violations_of_different_shapes():
             x, y, z = alias
             return {"value": x, "unit": "m", "kind": "measured", "by": "x"}
         """
-    assert _violations(
-        via_alias_and_destructure
-    ), "did not catch the alias-of-an-alias-plus-destructure shape"
+    assert _violations(via_alias_and_destructure), (
+        "did not catch the alias-of-an-alias-plus-destructure shape"
+    )
 
     # (d) a formatted string.
     via_fstring = """
@@ -1478,12 +1536,16 @@ def test_scene_parts_carry_their_component_group():
 
     contract = load_contract(X500)
     scene = load_scene(X500.with_name("x500.glb"))
-    parts = scene_payload(contract, scene, source="x", cards=[], scored_records=[], labels=[])["parts"]
+    parts = scene_payload(contract, scene, source="x", cards=[], scored_records=[], labels=[])[
+        "parts"
+    ]
     camera = [p for p in parts if p["node"].startswith("camera")]
     assert camera and {p["group"]["id"] for p in camera} == {"dev.camera.oak-d-lite"}
     assert {p["group"]["kind"] for p in camera} == {"device"}
     assert camera[0]["group"]["label"] == "Camera Oak D Lite"
-    assert {p["group"]["label"] for p in parts if p["group"]["id"] == "dev.motor.m1"} == {"Motor M1"}
+    assert {p["group"]["label"] for p in parts if p["group"]["id"] == "dev.motor.m1"} == {
+        "Motor M1"
+    }
     assert {p["group"]["kind"] for p in parts} <= {"device", "rail", "bus", "link", "other"}
 
 
@@ -1501,5 +1563,37 @@ def test_free_check_and_what_if_payloads_carry_no_actuator_or_health_fields():
     """Those fields exist only on the paid CheckPayloadPro / WhatIfPayloadPro."""
     from lockwire.api_payload import CheckPayload, WhatIfPayload
 
-    paid = {"actuator_cases", "actuator_review_draft", "actuator_review_next_step", "recorded_health"}
+    paid = {
+        "actuator_cases",
+        "actuator_review_draft",
+        "actuator_review_next_step",
+        "recorded_health",
+    }
     assert not paid & (set(CheckPayload.model_fields) | set(WhatIfPayload.model_fields))
+
+
+def test_add_part_preselect_data_fits_only_matching_voltage_rails():
+    form = DeclareFormPayload.model_validate(api.declare_form(X500))
+    volts = {r.id: r.voltage.base() for r in api.load(X500).topology.rails if r.voltage}
+    orin = next(
+        p for p in form.add_part.parts if p.id == "x500.companion.jetson-orin-nano"
+    )  # 4.75-5.25 V
+    assert orin.fits and all(4.75 <= volts[rid] <= 5.25 for rid in orin.fits)
+    assert all(
+        not p.fits
+        for p in form.add_part.parts
+        if p.id != orin.id and not any("voltage" in n.key for n in p.numbers)
+    )
+
+
+def test_picker_parts_carry_voltage_and_orin_fits_only_the_5v_rails():
+    form = DeclareFormPayload.model_validate(api.declare_form(X500))
+    ranged = [
+        p
+        for p in form.add_part.parts
+        if any(n.key in ("input_voltage_min", "nominal_voltage") for n in p.numbers)
+    ]
+    assert len(ranged) >= 10
+    volts = {r.id: r.voltage.base() for r in api.load(X500).topology.rails if r.voltage}
+    orin = next(p for p in form.add_part.parts if p.id == "x500.companion.jetson-orin-nano")
+    assert orin.fits and set(orin.fits) == {rid for rid, v in volts.items() if 4.75 <= v <= 5.25}

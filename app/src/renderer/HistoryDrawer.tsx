@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 
 import type { ContractUndoRequest, ContractWriteRequest } from "../shared/ipc-contract";
-import { Button, Disclosure, EmptyState, Field, PanelFooter, StatusPill, type Status } from "./kit";
+import type { OnJump } from "./jump";
+import { Button, Disclosure, EmptyState, Field, Jumper, PanelFooter, StatusPill, type Status } from "./kit";
 import { commitSummary, type LogEntry } from "./historyPayload";
 
 const VERDICT: Record<string, Status> = { GO: "go", GO_WITH_NOTES: "warn", "NO-GO": "bad", REFUSED: "bad", NOT_SCORED: "muted" };
@@ -61,7 +62,7 @@ function refusal(reply: unknown): string | null {
 // is read off the entry (`lockwire log --json`'s own data model, `gitlog.as_json`); none
 // of it is derived by parsing `message` or re-scoring the commit here (a rule
 // this milestone keeps re-learning).
-export function HistoryDrawer({ gitAvailable, entries, onDiff, contract, expectedRevision, onApplied, result }: HistoryDrawerProps) {
+export function HistoryDrawer({ gitAvailable, entries, onDiff, contract, expectedRevision, onApplied, result, onJump }: HistoryDrawerProps & { onJump?: OnJump }) {
   const [message, setMessage] = useState("");
   const [source, setSource] = useState("HEAD");
   const [plan, setPlan] = useState<(UndoPlan & { source: string }) | null>(null);
@@ -143,7 +144,7 @@ export function HistoryDrawer({ gitAvailable, entries, onDiff, contract, expecte
               <ul className="history-changes">
                 {entry.fact_diff.changes.map((change) => (
                   <li key={change.path} className="history-change">
-                    <code>{change.path}</code>: {JSON.stringify(change.old)} {"→"} {JSON.stringify(change.new)}
+                    {onJump?.can({ path: change.path }) ? <Jumper label={`Go to ${change.path}`} onClick={() => onJump({ path: change.path })}><code>{change.path}</code></Jumper> : <code>{change.path}</code>}: {JSON.stringify(change.old)} {"→"} {JSON.stringify(change.new)}
                   </li>
                 ))}
               </ul>
@@ -175,7 +176,7 @@ export function HistoryDrawer({ gitAvailable, entries, onDiff, contract, expecte
           <Field
             label="Note"
             aria-label="commit message"
-            placeholder="What changed — witness: your name"
+            placeholder="What changed"
             value={message}
             onChange={(event: { target: { value: string } }) => setMessage(event.target.value)}
           />

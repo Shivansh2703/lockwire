@@ -1,6 +1,107 @@
 {
   "components": {
     "schemas": {
+      "AddPartNumber": {
+        "additionalProperties": false,
+        "description": "One sourced catalog number, pre-filled in the Add part form with its badge.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "datasheet",
+              "source_file",
+              "assumed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "unit",
+          "kind",
+          "source"
+        ],
+        "title": "AddPartNumber",
+        "type": "object"
+      },
+      "AddPartOption": {
+        "additionalProperties": false,
+        "description": "A catalog part the Add part form can pick, and the contract rails its voltage fits.",
+        "properties": {
+          "fits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fits",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "numbers": {
+            "items": {
+              "$ref": "#/components/schemas/AddPartNumber"
+            },
+            "title": "Numbers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "numbers",
+          "fits"
+        ],
+        "title": "AddPartOption",
+        "type": "object"
+      },
+      "AddPartPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/AddPartOption"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "rails": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rails",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rails",
+          "parts"
+        ],
+        "title": "AddPartPayload",
+        "type": "object"
+      },
       "AddsUpRow": {
         "additionalProperties": false,
         "properties": {
@@ -46,6 +147,18 @@
         "additionalProperties": false,
         "description": "One remedy suggestion, its number, and the kind that number carries.",
         "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Device"
+          },
           "kind": {
             "title": "Kind",
             "type": "string"
@@ -61,6 +174,18 @@
             ],
             "default": null,
             "title": "Mark"
+          },
+          "rail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rail"
           },
           "text": {
             "title": "Text",
@@ -399,6 +524,30 @@
                 "type": "null"
               }
             ]
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Owner"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Quantity"
           },
           "raw": {
             "title": "Raw",
@@ -785,6 +934,9 @@
         "additionalProperties": false,
         "description": "``gui.build_declare_form`` \u2014 every declarable quantity plus the witness\nbox (E4-df). Unenveloped like the page (seam 1): this box's face render is\nthe app's own, not this door's, so there is no ``artifact_type`` to\ndiscriminate on yet.",
         "properties": {
+          "add_part": {
+            "$ref": "#/components/schemas/AddPartPayload"
+          },
           "revision": {
             "anyOf": [
               {
@@ -1935,9 +2087,33 @@
             "title": "Label",
             "type": "string"
           },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Limit"
+          },
           "sub": {
             "title": "Sub",
             "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Value"
           }
         },
         "required": [
@@ -1953,9 +2129,33 @@
         "additionalProperties": false,
         "description": "One short \"Instead\" row: verb + number + the kind word (copy.instead_row).",
         "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Device"
+          },
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "rail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rail"
           },
           "text": {
             "title": "Text",
@@ -2791,6 +2991,10 @@
             "title": "Id",
             "type": "string"
           },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
           "text": {
             "title": "Text",
             "type": "string"
@@ -2798,6 +3002,7 @@
         },
         "required": [
           "id",
+          "name",
           "text"
         ],
         "title": "ReferenceFaceDevice",
@@ -2860,6 +3065,10 @@
             "title": "Child",
             "type": "string"
           },
+          "child_name": {
+            "title": "Child Name",
+            "type": "string"
+          },
           "effort": {
             "anyOf": [
               {
@@ -2888,6 +3097,10 @@
           },
           "parent": {
             "title": "Parent",
+            "type": "string"
+          },
+          "parent_name": {
+            "title": "Parent Name",
             "type": "string"
           },
           "position": {
@@ -2926,6 +3139,8 @@
           "type",
           "parent",
           "child",
+          "parent_name",
+          "child_name",
           "position",
           "axis",
           "lower",
@@ -3081,6 +3296,18 @@
             },
             "title": "Lenses",
             "type": "array"
+          },
+          "mount_frame": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mount Frame"
           },
           "name": {
             "title": "Name",
@@ -3443,6 +3670,48 @@
         "title": "StartPayload",
         "type": "object"
       },
+      "Starter": {
+        "additionalProperties": false,
+        "description": "A bundled \"New robot\" starter: its folder name, the archetype title, and the real robot it is based on.",
+        "properties": {
+          "based_on": {
+            "title": "Based On",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "based_on"
+        ],
+        "title": "Starter",
+        "type": "object"
+      },
+      "StartersPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "starters": {
+            "items": {
+              "$ref": "#/components/schemas/Starter"
+            },
+            "title": "Starters",
+            "type": "array"
+          }
+        },
+        "required": [
+          "starters"
+        ],
+        "title": "StartersPayload",
+        "type": "object"
+      },
       "Target": {
         "additionalProperties": false,
         "description": "What a card is about, typed by the engine so the app never parses text.",
@@ -3619,6 +3888,11 @@
     "lockwire-what-if-report": "WhatIfPayload"
   },
   "x-lockwire-number-kinds": {
+    "AddPartNumber.value": {
+      "by": "catalog.SourcedNumber",
+      "kind": "catalog",
+      "mark": "catalog"
+    },
     "BudgetRow.limit": {
       "by": "schema.Contract",
       "kind": "declared"
@@ -3673,6 +3947,14 @@
     },
     "ForceFigure.value": {
       "by": "forces.force_document",
+      "kind": "derived"
+    },
+    "GraphNode.limit": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "GraphNode.value": {
+      "by": "report_html._graph",
       "kind": "derived"
     },
     "PackedVectors.offset": {
