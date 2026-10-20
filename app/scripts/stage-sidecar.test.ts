@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -138,5 +138,15 @@ describe("which PyInstaller spec is frozen", () => {
     mkdirSync(join(root, "packaging", "pro"));
     writeFileSync(join(root, "packaging", "pro", "lockwire.spec"), "");
     expect(specPath(root)).toBe("packaging/pro/lockwire.spec");
+  });
+});
+
+describe("staging keeps the sidecar's symlinks relative", () => {
+  it("test_relative_symlink_stays_relative_so_codesign_accepts_the_app", () => {
+    const source = tmpDir();
+    writeFileSync(join(source, "lockwire"), "#!/bin/sh\n", { mode: 0o755 });
+    symlinkSync("lockwire", join(source, "Python"));
+    const staged = stageSidecar({ sourceDir: source, sourceBinName: "lockwire", destRoot: tmpDir(), platform: "darwin", arch: "arm64" });
+    expect(readlinkSync(join(staged, "..", "Python"))).toBe("lockwire");
   });
 });

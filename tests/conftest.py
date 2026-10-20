@@ -12,6 +12,9 @@ import pytest
 os.environ.pop("FORCE_COLOR", None)
 os.environ.pop("CLICOLOR_FORCE", None)
 os.environ["NO_COLOR"] = "1"
+# Typer forces a terminal (ANSI box borders) when GITHUB_ACTIONS or PY_COLORS is set, so
+# tests that parse the help panel saw no commands in CI only. Its own off switch:
+os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
 
 # Pin terminal width so rich does not wrap phrase assertions at the default 80
 # columns when running under xdist with long tmpdir paths (/popen-gwN/ tails).

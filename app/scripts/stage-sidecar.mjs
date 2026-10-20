@@ -72,7 +72,9 @@ export function stageSidecar({ sourceDir, sourceBinName, destRoot, platform, arc
   const dir = join(destRoot, sidecarDirName(platform, arch));
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  cpSync(sourceDir, dir, { recursive: true });
+  // verbatimSymlinks: by default cpSync makes relative links absolute (pointing back at the build dir),
+  // which codesign rejects inside the .app; a framework-Python sidecar has such links.
+  cpSync(sourceDir, dir, { recursive: true, verbatimSymlinks: true });
   const staged = join(dir, sourceBinName);
   const target = join(dir, sidecarBinName(platform));
   if (staged !== target) renameSync(staged, target);

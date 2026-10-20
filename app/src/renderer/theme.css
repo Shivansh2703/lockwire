@@ -276,7 +276,7 @@ button {
 .actuator-case-evidence {
   display: grid;
   gap: 4px;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere; /* hashes and paths; break-word does not shrink a grid row */
   color: var(--muted);
 }
 
@@ -310,7 +310,7 @@ button {
   display: grid;
   gap: 6px;
   padding-left: 18px;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere; /* long claim paths; break-word does not shrink a grid row */
 }
 
 .actuator-claim-gaps li {

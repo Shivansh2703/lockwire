@@ -101,7 +101,7 @@ const waitDialogCall = async (app) => {
   }
   throw new Error("Open robot never asked for a file");
 };
-const waitSelector = (page, selector, state = "attached") => page.waitForSelector(selector, { state, timeout: 15_000 });
+const waitSelector = (page, selector, state = "attached", timeout = 15_000) => page.waitForSelector(selector, { state, timeout });
 const noPrompt = (page) => page.evaluate(`!document.querySelector('[role="alertdialog"]')`);
 
 /**
@@ -156,8 +156,9 @@ export async function driveFresh({ app, page, urdfPath, expectText }) {
   await waitForSidecar(page);
   const t0 = Date.now();
   await clickButton(page, "Open robot");
-  await waitSelector(page, ".check-headline");
-  await waitSelector(page, ".finding-card");
+  // A first open of a big model (ANYmal) took 6-11 s on a loaded box; msToFirstCard still reports the real time.
+  await waitSelector(page, ".check-headline", "attached", 45_000);
+  await waitSelector(page, ".finding-card", "attached", 45_000);
   const ms = Date.now() - t0;
   const cardTop = await page.evaluate(`document.querySelector('.finding-card').getBoundingClientRect().top`);
   const viewH = await page.evaluate(`window.innerHeight`);
@@ -313,15 +314,18 @@ export async function driveOpen({ app, page, openPath, planPath, planStepPath, r
     await page.locator(".run-start").click();
     runProof = await page.evaluate(`(async () => {
       const startedAt = Date.now();
-      while (!document.querySelector('.kit-jobbar')?.textContent?.includes('Done')) {
-        if (document.querySelector('.kit-jobbar')?.textContent?.includes('Failed')) throw new Error('synthetic Run failed');
+      // The job bar shows only while running; a finished run puts its pill in the Run panel's own header.
+      const pill = () => document.querySelector('.run-panel')?.closest('.kit-panel')?.querySelector('.kit-panel-head .check-headline .kit-pill');
+      while (!pill()) {
         if (Date.now() - startedAt > 60000) throw new Error('timed out waiting for completed synthetic Run');
         await new Promise((resolve) => setTimeout(resolve, 150));
       }
+      const word = pill().textContent?.trim();
+      if (word === 'Failed' || word === 'Cancelled') throw new Error('synthetic Run ' + word);
       const frames = document.querySelectorAll('.shell').length;
       const runFace = Boolean(document.querySelector('.run-face'));
       if (frames !== 1 || !runFace) throw new Error('completed Run did not remain inside exactly one app frame');
-      return { status: 'completed', frames, runFace };
+      return { status: 'completed', verdict: word, frames, runFace };
     })()`);
     await shot("Run-result");
   }
