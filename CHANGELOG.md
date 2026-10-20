@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3 — 2026-10-19
+
+Release fixes for 0.2.2. (0.2.2 was tagged but never released; everything in it ships here.)
+
+- The Mac download passes Apple's strict signature check again. The app's bundled engine kept links that pointed outside the app.
+- The Linux AppImage no longer carries links to the build machine.
+- CI: the command list parsed from `lockwire --help` is read the same way on GitHub Actions as locally.
+
 ## 0.2.2 — 2026-10-16
 
 Easier first run, and five starter robots. (0.2.1 was never published; its changes ship here.)
