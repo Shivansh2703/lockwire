@@ -35,3 +35,7 @@ app/out/
 **/node_modules/
 .app-free-*/
 dist-release/
+release-assets/
+
+# health ledger append lock (sibling of <contract>.health.jsonl)
+*.health.jsonl.lock

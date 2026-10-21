@@ -14,7 +14,7 @@ command). The free commands are ``start``, ``check``, ``page``, ``declare-form``
 ``diff``, ``log`` and ``report``. A plugin adds its own through
 ``plugins.SERVE_COMMANDS``; this module names none of them, and a command it does
 not know is a 422, refused by the discriminated union before any lockwire code runs.
-Robot mode lists the write commands but refuses each by name.
+Robot mode serves an allowlist of read commands; every other command is refused by name.
 
 **The sidecar computes nothing of its own.** Each handler calls the
 matching ``lockwire.api`` function and wraps the document it returns. ``report``
@@ -50,6 +50,7 @@ from ruamel.yaml import YAMLError
 
 from lockwire import __version__, api, plugins, vcs
 from lockwire.cli_line import cli_line as _build_cli_line
+from lockwire.confine import confine, without_values
 from lockwire.edit import Change, contract_revision
 from lockwire.plan import load_plan, validate_plan
 from lockwire.report_html import write_html_report
@@ -105,7 +106,7 @@ def _refusal(cli_line: str, exit_code: int, message: str) -> RunReply:
         exit_code=exit_code,
         verdict=None,
         payload=None,
-        refusal=message,
+        refusal=without_values(message),  # the reply reaches a model
     )
 
 
@@ -636,14 +637,18 @@ def _handle_describe(args: DescribeArgs) -> RunReply:
         return _refusal(cli_line, 2, str(error))
     if args.out is None:
         return _ok(cli_line, exit_code=0, verdict=None, payload="\n\n".join(files.values()))
-    out_dir = Path(args.out)
+    try:  # inside the contract's folder, and a device id is not a path
+        out_dir = confine(args.out, args.contract, Path(args.contract).resolve().parent)
+        targets = {confine(out_dir / n, args.contract, out_dir): t for n, t in files.items()}
+    except ValueError as error:
+        return _refusal(cli_line, 2, str(error))
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
-        for name, content in files.items():
-            (out_dir / name).write_text(content, encoding="utf-8")
+        for target, content in targets.items():
+            target.write_text(content, encoding="utf-8")
     except OSError as error:
         return _refusal(cli_line, 2, f"could not write to {out_dir}: {error}")
-    text = "\n".join(f"wrote {out_dir / name}" for name in sorted(files))
+    text = "\n".join(f"wrote {Path(args.out) / name}" for name in sorted(files))
     return _ok(cli_line, exit_code=0, verdict=None, payload=text)
 
 
@@ -666,12 +671,15 @@ def _handle_report(args: ReportArgs) -> RunReply:
         api.load_scene(contract_path, args.scene, args.package_root)
     except SceneRefusal as error:
         return _refusal(cli_line, 2, str(error))
-    out_path = Path(args.out)
+    try:  # inside the contract's folder, never over a lockfile
+        out_path = confine(args.out, contract_path, contract_path.resolve().parent)
+    except ValueError as error:
+        return _refusal(cli_line, 2, str(error))
     try:
         write_html_report(loaded, out_path)
     except OSError as error:
         return _refusal(cli_line, 1, f"could not write {out_path}: {error}")
-    return _ok(cli_line, exit_code=0, verdict=None, payload=f"wrote {out_path}")
+    return _ok(cli_line, exit_code=0, verdict=None, payload=f"wrote {Path(args.out)}")
 
 
 def page_reply(
@@ -1073,23 +1081,11 @@ def dispatch(body: Any, state: Any = None) -> RunReply:
 # without it a page on any site can point a name it owns at 127.0.0.1 (DNS
 # rebinding) and the same-origin rules would let it through.
 
-#: Commands that remain discoverable but are refused by name on the robot.
-_WRITE_COMMANDS = frozenset(
-    {
-        "start",
-        "declare",
-        "add",
-        "review",
-        "commit",
-        "undo",
-        "place",
-        "move",
-        "rotate",
-        "reparent",
-        "mount-shape",
-        "report",
-    }
-)
+#: The only commands the robot serves (a denylist let `describe --out`,
+#: `health`, `run-start` and `preflight --json` write or start jobs there). Every other
+#: command, a plugin's included, stays discoverable but is refused by name. `describe` is a
+#: read only without `out`.
+_ROBOT_READ_COMMANDS = frozenset({"starters", "check", "what-if", "plan", "declare-form", "page"})
 _HOST_ONLY_COMMANDS = frozenset({"diff", "log"})
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -1159,17 +1155,20 @@ def create_app(
     def run(body):  # noqa: ANN001, ANN202 - annotated below, once the union exists
         if policy is not None:
             body = policy(body)
-        if app.state.robot and body.command in _WRITE_COMMANDS:
-            return _refusal(
-                f"lockwire {body.command}",
-                2,
-                f"write commands are not served on the robot: {body.command}",
-            )
         if app.state.robot and body.command in _HOST_ONLY_COMMANDS:
             return _refusal(
                 f"lockwire {body.command}",
                 2,
                 f"host-only commands are not served on the robot: {body.command}",
+            )
+        if app.state.robot and not (
+            body.command in _ROBOT_READ_COMMANDS
+            or (body.command == "describe" and body.args.out is None)
+        ):
+            return _refusal(
+                f"lockwire {body.command}",
+                2,
+                f"write commands are not served on the robot: {body.command}",
             )
         return dispatch(body, app.state)
 

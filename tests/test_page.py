@@ -548,7 +548,9 @@ def test_x500_adds_up_rows_are_plain_words_not_quantity_paths():
     names = [row["name"] for row in payload["adds_up"]]
     # B10: radio adds passing rows. B13 (2026-09-06): its link_budget now scores
     # a real pass too (bundled antenna gain published), adding an 8th row.
-    assert len(names) == 8, "fixture assumption changed"
+    assert len(names) == 7, (
+        "fixture assumption changed"
+    )  # payload mass budget no longer a pass (Jetson, OAK-D, magnetometer masses unknown)
     for name in names:
         assert "/" not in name, f"row title still carries a quantity path: {name!r}"
         assert "bud." not in name, f"row title still names a budget id: {name!r}"
@@ -560,7 +562,7 @@ def test_x500_adds_up_rows_are_plain_words_not_quantity_paths():
     assert "pixhawk-telem1-5v: 5.20 V of 5.20 V from rail.pm02-5v" in joined
     assert "pixhawk-telem1-5v rail: 5.20 W of 7.80 W" in joined
     assert "radio.rfd900x on the 5.20 V rail" in joined
-    assert "Payload mass: 0.67 kg of 1.50 kg allowed" in joined
+    assert "Payload mass" not in joined  # partial mass sum is no longer a pass
     # B67: durations under an hour print in minutes, not a fraction of an hour.
     assert "Flight time on the declared pack: 15.8 min, 15.0 min required" in joined
     assert "servo-motor rail" in joined and "246.68 W of 888.00 W" in joined
@@ -1122,7 +1124,7 @@ def test_step_targets_light_the_rail_and_its_consumers(tmp_path: Path):
 
 def test_reference_joints_use_plain_words():
     from lockwire.page import _reference_face
-    from lockwire.schema import Contract, Joint, ModelRecord, Provenance, RobotInfo
+    from lockwire.schema import Contract, Joint, Link, ModelRecord, Provenance, RobotInfo
 
     joints = [
         Joint(name="world_base_joint", type="fixed", parent="world", child="base_link"),
@@ -1132,6 +1134,8 @@ def test_reference_joints_use_plain_words():
         source="t.urdf",
         source_sha256="a",
         structure_hash="b",
+        # Ghost-link refusal: every joint end must be a declared link.
+        links=[Link(name=n) for n in ("world", "base_link", "END-EFFECTOR")],
         joints=joints,
         provenance=Provenance(witness="t", source="t.urdf", locked_at="2026-01-01"),
     )
@@ -1154,3 +1158,37 @@ def test_rail_current_limit_violation_is_not_called_a_lockfile_difference(tmp_pa
     cards = build_payload(load_contract(out))["cards"]
     card = next(c for c in cards if "rails/rail.jetson-header-5v/current_limit" in c["raw"])
     assert card["title"] == "Jetson Header 5 V over its current limit"
+
+
+def test_weak_servo_card_names_the_torque_gap_not_an_unmapped_drive():
+    from lockwire.page import _cards, finding_label
+
+    def weak(joint: str) -> Finding:
+        return Finding(
+            severity="violation",
+            quantity=f"devices/dev.servo.{joint}/drives_joint",
+            observed="1.91 N*m continuous geared torque",
+            expected=">= 10.00 N*m joint effort limit",
+            action="select a stronger actuator",
+        )
+
+    findings = [weak("elbow_flex"), weak("gripper")]
+    cards = _cards(load_contract(CLEAN), findings)
+    assert [c["title"] for c in cards] == [
+        "Elbow Flex: servo 1.91 N·m, joint limit 10 N·m",
+        "Gripper: servo 1.91 N·m, joint limit 10 N·m",
+    ]
+    assert cards[0]["group_title"] == "{n} servos can't reach their joint limit"
+    assert finding_label(findings[0]) == "Servo too weak"
+    assert "gives 1.91 N·m continuously" in cards[0]["body"]
+    peak = weak("elbow_flex").model_copy(update={"observed": "1.91 N*m peak (stall) geared torque"})
+    assert "gives at most 1.91 N·m even at stall" in _cards(load_contract(CLEAN), [peak])[0]["body"]
+    # a real bad joint reference keeps its own wording
+    bad_ref = Finding(
+        severity="violation",
+        quantity="devices/dev.servo.x/drives_joint",
+        observed="'nope'",
+        expected="a joint name in model/joints",
+        action="fix the driven-joint reference",
+    )
+    assert _cards(load_contract(CLEAN), [bad_ref])[0]["group_title"] == "{n} drives unmapped"

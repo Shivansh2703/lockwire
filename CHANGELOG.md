@@ -1,12 +1,41 @@
 # Changelog
 
-## 0.2.3 — 2026-10-19
+## 0.2.4 — unreleased
 
-Release fixes for 0.2.2. (0.2.2 was tagged but never released; everything in it ships here.)
+New in the free app and library:
 
-- The Mac download passes Apple's strict signature check again. The app's bundled engine kept links that pointed outside the app.
-- The Linux AppImage no longer carries links to the build machine.
-- CI: the command list parsed from `lockwire --help` is read the same way on GitHub Actions as locally.
+- An assistant in the app: ask questions about your robot's lockfile. It is off by default, uses your own key, and asks for consent once per robot.
+- `lockwire from-parts` (and `from_parts` in the library): paste a parts list and it is matched to the catalog; with `--out` it also writes a draft lockfile.
+- Xacro files are expanded when you start from them, and `package://` mesh paths are searched in sibling packages.
+- A new check: an arm's gravity torque against each joint's effort limit.
+- A new check: a massless tool or gripper leaf link is flagged.
+- A converter's output tolerance is checked against what the load needs.
+- `lockwire check --strict` exits 1 on a `GO with notes`; the GitHub Action has a matching `strict` input.
+- `lockwire check` lists the checks that passed after the verdict.
+- glb and gltf files can be picked as the robot model.
+- Gravity reach now scores kinematic trees: arms with grippers, each leg of a quadruped, and humanoid limbs with the base held. A link can carry an optional `payload` (a point mass at the link's origin); the lockfile version is unchanged and files without it stay valid. The starter robots gained centres of mass, so the arm scores all six joints, the quadruped twelve, and the humanoid 28 of 30.
+- The assistant shows each proposed change as the diff the editor itself would make, with a visible, editable witness field; Apply stays off until it is filled. The assistant now docks beside the panel for the current mode, so Check findings stay visible.
+
+Fixes you will notice:
+
+- A joint declared continuous that is really a rocker is now caught.
+- Closed kinematic chains no longer hang `check`; joint limits are sampled rather than assumed.
+- A UTF-16 URDF is refused with a clear message instead of being misread.
+- Writes never overwrite a lockfile unless you ask; `start --example` keeps your own .glb.
+- Robot-mode (agent) calls can only reach the files they are allowed to.
+- A mass budget with an unknown mass is "not scored" instead of summing the unknown as zero.
+- Rail current is scored in every power mode, CAN bandwidth is computed on wire bits, and a low-side tolerance is checked.
+- Placing a device rotates it into the frame it is placed in.
+- Tool failures exit 2 with one line instead of a traceback.
+- `review` accepts `--expected-revision`, and `~` is expanded in paths.
+- The contract loader now refuses a joint whose parent or child is not a declared link, joint limits with lower >= upper or a negative velocity, and a tolerance rel_pct outside 0-100 or a string percent (exit 2, field named); a missing schema_version means the current version everywhere; an unquoted schema_version: 0.3 is accepted; schema_version is unchanged. Saving a lockfile (lockwire init, including --force) writes it atomically as UTF-8 keeping the file permissions; a forced re-init writes a fresh file and does not keep the old file's comments; declare/add/review still keep comments.
+- The `lockwire.api` library docs now list every public function, and no longer show paid-only calls.
+- Every command that writes `--out` or `--json` exits 2 with one line when the folder is missing; `from-parts --out` no longer creates missing parent folders. `scene import` refuses the lockfile itself as its changes file, and `health --json` stays inside the allowed folders.
+- On Windows, lockfile edits keep the file's line endings, and the Windows CI job runs the whole edit test file.
+- The helper that expands xacro files now runs with a minimal, allowlisted environment instead of yours.
+- Editing a lockfile keeps its file permissions.
+
+Under the hood: updated the MCP library and pyjwt for security advisories, Electron to 44.9.2, and npm patch releases. The Windows CI job now fails when tests fail, so its badge means what it says.
 
 ## 0.2.2 — 2026-10-16
 
@@ -18,7 +47,6 @@ Easier first run, and five starter robots. (0.2.1 was never published; its chang
 - Fixed the Mac download: the zip is now clean and opens without the "damaged" error. A verify script (`scripts/verify_mac_zip.sh`) checks the zip before release.
 - The GitHub Action installs its own code by default. It no longer pulls Lockwire from PyPI unless you pin a version.
 - Quieter output: massless frames are folded into one line instead of one warning each.
-- A servo that declares only a peak (stall) torque is now checked against the joint's effort limit: if even the peak can't reach it, Check flags it, and Plan scores it the same way.
 - The scored line is honest: warnings and model checks are counted in their own buckets, so the numbers add up.
 - The robot name comes from the URDF and gets its own row. Parts, joints and rails read as plain names.
 - One number format everywhere; rounding never hides a gap.

@@ -359,7 +359,19 @@ def test_xacro_extension_with_macro_refused(tmp_path):
     path = tmp_path / "robot.xacro"
     path.write_text(
         '<?xml version="1.0"?><robot name="x" xmlns:xacro="http://ros.org/wiki/xacro">'
-        '<xacro:macro name="m"><link name="base"/></xacro:macro></robot>'
+        "<xacro:nope/></robot>"
     )
-    with pytest.raises(SceneRefusal, match="unresolved xacro"):
+    with pytest.raises(SceneRefusal, match="xacro expansion failed"):
         load_robot_scene(path)
+
+
+def test_package_xml_with_doctype_is_not_parsed(tmp_path):
+    """package.xml gets the same DOCTYPE guard."""
+    from lockwire.scene_urdf import _find_package_dir
+
+    pkg = tmp_path / "dir"
+    pkg.mkdir()
+    (pkg / "package.xml").write_text(
+        '<!DOCTYPE p [<!ENTITY n "mypkg">]><package><name>&n;</name></package>'
+    )
+    assert _find_package_dir(tmp_path, "mypkg", 3) is None

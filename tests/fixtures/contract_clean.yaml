@@ -58,6 +58,7 @@ model:
       type: revolute
       parent: base_link
       child: imu_link
+      axis: [0.0, 0.0, 1.0]
       limits:
         effort: 2.0
   provenance:

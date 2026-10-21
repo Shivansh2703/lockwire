@@ -29,19 +29,24 @@ model:
   - {name: base_footprint}
   - name: base_link
     mass: {value: 0.82573504, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: base_link
   - name: wheel_left_link
     mass: {value: 0.02849894, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: wheel_left_link
   - name: wheel_right_link
     mass: {value: 0.02849894, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: wheel_right_link
   - name: caster_back_link
     mass: {value: 0.005, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: caster_back_link
   - {name: imu_link}
   - name: base_scan
     mass: {value: 0.114, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: base_scan
   joints:
   - name: base_joint

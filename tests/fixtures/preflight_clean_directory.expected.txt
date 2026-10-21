@@ -1,8 +1,8 @@
 stage 0
 not scored devices/dev.radio.rfd900/enumeration — observed not observed by preflight source, expected device present on the bus
   owner: shivansh
-  action: source cannot see this declaration; enumeration not scored (absence is
-not a no-go)
+  action: declared and not seen: enumeration not scored; so this device cannot 
+count as measured
 stage 2
 not scored preflight/stage/2/timestamps/monotonicity/live_path — observed through a RecordedSource loading the native recording format, recv-time
 monotonicity is enforced upstream by load_recording, which rejects non-monotonic
@@ -57,6 +57,10 @@ context
   action: declare oneshot_variance_min on the context envelope — do not treat 
 variance_floor as a preflight pass/fail threshold
 stage 4
+not scored budgets/bud.mass.devices — observed mass unknown for dev.barometer, dev.gnss, dev.esc.busless; total not 
+scored, expected every device and link in this budget to declare a mass
+  owner: shivansh
+  action: declare the missing masses, or accept this budget unchecked
 not scored devices/dev.barometer/physical/mass — observed mass not declared, expected a positive mass with units
   owner: shivansh
   action: declare the device's mass, or accept it excluded from this budget
@@ -80,8 +84,7 @@ expected a bag command decoder and mapping to the declared Driver.command_topic
 checked
 not scored preflight/commands/record — observed no command record beside this recording (commands.jsonl not present), 
 expected a commands.jsonl written by the watched write layer
-  action: run the write layer alongside the capture to score commands; absence 
-is not a no-go
+  action: run the write layer alongside the capture to score commands
 not scored preflight/coverage/comm_links_under_representative_load — observed comm links under representative load: permanently out of scope offline 
 (requires live hardware); deferred to M1b, expected comm links under 
 representative load scored against live hardware (M1b)
@@ -107,4 +110,4 @@ platform, expected context bench-idle or armed-idle (stationary platform) before
   action: run preflight under a stationary context, or accept that |g| is not 
 scored while the platform may be moving
 
-GO — records agree (31 scored); 20 check(s) not scored
+GO — records agree (28 scored); 21 check(s) not scored

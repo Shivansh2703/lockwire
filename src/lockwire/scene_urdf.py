@@ -25,7 +25,12 @@ from pathlib import Path
 
 from lockwire.mesh_simple import MeshRefusal, read_obj, read_stl
 from lockwire.scene import Scene, ScenePart, SceneRefusal
-from lockwire.urdf import UnresolvedXacroError, _refuse_doctype_entity, _refuse_unresolved_xacro
+from lockwire.urdf import (
+    UnresolvedXacroError,
+    _refuse_doctype_entity,
+    _refuse_unresolved_xacro,
+    read_model_bytes,
+)
 from lockwire.urdf import _xyz_rpy as _urdf_xyz_rpy
 
 _CYL_SEGMENTS = 24
@@ -211,8 +216,10 @@ def _find_package_dir(root: Path, pkg: str, max_depth: int) -> Path | None:
         pkg_xml = d / "package.xml"
         if pkg_xml.is_file():
             try:
-                xml_root = ET.fromstring(pkg_xml.read_bytes())
-            except ET.ParseError:
+                raw = pkg_xml.read_bytes()
+                _refuse_doctype_entity(raw, pkg_xml)
+                xml_root = ET.fromstring(raw)
+            except (ET.ParseError, ValueError):
                 xml_root = None
             if xml_root is not None:
                 name_el = xml_root.find("name")
@@ -221,7 +228,11 @@ def _find_package_dir(root: Path, pkg: str, max_depth: int) -> Path | None:
         if depth == max_depth:
             return None
         try:
-            children = sorted(p for p in d.iterdir() if p.is_dir())
+            children = sorted(
+                p
+                for p in d.iterdir()
+                if p.is_dir() and not p.name.startswith(".") and p.name != "node_modules"
+            )
         except OSError:
             return None
         for child in children:
@@ -696,10 +707,15 @@ def load_robot_scene(
     path = Path(path)
     if not path.is_file():
         raise SceneRefusal(f"{path}: file does not exist.")
-    raw = path.read_bytes()
     suffix = path.suffix.lower()
+    try:
+        raw = read_model_bytes(path)
+    except UnresolvedXacroError as exc:
+        raise SceneRefusal(str(exc)) from exc
     if (own := package_root(path)) is not None:
         package_roots = (*package_roots, own)
+    # Sibling packages: the model folder's parent and grandparent (workspace layouts).
+    package_roots = (*package_roots, *path.resolve().parents[1:3])
 
     if suffix in (".urdf", ".xacro"):
         _refuse_doctype(raw, path)

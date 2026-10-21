@@ -11,6 +11,7 @@ records that already exist.
 
 from __future__ import annotations
 
+import re
 import types
 from pathlib import Path
 from typing import Any, Union, get_args, get_origin
@@ -120,9 +121,20 @@ def _shape(finding: Finding) -> str:
     return "/".join(shaped)
 
 
+def _weak_servo(finding: Finding) -> bool:
+    """A drives_joint finding from the torque check (servo too weak), not a bad joint reference."""
+    return _shape(finding).endswith("drives_joint") and "geared torque" in finding.observed
+
+
+def _nm(text: str) -> str:
+    """ "10.00 N*m ..." -> "10 N·m"."""
+    m = re.search(r"([\d.]+) N\*m", text)
+    return f"{float(m[1]):g} N·m" if m else text
+
+
 def finding_label(finding: Finding) -> str:
     """A plain 1-4 word name for the check a finding came from (copy.CHECK_LABELS)."""
-    return check_label(finding.quantity)
+    return "Servo too weak" if _weak_servo(finding) else check_label(finding.quantity)
 
 
 def _instead(alternatives: Any) -> list[dict[str, str]]:
@@ -221,6 +233,15 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
         if first.delta:
             measured += f" Off by {first.delta}."
 
+    if _weak_servo(first):
+        return (
+            f"{human_name(_subject(first)).removeprefix('Servo ')}: servo {_nm(first.observed)}, "
+            f"joint limit {_nm(first.expected)}",
+            f"The servo gives {'at most ' if 'peak (stall)' in first.observed else ''}{_nm(first.observed)}"
+            f"{' even at stall' if 'peak (stall)' in first.observed else ' continuously'}, but the joint's effort limit is "
+            f"{_nm(first.expected)}. It is paired with the joint correctly; it is too weak for it.",
+        )
+
     if shape == "budgets/*":
         budget = _budget(contract, first.quantity)
         kind = budget.kind if budget is not None else None
@@ -240,7 +261,7 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
                     f"everything on that rail browns out together.",
                 )
             return (f"{human_name(label)} rail load{in_mode}", measured)
-        if kind == "mass_total":
+        if kind == "mass_total" and first.severity != "not_scored":  # a gap is not a total
             # G2 audit 2 §5: this total is summed from the model's own YAML
             # declarations (URDF link masses + device masses) — no scale was
             # ever read. "Measured" implies a recording; say what it actually is.
@@ -772,7 +793,7 @@ def _cards(
                 figure_note=figure_note,
                 shape=_shape(group[0]),
                 label=finding_label(group[0]),
-                group_title=group_title(_shape(group[0])),
+                group_title=group_title(_shape(group[0]), weak=_weak_servo(group[0])),
                 instead=_instead([a for f in group for a in f.alternatives]),
                 also_in_run=any(_finding_key(finding) in echoed for finding in group),
                 quantity=group[0].quantity,
@@ -1092,7 +1113,8 @@ def _scored_title(contract: Contract, record: Any) -> str:
         return f"{short_name(device_id)} sits where the contract says — {record.margin}"
     # ampacity / bandwidth / link budget / torque / thermal, and anything else
     # scored: the same "observed of limit — margin" shape, named by its subject.
-    subject = _scored_name(quantity)
+    subject = quantity.split("/")[2] if quantity.startswith("model/joints/") else None
+    subject = subject or _scored_name(quantity)
     limit = record.expected.removeprefix("<= ").removeprefix(">= ")
     return f"{subject}: {record.observed} of {limit} — {record.margin}"
 
@@ -1148,6 +1170,7 @@ _MODE_LABELS = {
 _COMMAND_MODES = {
     "add": "design",
     "gearbox": "design",
+    "from-parts": "design",  # drafts the part list a robot is built from
     "scene": "design",
     # "E5's Design mode places, moves, rotates, re-parents parts and edits
     # mounting geometry." These commands are that mode's write door.

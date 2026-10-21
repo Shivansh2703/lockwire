@@ -1,8 +1,10 @@
 import hashlib
 import shlex
 import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 from conftest import plain, strip_ansi
 from ruamel.yaml import YAML
 from typer.testing import CliRunner
@@ -1515,14 +1517,15 @@ def test_start_example_then_check_is_no_go(tmp_path, monkeypatch):
 
 
 def test_fresh_start_summary_claims_no_comparison_and_stays_go(testbot_urdf, tmp_path):
-    """A fresh start stays GO with notes, but the scored line names the hash match."""
+    """A fresh start stays GO with notes; the scored line names the hash match apart from the
+    one real comparison a bare URDF gives (gravity reach of the hip)."""
     contract = tmp_path / "lockwire.yaml"
     assert runner.invoke(app, ["start", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
     result = runner.invoke(app, ["check", str(contract)])
     out = plain(result.output)
     assert result.exit_code == 0, out
     line = next(x for x in strip_ansi(result.output).splitlines() if x.startswith("scored "))
-    assert "add up" not in line, line  # bites "scored 1: 0 add up, 0 do not" / "1 add up"
+    assert "scored 2: 1 add up" in line, line  # bites the hash match counted as "add up"
     assert "1 model check" in line, line
 
 
@@ -1540,3 +1543,259 @@ def test_old_example_names_still_work_but_are_never_listed(tmp_path, monkeypatch
             CliRunner().invoke(app, ["start", "--example", old, "--out", f"{old}.yaml"]).exit_code
             == 0
         )
+
+
+def test_check_strict_turns_notes_into_failure(testbot_urdf, tmp_path):
+    contract = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
+    loose = runner.invoke(app, ["check", str(contract)])
+    assert loose.exit_code == 0 and "strict mode" not in plain(loose.output)
+    strict = runner.invoke(app, ["check", str(contract), "--strict"])
+    assert strict.exit_code == 1, strict.output
+    assert "strict mode turned 1 note into a failure" in plain(strict.output)
+
+
+def _passes_only_report():
+    from lockwire.report import RecordReport, ScoredRecord
+
+    record = ScoredRecord(quantity="x/y", observed="1 W", expected="<= 2 W", margin="1 W spare")
+    return RecordReport(scored=1, scored_keys=frozenset({"x/y"}), scored_records=[record])
+
+
+def test_check_strict_clean_go_exits_0_and_lists_passes(testbot_urdf, tmp_path, monkeypatch):
+    contract = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
+    monkeypatch.setattr("lockwire.cli.run_record_checks", lambda *a, **k: _passes_only_report())
+    result = runner.invoke(app, ["check", str(contract), "--strict"])
+    out = plain(result.output)
+    assert result.exit_code == 0, out
+    assert "strict mode" not in out
+    assert "Passed: 1 checks" in out and "1 W" in out
+
+
+def test_check_without_passes_prints_no_passed_line(tmp_path):
+    contract = tmp_path / "lockwire.yaml"
+    argv = ["start", "--example", "servo-bench", "--out", str(contract)]
+    assert runner.invoke(app, argv).exit_code == 0
+    # servo-bench scores one comparison and it fails: nothing passed
+    assert "Passed:" not in plain(runner.invoke(app, ["check", str(contract)]).output)
+
+
+def test_report_and_check_json_refuse_to_write_over_the_contract(tmp_path):
+    """`report a.yaml --out a.yaml` and `check b.yaml --json b.yaml`
+    overwrote the contract; both are refused and the contract is unchanged byte for byte."""
+    contract = tmp_path / "a.yaml"
+    shutil.copy(X500_CONTRACT, contract)
+    for argv in (["report", str(contract), "--out"], ["check", str(contract), "--json"]):
+        result = runner.invoke(app, [*argv, str(contract)])
+        assert result.exit_code == 2 and "refusing to write over a lockfile" in plain(result.output)
+        assert contract.read_bytes() == X500_CONTRACT.read_bytes()
+    (out := tmp_path / "some" / "dir" / "report.html").parent.mkdir(parents=True)
+    assert runner.invoke(app, ["report", str(contract), "--out", str(out)]).exit_code == 0
+    assert out.read_text().startswith("<!doctype html>")
+
+
+# --- batch 2 cli-edges ---
+# Contract text (report.EXIT_CODE_TABLE["check"]): "1 NO-GO" means the robot is wrong;
+# "2 contract could not be found, read, or parsed" means the tool failed.
+
+
+def _one_plain_line(result) -> str:
+    out = plain(result.output)
+    assert "Traceback" not in out and "Error:" not in out.split("\n")[0][:6], out
+    assert isinstance(result.exception, SystemExit), repr(result.exception)
+    return out
+
+
+def _go_contract(tmp_path, testbot_urdf) -> Path:
+    contract = tmp_path / "c.yaml"
+    assert runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
+    return contract
+
+
+def test_m02_check_json_into_missing_directory_is_exit_2_not_a_no_go(tmp_path, testbot_urdf):
+    """an unwritable --json is a tool failure (exit 2), never exit 1 (NO-GO)."""
+    contract = _go_contract(tmp_path, testbot_urdf)
+    result = runner.invoke(app, ["check", str(contract), "--json", str(tmp_path / "nodir/j.json")])
+    assert result.exit_code == 2, result.output
+    _one_plain_line(result)
+
+
+def test_l02_report_out_into_missing_directory_is_one_line_exit_2(tmp_path, testbot_urdf):
+    """`report --out nodir/r.html` prints no traceback."""
+    contract = _go_contract(tmp_path, testbot_urdf)
+    result = runner.invoke(app, ["report", str(contract), "--out", str(tmp_path / "nodir/r.html")])
+    assert result.exit_code == 2, result.output
+    _one_plain_line(result)
+
+
+def test_m02_init_on_a_malformed_urdf_is_exit_2(tmp_path):
+    """init's own comment says tool failure is exit 2; a ParseError is one."""
+    bad = tmp_path / "bad.urdf"
+    bad.write_text("<robot")
+    result = runner.invoke(app, ["init", str(bad), "--out", str(tmp_path / "c.yaml")])
+    assert result.exit_code == 2, result.output
+    _one_plain_line(result)
+
+
+def test_l02_start_on_a_malformed_urdf_is_one_plain_line(tmp_path):
+    """`start badxml` prints no traceback. Exit stays 1: report.EXIT_CODE_TABLE["start"]
+    documents "1 the URDF/SDF could not be parsed" (table unchanged)."""
+    bad = tmp_path / "bad.urdf"
+    bad.write_text("<robot")
+    result = runner.invoke(app, ["start", str(bad), "--out", str(tmp_path / "c.yaml")])
+    assert result.exit_code == 1, result.output
+    _one_plain_line(result)
+
+
+def test_m21_review_with_a_stale_expected_revision_is_refused_and_writes_nothing(
+    tmp_path, testbot_urdf
+):
+    """--expected-revision reaches api.review; a stale one refuses, exit 2."""
+    from lockwire.edit import contract_revision
+
+    contract = _go_contract(tmp_path, testbot_urdf)
+    before = contract.read_bytes()
+    args = ["review", str(contract), "model", "--approve", "--witness", "tester"]
+    result = runner.invoke(app, [*args, "--expected-revision", "0" * 64])
+    assert result.exit_code == 2, result.output
+    assert "changed since" in plain(result.output)
+    assert contract.read_bytes() == before
+    fresh = runner.invoke(app, [*args, "--expected-revision", contract_revision(contract)])
+    assert fresh.exit_code == 0, fresh.output
+
+
+def test_l80_log_for_a_missing_path_or_no_repo_is_exit_2(tmp_path, monkeypatch):
+    """`log` exited 0 for no repository and for a missing path inside one."""
+    monkeypatch.chdir(tmp_path)  # a scratch folder: no repository above it
+    outside = runner.invoke(app, ["log"])
+    assert outside.exit_code == 2, outside.output
+    _one_plain_line(outside)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    inside = runner.invoke(app, ["log", "--", "nope.yaml"])
+    assert inside.exit_code == 2, inside.output
+    _one_plain_line(inside)
+
+
+def test_l84_a_quoted_tilde_is_expanded(tmp_path, testbot_urdf, monkeypatch):
+    """'~/c.yaml' passed quoted (no shell expansion) resolves under $HOME."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _go_contract(tmp_path, testbot_urdf)
+    result = runner.invoke(app, ["check", "~/c.yaml"])
+    assert result.exit_code == 0, result.output
+
+
+def test_tilde_expands_only_path_parameters(tmp_path, monkeypatch):
+    """Free-text values ('~', '~/todo') are untouched; path values expand."""
+    import typer
+
+    from lockwire.cli import _TildeGroup
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    probe = typer.Typer(cls=_TildeGroup)
+
+    @probe.command("go")
+    def go(
+        where: Path,
+        text: str,
+        note: str = typer.Option("", "--note"),
+        out: Path = typer.Option(Path("x"), "--out"),
+    ):
+        typer.echo(f"{where}|{note}|{out}|{text}")
+
+    @probe.command("other")
+    def other():
+        pass
+
+    got = runner.invoke(
+        probe, ["go", "~/c.yaml", "~/free", "--note", "~/keep-me", "--out=~/o"]
+    ).output.strip()
+    assert got == f"{tmp_path}/c.yaml|~/keep-me|{tmp_path}/o|~/free"
+
+
+def test_l97_help_texts_do_not_contradict_themselves():
+    """report --help no longer says [default: open]; diff says "Default: HEAD" once."""
+    report_help = plain(runner.invoke(app, ["report", "--help"]).output)
+    assert "[default: open]" not in report_help
+    diff_help = plain(runner.invoke(app, ["diff", "--help"]).output)
+    assert diff_help.count("HEAD") == 1, diff_help
+
+
+def _writer_args(name: str, tmp_path: Path, target: str) -> list[str]:
+    legacy = tmp_path / "legacy.yaml"
+    legacy.write_bytes(b'schema_version: "0.3"\nrobot:\n  name: legacy\n')
+    parts = tmp_path / "parts.txt"
+    parts.write_text("1 x 2208 motor\n")
+    urdf = str(FIXTURES / "testbot.urdf")
+    return {
+        "start": ["start", urdf, "--out", target],
+        "start-example": ["start", "--example", "servo-bench", "--out", target],
+        "init": ["init", urdf, "--out", target],
+        "upgrade": [
+            "upgrade",
+            str(legacy),
+            "--out",
+            target,
+            "--expected-revision",
+            hashlib.sha256(legacy.read_bytes()).hexdigest(),
+        ],
+        "scene-import": [
+            "scene",
+            "import",
+            str(X500_GLB),
+            "--contract",
+            str(X500_CONTRACT),
+            "--witness",
+            "human",
+            "--source-person",
+            "Shivansh",
+            "--out",
+            target,
+        ],
+        "from-parts": ["from-parts", str(parts), "--out", target],
+        "api-schema": ["api-schema", "--out", target],
+        "api-types": ["api-types", "--out", target],
+    }[name]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "start",
+        "start-example",
+        "init",
+        "upgrade",
+        "scene-import",
+        "from-parts",
+        "api-schema",
+        "api-types",
+    ],
+)
+def test_every_out_writer_exits_2_on_a_missing_directory(name, tmp_path):
+    """a missing folder is the tool failing, one plain line."""
+    result = runner.invoke(app, _writer_args(name, tmp_path, str(tmp_path / "nodir" / "x.out")))
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in result.output
+    assert len(plain(result.output).strip().splitlines()) == 1, result.output
+    assert not (tmp_path / "nodir").exists()
+
+
+def test_scene_import_refuses_the_contract_as_its_changes_file(tmp_path):
+    """--out may not be the contract it reads."""
+    contract = tmp_path / "lockwire.yaml"
+    shutil.copy(X500_CONTRACT, contract)
+    before = contract.read_bytes()
+    args = _writer_args("scene-import", tmp_path, str(contract))
+    args[args.index("--contract") + 1] = str(contract)
+    result = runner.invoke(app, args)
+    assert result.exit_code == 2, result.output
+    assert contract.read_bytes() == before
+
+
+def test_anymal_fixture_checks_go_with_notes():
+    """The ANYmal example reads as an unchanged model and passes with notes."""
+    result = runner.invoke(app, ["check", str(FIXTURES / "anymal" / "contract.yaml")])
+    out = plain(result.output)
+    assert "joint moved" not in out
+    assert "GO with notes" in out
+    assert "NO-GO" not in out

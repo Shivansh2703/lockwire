@@ -166,9 +166,9 @@ VIOLATION budgets/bud.power.pm02-5v — observed 35.20 W (draw mode: nominal), e
   action: shed load on rail 'rail.pm02-5v' or raise its capacity with provenance
 VIOLATION budgets/bud.power.pm02-5v.7w-mode — observed 17.20 W (draw mode: 7W), expected <= 15.60 W (Δ +1.60 W (+10%))
   … (same rail, Jetson in its 7 W mode: the radio's transmit peak still tips it over)
-not scored devices/dev.camera.oak-d-lite/physical/mass — observed mass not declared, expected a positive mass with units
+not scored budgets/bud.mass.payload — observed mass unknown for dev.companion.jetson-orin-nano, dev.camera.oak-d-lite, dev.magnetometer.ist8310; total not scored, expected every device and link in this budget to declare a mass
   … (more not-scored lines: things the lockfile does not declare yet, listed, never hidden)
-scored 10: 8 add up, 2 do not · 9 not scored
+scored 9: 7 add up, 2 do not · 10 not scored
 
 NO-GO — 2 violation(s), 0 warning(s)
 $ echo $?
@@ -185,7 +185,7 @@ integration of published parts, and the two vendors' own numbers still do not ad
 Nobody printed "this build is broken". Nobody printed "5 A" either: that is 25 W / 5 V, a
 quotient of figures published on different pages. The records disagree with each other, and
 you find out before you apply power. Give the Jetson its own regulator
-(`tests/fixtures/x500/contract_corrected.yaml`) and the same check passes.
+(`tests/fixtures/x500/contract_corrected.yaml`) and the same check passes: `GO — records agree (10 scored); 10 check(s) not scored`.
 
 ## Your own robot
 
@@ -209,7 +209,9 @@ Any field you hand-edited (including `robot.name`) is silently overwritten back 
 | `start` | the contract was written (or an existing one kept); no page is written | the URDF/SDF could not be parsed, or the contract could not be read or written | — | — |
 
 `NOT SCORED` (exit 3) means no comparison had both operands: it is not a pass and not a failure.
+
 The `scored N: …` line above the verdict is where a script should look.
+`lockwire check --strict` makes a `GO with notes` run exit 1 (the `NO-GO` code); the table does not change.
 
 ## In CI
 
@@ -220,7 +222,7 @@ The `scored N: …` line above the verdict is where a script should look.
     contract: lockwire.yaml
 ```
 
-Inputs: `contract` (default `lockwire.yaml`), `version` (pin a PyPI release; default installs the action's own code), `python-version` (default 3.12).
+Inputs: `contract` (default `lockwire.yaml`), `version` (pin a PyPI release; default installs the action's own code), `strict` (default `false`; `true` passes `--strict`), `python-version` (default 3.12).
 Or just `pipx install lockwire && lockwire check lockwire.yaml`.
 
 ## Pre-commit
@@ -228,7 +230,7 @@ Or just `pipx install lockwire && lockwire check lockwire.yaml`.
 ```yaml
 repos:
   - repo: https://github.com/Shivansh2703/lockwire
-    rev: v0.2.0
+    rev: v0.2.3
     hooks:
       - id: lockwire-check
 ```

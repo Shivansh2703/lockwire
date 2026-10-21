@@ -14,6 +14,7 @@ optional extra, imported lazily so a plain install never needs it.
 import datetime as dt
 import io
 import json
+import os
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -21,13 +22,15 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.table import Table
 from ruamel.yaml import YAML, YAMLError
-from typer.core import TyperCommand
+from typer.core import TyperArgument, TyperCommand, TyperGroup, TyperOption
 
 from lockwire import __version__, export_mhs, gitref
 from lockwire import api, plugins
 from lockwire.bench import DEFAULT_CORPUS_PATH, format_report, load_corpus, run_bench
 from lockwire.checks import run_record_checks
+from lockwire.confine import confine
 from lockwire.cli_line import argv_from_context, cli_line as build_cli_line
 from lockwire.describe import describe_all, describe_device, describe_system
 from lockwire.edit import (
@@ -49,8 +52,10 @@ from lockwire.factdiff import fact_diff, load_contract_text, render_lines
 from lockwire.hw import record_hardware_change
 from lockwire.plan import load_plan, validate_plan
 from lockwire.report import (
+    VERDICT_EXIT_CODES,
     exit_code_help,
     render,
+    verdict,
 )
 from lockwire.report_html import write_html_report
 from lockwire.scan import (
@@ -76,7 +81,55 @@ from lockwire.schema import load_contract as _load_contract_lib
 from lockwire.sdf import parse_sdf
 from lockwire.urdf import _refuse_doctype_entity, parse_urdf, robot_name
 
+
+class _TildeGroup(TyperGroup):
+    """Expand a quoted ``~`` the shell left alone: ``"~/robot.yaml"`` means $HOME.
+
+    The group rewrites the words handed to the chosen subcommand, but only a bare ``~`` or
+    a ``~/`` prefix, and only where the parameter's type is a path: free text such as
+    ``--note '~/todo'`` reaches the command unchanged.
+    """
+
+    def resolve_command(self, ctx, args):
+        name, command, rest = super().resolve_command(ctx, args)
+        if command is None:
+            return name, command, rest
+        options = {o: p for p in command.params if isinstance(p, TyperOption) for o in p.opts}
+        arguments = [p for p in command.params if isinstance(p, TyperArgument)]
+        out: list[str] = []
+        pending: TyperOption | TyperArgument | None = None  # option whose value is the next word
+        positional = 0
+        after_dashes = False
+        for word in rest:
+            param: TyperOption | TyperArgument | None = None
+            if pending is not None:
+                param, pending = pending, None
+            elif not after_dashes and word == "--":
+                after_dashes = True
+            elif not after_dashes and word.startswith("-") and word != "-":
+                flag, eq, value = word.partition("=")
+                option = options.get(flag)
+                if option is not None and eq and _is_path(option):
+                    word = flag + "=" + _tilde(value)
+                elif option is not None and not eq and not option.is_flag and option.nargs == 1:
+                    pending = option
+            elif arguments:
+                param = arguments[min(positional, len(arguments) - 1)]
+                positional += 1
+            out.append(_tilde(word) if param is not None and _is_path(param) else word)
+        return name, command, out
+
+
+def _is_path(param) -> bool:
+    return "Path" in type(param.type).__name__  # typer's own TyperPath (it vendors click)
+
+
+def _tilde(word: str) -> str:
+    return os.path.expanduser(word) if word == "~" or word.startswith("~/") else word
+
+
 app = typer.Typer(
+    cls=_TildeGroup,
     name="lockwire",
     help="The physical-assumption contract for robots: checks that a robot's declared parts (power, weight, bus, torque) add up.",
     no_args_is_help=True,
@@ -85,7 +138,7 @@ app = typer.Typer(
 console = Console()
 
 
-scene_app = typer.Typer(help="The scene door: read a 3D model of the robot.")
+scene_app = typer.Typer(cls=_TildeGroup, help="The scene door: read a 3D model of the robot.")
 app.add_typer(scene_app, name="scene")
 
 DEFAULT_CONTRACT = Path("lockwire.yaml")
@@ -145,11 +198,33 @@ def _version_callback(
         raise typer.Exit(0)
 
 
-def _write_document(out: Path | None, document: dict) -> None:
+def _confined(out: Path, contract: Path, root: Path | None = None) -> Path:
+    """``confine.confine`` for the CLI: a refusal is one line and exit 2."""
+    try:
+        return confine(out, contract, root)
+    except ValueError as error:
+        console.print(f"[red]{error}[/]")
+        raise typer.Exit(2) from error
+
+
+def _require_folder(out: Path) -> None:
+    """A missing folder is the tool failing, not a NO-GO: one plain line, exit 2."""
+    if not out.resolve().parent.is_dir():
+        console.print(f"[red]could not write {out}:[/] the folder {out.parent} does not exist")
+        raise typer.Exit(2)
+
+
+def _write_document(out: Path | None, document: dict, contract: Path) -> None:
     """Write one library document to ``out``, or do nothing when --json was not given."""
     if out is None:
         return
-    out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    target = _confined(out, contract)
+    _require_folder(target)
+    try:
+        target.write_text(json.dumps(document, indent=2, default=str) + "\n", encoding="utf-8")
+    except OSError as error:  # a missing folder is the tool failing, not a NO-GO
+        console.print(f"[red]could not write {out}:[/] {error.strerror or error}")
+        raise typer.Exit(2) from error
     console.print(f"[green]wrote {out}[/]")
 
 
@@ -284,6 +359,7 @@ def start(
     A fresh lockfile knows the frame and nothing else; the app shows what to fill in next.
     """
     _refuse_default_out_when_frozen(ctx, "contract", "start")
+    _require_folder(contract)
     if example is not None:
         from lockwire.start_operation import ALIASES, example_names, write_example
 
@@ -296,10 +372,12 @@ def start(
                 f"[yellow]{contract} already exists[/] — kept as is. Pass --force to overwrite."
             )
             return
-        write_example(example, contract)
+        note = write_example(example, contract)
         console.print(
             f"[green]wrote {contract}[/] — example {example}. Next: lockwire check {contract}"
         )
+        if note:
+            console.print(note)
         return
     if urdf is None or not urdf.is_file():
         console.print(
@@ -315,12 +393,13 @@ def start(
             overwrite=force and contract.exists(),
             expected_revision=contract_revision(contract) if force and contract.exists() else None,
         )
-    except (OSError, TypeError, ValueError, YAMLError) as error:
+    # exit 1 is `start`'s documented code for a URDF/SDF that cannot be parsed (EXIT_CODE_TABLE).
+    except (OSError, SyntaxError, TypeError, ValueError, YAMLError) as error:
         console.print(f"[red]start failed:[/] {error}")
         raise typer.Exit(1) from error
     try:
         model = load_contract(contract).model
-    except (OSError, TypeError, ValueError, YAMLError) as error:
+    except (OSError, SyntaxError, TypeError, ValueError, YAMLError) as error:
         console.print(f"[red]start failed:[/] {error}")
         raise typer.Exit(1) from error
     if not result["written"]:
@@ -353,10 +432,11 @@ def init(
     # Unexpanded xacro is tool failure (§3.3 exit 2), not a NO-GO finding.
     try:
         model = _parse_model_file(urdf, out)
-    except ValueError as error:
-        console.print(f"[red]{error}[/]")
+    except (SyntaxError, ValueError) as error:  # SyntaxError: ET.ParseError on malformed XML
+        console.print(f"[red]init failed:[/] {error}")
         raise typer.Exit(2) from error
     contract = Contract(robot=RobotInfo(name=robot or robot_name(urdf)), model=model)
+    _require_folder(out)
     save_contract(contract, out)
 
     console.print(
@@ -409,6 +489,11 @@ def check(
     expected_revision: str | None = typer.Option(
         None, "--expected-revision", help="Full raw contract SHA-256 used to select evidence."
     ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Treat warnings as failures: a GO with notes exits 1, the NO-GO code.",
+    ),
 ) -> None:
     """Run record-level checks: do the records agree? (CI entry point)"""
     if not contract.exists():
@@ -442,8 +527,24 @@ def check(
             revision=revision,
             actuator_evidence=selected,
         ),
+        contract,
     )
-    raise typer.Exit(render(findings, console))
+    code = render(findings, console)
+    from lockwire.page import _scored_title  # lazy: page is heavy and imports this layer
+
+    passed = [_scored_title(loaded, r) for r in getattr(findings, "scored_records", [])]
+    if passed:
+        console.print(f"Passed: {len(passed)} checks", highlight=False)
+        for title in passed:
+            console.print(f"  {title}", highlight=False, markup=False)
+    decision = verdict(findings)
+    if strict and decision.code == "GO_WITH_NOTES":
+        console.print(
+            f"strict mode turned {decision.warnings} "
+            f"{'note' if decision.warnings == 1 else 'notes'} into a failure"
+        )
+        code = VERDICT_EXIT_CODES["NO_GO"]
+    raise typer.Exit(code)
 
 
 def _parse_actuator_evidence(values: list[str]) -> dict[str, ArtifactRef]:
@@ -485,7 +586,9 @@ def plan_cmd(
         console.print(f"[red]plan check failed:[/] {error}")
         raise typer.Exit(2) from error
     findings = validate_plan(loaded_contract, loaded_plan)
-    _write_document(json_out, plugins.pick("plan", api.plan)(loaded_contract, loaded_plan))
+    _write_document(
+        json_out, plugins.pick("plan", api.plan)(loaded_contract, loaded_plan), contract
+    )
     raise typer.Exit(render(findings, console))
 
 
@@ -544,10 +647,10 @@ def report(
     ),
     out: Path = typer.Option(..., "--out", "-o", help="Self-contained HTML file to write."),
     open_browser: bool = typer.Option(
-        True,
+        False,
         "--open/--no-open",
-        help="report never opens a browser; the flag is accepted so scripts can pass "
-        "it everywhere.",
+        help="Accepted and ignored: report never opens a browser, so scripts can pass "
+        "the flag everywhere.",
     ),
     redact_paths: bool = typer.Option(
         False,
@@ -571,9 +674,14 @@ def report(
     cli_line = build_cli_line(
         "lockwire", "report", *argv_from_context(ctx, exclude={"out"}), "--out", "<this file>"
     )
-    write_html_report(
-        loaded, out, contract_path=contract, redact_paths=redact_paths, cli_line=cli_line
-    )
+    target = _confined(out, contract)
+    try:
+        write_html_report(
+            loaded, target, contract_path=contract, redact_paths=redact_paths, cli_line=cli_line
+        )
+    except OSError as error:  # tool failure, one line
+        console.print(f"[red]report failed:[/] could not write {out}: {error.strerror or error}")
+        raise typer.Exit(2) from error
     console.print(f"[green]wrote {out}[/]")
 
 
@@ -605,11 +713,13 @@ def describe(
         console.print(describe_system(loaded))
         return
 
+    files = describe_all(loaded)
+    # Every name is confined before the first write: a device id is not a path.
+    targets = {_confined(out / name, contract, root=out): text for name, text in files.items()}
     try:
         out.mkdir(parents=True, exist_ok=True)
-        files = describe_all(loaded)
-        for name, content in files.items():
-            (out / name).write_text(content, encoding="utf-8")
+        for target, content in targets.items():
+            target.write_text(content, encoding="utf-8")
     except OSError as error:
         console.print(f"[red]describe failed:[/] could not write to {out}: {error}")
         raise typer.Exit(2) from error
@@ -756,6 +866,11 @@ def scene_import_cmd(
         raise typer.Exit(2)
     if not contract.exists() or not contract.is_file():
         console.print(f"[red]scene import failed:[/] no contract at {contract}")
+        raise typer.Exit(2)
+    if (
+        out.resolve() == contract.resolve()
+    ):  # a changes file is yaml by design, so only the contract itself is refused
+        console.print(f"[red]scene import failed:[/] refusing to write over the contract: {out}")
         raise typer.Exit(2)
     if write and expected_revision != contract_revision(contract):
         console.print(
@@ -1024,6 +1139,12 @@ def review_cmd(
         None, "--note", help="The reviewer's note (required for --question)."
     ),
     witness: str = typer.Option(..., "--witness", help="Who is reviewing it (required)."),
+    expected_revision: str | None = typer.Option(
+        None,
+        "--expected-revision",
+        help="Full SHA-256 of the contract bytes you read; refuses if the file changed since. "
+        "Omitted: no stale-file check.",
+    ),
     locked_at: str | None = typer.Option(
         None, "--locked-at", help="ISO date to stamp instead of today (tests only)."
     ),
@@ -1051,6 +1172,7 @@ def review_cmd(
             note=note,
             locked_at=_parse_locked_at(locked_at),
             dry_run=dry_run,
+            expected_revision=expected_revision,
         )
     except (EditRefusal, UnsupportedSchemaVersion, OSError, YAMLError) as error:
         _refused("review", error)
@@ -1358,6 +1480,47 @@ def apply_cmd(
     )
 
 
+@app.command("from-parts")
+def from_parts_cmd(
+    parts: Path = typer.Argument(..., help="Text file, one part per line."),
+    out: Path | None = typer.Option(None, "--out", "-o", help="Also write a draft lockfile here."),
+    catalog: Path | None = typer.Option(None, "--catalog", help="Catalog file (default: bundled)."),
+) -> None:
+    """Match a pasted parts list to the catalog; list matches, misses and number mismatches.
+
+    The mismatch list is information, not a gate: a successful run exits 0. With --out, the
+    matched parts (quantities repeated) become a draft lockfile through the `add` door; an
+    existing --out is kept as is.
+    """
+    if not parts.is_file():
+        console.print(f"[red]from-parts failed:[/] no parts list at {parts}")
+        raise typer.Exit(2)
+    if out is not None:
+        _require_folder(out)
+    document = api.from_parts(parts.read_text(), out=out, catalog=catalog)
+    table = Table("line", "qty", "part", "result", "catalog id", "confidence")
+    table.columns[4].overflow = "fold"
+    for row in document["lines"]:
+        hit = row["status"] == "MATCHED"
+        table.add_row(
+            str(row["line"]),
+            str(row["quantity"]),
+            row["text"],
+            "[green]MATCHED[/]" if hit else "[yellow]NO MATCH[/]",
+            row["id"] or "",
+            f"{row['confidence']:.2f}" if hit else "",
+        )
+    console.print(table)
+    for m in document["mismatches"]:
+        console.print(
+            f"[red]MISMATCH[/] line {m['line']} ({m['id']}): you wrote {m['written']}, "
+            f"catalog says {m['catalog']} ({m['field']})"
+        )
+    if out is not None:
+        wrote = "written" in document
+        console.print(f"draft lockfile {'written to' if wrote else 'kept as is:'} {out}")
+
+
 @app.command("add")
 def add_cmd(
     ctx: typer.Context,
@@ -1598,7 +1761,7 @@ def _diff_side(
 
 @app.command("diff")
 def diff_cmd(
-    a: str = typer.Argument("HEAD", help="Ref (or contract path) to compare from. Default: HEAD."),
+    a: str = typer.Argument("HEAD", help="Ref (or contract path) to compare from."),
     b: str | None = typer.Argument(
         None, help="Ref (or contract path) to compare to. Default: the file on disk."
     ),
@@ -1672,13 +1835,16 @@ def log_cmd(
     contract = Path(path) if path is not None else DEFAULT_CONTRACT
     repo = gitref.repo_root(contract if contract.exists() else Path.cwd())
     if repo is None:
-        console.print("not a git repository")
-        raise typer.Exit(0)
+        console.print("[red]log failed:[/] not a git repository")
+        raise typer.Exit(2)  # the tool cannot answer, which is not "no history"
     try:
         entries = api.log(contract, revision_range)
     except ValueError as error:
         console.print(f"[red]{error}[/]")
         raise typer.Exit(2) from error
+    if not entries and not contract.exists():  # a deleted file's history is still shown
+        console.print(f"[red]log failed:[/] no such file {contract}")
+        raise typer.Exit(2)
     if json_output:
         typer.echo(json.dumps(entries, indent=2))
         raise typer.Exit(0)
@@ -1745,6 +1911,7 @@ def api_schema_cmd(
      (packaging/generate-types.md). The library builds it, never this file
     : `api.api_schema` is the twin.
     """
+    _require_folder(out)
     api.api_schema(out)
     console.print(f"wrote {out}")
 
@@ -1766,6 +1933,7 @@ def api_types_cmd(
      narrows badly through it). The library builds it, never this file
     : `api.api_types` is the twin.
     """
+    _require_folder(out)
     api.api_types(out)
     console.print(f"wrote {out}")
 
@@ -1781,7 +1949,7 @@ def serve_cmd(
     robot: bool = typer.Option(
         False,
         "--robot",
-        help="Robot mode: write commands are absent, not refused (plan v8 line 418).",
+        help="Robot mode: serve only an allowlist of read commands; every other command is refused by name.",
     ),
     exit_on_stdin_close: bool = typer.Option(
         False,

@@ -105,6 +105,24 @@ def start(
     return start_contract(urdf, overwrite=overwrite, expected_revision=expected_revision)
 
 
+def from_parts(
+    text: str, *, out: Path | str | None = None, catalog: Path | str | None = None
+) -> dict[str, Any]:
+    """Match a pasted parts list to the catalog; with ``out``, also write a draft lockfile.
+
+    Information, not a gate: a mismatch is listed, never refused. ``parts_list.match_parts``.
+    """
+    from lockwire.parts_list import match_parts, write_draft
+
+    if not isinstance(text, str):  # same plain ValueError the neighbouring functions raise
+        raise ValueError("from_parts needs the parts list as text")
+    document = match_parts(text, catalog)
+    if out is not None and not Path(out).exists():
+        write_draft(document, Path(out), catalog)
+        document["written"] = str(out)
+    return document
+
+
 def api_schema(out: Path | str) -> None:
     """Write the payload union's JSON schema — ``api_payload.export_openapi``.
 
@@ -249,6 +267,7 @@ __all__ = [
     "FUNCTIONS",
     "add",
     "api_schema",
+    "from_parts",
     "api_types",
     "blame",
     "what_if",
@@ -262,6 +281,7 @@ __all__ = [
     "mount_shape",
     "move",
     "log",
+    "place",
     "plan",
     "reparent",
     "review",

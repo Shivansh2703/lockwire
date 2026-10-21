@@ -6,7 +6,9 @@ false-positive budget is a first-class requirement: a clean contract must
 produce zero findings.
 """
 
+import itertools
 import math
+import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
@@ -14,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from lockwire import plugins, units
+from lockwire import plugins, statics, units
 from lockwire.advice import build_rail_alternatives
 from lockwire.catalog import SourcedNumber, load_catalog
 from lockwire.edit import resolve_source, source_is_absolute
@@ -39,7 +41,7 @@ from lockwire.schema import (
     Tolerance,
 )
 from lockwire.sdf import read_sdf_topology
-from lockwire.urdf import describe_structure_drift, read_urdf_topology
+from lockwire.urdf import describe_structure_drift, locked_record_hash, read_urdf_topology
 
 # the YAML is the truth. This is only how far the model in the scene is
 # allowed to disagree with it before the disagreement is a finding, not a
@@ -49,6 +51,20 @@ PLACEMENT_TOLERANCE_M = 0.005
 # Raw bus bitrate is not usable payload throughput: arbitration, framing, retries,
 # and latency collapse make sustained operation unsafe well before 100% load.
 BUS_UTILIZATION_CEILING = 0.60
+
+
+def _can_wire_bits(payload_bytes: int) -> int:
+    """Worst-case classical-CAN bits on the wire for one message.
+
+    Per frame of n data bytes: 47 framing bits (SOF 1, 11-bit ID, RTR, IDE, r0,
+    DLC 4, CRC 15, CRC delimiter, ACK 2, EOF 7, interframe 3) + 8n data bits +
+    worst-case bit stuffing floor((34 + 8n - 1) / 4). An 8-byte frame is
+    47 + 64 + 24 = 135 bits for 64 payload bits (2.1x): without framing the
+    60% payload ceiling was ~104% of the wire bitrate.
+    """
+    frames, tail = divmod(payload_bytes, 8)
+    sizes = [8] * frames + ([tail] if tail else [])
+    return sum(47 + 8 * n + (33 + 8 * n) // 4 for n in sizes)
 
 
 def unknown_draw_message(device_id: str, rail_id: str) -> str:
@@ -89,6 +105,7 @@ class _ScoreBook:
         observed_quantity: Quantity | None = None,
         expected_quantity: Quantity | None = None,
         provenance: Provenance | None = None,
+        detail: str | None = None,
     ) -> None:
         """Record a PASSED comparison alongside ``record`` (same key, same call site).
 
@@ -111,6 +128,7 @@ class _ScoreBook:
                 observed_quantity=observed_quantity,
                 expected_quantity=expected_quantity,
                 provenance=provenance,
+                detail=detail,
             )
         )
 
@@ -189,6 +207,7 @@ def run_record_checks(
     findings += check_ampacity(contract, scores=scores)
     findings += check_rail_current(contract, scores=scores)
     findings += check_torque_budgets(contract, scores=scores)
+    findings += check_gravity_reach(contract, scores=scores)
     findings += check_bus_bandwidth(contract, scores=scores)
     findings += check_zero_mass(contract, contract_path=contract_path)
     findings += check_unusable_effort(contract)
@@ -1527,6 +1546,7 @@ def check_voltage_compatibility(c: Contract, *, scores: _ScoreBook | None = None
     The comparison is inclusive: a rail voltage exactly equal to a declared min or max is compatible — a datasheet min/max includes its endpoints.
     """
     out: list[Finding] = []
+    fraction_warned: set[str] = set()
     for device in c.devices:
         if device.power is None:
             continue
@@ -1635,6 +1655,52 @@ def check_voltage_compatibility(c: Contract, *, scores: _ScoreBook | None = None
                         f"{format_magnitude(headroom_v, 'V')} inside the "
                         f"{format_magnitude(minimum_v, 'V')}-{format_magnitude(maximum_v, 'V')} window"
                     ),
+                )
+            tol = rail.output_tolerance_pct
+            if tol is not None and 0 < tol < 0.5 and rail.id not in fraction_warned:
+                # 0.05 meant as 5% passes the schema and checks as 0.05%.
+                fraction_warned.add(rail.id)
+                out.append(
+                    Finding(
+                        severity="warning",
+                        quantity=f"topology/rails/{rail.id}/output_tolerance_pct",
+                        observed=f"{tol:g} (percent) looks like a fraction",
+                        expected="percent, e.g. 5 for +/-5%",
+                        owner=device.owner,
+                        action="if this was meant as a fraction, multiply it by 100",
+                    )
+                )
+            # the worst case is checked on both sides.
+            for bound, bound_v, worst_v in (
+                ("max", maximum_v, rail_v * (1 + (tol or 0) / 100)),
+                ("min", minimum_v, rail_v * (1 - (tol or 0) / 100)),
+            ):
+                if tol is None or (worst_v <= bound_v if bound == "max" else worst_v >= bound_v):
+                    continue
+                out.append(
+                    Finding(
+                        severity="warning",
+                        quantity=f"devices/{device.id}/power/rail",
+                        observed=(
+                            f"{format_magnitude(rail_v, 'V')} nominal, +/-{tol:g}% -> "
+                            f"{format_magnitude(worst_v, 'V')}"
+                        ),
+                        expected=(
+                            f"{'at most' if bound == 'max' else 'at least'} device model "
+                            f"{model.id!r}'s {format_magnitude(bound_v, 'V')} {bound} input"
+                        ),
+                        delta=f"{'+' if bound == 'max' else '-'}"
+                        f"{format_magnitude(abs(worst_v - bound_v), 'V')}",
+                        dependent=(
+                            f"topology/rails/{rail.id}/output_tolerance_pct, "
+                            f"device_models/{model.id}/input_voltage_range"
+                        ),
+                        owner=device.owner,
+                        action=(
+                            "set the converter closer to the window or use a tighter one, or power "
+                            f"this device from a rail whose worst-case output stays inside its {bound}"
+                        ),
+                    )
                 )
             continue
 
@@ -1955,6 +2021,7 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
         elif b.kind == "mass_total":
             total_kg = 0.0
             contributors: list[str] = []
+            unknown_mass: list[str] = []
             if b.sources in ("devices", "links+devices"):
                 for d in c.devices:
                     if d.physical is None or d.physical.mass is None:
@@ -1971,26 +2038,43 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                                 action="declare the device's mass, or accept it excluded from this budget",
                             )
                         )
+                        unknown_mass.append(d.id)
                         continue
                     total_kg += d.physical.mass.base()
                     contributors.append(d.id)
             if b.sources in ("links", "links+devices") and c.model is not None:
                 for link in c.model.links:
-                    if link.mass is not None:
-                        total_kg += link.mass.base()
-                        contributors.append(link.name)
+                    if link.mass is None:
+                        unknown_mass.append(link.name)  # same gap as a massless device
+                        continue
+                    total_kg += link.mass.base()
+                    contributors.append(link.name)
+            if unknown_mass and not total_kg > limit:
+                # a partial sum is not a total; it can still violate, never pass.
+                out.append(
+                    Finding(
+                        severity="not_scored",
+                        quantity=f"budgets/{b.id}",
+                        observed=f"mass unknown for {', '.join(unknown_mass)}; total not scored",
+                        expected="every device and link in this budget to declare a mass",
+                        owner=b.owner,
+                        action="declare the missing masses, or accept this budget unchecked",
+                    )
+                )
             limit_kg = limit
             # Score on the summed MAGNITUDE, not on the contributor list: a
             # non-empty list of zero-mass witnesses sums to 0.0 kg and would
             # vacuous-pass the limit. Masses are non-negative.
-            if scores is not None and total_kg > 0.0:
+            # masses only add: a known partial sum over the limit is a definite, counted violation.
+            if scores is not None and total_kg > 0.0 and (not unknown_mass or total_kg > limit_kg):
                 scores.record(f"budgets/{b.id}")
             if total_kg > limit_kg:
                 out.append(
                     Finding(
                         severity="violation",
                         quantity=f"budgets/{b.id}",
-                        observed=format_magnitude(total_kg, "kg"),
+                        observed=format_magnitude(total_kg, "kg")
+                        + (f"; mass unknown for {', '.join(unknown_mass)}" if unknown_mass else ""),
                         expected=_with_enforcement_provenance(
                             f"<= {format_magnitude(limit_kg, 'kg')}",
                             ("limit", b.limit_enforced_by),
@@ -2006,7 +2090,7 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                         action="remove mass or re-lock the budget limit with provenance",
                     )
                 )
-            elif scores is not None and total_kg > 0.0:
+            elif scores is not None and total_kg > 0.0 and not unknown_mass:
                 headroom_kg = limit_kg - total_kg
                 scores.passed(
                     f"budgets/{b.id}",
@@ -2387,8 +2471,8 @@ def check_ampacity(c: Contract, *, scores: _ScoreBook | None = None) -> list[Fin
 def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
     """Published rail current_limit vs computed draw (sibling to check_ampacity).
 
-    Draw side: the same nominal-mode rolled-up watts a ``rail_power`` budget
-    would sum for this rail (``power_rollup`` — not re-added here), divided by
+    Draw side: the worst rolled-up watts across nominal and every declared
+    PowerMode (``_worst_rail_power``), divided by
     the rail's worst-case voltage: its declared ``voltage_range.min`` when
     present (the conservative bound — lower voltage means higher current for
     the same watts), else its single ``voltage``. A rail with no voltage fact
@@ -2398,7 +2482,6 @@ def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list
     if c.topology is None:
         return []
     out: list[Finding] = []
-    rail_totals, rail_witnesses, _, _, rail_unknown, _ = power_rollup(c, "nominal")
     for rail in c.topology.rails:
         if rail.current_limit is None:
             continue
@@ -2420,8 +2503,21 @@ def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list
                 )
             )
             continue
+        if voltage_v <= 0.0:
+            # not_scored like the neighbouring "no voltage fact" case, never a divide by zero.
+            out.append(
+                Finding(
+                    severity="not_scored",
+                    quantity=f"topology/rails/{rail.id}/current_limit",
+                    observed=f"rail {rail.id!r} declares a non-positive voltage",
+                    expected="a positive rail voltage",
+                    action="correct the rail's voltage, or accept its current_limit as not scored",
+                )
+            )
+            continue
 
-        unknown_consumers = rail_unknown.get(rail.id, set())
+        # every declared mode is scored, the worst one wins (same rule as check_ampacity).
+        load_w, worst_mode, witnesses, unknown_consumers = _worst_rail_power(c, rail.id)
         if unknown_consumers:
             device_id = sorted(unknown_consumers)[0]
             out.append(
@@ -2439,8 +2535,7 @@ def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list
             )
             continue
 
-        load_w = rail_totals.get(rail.id, 0.0)
-        contributors = sorted(rail_witnesses.get(rail.id, set()))
+        contributors = sorted(witnesses)
         if not contributors:
             out.append(
                 Finding(
@@ -2464,7 +2559,10 @@ def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list
                 Finding(
                     severity="violation",
                     quantity=f"topology/rails/{rail.id}/current_limit",
-                    observed=f"{format_magnitude(draw_a, 'A')} computed draw on rail {rail.id!r}",
+                    observed=(
+                        f"{format_magnitude(draw_a, 'A')} computed draw on rail {rail.id!r} "
+                        f"(mode: {worst_mode})"
+                    ),
                     expected=_with_enforcement_provenance(
                         f"<= {format_magnitude(limit_a, 'A')} published current_limit",
                         ("current_limit", rail.current_limit_enforced_by),
@@ -2520,6 +2618,157 @@ def _peak_shortfall(device, joint, peak_nm: float) -> Finding:
             "change gearing, or correct the sourced limits"
         ),
     )
+
+
+_REACH_ANGLES = (0.0, math.pi / 2, -math.pi / 2)
+# ponytail: per-joint cap of 20k poses (about 2 s); past it the grid thins to {lower, 0, upper},
+# and a joint still over (it carries ~10+ rotary joints, e.g. a humanoid waist) is not_scored.
+# Upgrade path: a real search over the joint's set instead of a grid.
+_REACH_MAX_POSES = 20_000
+_ROTARY = ("revolute", "continuous")
+
+
+def _reach_not_scored(why: str) -> list[Finding]:
+    return [
+        Finding(
+            severity="not_scored",
+            quantity="model/joints/limits/effort",
+            observed=f"gravity reach not scored: {why}",
+            expected="a kinematic tree of revolute/continuous joints with axes, masses and CoMs",
+            action="gravity reach is unchecked for this model; check the effort limits by hand",
+        )
+    ]
+
+
+def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
+    """Static gravity torque at the worst sampled pose must fit each joint's effort limit.
+
+    Works on a kinematic tree, so the arm starter scores with its gripper: the torque at joint J depends
+    only on the rotary joints on the root-to-J path and in J's subtree, so each J gets its own
+    pose grid over that set: 0 and +/-90 deg plus the declared lower and upper limit (within
+    limits). Prismatic, planar and floating joints are held at zero. A link's declared
+    ``payload`` is a point mass at its origin (payload at the tool tip). Silent when the model has no rotary
+    joint, no link mass or no single root; ``not_scored`` says why when it cannot score
+    (closed chain, zero or missing axis, a massive link with no CoM, a joint over the pose
+    cap). Silent for joints with no effort limit.
+    """
+    if c.model is None:
+        return []
+    joints = c.model.joints
+    rotary = [j for j in joints if j.type in _ROTARY]
+    if not rotary:
+        return []
+    if any(j.axis is None for j in rotary):
+        return _reach_not_scored("a rotary joint has no axis")
+    no_com = [k.name for k in c.model.links if k.mass and k.mass.base() > 0 and k.com is None]
+    if no_com:
+        return _reach_not_scored(f"link '{no_com[0]}' has mass but no centre of mass (CoM)")
+    by_child = {j.child: j for j in joints}
+    kids: dict[str, list[Any]] = {}
+    for j in joints:
+        kids.setdefault(j.parent, []).append(j)
+
+    def reach_set(j) -> tuple[int, frozenset[str]]:
+        """(rotary joints above j, rotary joints on root->j plus j's subtree); loop-safe."""
+        names, seen, up = {j.name}, set(), by_child.get(j.parent)
+        while up is not None and up.name not in seen:
+            seen.add(up.name)
+            names |= {up.name} if up.type in _ROTARY else set()
+            up = by_child.get(up.parent)
+        depth, stack, seen = len(names) - 1, [j.child], set()
+        while stack:
+            name = stack.pop()
+            if name not in seen:
+                seen.add(name)
+                names |= {k.name for k in kids.get(name, []) if k.type in _ROTARY}
+                stack += [k.child for k in kids.get(name, [])]
+        return depth, frozenset(names)
+
+    def grid(names: list[str], angles: tuple[float, ...]) -> list[list[float]]:
+        out = []
+        for n in names:
+            lim = by_name[n].limits
+            lo = lim.lower if lim and lim.lower is not None else -math.inf
+            hi = lim.upper if lim and lim.upper is not None else math.inf
+            pts = {a for a in (*angles, lo, hi) if lo <= a <= hi and math.isfinite(a)}
+            out.append(sorted(pts) or [min(max(0.0, lo), hi)])
+        return out
+
+    by_name = {j.name: j for j in rotary}
+    sets = {j.name: reach_set(j) for j in rotary}
+    held = [j.name for j in joints if j.type not in ("fixed", *_ROTARY)]
+    note = f"; {', '.join(held[:2])}{', ...' if len(held) > 2 else ''} held at zero" if held else ""
+    worst: dict[str, tuple[Any, dict[str, float]]] = {}
+    done: list[frozenset[str]] = []
+    over: set[frozenset[str]] = set()
+    for j in sorted(rotary, key=lambda j: sets[j.name][0]):  # top of each run first
+        key = sets[j.name][1]
+        if any(key <= d for d in done) or key in over:
+            continue  # a superset grid under an ancestor already covered this joint
+        names = sorted(key)
+        choices = grid(names, _REACH_ANGLES)
+        if math.prod(map(len, choices)) > _REACH_MAX_POSES:
+            choices = grid(names, (0.0,))
+        if math.prod(map(len, choices)) > _REACH_MAX_POSES:
+            over.add(key)
+            continue
+        done.append(key)
+        try:
+            plan = statics.gravity_plan(c.model, under=j.name)
+        except statics.ChainError as e:
+            return _reach_not_scored(str(e))
+        if plan is None:
+            return []  # no single root or an off-frame CoM: silent, as before
+        poses = list(itertools.product(*choices))
+        torques = statics.plan_torques(plan, names, poses)
+        for i, r in zip(torques.argmax(axis=0), statics.plan_rows(plan, torques.max(axis=0))):
+            if r.limit_nm is not None and (
+                r.joint not in worst or r.torque_nm > worst[r.joint][0].torque_nm
+            ):
+                worst[r.joint] = (r, dict(zip(names, poses[i])))
+    out: list[Finding] = []
+    skipped = sorted(n for n, (_, k) in sets.items() if k in over and n not in worst)
+    if skipped:
+        out += _reach_not_scored(
+            f"{', '.join(skipped[:3])}{', ...' if len(skipped) > 3 else ''} carry too many "
+            f"rotary joints for the {_REACH_MAX_POSES} pose grid"
+        )
+    for name, (r, pose) in worst.items():
+        quantity = f"model/joints/{name}/limits/effort"
+        payload = f"with {r.payload_kg:g} kg payload" if r.payload_kg else "no payload declared"
+        observed = (
+            f"{r.torque_nm:.2f} N*m static gravity torque at pose "
+            + ", ".join(f"{k}={math.degrees(v):.0f}deg" for k, v in pose.items())
+            + f" (worst of a 0/+-90 deg and limit grid, {payload}{note})"
+        )
+        expected = f"<= {r.limit_nm:.2f} N*m joint effort limit"
+        if scores is not None:
+            scores.record(quantity)
+        if r.torque_nm <= r.limit_nm:
+            if scores is not None:
+                scores.passed(
+                    quantity,
+                    f"{r.torque_nm:.2f} N*m" + (f" {payload}" if r.payload_kg else ""),
+                    expected,
+                    f"{r.margin_nm:.2f} N*m headroom",
+                    detail=observed,
+                )
+            continue
+        out.append(
+            Finding(
+                severity="violation",
+                quantity=quantity,
+                observed=observed,
+                expected=expected,
+                delta=f"+{r.torque_nm - r.limit_nm:.2f} N*m",
+                dependent=quantity,
+                action=(
+                    "the joint cannot hold this pose against gravity: raise the effort limit "
+                    "with a stronger actuator, shorten the reach, or lighten the links"
+                ),
+            )
+        )
+    return out
 
 
 def check_torque_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
@@ -2659,8 +2908,18 @@ def check_bus_bandwidth(c: Contract, *, scores: _ScoreBook | None = None) -> lis
             and device.driver.nominal_rate_hz is not None
             and device.driver.payload_bytes is not None
         ]
+        silent = [
+            device.id
+            for device in c.devices
+            if device.identity is not None
+            and device.identity.bus_ref == bus.id
+            and device not in contributors
+        ]
+        # CAN is scored on wire bits (framing included), the others on payload bits.
+        bits = _can_wire_bits if bus.kind == "can" else (lambda n: n * 8)
+        unit = "bit/s on the wire" if bus.kind == "can" else "bit/s payload"
         used_bps = sum(
-            device.driver.nominal_rate_hz * device.driver.payload_bytes * 8
+            device.driver.nominal_rate_hz * bits(device.driver.payload_bytes)
             for device in contributors
         )
         ceiling_bps = bus.bitrate * BUS_UTILIZATION_CEILING
@@ -2668,7 +2927,7 @@ def check_bus_bandwidth(c: Contract, *, scores: _ScoreBook | None = None) -> lis
         # on the contributor list. A device declaring nominal_rate_hz = 0 is a
         # contributor that carries nothing: 0 bps against the ceiling passes for
         # no reason.
-        if scores is not None and used_bps > 0:
+        if scores is not None and used_bps > 0 and not silent:
             scores.record(f"buses/{bus.id}")
         if used_bps == 0:
             out.append(
@@ -2689,12 +2948,23 @@ def check_bus_bandwidth(c: Contract, *, scores: _ScoreBook | None = None) -> lis
                 )
             )
             continue
+        if silent:
+            out.append(
+                Finding(
+                    severity="not_scored",
+                    quantity=f"topology/buses/{bus.id}/bandwidth",
+                    observed=f"{', '.join(silent)} declare no rate or payload; their traffic is unweighed",
+                    expected="every device on the bus to declare nominal_rate_hz and payload_bytes",
+                    dependent=", ".join(silent),
+                    action="declare each device's traffic, or accept this bus as not fully scored",
+                )
+            )
         if used_bps > ceiling_bps:
             out.append(
                 Finding(
                     severity="violation",
                     quantity=f"topology/buses/{bus.id}/bandwidth",
-                    observed=f"{used_bps:.0f} bit/s payload",
+                    observed=f"{used_bps:.0f} {unit}",
                     expected=(
                         f"<= {ceiling_bps:.0f} bit/s ({BUS_UTILIZATION_CEILING:.0%} of raw bitrate)"
                     ),
@@ -2706,11 +2976,11 @@ def check_bus_bandwidth(c: Contract, *, scores: _ScoreBook | None = None) -> lis
                     action="reduce rates or payloads, split the bus, or increase its bitrate",
                 )
             )
-        elif scores is not None and used_bps > 0:
+        elif scores is not None and used_bps > 0 and not silent:
             headroom_bps = ceiling_bps - used_bps
             scores.passed(
                 f"topology/buses/{bus.id}/bandwidth",
-                observed=f"{used_bps:.0f} bit/s payload",
+                observed=f"{used_bps:.0f} {unit}",
                 expected=(
                     f"<= {ceiling_bps:.0f} bit/s ({BUS_UTILIZATION_CEILING:.0%} of raw bitrate)"
                 ),
@@ -2722,6 +2992,13 @@ def check_bus_bandwidth(c: Contract, *, scores: _ScoreBook | None = None) -> lis
 
 
 # ---------------------------------------------------------------- model sanity
+
+
+# A leaf link named like this is a real tool, not a mount frame.
+# "tool0" / "tcp" / "tcp_frame" are frames on UR/ABB arms, so they are not matched.
+_TOOL_LINK = re.compile(
+    r"(?<![a-z])(tool(?![0-9])|gripper|hand|finger|end.?effector|ee|wrist)(?![a-z])", re.I
+)
 
 
 def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
@@ -2758,11 +3035,14 @@ def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[F
     leaves = [
         n for n in massless if n in fixed_root or not any(carries_mass(k) for k in kids.get(n, []))
     ]
+    tools = [n for n in leaves if _TOOL_LINK.search(n)]
+    leaves = [n for n in leaves if n not in tools]
     findings = [
         Finding(
             severity="warning",
             quantity=f"model/links/{name}/mass",
-            observed="zero or missing mass",
+            observed="zero or missing mass"
+            + (" on a tool-like leaf link (the frame fold would hide it)" if name in tools else ""),
             expected="a positive mass with units",
             action=(
                 "fill in the link's inertial in the source model, then run "
@@ -2774,6 +3054,7 @@ def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[F
         for name in massless
         if name not in leaves
     ]
+    # ponytail: name heuristic only; the schema has no frame mark to opt out, so declare a mass.
     if leaves:
         shown = ", ".join(leaves[:2]) + (", ..." if len(leaves) > 2 else "")
         findings.append(
@@ -2863,6 +3144,25 @@ def check_mechanisms(c: Contract, *, scores: _ScoreBook | None = None) -> list[F
             continue
         if scores is not None:
             scores.record(quantity)
+        if m.verdict != "locking":
+            rockers = [j for j in m.declared_fully_rotating if j not in m.rotating_joints]
+            if rockers:
+                out.append(
+                    Finding(
+                        severity="violation",
+                        quantity=quantity,
+                        observed=f"{', '.join(rockers)} only swings between two dead centres; "
+                        f"only {' and '.join(m.rotating_joints)} turn all the way round. {m.text}",
+                        expected=f"{', '.join(rockers)} declared to turn all the way round",
+                        action=(
+                            f"re-declare {', '.join(rockers)} as a revolute joint with the "
+                            "limits it actually reaches"
+                        ),
+                    )
+                )
+            declared = ", ".join(j for j in m.declared_fully_rotating if j in m.rotating_joints)
+            if not declared:
+                continue
         if m.verdict == "rotates":
             if scores is not None:
                 scores.passed(
@@ -2988,6 +3288,9 @@ def check_urdf_drift(
     # A match leaves no record: it says "unchanged since lock", not "adds up";
     # report.render shows it as its own "model check" bucket.
     if disk_hash == c.model.structure_hash:
+        return []
+    # A lock written before the default axis was filled in reads the same file.
+    if c.model.joints and locked_record_hash(c.model, topology) == c.model.structure_hash:
         return []
 
     return [
@@ -3532,9 +3835,13 @@ def check_scene_placement(
         expected_m = tuple(component.base() for component in physical.mount_xyz)
         frame_part = parts_by_id.get(physical.mount_frame)
         if physical.mount_frame != root and frame_part is not None:
-            observed_m = tuple(
+            offset = tuple(
                 a - b for a, b in zip(part.translation, frame_part.translation, strict=True)
             )
+            # mount_xyz is in the mount frame, so rotate the world offset into it
+            # (transpose of the frame's root rotation).
+            rotation = _transforms.get(physical.mount_frame, (_IDENTITY, None))[0]
+            observed_m = _matvec(tuple(zip(*rotation)), offset)  # type: ignore[arg-type]
         else:
             observed_m = part.translation
         distance_m = math.sqrt(

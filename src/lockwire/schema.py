@@ -27,7 +27,10 @@ import datetime as dt
 import hashlib
 import json
 import math
+import os
 import re
+import shutil
+import tempfile
 from collections import Counter
 from copy import deepcopy
 from decimal import Decimal
@@ -51,6 +54,21 @@ from lockwire import units
 
 SCHEMA_VERSION = "0.4"
 SUPPORTED_SCHEMA_VERSIONS = frozenset({"0.2", "0.3", SCHEMA_VERSION})
+
+
+def _declared_version(document: Any) -> object:
+    """The version a document declares. A keyless one is current, in load and upgrade alike.
+
+    An unquoted YAML float such as ``0.3`` spells a supported version.
+    """
+    if not isinstance(document, dict):
+        return None
+    declared = document.get("schema_version", SCHEMA_VERSION)
+    if isinstance(declared, float) and str(declared) in SUPPORTED_SCHEMA_VERSIONS:
+        return str(declared)
+    return declared
+
+
 FITTED_BAND_ALPHA_GATE = 0.005
 
 CONTEXTS = (
@@ -472,6 +490,7 @@ class Link(Base):
     com: tuple[float, float, float] | None = None  # meters, in `frame`
     frame: str | None = None
     inertia: PrincipalInertia | None = None
+    payload: MassQuantity | None = None  # carried load at this link's origin; gravity reach
 
 
 class JointOrigin(Base):
@@ -500,8 +519,10 @@ class JointLimits(Base):
 
     @model_validator(mode="after")
     def _ordered(self) -> "JointLimits":
-        if self.lower is not None and self.upper is not None and self.lower > self.upper:
-            raise ValueError(f"joint limit lower {self.lower} > upper {self.upper}")
+        if self.lower is not None and self.upper is not None and self.lower >= self.upper:
+            raise ValueError(f"joint limit lower {self.lower} >= upper {self.upper}")
+        if self.velocity is not None and self.velocity < 0:
+            raise ValueError(f"joint velocity limit must be >= 0, got {self.velocity}")
         for limit in ("lower", "upper", "effort", "velocity"):
             if getattr(self, f"{limit}_enforced_by") is not None and getattr(self, limit) is None:
                 raise ValueError(f"{limit}_enforced_by requires {limit}")
@@ -553,6 +574,11 @@ class ModelRecord(Base):
             duplicates = sorted({name for name in names if names.count(name) > 1})
             if duplicates:
                 raise ValueError(f"duplicate {kind} name(s): {', '.join(duplicates)}")
+        names = {link.name for link in self.links}
+        for joint in self.joints:
+            for end in (joint.parent, joint.child):
+                if end not in names:
+                    raise ValueError(f"joint {joint.name!r} references missing link {end!r}")
         return self
 
     @model_validator(mode="after")
@@ -582,7 +608,7 @@ class ModelRecord(Base):
 
 
 class Tolerance(Base):
-    rel_pct: float | None = None
+    rel_pct: Annotated[float, Field(strict=True, ge=0, le=100)] | None = None  # percent, 0-100
     abs: Quantity | None = None
 
     @model_validator(mode="after")
@@ -1341,6 +1367,9 @@ class Rail(Base):
     capacity_enforced_by: DeclaredEnforcement | None = None
     upstream: str | None = None  # -> parent Rail.id or "battery"; rail-tree rollup
     efficiency: float = 1.0  # converter efficiency consumed by rail-tree rollup
+    output_tolerance_pct: Annotated[float, Field(strict=True)] | None = (
+        None  # published +/- % on `voltage`; optional
+    )
     charged_by: str | None = None  # -> Device.id of an alternator/generator feeding this rail
     provenance: Provenance | None = None
 
@@ -1349,6 +1378,13 @@ class Rail(Base):
     def _valid_efficiency(cls, v: float) -> float:
         if not 0.0 < v <= 1.0:
             raise ValueError(f"efficiency must be in (0, 1], got {v}")
+        return v
+
+    @field_validator("output_tolerance_pct")
+    @classmethod
+    def _valid_tolerance(cls, v: float | None) -> float | None:
+        if v is not None and not 0.0 <= v < 100.0:
+            raise ValueError(f"output_tolerance_pct must be in [0, 100), got {v}")
         return v
 
     @model_validator(mode="after")
@@ -3622,9 +3658,11 @@ def load_contract_bytes(raw: bytes) -> Contract:
         )
     data = _load_yaml_guarded(_yaml(), StringIO(raw.decode("utf-8")))
     _reject_yaml_anchors_aliases(data)
-    declared = data.get("schema_version", SCHEMA_VERSION) if isinstance(data, dict) else None
+    declared = _declared_version(data)
     if declared not in SUPPORTED_SCHEMA_VERSIONS:
         raise UnsupportedSchemaVersion(declared, SUPPORTED_SCHEMA_VERSIONS)
+    if isinstance(data, dict) and "schema_version" in data:
+        data["schema_version"] = declared
     return Contract.model_validate(data)
 
 
@@ -3632,7 +3670,7 @@ def upgrade_contract_document(document: dict[str, Any]) -> dict[str, Any]:
     """Return a proposed v0.4 document without mutating the caller's object."""
 
     proposed = deepcopy(document)
-    declared = proposed.get("schema_version", "0.2")
+    declared = _declared_version(proposed)
     if declared not in SUPPORTED_SCHEMA_VERSIONS:
         raise UnsupportedSchemaVersion(declared, SUPPORTED_SCHEMA_VERSIONS)
     if declared in {"0.2", "0.3"} and ("structural" in proposed or "simulation" in proposed):
@@ -3656,6 +3694,15 @@ def upgrade_contract_text(text: str) -> str:
 
 
 def save_contract(contract: Contract, path: Path) -> None:
-    data = contract.model_dump(mode="json", exclude_none=True)
-    with open(path, "w") as f:
-        _yaml().dump(data, f)
+    """Write a fresh dump atomically (temp file + replace); comments are not kept."""
+    data: Any = contract.model_dump(mode="json", exclude_none=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            _yaml().dump(data, f)
+        if path.exists():
+            shutil.copymode(path, temporary)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise

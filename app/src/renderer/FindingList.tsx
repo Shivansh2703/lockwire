@@ -67,7 +67,7 @@ export function useSelection(selected?: number | null, onSelect?: (index: number
   return selected === undefined || !onSelect ? [own, setOwn] : [selected, onSelect];
 }
 
-export function FindingList({ items, selected, onSelect }: { items: FindingItem[]; selected: number | null; onSelect: (index: number | null) => void }) {
+export function FindingList({ items, selected, onSelect, between }: { items: FindingItem[]; selected: number | null; onSelect: (index: number | null) => void; /** Rows that sit after the problems and before the "not checked" group (Test: what agreed). */ between?: ReactNode }) {
   const list = useRef<HTMLDivElement>(null);
   // A selection made elsewhere (a chip, another tab) scrolls its row into view.
   useEffect(() => {
@@ -88,6 +88,7 @@ export function FindingList({ items, selected, onSelect }: { items: FindingItem[
   return (
     <div className="check-list" ref={list}>
       {items.map((it, pos) => (it.severity === "muted" ? null : row(it, pos)))}
+      {between}
       {quiet.length > 0 && (
         <Disclosure summary={`${quiet.length} not checked`} open={quiet.some(([it, pos]) => (it.index ?? pos) === selected) || undefined}>
           {quiet.map(([it, pos]) => row(it, pos))}

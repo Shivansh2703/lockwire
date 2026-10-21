@@ -85,7 +85,8 @@ def test_real_history_keeps_the_unsupported_oldest_contract(tmp_path, monkeypatc
 
     rows = api.log(contract)
 
-    assert len(shas) == len(rows) == 11
+    # fixture history grows (box A added an axis, 11 -> 12); pin the floor, not the count
+    assert len(shas) == len(rows) >= 11
     assert shas[-1] == REAL_OLDEST_CONTRACT
     oldest = rows[-1]
     assert set(oldest) == {"sha", "author", "date", "message", "verdict", "fact_diff"}

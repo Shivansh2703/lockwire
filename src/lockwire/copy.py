@@ -131,7 +131,10 @@ def check_label(quantity: str) -> str:
             return CHECK_LABELS[key]
     if not words and parts[0] == "budgets":
         # "bud.mass-model" -> "mass": the budget's own word, so two totals read differently.
-        kind = re.split(r"[.-]", parts[1].removeprefix("bud."))[0] if len(parts) > 1 else ""
+        kind, _, what = (parts[1].removeprefix("bud.") if len(parts) > 1 else "").partition(".")
+        kind = re.split(r"-", kind)[0]
+        if kind and what:  # "bud.power.servo-5v" -> "Servo 5 V power budget": it names the budget
+            return f"{human_name(what)} {kind} budget"
         return f"Total {kind} budget" if kind else CHECK_LABELS["budgets"]
     # Unmapped: still readable, still no underscores (the test lists every known path).
     last = (words[-1] if words else quantity.split("/")[-1]).replace("_", " ").replace("-", " ")
@@ -300,8 +303,13 @@ GROUP_TITLES: dict[str, str] = {
 }
 
 
-def group_title(shape: str) -> str:
-    """The "{n} ..." row title for a repeated finding, or "" (group only identical titles)."""
+def group_title(shape: str, *, weak: bool = False) -> str:
+    """The "{n} ..." row title for a repeated finding, or "" (group only identical titles).
+
+    `weak`: a drives_joint finding from the torque check (servo too weak for the joint's limit),
+    which shares its shape with the unmapped-joint reference check."""
+    if weak:
+        return "{n} servos can't reach their joint limit"
     for key, title in GROUP_TITLES.items():
         if shape.endswith(key):
             return title

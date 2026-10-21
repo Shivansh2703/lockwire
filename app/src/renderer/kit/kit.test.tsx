@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -128,5 +129,13 @@ describe("kit", () => {
     expect([...box.querySelectorAll(".kit-finding-word")].map((e) => e.textContent)).toEqual(["Fails"]);
     mount(<PartTree parts={[{ id: "a", name: "A", state: "go" }, { id: "b", name: "B", state: "bad" }]} />);
     expect(box.querySelectorAll(".kit-dot")).toHaveLength(1);
+  });
+});
+
+// D14b: a row note with no chips fell into the auto first column, pushing the title away from its tick.
+describe("finding row layout", () => {
+  it("puts the note in the title column", () => {
+    const css = readFileSync("src/renderer/theme.css", "utf8");
+    expect(css).toMatch(/\.kit-finding-note \{[^}]*grid-column: 2/);
   });
 });

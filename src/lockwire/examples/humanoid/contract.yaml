@@ -32,273 +32,363 @@ model:
   - {name: world}
   - name: torso
     mass: {value: 1.27503, unit: kg}
+    com: [-0.0194013, -0.00385148, 0.0614411]
     frame: torso
   - name: torso_freejoint_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: torso_freejoint_body
   - name: neck_yaw_gear_drive
     mass: {value: 0.003, unit: kg}
+    com: [0.0, 0.0, 0.0033841]
     frame: neck_yaw_gear_drive
   - name: neck_yaw_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: neck_yaw_drive_body
   - name: neck_yaw_link
     mass: {value: 0.006, unit: kg}
+    com: [-3.41e-06, 0.0, 0.00821562]
     frame: neck_yaw_link
   - name: neck_yaw_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: neck_yaw_driven_body
   - name: head
     mass: {value: 0.143321, unit: kg}
+    com: [-0.0104852, 0.00111009, 0.0447856]
     frame: head
   - name: neck_pitch_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: neck_pitch_body
   - name: neck_pitch_plate
     mass: {value: 0.002, unit: kg}
+    com: [0.0, -0.00282818, 0.0]
     frame: neck_pitch_plate
   - name: neck_pitch_act_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: neck_pitch_act_body
   - name: neck_rod
     mass: {value: 0.00297389, unit: kg}
+    com: [0.0134812, -0.00159086, -0.0163176]
     frame: neck_rod
   - name: neck_pitch_front_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: neck_pitch_front_body
   - name: neck_rod_2
     mass: {value: 0.00297389, unit: kg}
+    com: [0.0134868, -0.00159086, -0.0163025]
     frame: neck_rod_2
   - name: neck_pitch_back_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: neck_pitch_back_body
   - name: waist_gears
     mass: {value: 0.0371617, unit: kg}
+    com: [0.0, 0.0, -0.0129916]
     frame: waist_gears
   - name: waist_yaw_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: waist_yaw_body
   - name: pelvis_link
     mass: {value: 0.1052, unit: kg}
+    com: [-0.0231545, 0.0, -0.0260806]
     frame: pelvis_link
   - name: waist_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: waist_roll_body
   - name: waist_gear_drive
     mass: {value: 0.002, unit: kg}
+    com: [0.0, 0.0, 0.00671824]
     frame: waist_gear_drive
   - name: waist_act_1_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: waist_act_1_body
   - name: waist_gear_drive_2
     mass: {value: 0.002, unit: kg}
+    com: [0.0, 0.0, 0.00671824]
     frame: waist_gear_drive_2
   - name: waist_act_2_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: waist_act_2_body
   - name: left_hip_pitch_link
     mass: {value: 0.188221, unit: kg}
+    com: [-0.0203085, 0.0188253, -0.0117862]
     frame: left_hip_pitch_link
   - name: left_hip_pitch_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_hip_pitch_body
   - name: left_hip_roll_link
     mass: {value: 0.022, unit: kg}
+    com: [0.0246449, -3.22e-06, -0.0172318]
     frame: left_hip_roll_link
   - name: left_hip_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_hip_roll_body
   - name: left_hip_yaw_link
     mass: {value: 0.159688, unit: kg}
+    com: [-0.00967359, 0.00117184, -0.0353305]
     frame: left_hip_yaw_link
   - name: left_hip_yaw_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_hip_yaw_driven_body
   - name: left_hip_yaw_gear_drive
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.00175]
     frame: left_hip_yaw_gear_drive
   - name: left_hip_yaw_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_hip_yaw_drive_body
   - name: left_knee_link
     mass: {value: 0.029, unit: kg}
+    com: [0.00452332, 0.019, -0.0505695]
     frame: left_knee_link
   - name: left_knee_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_knee_body
   - name: left_ankle_pitch_link
     mass: {value: 0.172721, unit: kg}
+    com: [-0.0179692, 0.0188074, 0.0120892]
     frame: left_ankle_pitch_link
   - name: left_ankle_pitch_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_ankle_pitch_body
   - name: left_ankle_roll_link
     mass: {value: 0.039, unit: kg}
+    com: [0.0358432, -7e-08, -0.0267229]
     frame: left_ankle_roll_link
   - name: left_ankle_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_ankle_roll_body
   - name: right_hip_pitch_link
     mass: {value: 0.188221, unit: kg}
+    com: [-0.0202238, -0.0188253, -0.0117862]
     frame: right_hip_pitch_link
   - name: right_hip_pitch_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_hip_pitch_body
   - name: right_hip_roll_link
     mass: {value: 0.022, unit: kg}
+    com: [0.0246449, -3.22e-06, -0.0172318]
     frame: right_hip_roll_link
   - name: right_hip_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_hip_roll_body
   - name: right_hip_yaw_link
     mass: {value: 0.159688, unit: kg}
+    com: [-0.00967257, -0.00117152, -0.0353303]
     frame: right_hip_yaw_link
   - name: right_hip_yaw_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_hip_yaw_driven_body
   - name: right_hip_yaw_gear_drive
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.00175]
     frame: right_hip_yaw_gear_drive
   - name: right_hip_yaw_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_hip_yaw_drive_body
   - name: right_knee_link
     mass: {value: 0.029, unit: kg}
+    com: [0.00452332, -0.019, -0.0505695]
     frame: right_knee_link
   - name: right_knee_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_knee_body
   - name: right_ankle_pitch_link
     mass: {value: 0.172721, unit: kg}
+    com: [-0.0179692, -0.018812, 0.0120892]
     frame: right_ankle_pitch_link
   - name: right_ankle_pitch_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_ankle_pitch_body
   - name: right_ankle_roll_link
     mass: {value: 0.039, unit: kg}
+    com: [0.0358432, -7e-08, -0.0267229]
     frame: right_ankle_roll_link
   - name: right_ankle_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_ankle_roll_body
   - name: left_shoulder_pitch_link
     mass: {value: 0.015, unit: kg}
+    com: [0.0, 0.0129132, 0.0]
     frame: left_shoulder_pitch_link
   - name: left_shoulder_pitch_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_shoulder_pitch_body
   - name: left_shoulder_roll_link
     mass: {value: 0.1152, unit: kg}
+    com: [0.0185402, 0.0117736, -0.00203648]
     frame: left_shoulder_roll_link
   - name: left_shoulder_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_shoulder_roll_body
   - name: left_shoulder_gear_drive
     mass: {value: 0.004, unit: kg}
+    com: [0.0, 0.0, -0.00662386]
     frame: left_shoulder_gear_drive
   - name: left_shoulder_yaw_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_shoulder_yaw_drive_body
   - name: left_shoulder_yaw_link
     mass: {value: 0.0247439, unit: kg}
+    com: [-2.1e-07, 2.4e-07, -0.0257842]
     frame: left_shoulder_yaw_link
   - name: left_shoulder_yaw_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_shoulder_yaw_driven_body
   - name: left_elbow_roll_link
     mass: {value: 0.1152, unit: kg}
+    com: [0.0185402, 0.0117736, -0.00203648]
     frame: left_elbow_roll_link
   - name: left_elbow_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_elbow_roll_body
   - name: left_elbow_gear_drive
     mass: {value: 0.004, unit: kg}
+    com: [0.0, 0.0, -0.00662386]
     frame: left_elbow_gear_drive
   - name: left_elbow_yaw_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_elbow_yaw_drive_body
   - name: left_elbow_yaw_link
     mass: {value: 0.0302318, unit: kg}
+    com: [2.3e-07, 0.00269789, -0.0333792]
     frame: left_elbow_yaw_link
   - name: left_elbow_yaw_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_elbow_yaw_driven_body
   - name: left_wrist_pitch_link
     mass: {value: 0.1276, unit: kg}
+    com: [-0.00041505, -0.0218671, 0.011496]
     frame: left_wrist_pitch_link
   - name: left_wrist_pitch_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_wrist_pitch_driven_body
   - name: left_wrist_gear_drive
     mass: {value: 0.003, unit: kg}
+    com: [0.0, 0.00503438, 0.0]
     frame: left_wrist_gear_drive
   - name: left_wrist_pitch_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_wrist_pitch_drive_body
   - name: left_hand
     mass: {value: 0.043, unit: kg}
+    com: [0.0176215, 0.00315051, -0.0386545]
     frame: left_hand
   - name: left_wrist_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: left_wrist_roll_body
   - name: right_shoulder_pitch_link
     mass: {value: 0.015, unit: kg}
+    com: [0.0, -0.0129132, 0.0]
     frame: right_shoulder_pitch_link
   - name: right_shoulder_pitch_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_shoulder_pitch_body
   - name: right_shoulder_roll_link
     mass: {value: 0.1152, unit: kg}
+    com: [-0.0185402, -0.0117736, -0.00203648]
     frame: right_shoulder_roll_link
   - name: right_shoulder_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_shoulder_roll_body
   - name: right_shoulder_gear_drive
     mass: {value: 0.004, unit: kg}
+    com: [0.0, 0.0, -0.00662386]
     frame: right_shoulder_gear_drive
   - name: right_shoulder_yaw_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_shoulder_yaw_drive_body
   - name: right_shoulder_yaw_link
     mass: {value: 0.0247439, unit: kg}
+    com: [2.1e-07, -2.4e-07, -0.0257842]
     frame: right_shoulder_yaw_link
   - name: right_shoulder_yaw_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_shoulder_yaw_driven_body
   - name: right_elbow_roll_link
     mass: {value: 0.1152, unit: kg}
+    com: [-0.0185402, -0.0117736, -0.00203648]
     frame: right_elbow_roll_link
   - name: right_elbow_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_elbow_roll_body
   - name: right_elbow_gear_drive
     mass: {value: 0.004, unit: kg}
+    com: [0.0, 0.0, -0.00662386]
     frame: right_elbow_gear_drive
   - name: right_elbow_yaw_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_elbow_yaw_drive_body
   - name: right_elbow_yaw_link
     mass: {value: 0.0302318, unit: kg}
+    com: [-2.3e-07, -0.00269789, -0.0333792]
     frame: right_elbow_yaw_link
   - name: right_elbow_yaw_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_elbow_yaw_driven_body
   - name: right_wrist_pitch_link
     mass: {value: 0.1276, unit: kg}
+    com: [0.00041505, 0.0218671, 0.011496]
     frame: right_wrist_pitch_link
   - name: right_wrist_pitch_driven_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_wrist_pitch_driven_body
   - name: right_wrist_gear_drive
     mass: {value: 0.003, unit: kg}
+    com: [0.0, -0.00503438, 0.0]
     frame: right_wrist_gear_drive
   - name: right_wrist_pitch_drive_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_wrist_pitch_drive_body
   - name: right_hand
     mass: {value: 0.043, unit: kg}
+    com: [-0.0203795, -0.00314939, -0.0386553]
     frame: right_hand
   - name: right_wrist_roll_body
     mass: {value: 0.001, unit: kg}
+    com: [0.0, 0.0, 0.0]
     frame: right_wrist_roll_body
   joints:
   - name: torso_freejoint
@@ -1537,6 +1627,7 @@ topology:
       current_limit: {value: 4.5, unit: A}
       upstream: rail.battery-pack
       efficiency: 0.9
+      output_tolerance_pct: 4
       provenance:
         witness: w0
         source: "https://www.pololu.com/product/4095; https://arxiv.org/abs/2502.00893 appendix 8.7"
@@ -1548,6 +1639,7 @@ topology:
       current_limit: {value: 4.5, unit: A}
       upstream: rail.battery-pack
       efficiency: 0.9
+      output_tolerance_pct: 4
       provenance:
         witness: w0
         source: "https://www.pololu.com/product/4095; https://arxiv.org/abs/2502.00893 appendix 8.7"

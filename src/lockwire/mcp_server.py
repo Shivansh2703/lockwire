@@ -5,7 +5,8 @@ An agent about to operate a robot can ask these questions before it touches
 hardware. Every tool is a thin wrapper around lockwire's existing, already-tested
 functions (`checks.py`, `describe.py`, `plan.py`, `preflight/runner.py`, and
 `api.upgrade`) — nothing here recomputes a verdict or re-derives a role. The
-upgrade tool is the one explicit, non-overwriting file writer.
+upgrade tool is the one non-overwriting file writer; ``review_value`` also writes, in
+place, and takes ``expected_revision`` to refuse a stale file.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+
+from lockwire.confine import without_values
 from pydantic import ValidationError
 from ruamel.yaml import YAMLError
 
@@ -93,7 +96,7 @@ def _load_contract(contract: str) -> Contract:
     except UnsupportedSchemaVersion as error:
         raise ToolError(f"REFUSED — {error}") from error
     except (OSError, KeyError, TypeError, ValueError, YAMLError) as error:
-        raise ToolError(str(error)) from error
+        raise ToolError(without_values(str(error))) from error
 
 
 def build_server() -> MCPServer:
@@ -119,7 +122,7 @@ def build_server() -> MCPServer:
                 options["expected_revision"] = expected_revision
             document = api.check(loaded, **options)
         except (OSError, TypeError, ValueError, YAMLError) as error:
-            raise ToolError(str(error)) from error
+            raise ToolError(without_values(str(error))) from error
         line = ["check", contract]
         if actuator_evidence is not None:
             for case_id in sorted(actuator_evidence):
@@ -255,22 +258,41 @@ def build_server() -> MCPServer:
         state: str,
         witness: str,
         note: str | None = None,
+        expected_revision: str | None = None,
     ) -> dict[str, Any]:
         """Approve or question one already-declared value, writing the reviewer's
         note into the file; refuses a blank/"you"/assistant-name witness, a
         questioned review with no note, a fact with no provenance yet, or a
-        contract path that does not exist."""
+        contract path that does not exist. Give expected_revision (the SHA-256 of the
+        contract bytes you read) to refuse a stale file; omitted, no stale check is made.
+        This is a writer, like the CLI's review: it edits the file in place."""
         _load_contract(contract)
         flag = "--approve" if state == "approved" else "--question"
         extra = ("--note", note) if note is not None else ()
         try:
-            document = api.review(contract, path, state, witness=witness, note=note)
+            document = api.review(
+                contract,
+                path,
+                state,
+                witness=witness,
+                note=note,
+                expected_revision=expected_revision,
+            )
         except (EditRefusal, UnsupportedSchemaVersion, OSError, YAMLError) as error:
-            raise ToolError(str(error)) from error
+            raise ToolError(without_values(str(error))) from error
         return _with_cli_line(
             document,
             _cli_line("review", contract, path, flag, "--witness", witness, *extra),
         )
+
+    @server.tool()
+    def match_parts_list(parts: str, catalog: str | None = None) -> dict[str, Any]:
+        """Match a pasted parts list (one part per line, free text) to the catalog; returns each line as MATCHED (catalog id, confidence) or NO MATCH, plus numbers written in the line that disagree with the catalog. Writes nothing; use the CLI's --out for a draft lockfile."""
+        try:
+            document = api.from_parts(parts, catalog=catalog)
+        except (OSError, ValidationError, YAMLError) as error:
+            raise ToolError(without_values(str(error))) from error
+        return _with_cli_line(document, _cli_line("from-parts", "<parts.txt>"))
 
     plugins.load(mcp=server)  # a plugin adds its own tools
     return server

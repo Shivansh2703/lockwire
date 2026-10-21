@@ -1,6 +1,6 @@
 [project]
 name = "lockwire"
-version = "0.2.3"
+version = "0.2.4"
 description = "The physical-assumption contract for robots: checks that a robot's declared parts (power, weight, bus, torque) add up"
 readme = "README.md"
 authors = [
@@ -26,13 +26,15 @@ dependencies = [
     "rich>=15.0.0",
     "ruamel-yaml>=0.19.1",
     "typer>=0.26.8",
+    "xacro>=2.1.1",
 ]
 
 [project.optional-dependencies]
 # Serving lockwire over MCP to an agent. Optional for the same reason as `ros2bag`:
 # a plain install must stay lean, and the SDK is only needed by `lockwire mcp`.
 mcp = [
-    "mcp>=2.1.1",
+    "mcp>=2.2.0",
+    "pyjwt>=2.15",  # direct floor: a fresh lock must not resolve below the fixed release
 ]
 # The Electron app's sidecar: `lockwire serve` over local HTTP. Optional for the
 # same reason as `desktop`/`ros2bag`/`mcp` — a plain CLI install stays lean; only the
@@ -59,7 +61,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "mcp>=2.1.1",
+    "mcp>=2.2.0",
     # tests/test_serve.py needs the sidecar (`lockwire serve`) importable and
     # runnable as a subprocess. Same reasoning as `mcp`/`mcap` above: CI's
     # `test` job runs a plain `uv sync --dev`, so without these here that

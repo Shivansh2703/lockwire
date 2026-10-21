@@ -1630,7 +1630,7 @@ table {
 .check-headline-left { margin-right: auto; }
 .finding-info { position: static; width: 28px; height: 28px; margin-left: 4px; border: 0; vertical-align: middle; background: radial-gradient(circle, var(--field) 0 9px, transparent 10px); }
 .finding-info:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.kit-finding-note { color: var(--muted); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-finding-note { grid-column: 2; color: var(--muted); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .design-controls .kit-btn-primary { justify-self: end; }
 .design-controls .kit-seg { width: fit-content; }
 /* Declare: short name + part as a small-caps subtitle; the command wraps instead of cutting the value. */
@@ -1862,3 +1862,17 @@ table {
 /* r10: plan */
 .plan-finding .check-detail .kit-kv-row { grid-template-columns: max-content 1fr; column-gap: var(--sp-3); } /* r11: Fix text takes the panel width */
 .plan-finding .check-detail .kit-kv dt { white-space: nowrap; }
+
+/* Assistant panel: plain column; the secondary row is quiet and small on purpose. */
+.assistant-col { display: flex; flex-direction: column; gap: var(--sp-3); }
+.assistant-row { display: flex; gap: var(--sp-2); align-items: center; }
+.assistant-note { font: 400 12px var(--sans); color: var(--muted); }
+.assistant-turn { margin: 0; white-space: pre-wrap; }
+.assistant-turn[data-who="you"] { color: var(--muted); }
+.assistant-card { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--line); border-radius: 8px; }
+.assistant-diff { margin: 0; font: 400 12px var(--mono, monospace); overflow: auto; white-space: pre; max-height: 160px; }
+.assistant-diff > span { display: block; }
+.assistant-diff [data-line="add"] { color: var(--go); }
+.assistant-diff [data-line="del"] { color: var(--bad); }
+.assistant-diff [data-line="head"] { color: var(--muted); }
+.assistant-secondary { opacity: 0.8; }

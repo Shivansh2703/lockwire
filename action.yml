@@ -10,6 +10,9 @@ inputs:
   version:
     description: pin a PyPI release; default installs the action's own code.
     default: ""
+  strict:
+    description: Treat warnings as failures (GO with notes exits 1).
+    default: "false"
   python-version:
     description: Python version to run lockwire with.
     default: "3.12"
@@ -29,7 +32,9 @@ runs:
       shell: bash
       env:
         LW_CONTRACT: ${{ inputs.contract }}
-      run: lockwire check "$LW_CONTRACT"
+        LW_STRICT: ${{ inputs.strict }}
+      run: |
+        if [ "$LW_STRICT" = "true" ]; then lockwire check "$LW_CONTRACT" --strict; else lockwire check "$LW_CONTRACT"; fi
     - name: lockwire report
       if: always()
       shell: bash

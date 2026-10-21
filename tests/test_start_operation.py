@@ -200,7 +200,9 @@ def test_blank_robot_page_says_what_to_do(tmp_path: Path):
     assert "Nothing to check yet. Add a part to start checking." in [c["body"] for c in cards]
 
 
-def test_example_start_copies_its_plan_beside_the_lockfile_and_keeps_an_existing_one(tmp_path: Path):
+def test_example_start_copies_its_plan_beside_the_lockfile_and_keeps_an_existing_one(
+    tmp_path: Path,
+):
     from lockwire.start_operation import start_example
 
     kept = tmp_path / "mine.plan.yaml"
@@ -209,3 +211,23 @@ def test_example_start_copies_its_plan_beside_the_lockfile_and_keeps_an_existing
     start_example("drone", tmp_path / "bot.yaml")
     assert kept.read_text() == "mine"
     assert api.plan(tmp_path / "bot.yaml", tmp_path / "bot.plan.yaml")["steps"]
+
+
+def test_start_example_keeps_a_users_glb_beside_the_output(tmp_path: Path):
+    """a 9-byte user .glb became the example's 367,800-byte scene."""
+    (tmp_path / "lockwire.glb").write_bytes(b"USER GLB\n")
+    result = start_operation.start_example("drone", tmp_path / "lockwire.yaml")
+    assert (tmp_path / "lockwire.glb").read_bytes() == b"USER GLB\n"
+    assert result["written"] and "lockwire.glb" in result["note"]
+
+
+def test_start_overwrite_keeps_file_mode(tmp_path: Path):
+    """An overwrite keeps the contract's file mode. The lock file beside the contract is kept on
+    purpose: it is the shared inode other editors wait on."""
+    source = tmp_path / "robot.urdf"
+    source.write_text('<robot name="robot"><link name="base"/></robot>')
+    result = api.start(source)
+    target = tmp_path / "lockwire.yaml"
+    target.chmod(0o644)
+    api.start(source, overwrite=True, expected_revision=result["revision"])
+    assert target.stat().st_mode & 0o777 == 0o644

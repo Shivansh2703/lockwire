@@ -26,7 +26,7 @@ export const PAID = [
 const PRODUCT = JSON.parse(readFileSync(join(APP, "package.json"), "utf8")).build.productName;
 export const ALLOWED_STRING = `Test / Run: ${PRODUCT} Pro`;
 // Command-class strings that must not survive into a free build's bundles.
-const BUNDLE_PAID = ["run:start", "run:poll", "run:cancel", "contract:preflight", "file:choose-recording", "analysis:start"];
+export const BUNDLE_PAID = ["run:start", "run:poll", "run:cancel", "contract:preflight", "file:choose-recording", "analysis:start", "contract:actuator-review-draft", "analysis:poll", "analysis:cancel"];
 
 // Known exceptions, each with its reason. Remove an entry when its reason goes away.
 const SKIP_FILES = new Map([

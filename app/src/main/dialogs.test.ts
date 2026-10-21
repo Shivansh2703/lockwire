@@ -13,6 +13,7 @@ describe("dialogs (main process file picker)", () => {
     const opts = showOpenDialog.mock.calls[0]![0] as { filters: { extensions: string[] }[] };
     expect(opts.filters[0]!.extensions).toContain("urdf");
     expect(opts.filters[0]!.extensions).toContain("yaml");
+    expect(opts.filters[0]!.extensions).toEqual(expect.arrayContaining(["glb", "gltf"]));
   });
 
   it("test_a_cancelled_dialog_returns_null_not_an_empty_string", async () => {

@@ -24,6 +24,11 @@ const TRUSTED_EVENT = { senderFrame: { url: "http://localhost:5173/" } } as IpcM
 
 // The whole free IPC surface, spelled out: a class added to the free list must be added here too.
 const FREE_CLASSES = [
+  "assistant:apply",
+  "assistant:cancel",
+  "assistant:send",
+  "assistant:settings-get",
+  "assistant:settings-set",
   "contract:declare-form",
   "contract:diff",
   "contract:edit",

@@ -5,10 +5,18 @@ import type { SidecarState } from "../main/sidecar";
 import type { DeclareFormPayload, DiffPayload, LogPayload, PagePayload, PlanPayload, Starter, WhatIfPayload } from "../shared/api.gen";
 import { proApi } from "./proRegistry";
 import {
+  ASSISTANT_EVENT_CHANNEL,
   MENU_OPENED_CHANNEL,
   RUN_CHANNEL,
   SIDECAR_STATE_CHANGED_CHANNEL,
   type CommandClass,
+  type AssistantApplyResult,
+  type AssistantEvent,
+  type AssistantSendRequest,
+  type AssistantSettings,
+  type AssistantSetRequest,
+  type AssistantSetResult,
+  type AssistantTurn,
   type StartUrdfRequest,
   type ContractWhatIfRequest,
   type ContractPageRequest,
@@ -58,6 +66,16 @@ const lockwire = {
   // itself -- these three are its only legal reach into the sidecar's state.
   getSidecarState: (): Promise<SidecarState> => run("sidecar:state", undefined),
   restartSidecar: (): Promise<{ accepted: true }> => run("sidecar:restart", undefined),
+  getAssistantSettings: (): Promise<AssistantSettings> => run("assistant:settings-get", undefined),
+  setAssistantSettings: (request: AssistantSetRequest): Promise<AssistantSetResult> => run("assistant:settings-set", request),
+  sendAssistant: (request: AssistantSendRequest): Promise<AssistantTurn> => run("assistant:send", request),
+  applyAssistant: (request: { id: string; witness: string }): Promise<AssistantApplyResult> => run("assistant:apply", request),
+  cancelAssistant: (): Promise<{ ok: true }> => run("assistant:cancel", undefined),
+  onAssistantEvent: (cb: (event: AssistantEvent) => void): (() => void) => {
+    const listener = (_event: unknown, payload: AssistantEvent) => cb(payload);
+    ipcRenderer.on(ASSISTANT_EVENT_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(ASSISTANT_EVENT_CHANNEL, listener);
+  },
   onSidecarState: (cb: (state: SidecarState) => void): (() => void) => {
     const listener = (_event: unknown, state: SidecarState) => cb(state);
     ipcRenderer.on(SIDECAR_STATE_CHANGED_CHANNEL, listener);

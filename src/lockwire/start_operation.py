@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -14,7 +15,7 @@ from lockwire.scene import SceneRefusal
 from lockwire.scene_urdf import _resolve_mesh_path, mesh_root
 from lockwire.schema import ArtifactRef, Contract, RobotInfo, save_contract
 from lockwire.sdf import parse_sdf
-from lockwire.urdf import _refuse_doctype_entity, parse_urdf
+from lockwire.urdf import _refuse_doctype_entity, parse_urdf, read_model_bytes
 
 
 def _find_meshes(root: ET.Element, source: Path, target: Path) -> tuple[list[ArtifactRef], str]:
@@ -27,7 +28,9 @@ def _find_meshes(root: ET.Element, source: Path, target: Path) -> tuple[list[Art
     folder, found, problems = mesh_root(source, target.parent), {}, []
     for uri in uris:
         try:
-            path = _resolve_mesh_path(uri, source.parent, source, (source.parent, folder)).resolve()
+            path = _resolve_mesh_path(
+                uri, source.parent, source, (source.parent, folder, *source.parents[1:3])
+            ).resolve()
             found[path.relative_to(folder).as_posix()] = path
         except (SceneRefusal, ValueError):
             problems.append(uri)
@@ -65,7 +68,7 @@ def start_contract(
             or expected_revision != contract_revision(target)
         ):
             raise ValueError("lockfile changed since it was opened; reload before overwriting")
-        raw = source.read_bytes()
+        raw = read_model_bytes(source)
         _refuse_doctype_entity(raw, source)
         xml = ET.fromstring(raw)
         model = parse_sdf(source) if xml.tag == "sdf" else parse_urdf(source)
@@ -87,6 +90,7 @@ def start_contract(
             if exists and contract_revision(target) != expected_revision:
                 raise ValueError("lockfile changed since it was opened; reload before overwriting")
             if exists:
+                shutil.copymode(target, temporary)
                 os.replace(temporary, target)
             else:
                 # Installing a new file must never replace a writer racing this start.
@@ -121,19 +125,24 @@ def example_names() -> list[str]:
     )
 
 
-def write_example(name: str, target: Path) -> None:
-    """Write the example's lockfile to ``target`` and its scene and example plan (if any) beside it as ``<target stem>.glb`` / ``<target stem>.plan.yaml``."""
+def write_example(name: str, target: Path) -> str | None:
+    """Write the example's lockfile to ``target`` and its scene and example plan (if any) beside it as ``<target stem>.glb`` / ``<target stem>.plan.yaml``.
+
+    An existing scene or plan beside ``target`` is kept; the returned note names a kept scene."""
     name = ALIASES.get(name, name)
     folder = EXAMPLES / name
     source = folder / "contract.yaml" if folder.is_dir() else EXAMPLES / f"{name}.yaml"
     target.write_bytes(source.read_bytes())
-    scene = folder / "scene.glb"
-    if scene.is_file():
-        target.with_suffix(".glb").write_bytes(scene.read_bytes())
+    scene, glb, note = folder / "scene.glb", target.with_suffix(".glb"), None
+    if scene.is_file() and glb.exists():  # never overwrite a user's scene
+        note = f"kept your existing {glb.name}; the example's scene was not copied"
+    elif scene.is_file():
+        glb.write_bytes(scene.read_bytes())
     plan = folder / "plan.yaml"
     sibling = target.with_name(f"{target.stem}.plan.yaml")
     if plan.is_file() and not sibling.exists():
         sibling.write_bytes(plan.read_bytes())
+    return note
 
 
 def start_example(name: str, out: Path | str) -> dict[str, str | bool]:
@@ -145,8 +154,9 @@ def start_example(name: str, out: Path | str) -> dict[str, str | bool]:
     if target.exists():
         return {"path": str(target), "revision": contract_revision(target), "written": False}
     target.parent.mkdir(parents=True, exist_ok=True)
-    write_example(name, target)
-    return {"path": str(target), "revision": contract_revision(target), "written": True}
+    note = write_example(name, target)
+    done = {"path": str(target), "revision": contract_revision(target), "written": True}
+    return {**done, "note": note} if note else done
 
 
 def starters() -> list[dict[str, str]]:

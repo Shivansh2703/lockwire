@@ -37,10 +37,26 @@ FIXTURE = Path(__file__).parent / "fixtures" / "x500" / "contract.yaml"
 LOCKED_AT = dt.date(2026, 9, 6)
 
 
-def _copy(tmp_path: Path) -> Path:
+def _copy(tmp_path: Path, newline: str = "\n") -> Path:
     dest = tmp_path / "contract.yaml"
-    dest.write_bytes(FIXTURE.read_bytes())
+    dest.write_bytes(FIXTURE.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", newline.encode()))
     return dest
+
+
+def _assert_newline_kept(path: Path, newline: str) -> None:
+    raw = path.read_bytes()
+    assert raw.count(b"\n") == raw.count(newline.encode())
+    assert (b"\r" in raw) == (newline == "\r\n")
+
+
+def _assert_diff_confined(result, before: str, after: str) -> None:
+    """The RETURNED diff must be LF-only and exactly as long as the diff of the (newline-translated) texts."""
+    ref = list(difflib.unified_diff(before.splitlines(True), after.splitlines(True)))
+    assert "\r" not in result.diff
+    assert len(result.diff.splitlines()) == len(ref)
+
+
+NEWLINES = pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
 
 
 def _sha(path: Path) -> str:
@@ -1645,10 +1661,12 @@ def test_apply_accepts_scene_import_list_plus_unit_entry(tmp_path):
 # its own writer settings; these tests pin the confined-diff guarantee down.
 
 
-def test_declare_diff_confined_to_edit_and_provenance(tmp_path):
-    contract_path = _copy(tmp_path)
+@NEWLINES
+def test_declare_diff_confined_to_edit_and_provenance(tmp_path, newline):
+    """Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS."""
+    contract_path = _copy(tmp_path, newline)
     before_text = contract_path.read_text()
-    apply_changes(
+    result = apply_changes(
         contract_path,
         [
             Change(
@@ -1676,10 +1694,14 @@ def test_declare_diff_confined_to_edit_and_provenance(tmp_path):
         line for line in before_text.splitlines() if "search-engine-paraphrase" in line
     )
     assert long_note_line in after_text.splitlines()  # never re-wrapped
+    _assert_diff_confined(result, before_text, after_text)
+    _assert_newline_kept(contract_path, newline)
 
 
-def test_apply_diff_confined_for_three_changes(tmp_path):
-    contract_path = _copy(tmp_path)
+@NEWLINES
+def test_apply_diff_confined_for_three_changes(tmp_path, newline):
+    """Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS."""
+    contract_path = _copy(tmp_path, newline)
     before_text = contract_path.read_text()
     changes = [
         Change(
@@ -1704,19 +1726,23 @@ def test_apply_diff_confined_for_three_changes(tmp_path):
             locked_at=LOCKED_AT,
         ),
     ]
-    apply_changes(contract_path, changes)
+    result = apply_changes(contract_path, changes)
     after_text = contract_path.read_text()
     touched = _changed_lines(before_text, after_text)
     assert len(touched) <= 30, touched
     allowed = ("capacity", "draw", "mount_xyz", "value:", "witness", "source", "locked_at", "note")
     for line in touched:
         assert any(key in line for key in allowed), f"unexpected line touched: {line!r}"
+    _assert_diff_confined(result, before_text, after_text)
+    _assert_newline_kept(contract_path, newline)
 
 
-def test_add_rail_diff_confined(tmp_path):
-    contract_path = _copy(tmp_path)
+@NEWLINES
+def test_add_rail_diff_confined(tmp_path, newline):
+    """Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS."""
+    contract_path = _copy(tmp_path, newline)
     before_text = contract_path.read_text()
-    add_entry(
+    add_result = add_entry(
         contract_path,
         "rail",
         {"id": "rail.new-5v", "voltage": "5 V", "capacity": "10 W"},
@@ -1740,18 +1766,23 @@ def test_add_rail_diff_confined(tmp_path):
                 "locked_at",
             )
         ), f"line outside the new rail block: {line!r}"
+    _assert_diff_confined(add_result, before_text, after_text)
+    _assert_newline_kept(contract_path, newline)
 
 
-def test_declare_appends_provenance_never_overwrites_another_facts_source(tmp_path):
+@NEWLINES
+def test_declare_appends_provenance_never_overwrites_another_facts_source(tmp_path, newline):
     """Integration defect: declaring the radio's mount point replaced its
     entire device provenance, erasing the mass/datasheet source it also
     covers. One provenance block per device is shared across facts (
     provenance-per-fact is a schema change) — until
     then, declare/apply must APPEND to an existing block, never overwrite it.
+
+    Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS.
     """
-    contract_path = _copy(tmp_path)
+    contract_path = _copy(tmp_path, newline)
     before_text = contract_path.read_text()
-    apply_changes(
+    result = apply_changes(
         contract_path,
         [
             Change(
@@ -1781,6 +1812,8 @@ def test_declare_appends_provenance_never_overwrites_another_facts_source(tmp_pa
 
     touched = _changed_lines(before_text, after_text)
     assert len(touched) <= 8, touched
+    _assert_diff_confined(result, before_text, after_text)
+    _assert_newline_kept(contract_path, newline)
 
 
 # ---------------------------------------------------------------- G3: writer keeps file style
@@ -1845,9 +1878,10 @@ def test_add_family_confines_diff_on_init_anymal_d(tmp_path):
     assert len(touched) <= 8, touched
 
 
-def test_add_family_confines_diff_on_x500_fixture(tmp_path):
-    """Same guarantee on a hand-written, already-4/2 fixture (no regression)."""
-    contract_path = _copy(tmp_path)
+@NEWLINES
+def test_add_family_confines_diff_on_x500_fixture(tmp_path, newline):
+    """Same guarantee on a hand-written, already-4/2 fixture (no regression). Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS."""
+    contract_path = _copy(tmp_path, newline)
     before = contract_path.read_text()
 
     add_result = add_entry(
@@ -1863,6 +1897,8 @@ def test_add_family_confines_diff_on_x500_fixture(tmp_path):
 
     touched = _changed_lines(before, after)
     assert len(touched) <= 7, touched
+    _assert_diff_confined(add_result, before, after)
+    _assert_newline_kept(contract_path, newline)
 
 
 _HANDWRITTEN_2_0_STYLE = """schema_version: "0.3"
@@ -1877,14 +1913,18 @@ budgets: []
 """
 
 
-def test_add_family_keeps_a_hand_written_files_own_2_0_style(tmp_path):
+@NEWLINES
+def test_add_family_keeps_a_hand_written_files_own_2_0_style(tmp_path, newline):
     """A file whose lists are NOT `init`'s/the editor's 4/2 default (e.g.
     hand-written 2/0 style, `families:\\n- id:`) keeps its own style — the
     sniff reads it from the existing `fam.a` entry, it isn't forced to 4/2.
+
+    Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS.
     """
     contract_path = tmp_path / "contract.yaml"
-    contract_path.write_text(_HANDWRITTEN_2_0_STYLE)
+    contract_path.write_bytes(_HANDWRITTEN_2_0_STYLE.replace("\n", newline).encode())
 
+    before = contract_path.read_text()
     add_result = add_entry(
         contract_path,
         "family",
@@ -1897,6 +1937,8 @@ def test_add_family_keeps_a_hand_written_files_own_2_0_style(tmp_path):
     after = contract_path.read_text()
     assert "- id: fam.a\n  name: A\n" in after  # untouched entry: still 2/0, unreindented
     assert "- id: fam.new\n  name: New family\n" in after  # new entry: same style
+    _assert_diff_confined(add_result, before, after)
+    _assert_newline_kept(contract_path, newline)
 
 
 _FLOAT_FIXTURE = """schema_version: "0.3"
@@ -2670,3 +2712,12 @@ def test_invalid_mount_shape_and_place_refusals_preserve_exact_bytes(tmp_path):
         with pytest.raises(EditRefusal):
             call()
         assert contract.read_bytes() == before, f"{label} wrote to the file"
+
+
+def test_edit_keeps_file_mode(tmp_path):
+    """An edit keeps the contract's file mode. The lock file beside the contract is kept on
+    purpose: it is the shared inode other editors wait on."""
+    path = _copy(tmp_path)
+    path.chmod(0o644)
+    apply_changes(path, [Change("topology/rails/rail.pm02-5v/capacity", "20 W", "spec.pdf", "Pat")])
+    assert path.stat().st_mode & 0o777 == 0o644

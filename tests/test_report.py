@@ -482,6 +482,8 @@ def test_clean_contract_report_is_go_without_findings():
         # not_scored when no current reading is supplied (nothing here supplies one).
         "devices/dev.imu/physical/mass",
         "model/joints/imu_mount/limits/effort",
+        # the mass budget is not scored while device masses are unknown.
+        "budgets/bud.mass.devices",
     }
     urdf = next(f for f in not_scored if f["quantity"] == "model/structure_hash")
     assert "relative path" in urdf["observed"]
@@ -819,7 +821,10 @@ def test_scored_line_reports_adds_up_do_not_and_not_scored():
     # three devices with no `physical` block at all
     # (Jetson, camera, magnetometer) are now `not_scored` for mass instead of
     # a silent skip, moving not-scored 6 -> 9 (8 add up unchanged).
-    assert lines[scored_index] == "scored 10: 8 add up, 2 do not · 9 not scored"
+    # the mass budget has three devices with unknown mass, so it moves
+    # from scored to not scored (the budget total is not scored, not a partial sum), and
+    # the per-device rows stay: scored 10 -> 9 (one add-up row gone), not scored 9 -> 10.
+    assert lines[scored_index] == "scored 9: 7 add up, 2 do not · 10 not scored"
     assert scored_index == verdict_index - 1  # directly before the verdict line
 
 
@@ -869,6 +874,11 @@ def test_scored_line_counts_comparison_violations_only(clean_contract):
     clean_contract.device("dev.gnss").drives_joint = "ghost_joint"  # reference-only violation
     budget = next(b for b in clean_contract.budgets if b.kind == "mass_total")
     budget.limit.value = 0.0001  # comparison violation: mass now exceeds it
+    # a mass budget with an undeclared mass is not scored, so the
+    # unmassed devices get a mass here to keep the budget a scored comparison.
+    for device_id in ("dev.barometer", "dev.gnss", "dev.esc.busless"):
+        device = clean_contract.device(device_id)
+        device.physical = Physical(mass=Quantity(value=10, unit="g"))
 
     report = run_record_checks(clean_contract)
     _, text = _plain_render(report)
@@ -879,8 +889,10 @@ def test_scored_line_counts_comparison_violations_only(clean_contract):
     )
 
     # check_edge_tolerance discloses both fixture edges as not_scored
-    # when no current reading is supplied — 5 -> 7.
-    assert lines[scored_index] == "scored 9: 8 add up, 1 do not · 7 not scored"
+    # when no current reading is supplied — 5 -> 7; the three
+    # device-mass disclosures are gone now the test declares those masses — 7 -> 4.
+    # gravity reach is tallied (the mount joint holds) — 9 -> 10.
+    assert lines[scored_index] == "scored 10: 9 add up, 1 do not · 4 not scored"
     assert lines[references_index] == "reference: 1 broken"
     assert references_index == scored_index + 1
 

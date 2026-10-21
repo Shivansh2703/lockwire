@@ -134,6 +134,9 @@ interface Group { members: number[] }
 /** "Supply 5 V rail overloaded in the 7W mode" and "... in the stall mode" are one rail's one fault. */
 const noMode = (title: string) => title.replace(/( rail (?:overloaded|load)) in the .+ mode$/, "$1");
 
+/** A weak-servo card's own title is "<Part>: <numbers>", its row's title (one line per joint, no shared note). */
+const rowTitled = (c: Card) => !!c.group_title && c.label === "Servo too weak";
+
 const groupCards = (cards: Card[]): Group[] => {
   const byKey = new Map<string, Group>();
   const out: Group[] = [];
@@ -182,10 +185,10 @@ function groupItem(cards: Card[], g: Group, selected: number | null, onSelect: (
     shape: first.shape,
     detail: (
       <div className="check-group">
-        <p className="check-group-note">{first.title}</p>
+        {!rowTitled(first) && <p className="check-group-note">{first.title}</p>}
         {g.members.map((i) => (
           <div key={i}>
-            <FindingRow severity={severity} title={cards[i]!.targets[0]?.label ?? cards[i]!.label} chips={liveChips(targetChips(cards[i]!.targets.slice(1)), onJump)} selected={selected === i} onSelect={() => onSelect(selected === i ? g.members[0]! : i)} onChip={onChip && ((c) => onChip(c as Chip))} />
+            <FindingRow severity={severity} title={rowTitled(cards[i]!) ? cards[i]!.title : cards[i]!.targets[0]?.label ?? cards[i]!.label} chips={liveChips(targetChips(cards[i]!.targets.slice(1)), onJump)} selected={selected === i} onSelect={() => onSelect(selected === i ? g.members[0]! : i)} onChip={onChip && ((c) => onChip(c as Chip))} />
             {selected === i && <Detail card={cards[i]!} onJump={onJump} cli={cli} />}
           </div>
         ))}

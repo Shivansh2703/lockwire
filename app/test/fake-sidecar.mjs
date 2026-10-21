@@ -8,7 +8,9 @@ if (process.argv.includes("--exit-on-stdin-close")) {
   process.stdin.resume();
   process.stdin.on("end", () => process.exit(0));
 }
-setTimeout(() => {
+const noiseKb = Number(process.env.FAKE_SIDECAR_STDERR_KB ?? 0);
+// M31: a chatty child; its ready line waits until the OS pipe has taken all of it.
+const go = () => setTimeout(() => {
   const mode = process.env.FAKE_SIDECAR_MODE ?? "ready";
   if (mode === "ready") {
     const token = process.env.FAKE_SIDECAR_TOKEN ?? "fake-token";
@@ -22,3 +24,5 @@ setTimeout(() => {
   // "silent" prints nothing and just waits (for the parent's stdin to close, or the
   // test's own timers).
 }, Number(process.env.FAKE_SIDECAR_DELAY_MS ?? 0));
+if (noiseKb > 0) process.stderr.write("x".repeat(noiseKb * 1024), go);
+else go();

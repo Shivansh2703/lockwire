@@ -229,6 +229,8 @@ class ScoredRecord(BaseModel):
     observed_quantity: Quantity | None = None
     expected_quantity: Quantity | None = None
     uncertainty: Quantity | None = None
+    # Longer explanation kept for the JSON; the one-line title never prints it.
+    detail: str | None = None
 
 
 class CGContributor(BaseModel):
@@ -545,11 +547,21 @@ def verdict(findings: list[Finding]) -> Verdict:
     # operands carry real counts — this loses information regardless of
     # whether anything was actually scored, so it is not provably a
     # nothing-compared case and is left as today's behaviour).
-    if scored == 0:
+    # A preflight cap (an absent or under-floor device, a partial
+    # recording, no capture) withholds GO and is named in the headline. Read from
+    # the findings themselves, so a plain list that concatenated a capped preflight
+    # cannot launder it.
+    caps = [
+        f"{f.observed}; "
+        for f in findings
+        if f.severity == "not_scored" and f.quantity == "preflight/recording"
+    ]
+    if scored == 0 or caps:
+        nothing = "nothing compared; " if scored == 0 else ""
         warning_phrase = f"{warnings} warning(s); " if warnings else ""
         return decided(
             "NOT_SCORED",
-            f"\n[bold yellow]NOT SCORED[/] — nothing compared; {warning_phrase}"
+            f"\n[bold yellow]NOT SCORED[/] — {nothing}{''.join(caps)}{warning_phrase}"
             f"{not_scored} check(s) not scored",
         )
     missing = getattr(findings, "missing_required_evidence", [])

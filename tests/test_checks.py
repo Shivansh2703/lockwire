@@ -33,7 +33,6 @@ from lockwire.checks import (
     check_urdf_drift,
     check_voltage_compatibility,
     compute_system_cg,
-    format_magnitude,
     free_space_path_loss_db,
     run_record_checks,
 )
@@ -42,6 +41,7 @@ from lockwire.scene import Scene, ScenePart
 from lockwire.schema import (
     AntennaGain,
     Band,
+    Bus,
     Contract,
     DeviceInstance,
     DeviceThermal,
@@ -115,6 +115,7 @@ def _assert_clean_baseline(findings):
         "devices/dev.gnss/physical/mass",
         "devices/dev.esc.busless/physical/mass",
         "devices/dev.imu/physical/mass",
+        "budgets/bud.mass.devices",  # partial mass sum is not scored
         "model/joints/imu_mount/limits/effort",
     }
     urdf = next(f for f in not_scored if f.quantity == "model/structure_hash")
@@ -204,6 +205,26 @@ def test_voltage_compat_compatible_device_is_silent(clean_contract):
         max=Quantity(value=5.5, unit="V"),
     )
 
+    assert check_voltage_compatibility(clean_contract) == []
+
+
+def test_voltage_compat_output_tolerance_warns_only_past_max(clean_contract):
+    device = clean_contract.device("dev.imu")
+    rail = clean_contract.rail(device.power.rail)
+    rail.voltage = Quantity(value=12.0, unit="V")
+    rail.voltage_range = None
+    model = clean_contract.device_model(device.model)
+    model.input_voltage_range = InputVoltageRange(
+        min=Quantity(value=6.5, unit="V"), max=Quantity(value=12.0, unit="V")
+    )
+    rail.output_tolerance_pct = 0.0
+    assert check_voltage_compatibility(clean_contract) == []
+    rail.output_tolerance_pct = 4.0
+    (f,) = check_voltage_compatibility(clean_contract)
+    assert f.severity == "warning" and "12.48" in f.observed and "4%" in f.observed
+    model.input_voltage_range = InputVoltageRange(
+        min=Quantity(value=6.5, unit="V"), max=Quantity(value=12.5, unit="V")
+    )
     assert check_voltage_compatibility(clean_contract) == []
 
 
@@ -305,10 +326,15 @@ def test_x500_corrected_variant_has_zero_findings_and_cited_bec_margin():
     }
     assert {f.observed for f in mass_gaps} == {"mass not declared"}
     assert [f for f in findings if f.severity == "warning"] == []
+    # Jetson, OAK-D and magnetometer masses are unknown, so the payload budget is unscored
+    assert [f.quantity for f in findings if f.quantity == "budgets/bud.mass.payload"] == [
+        "budgets/bud.mass.payload"
+    ]
     assert [
         f
         for f in findings
         if f.severity == "not_scored"
+        and f.quantity != "budgets/bud.mass.payload"
         and f not in unrated
         and f not in urdf_gaps
         and f not in link_budget_gaps
@@ -812,8 +838,6 @@ def test_device_with_no_declared_mass_is_not_scored_and_excluded_from_mass_budge
     exactly like no-physical-at-all for mass purposes — not summed as 0."""
     imu = clean_contract.device("dev.imu")
     imu.physical.mass = None
-    other = clean_contract.device("dev.radio.rfd900")
-    expected_total_kg = other.physical.mass.base()
 
     report = run_record_checks(clean_contract)
     findings_by_quantity = {f.quantity: f for f in report}
@@ -821,11 +845,10 @@ def test_device_with_no_declared_mass_is_not_scored_and_excluded_from_mass_budge
     assert finding.severity == "not_scored"  # bites treating a missing mass as a violation
     assert "not declared" in finding.observed
 
-    mass_finding = findings_by_quantity.get("budgets/bud.mass.devices")
-    assert mass_finding is None  # bites summing the missing mass as 0.0 and still passing/failing
-
-    record = next(r for r in report.scored_records if r.quantity == "budgets/bud.mass.devices")
-    assert record.observed == format_magnitude(expected_total_kg, "kg")  # bites dev.imu at 0 kg
+    # the budget is not_scored naming the unknown, never a pass on the partial sum
+    mass_finding = findings_by_quantity["budgets/bud.mass.devices"]
+    assert mass_finding.severity == "not_scored" and "dev.imu" in mass_finding.observed
+    assert not [r for r in report.scored_records if r.quantity == "budgets/bud.mass.devices"]
 
 
 def test_device_with_no_physical_block_is_not_scored_same_as_declared_mass_missing(clean_contract):
@@ -846,8 +869,8 @@ def test_device_with_no_physical_block_is_not_scored_same_as_declared_mass_missi
     assert finding.severity == "not_scored"  # bites silently dropping a physical-less device
     assert "not declared" in finding.observed
 
-    mass_finding = findings_by_quantity.get("budgets/bud.mass.devices")
-    assert mass_finding is None  # bites summing the missing device as 0.0 and still passing/failing
+    mass_finding = findings_by_quantity["budgets/bud.mass.devices"]
+    assert mass_finding.severity == "not_scored" and "dev.radio.rfd900" in mass_finding.observed
 
 
 def test_cg_excludes_device_with_no_declared_mass(clean_contract):
@@ -999,6 +1022,25 @@ def test_massless_leaf_frames_fold_into_one_line(clean_contract):
         "model/links/base_link/mass"
     ]  # bites folding links that carry children
     assert ours.count("model/links/massless_frames") == 1  # bites one line per frame
+
+
+def _add_tool_leaf(contract, name, mass):
+    m = contract.model
+    m.links.append(m.links[1].model_copy(update={"name": name, "mass": mass}))
+    joint = m.joints[0].model_copy(
+        update={"name": name + "_j", "parent": "imu_link", "child": name}
+    )
+    m.joints.append(joint)
+
+
+def test_massless_tool_leaf_warns_unless_mass_declared(clean_contract):
+    _add_tool_leaf(clean_contract, "gripper_tip", None)
+    found = [
+        f for f in run_record_checks(clean_contract) if f.quantity == "model/links/gripper_tip/mass"
+    ]
+    assert len(found) == 1 and "tool-like" in found[0].observed  # bites the fold hiding a tool link
+    clean_contract.model.links[-1].mass = clean_contract.model.links[1].mass
+    assert not [f for f in run_record_checks(clean_contract) if "gripper_tip" in f.quantity]
 
 
 def test_massless_fixed_root_frame_folds_not_warns(clean_contract):
@@ -2480,9 +2522,9 @@ _CLEAN_SCORED_KEYS = frozenset(
         "rails/rail.5v",
         "rails/rail.22v",
         "budgets/bud.power.rail5v",
-        "budgets/bud.mass.devices",
         "budgets/bud.endurance",
         "buses/bus.usb0",
+        "model/joints/imu_mount/limits/effort",  # gravity reach: the vertical mount joint holds
     }
 )
 
@@ -2595,8 +2637,8 @@ def test_emptying_clean_contract_in_memory_fires_empty_score_disclosure(clean_co
     assert populated.scored is not None and populated.scored > 0
 
     # Empty every surface that can feed a D3 comparison.
+    clean_contract.model.joints = []  # before links: a joint with a ghost link is refused
     clean_contract.model.links = []
-    clean_contract.model.joints = []
     for device in clean_contract.devices:
         for envelope in device.envelopes:
             envelope.fitted_bands = {}
@@ -2681,6 +2723,7 @@ def test_no_devices_does_not_score_vacuous_budgets(clean_contract):
     clean_contract.topology.rails = []
     clean_contract.topology.buses = []
     clean_contract.topology.wires = []
+    clean_contract.model.joints = []  # gravity reach scores the mount joint
 
     findings = run_record_checks(clean_contract)
     assert findings.scored == 0
@@ -3365,3 +3408,357 @@ def test_continuous_failure_is_not_double_reported_with_peak(clean_contract):
     clean_contract.model.joints[0].limits.effort = a.torque_continuous * a.gear_ratio + 1.0
     [f] = check_torque_budgets(clean_contract)  # bites a second finding for the same joint
     assert "continuous" in f.observed
+
+
+def _reach_contract(clean_contract, effort):
+    from tests.test_statics import arm
+
+    clean_contract.model = arm(shoulder_effort=effort)
+    return clean_contract
+
+
+def test_gravity_reach_fires_below_and_is_silent_above(clean_contract):
+    from lockwire.checks import check_gravity_reach
+
+    (f,) = check_gravity_reach(_reach_contract(clean_contract, 20.0))
+    assert f.severity == "violation" and f.quantity == "model/joints/shoulder/limits/effort"
+    assert float(f.observed.split()[0]) == pytest.approx(24.525, abs=0.01)
+    assert "shoulder=0deg" in f.observed
+    assert check_gravity_reach(_reach_contract(clean_contract, 30.0)) == []
+
+
+_FOURBAR = "fixtures/fourbar_world/lockwire.yaml"
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"limits": {"lower": -1.2, "upper": 1.2}},  # 9.143 N*m at the limit
+        {"limits": {"lower": 0.2, "upper": 1.5}},  # 9.785 N*m at the limit
+    ],
+)
+def test_gravity_reach_samples_joint_limit_endpoints(clean_contract, kw):
+    """Limit endpoints are sampled: 2 kg, CoM 0.5 m up, 9 N*m effort; the grid alone misses both."""
+    from lockwire.checks import check_gravity_reach
+    from tests.test_statics import chain1
+
+    clean_contract.model = chain1(**kw)
+    (f,) = check_gravity_reach(clean_contract)
+    assert f.severity == "violation"
+
+
+def _mutate(i, **kw):
+    return lambda m: m.joints.__setitem__(i, m.joints[i].model_copy(update=kw))
+
+
+@pytest.mark.parametrize(
+    ("mutate", "why"),
+    [
+        (_mutate(0, axis=(0, 0, 0)), "'j'"),  # in domain, zero axis
+        (_mutate(0, axis=None), "no axis"),  # in domain, hand-written contract without axis
+        (lambda m: m.links.__setitem__(1, m.links[1].model_copy(update={"com": None})), "'l'"),
+    ],
+)
+def test_gravity_reach_not_scored_inside_its_domain(clean_contract, mutate, why):
+    """A model it tried to score and could not says why, in one finding."""
+    from lockwire.checks import check_gravity_reach
+    from tests.test_statics import chain1
+
+    clean_contract.model = chain1()
+    mutate(clean_contract.model)
+    (f,) = check_gravity_reach(clean_contract)
+    assert f.severity == "not_scored" and why in f.observed
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        _mutate(0, type="fixed"),  # no rotary joint
+        lambda m: m.links.__setitem__(1, m.links[1].model_copy(update={"mass": None})),  # no mass
+        lambda m: m.links.append(m.links[0].model_copy(update={"name": "orphan"})),  # two roots
+    ],
+)
+def test_gravity_reach_silent_outside_its_domain(clean_contract, mutate):
+    """Trees, prismatic/floating joints and long chains are in the domain; silent only with
+    no rotary joint, no link mass or no single root."""
+    from lockwire.checks import check_gravity_reach
+    from tests.test_statics import chain1
+
+    clean_contract.model = chain1()
+    mutate(clean_contract.model)
+    assert check_gravity_reach(clean_contract) == []
+
+
+def test_gravity_reach_scores_trees_and_holds_prismatic_at_zero(clean_contract):
+    """The arm starter must score with its gripper (before trees, every starter was silent). A gripper tree scores the shoulder with the fingers (44.15 N*m by hand); a slide
+    under a joint is held at zero and named, and the joint still scores (9.81 N*m)."""
+    from lockwire.checks import check_gravity_reach
+    from lockwire.schema import Joint, Link
+    from tests.test_statics import chain1, gripper_arm
+
+    clean_contract.model = gripper_arm()
+    clean_contract.model.joints[0].limits.effort = 40.0
+    (f,) = check_gravity_reach(clean_contract)
+    assert f.quantity == "model/joints/shoulder/limits/effort"
+    assert float(f.observed.split()[0]) == pytest.approx(44.145, abs=0.01)
+    m = clean_contract.model = chain1(com=(0.5, 0, 0))
+    m.links.append(Link(name="mid"))
+    m.joints = [m.joints[0].model_copy(update={"parent": "mid"}),
+                Joint(name="slide", type="prismatic", parent="base", child="mid", axis=(0, 0, 1))]  # fmt: skip
+    (f,) = check_gravity_reach(clean_contract)
+    assert "9.81 N*m" in f.observed and "slide held at zero" in f.observed
+
+
+def test_gravity_reach_holds_a_slide_along_the_lever_at_zero(clean_contract):
+    """A 2 kg link slides along x below a y-axis joint, CoM 0.3 m out, slide limits 0 to 0.5 m.
+    Held at zero the lever is 0.3 m: 2 * 9.81 * 0.3 = 5.886 N*m. Held at its 0.5 m limit it would
+    be 2 * 9.81 * 0.8 = 15.696 N*m and break the 9 N*m effort limit."""
+    from lockwire.checks import check_gravity_reach
+    from lockwire.schema import Joint, JointLimits, Link
+    from tests.test_statics import chain1
+
+    m = clean_contract.model = chain1(com=(0.3, 0, 0))
+    m.links = [m.links[0], Link(name="mid"), m.links[1]]
+    m.joints = [m.joints[0].model_copy(update={"child": "mid"}),
+                Joint(name="slide", type="prismatic", parent="mid", child="l", axis=(1, 0, 0),
+                      limits=JointLimits(lower=0.0, upper=0.5))]  # fmt: skip
+    scores = _ScoreBook()
+    assert check_gravity_reach(clean_contract, scores=scores) == []
+    (record,) = scores.records
+    assert record.observed == "5.89 N*m" and record.margin == "3.11 N*m headroom"
+
+
+def test_gravity_reach_passed_entry_is_one_line_and_detail_keeps_the_pose(clean_contract):
+    """The Passed list prints one line per joint; the worst pose stays in the record's detail."""
+    from lockwire.checks import check_gravity_reach
+    from lockwire.page import _scored_title
+    from tests.test_statics import chain1
+
+    clean_contract.model = chain1(kg=1.0)  # 1 * 9.81 * 0.5 = 4.905 N*m of 9
+    scores = _ScoreBook()
+    check_gravity_reach(clean_contract, scores=scores)
+    (record,) = scores.records
+    assert _scored_title(clean_contract, record) == (
+        "j: 4.91 N*m of 9.00 N*m joint effort limit — 4.09 N*m headroom"
+    )
+    assert "worst of a 0/+-90 deg and limit grid" in record.detail
+
+
+def test_gravity_reach_scores_each_hip_over_its_own_leg(clean_contract):
+    """A quadruped scores each hip (12 rotary joints were silent before): a body with four
+    3-joint legs; each hip's grid is its own leg only (3^3 poses, not 3^12). Leg: 1 kg links,
+    CoM 0.1 m out, joints 0.1 m apart: 9.81 * (0.1 + 0.2 + 0.3) = 5.886 N*m > 5 N*m."""
+    from lockwire.checks import check_gravity_reach
+    from lockwire.schema import Joint, JointLimits, Link
+    from tests.test_statics import chain1
+
+    links, joints = [Link(name="body")], []
+    for leg in range(4):
+        for k in range(3):
+            child = f"l{leg}{k}"
+            links.append(
+                Link(name=child, mass={"value": 1, "unit": "kg"}, com=(0.1, 0, 0), frame=child)
+            )
+            joints.append(Joint(name=f"j{leg}{k}", type="revolute", axis=(0, 1, 0), child=child,
+                                  parent=f"l{leg}{k - 1}" if k else "body", origin={"xyz": (0.1 * bool(k), 0, 0)},
+                                  limits=JointLimits(effort=5.0 if k == 0 else 100.0)))  # fmt: skip
+    clean_contract.model = chain1().model_copy(update={"links": links, "joints": joints})
+    found = check_gravity_reach(clean_contract)
+    assert [f.quantity.split("/")[2] for f in found] == ["j00", "j10", "j20", "j30"]
+    for leg, f in enumerate(found):
+        assert float(f.observed.split()[0]) == pytest.approx(5.886, abs=0.01)
+        assert f.observed.count("=") == 3 and f"j{leg}2=" in f.observed  # its own leg only
+
+
+def test_gravity_reach_payload_tips_a_limit_the_unloaded_arm_holds(clean_contract):
+    """Payload at the tool tip counts (it used to be 0). Elbow limit 10 N*m: unloaded 9.81 * 1 * 0.5 = 4.905 holds;
+    1 kg at the tool origin (1 m past the elbow) adds 9.81: 14.715 N*m, a violation."""
+    from lockwire.checks import check_gravity_reach
+    from lockwire.schema import Link
+    from tests.test_statics import arm
+
+    clean_contract.model = arm(elbow_effort=10.0)
+    assert check_gravity_reach(clean_contract) == []
+    clean_contract.model.links[3] = Link(name="tool", payload={"value": 1, "unit": "kg"})
+    (f,) = check_gravity_reach(clean_contract)
+    assert f.quantity == "model/joints/elbow/limits/effort" and "with 1 kg payload" in f.observed
+    assert float(f.observed.split()[0]) == pytest.approx(14.715, abs=0.01)
+
+
+def test_check_on_closed_chain_returns():
+    """`lockwire check` ends and names the loop; the cap keeps the slot unhung."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    fx = str(Path(__file__).parent / _FOURBAR)
+    r = subprocess.run(
+        [sys.executable, "-m", "lockwire", "check", fx], capture_output=True, text=True, timeout=30
+    )
+    assert r.returncode in {0, 1, 3} and "closed chain" in r.stdout + r.stderr
+
+
+# ------------------------------------------------------------ batch 2 review fixes (2026-10-20)
+
+
+def test_mass_total_partial_sum_is_not_scored_naming_unknowns(clean_contract):
+    """3 devices with no mass must not let the partial sum pass as 'headroom'."""
+    scores = _ScoreBook()
+    findings = check_budgets(clean_contract, scores=scores)
+    gap = next(f for f in findings if f.quantity == "budgets/bud.mass.devices")
+    assert gap.severity == "not_scored" and "dev.barometer" in gap.observed
+    assert "budgets/bud.mass.devices" not in scores.keys
+
+
+def test_mass_total_known_masses_over_limit_is_one_counted_violation(clean_contract):
+    """Known masses over the limit are ONE counted violation naming the unknowns."""
+    budget = next(b for b in clean_contract.budgets if b.kind == "mass_total")
+    budget.limit = Quantity(value=0.0001, unit="kg")
+    scores = _ScoreBook()
+    found = [
+        f
+        for f in check_budgets(clean_contract, scores=scores)
+        if f.quantity == "budgets/bud.mass.devices"
+    ]
+    assert [f.severity for f in found] == ["violation"]
+    assert "dev.barometer" in found[0].observed
+    assert "budgets/bud.mass.devices" in scores.keys
+
+
+def test_mass_total_link_without_mass_is_not_scored(clean_contract):
+    """A link with no mass is an unknown too, named like a device."""
+    budget = next(b for b in clean_contract.budgets if b.kind == "mass_total")
+    budget.sources = "links"
+    budget.limit = Quantity(value=10.0, unit="kg")
+    clean_contract.model.links[1].mass = None
+    gap = next(f for f in check_budgets(clean_contract) if f.quantity == "budgets/bud.mass.devices")
+    assert gap.severity == "not_scored" and "imu_link" in gap.observed
+
+
+def test_rail_current_scores_the_worst_declared_mode(clean_contract):
+    """a 25 W peak on a 5 V / 1 A rail is 5 A, not the 0.48 A nominal."""
+    clean_contract.rail("rail.5v").current_limit = Quantity(value=1.0, unit="A")
+    radio = clean_contract.device("dev.radio.rfd900")
+    radio.power.modes = [PowerMode(name="peak", draw=Quantity(value=25.0, unit="W"))]
+    found = next(f for f in check_rail_current(clean_contract) if f.severity == "violation")
+    assert "peak" in found.observed
+
+
+def _imu_on_bus(c, bus_id, rate, payload):
+    imu = c.device("dev.imu")
+    imu.identity.bus_ref = bus_id
+    imu.driver.nominal_rate_hz, imu.driver.payload_bytes = rate, payload
+
+
+def test_bus_bandwidth_device_without_traffic_declaration_is_not_scored(clean_contract):
+    """the radio declares no driver rate; it must be named, not dropped as 'passed'."""
+    _imu_on_bus(clean_contract, "bus.serial0", 10, 64)
+    scores = _ScoreBook()
+    findings = check_bus_bandwidth(clean_contract, scores=scores)
+    gap = next(f for f in findings if f.quantity == "topology/buses/bus.serial0/bandwidth")
+    assert gap.severity == "not_scored" and "dev.radio.rfd900" in gap.observed
+    assert "topology/buses/bus.serial0/bandwidth" not in scores.keys
+
+
+def test_can_bus_ceiling_counts_framing_overhead(clean_contract):
+    """5000 Hz x 8 B is 320 kbit/s payload (under 60% of 1 Mbit) but ~675 kbit/s on the wire."""
+    bus = Bus(id="bus.can0", kind="can", host="nav-computer", bitrate=1_000_000)
+    clean_contract.topology.buses.append(bus)
+    _imu_on_bus(clean_contract, bus.id, 5000, 8)
+    findings = check_bus_bandwidth(clean_contract)
+    assert [f.severity for f in findings if f.quantity.endswith(f"{bus.id}/bandwidth")] == [
+        "violation"
+    ]
+
+
+def test_voltage_compat_warns_on_low_side_tolerance(clean_contract):
+    """5 V +/-10% is 4.5 V worst case, under a 4.75 V minimum."""
+    device = clean_contract.device("dev.imu")
+    rail = clean_contract.rail(device.power.rail)
+    rail.voltage, rail.voltage_range, rail.output_tolerance_pct = (
+        Quantity(value=5.0, unit="V"),
+        None,
+        10.0,
+    )
+    clean_contract.device_model(device.model).input_voltage_range = InputVoltageRange(
+        min=Quantity(value=4.75, unit="V"), max=Quantity(value=5.6, unit="V")
+    )
+    (f,) = check_voltage_compatibility(clean_contract)
+    assert f.severity == "warning" and "4.5" in f.observed and f.delta.startswith("-")
+
+
+def test_scene_placement_rotates_into_the_mount_frame(clean_contract):
+    """imu_link is yawed 90 deg; a point 0.05 m along its x sits 0.05 m along world y."""
+    joint = clean_contract.model.joints[0]
+    joint.type = "fixed"
+    joint.origin.xyz, joint.origin.rpy = (0.0, 0.0, 0.1), (0.0, 0.0, pi / 2)
+    imu = clean_contract.device("dev.imu")
+    imu.physical.mount_frame = "imu_link"
+    imu.physical.mount_xyz = tuple(Quantity(value=v, unit="m") for v in (0.05, 0.0, 0.0))
+    scene = _scene(_part("imu_link", (0.0, 0.0, 0.1)), _part("dev.imu", (0.0, 0.05, 0.1)))
+    findings = check_scene_placement(clean_contract, scene)
+    assert not any(f.quantity == "devices/dev.imu/placement" for f in findings)
+
+
+def test_massless_tool0_frame_is_not_a_tool_link(clean_contract):
+    """Tool0/tcp are frames on UR/ABB arms; a gripper word still warns."""
+    for name in ("tool0", "tcp_frame"):
+        _add_tool_leaf(clean_contract, name, None)
+    found = [f for f in run_record_checks(clean_contract) if "tool-like" in f.observed]
+    assert found == []
+
+
+def test_rail_current_nonpositive_voltage_is_not_scored(clean_contract):
+    """0 V crashed with ZeroDivisionError; negative was skipped silently."""
+    rail = clean_contract.rail("rail.5v")
+    rail.current_limit = Quantity(value=1.0, unit="A")
+    for volts in (0.0, -5.0):
+        rail.voltage, rail.voltage_range = Quantity(value=volts, unit="V"), None
+        (f,) = [
+            f for f in check_rail_current(clean_contract) if f.quantity.endswith("current_limit")
+        ]
+        assert f.severity == "not_scored" and "voltage" in f.observed
+
+
+def test_output_tolerance_that_looks_like_a_fraction_warns(clean_contract):
+    """0.05 meant as 5% passes the schema; the check names the field."""
+    device = clean_contract.device("dev.imu")
+    clean_contract.rail(device.power.rail).output_tolerance_pct = 0.05
+    clean_contract.device_model(device.model).input_voltage_range = InputVoltageRange(
+        min=Quantity(value=4.0, unit="V"), max=Quantity(value=6.0, unit="V")
+    )
+    found = [f for f in check_voltage_compatibility(clean_contract) if f.severity == "warning"]
+    assert any("output_tolerance_pct" in f.quantity for f in found)
+
+
+def _lock_with_unset_axes(tmp_path, joint_type, axis_xml=""):
+    """A URDF with one joint, locked the way older versions wrote it (no axis)."""
+    from lockwire.schema import _model_structure_hash
+
+    urdf = tmp_path / "robot.urdf"
+    urdf.write_text(
+        '<robot name="r"><link name="a"/><link name="b"/>'
+        f'<joint name="j" type="{joint_type}"><parent link="a"/><child link="b"/>'
+        '<limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>'
+    )
+    model = parse_urdf(urdf)
+    for joint in model.joints:
+        joint.axis = None
+    model.structure_hash = _model_structure_hash(model.links, model.joints)
+    if axis_xml:
+        urdf.write_text(urdf.read_text().replace("<limit", f"{axis_xml}<limit"))
+    return Contract(robot=RobotInfo(name="r"), model=model)
+
+
+@pytest.mark.parametrize("joint_type", ["revolute", "fixed"])
+def test_old_lock_with_no_axis_reads_unchanged(tmp_path, joint_type):
+    """A lock written before axes were filled in still reads as an unchanged URDF."""
+    assert check_urdf_drift(_lock_with_unset_axes(tmp_path, joint_type)) == []
+
+
+def test_real_axis_change_still_reported(tmp_path):
+    """Turning a revolute joint to a different axis is still a moved joint."""
+    contract = _lock_with_unset_axes(tmp_path, "revolute", '<axis xyz="0 0 1"/>')
+    findings = check_urdf_drift(contract)
+    assert [f.severity for f in findings] == ["violation"]
+    assert "axis changed" in findings[0].observed

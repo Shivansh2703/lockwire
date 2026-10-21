@@ -46,6 +46,9 @@ vi.mock("electron", () => ({
   },
 }));
 
+const logged: string[] = [];
+vi.mock("./log", async (orig) => ({ ...(await orig<typeof import("./log")>()), writeLogLine: (l: string) => void logged.push(l) }));
+
 const { spawn } = await import("node:child_process");
 const sidecar = await import("./sidecar");
 
@@ -99,6 +102,41 @@ afterEach(() => {
 const HAS_VENV = existsSync(join(dirname(require.resolve("../../../pyproject.toml")), ".venv"));
 
 describe("the sidecar's lifecycle and token (e2-t)", () => {
+  // a hostile .xacro reads `$(env NAME)`; the child must not inherit the app's secrets.
+  it("test_M20_the_sidecar_child_env_is_an_allowlist_not_the_apps_whole_environment", () => {
+    process.env.FAKE_SECRET_FOR_TEST = "x";
+    process.env.LOCKWIRE_M20_PROBE = "kept";
+    process.env.ROS_PACKAGE_PATH = "/opt/ros/pkgs";
+    try {
+      sidecar.startSidecar({ command: process.execPath, args: [FAKE] });
+      const env = (vi.mocked(spawn).mock.calls.at(-1)![2] as { env: NodeJS.ProcessEnv }).env;
+      expect(env.FAKE_SECRET_FOR_TEST).toBeUndefined();
+      expect(env.LOCKWIRE_M20_PROBE).toBe("kept");
+      expect(env.ROS_PACKAGE_PATH).toBe("/opt/ros/pkgs"); // scene_urdf.py resolves package:// from it
+      expect(env.PATH).toBe(process.env.PATH);
+      expect(env.HOME).toBe(process.env.HOME);
+    } finally {
+      delete process.env.FAKE_SECRET_FOR_TEST;
+      delete process.env.LOCKWIRE_M20_PROBE;
+      delete process.env.ROS_PACKAGE_PATH;
+    }
+  });
+
+  it("test_M31_stderr_is_drained_into_the_log_so_a_chatty_child_cannot_block", async () => {
+    logged.length = 0;
+    start({ FAKE_SIDECAR_STDERR_KB: "300" });
+    await waitFor(() => sidecar.getSidecarState().phase === "ready");
+    expect(logged.some((l) => l.startsWith("sidecar stderr:"))).toBe(true);
+  });
+
+  it("test_L70_a_superseded_childs_late_ready_line_does_not_set_the_new_state", () => {
+    start({ FAKE_SIDECAR_MODE: "silent" });
+    const old = lastSpawnedChild();
+    start({ FAKE_SIDECAR_MODE: "silent" });
+    old.stdout!.emit("data", Buffer.from('{"lockwire":"ready","version":"0","port":1,"token":"old"}\n'));
+    expect(sidecar.getSidecarState()).toEqual({ phase: "starting" });
+  });
+
   it("test_the_ready_line_yields_a_port_and_a_token", async () => {
     start({ FAKE_SIDECAR_MODE: "ready", FAKE_SIDECAR_TOKEN: "secret-abc" });
     await waitFor(() => sidecar.getSidecarState().phase === "ready");

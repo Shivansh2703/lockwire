@@ -566,6 +566,7 @@ export interface ScoredRecord {
   observed_quantity?: Quantity | null;
   expected_quantity?: Quantity | null;
   uncertainty?: Quantity | null;
+  detail?: string | null;
 }
 
 export interface SetupGap {

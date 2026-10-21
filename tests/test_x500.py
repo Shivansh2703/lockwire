@@ -99,7 +99,8 @@ def test_x500_scored_floor_and_not_scored_set_after_b1_contract_growth():
 
     assert report.scored is not None
     assert report.scored >= 6  # bites losing a scored budget/voltage-compat comparison
-    assert report.scored == 10  # one scored key per comparison — 10 total on x500
+    # bud.mass.payload has unknown masses, so it is not scored: 10 -> 9.
+    assert report.scored == 9  # one scored key per comparison — 9 total on x500
     assert (
         report.scored_keys
         == {
@@ -107,7 +108,6 @@ def test_x500_scored_floor_and_not_scored_set_after_b1_contract_growth():
             "budgets/bud.power.pm02-5v.7w-mode",
             "budgets/bud.power.pixhawk-telem1",  # the radio's new TELEM1 rail budget
             "budgets/bud.power.servo-motor",
-            "budgets/bud.mass.payload",
             "budgets/bud.endurance.mission",
             "devices/dev.companion.jetson-orin-nano/power/rail",
             "devices/dev.radio.rfd900x/power/rail",  # voltage compatibility, radio now on a modeled rail
@@ -119,6 +119,7 @@ def test_x500_scored_floor_and_not_scored_set_after_b1_contract_growth():
     not_scored = {f.quantity for f in report if f.severity == "not_scored"}
     assert not_scored == {
         "model/structure_hash",  # no URDF provenance (pre-existing)
+        "budgets/bud.mass.payload",  # unknown masses -> budget not scored
         "topology/buses/bus.i2c.external/bandwidth",  # Pixhawk 6C spec publishes no I2C rate
         "topology/buses/bus.can.dronecan/bandwidth",  # here3+ declares rate but no payload
         "topology/buses/bus.uart.telemetry/bandwidth",  # bitrate known, no declared traffic

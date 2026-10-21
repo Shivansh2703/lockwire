@@ -976,7 +976,20 @@ def test_every_string_figure_exemption_satisfies_the_admission_rule(tmp_path):
     grow by matching prose alone.
     """
     # Known violations marked with e1-gl (the box that will fix them)
-    known_violations = {"GraphNode.sub", "GraphEdge.label"}
+    known_violations = {
+        "GraphNode.sub",
+        "GraphEdge.label",
+        # These rendered figure strings were never reached while the loop stopped at
+        # the first known violation; they are the same kind of debt.
+        "AddsUpRow.margin",
+        "AddsUpRow.text",
+        "Finding.delta",
+        "Finding.expected",
+        "Finding.observed",
+        "ScoredRecord.expected",
+        "ScoredRecord.margin",
+        "ScoredRecord.observed",
+    }
 
     # Collect actual values from rendered documents
     found_values: dict[str, tuple[str, str]] = {}  # key -> (door_name, value)
@@ -985,29 +998,30 @@ def test_every_string_figure_exemption_satisfies_the_admission_rule(tmp_path):
             if key not in found_values:  # Keep first occurrence
                 found_values[key] = (door, value)
 
-    # Check each exempted field
+    # Check every exempted field; collect all problems, then assert once.
     failures = []
     for key in STRING_FIGURE_EXEMPTIONS:
         if key not in found_values:
+            if key in known_violations:
+                failures.append(f"  {key} is a known violation but no document renders it")
             continue  # Field not in current documents; could be stale entry
 
         door_name, value = found_values[key]
-
-        # Check if value looks like a magnitude
-        if _looks_like_magnitude(value):
-            if key in known_violations:
-                # Mark as xfail with the row id that will fix it
-                pytest.xfail(f"{key} = {value!r} is a magnitude (exempt until e1-gl: {door_name})")
-            else:
-                failures.append(
-                    f"  {key} = {value!r} (from `{door_name}`) looks like a magnitude "
-                    f"but is not in known_violations with e1-gl"
-                )
+        is_magnitude = _looks_like_magnitude(value)
+        if is_magnitude and key not in known_violations:
+            failures.append(
+                f"  {key} = {value!r} (from `{door_name}`) looks like a magnitude "
+                f"but is not in known_violations with e1-gl"
+            )
+        elif key in known_violations and not is_magnitude:
+            failures.append(
+                f"  {key} = {value!r} is listed as a known violation but no longer looks "
+                f"like a magnitude; remove it from known_violations"
+            )
 
     if failures:
         raise AssertionError(
-            "Exempted fields whose values are magnitudes (should be covered by a magnitude-bearing producer):\n"
-            + "\n".join(failures)
+            "Exempted fields out of step with the admission rule:\n" + "\n".join(failures)
         )
 
 

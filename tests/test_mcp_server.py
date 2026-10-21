@@ -323,7 +323,12 @@ def test_every_mcp_tool_refuses_an_unsupported_schema_version(tmp_path):
 
     async def tool_names():
         async with await build_server_client() as client:
-            return [tool.name for tool in (await client.list_tools()).tools]
+            # only tools that take a contract operand; match_parts_list takes pasted text
+            return [
+                tool.name
+                for tool in (await client.list_tools()).tools
+                if "contract" in tool.input_schema.get("properties", {})
+            ]
 
     extra = {
         "compare_proposal": {
@@ -381,7 +386,12 @@ def test_every_mcp_tool_preserves_malformed_contract_operand(tmp_path):
 
     async def tool_names():
         async with await build_server_client() as client:
-            return [tool.name for tool in (await client.list_tools()).tools]
+            # only tools that take a contract operand; match_parts_list takes pasted text
+            return [
+                tool.name
+                for tool in (await client.list_tools()).tools
+                if "contract" in tool.input_schema.get("properties", {})
+            ]
 
     extra = {
         "compare_proposal": {
@@ -423,3 +433,31 @@ def _registered_tool_names() -> set[str]:
             return await client.list_tools()
 
     return {tool.name for tool in asyncio.run(run()).tools}
+
+
+def test_tool_error_does_not_echo_the_file_values(tmp_path):
+    """A rejected contract names the field, never the value it held."""
+    bad = tmp_path / "lockwire.yaml"
+    bad.write_text(CLEAN_CONTRACT.read_text() + "\nfuture_typo: sk-FAKE-SECRET-123\n")
+    result = _call("check_contract", {"contract": str(bad)})
+    assert result.is_error
+    assert "future_typo" in str(result.content)
+    assert "sk-FAKE-SECRET-123" not in str(result.content)
+
+
+def test_m21_review_value_with_a_stale_expected_revision_is_refused(tmp_path):
+    """the MCP review tool passes expected_revision to api.review; stale refuses."""
+    import shutil
+
+    from lockwire.edit import contract_revision
+
+    contract = tmp_path / "contract.yaml"
+    shutil.copy(X500, contract)
+    before = contract.read_bytes()
+    args = {"contract": str(contract), "path": "model", "state": "approved", "witness": "tester"}
+    stale = _call("review_value", {**args, "expected_revision": "0" * 64})
+    assert stale.is_error
+    assert "changed since" in stale.content[0].text
+    assert contract.read_bytes() == before
+    fresh = _call("review_value", {**args, "expected_revision": contract_revision(contract)})
+    assert not fresh.is_error

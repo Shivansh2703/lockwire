@@ -22,6 +22,7 @@ import { declarePart, highlightsFromCards, highlightsFromFindings, partsOfPath, 
 import { Shell } from "./Shell";
 import { toScenePart } from "./DesignPanel";
 import type { Mode } from "./Frame";
+import { AssistantPanel, EMPTY_CHAT, type Chat } from "./AssistantPanel";
 import { DocsPanel } from "./DocsPanel";
 import { OpenFace } from "./OpenFace";
 import type { FileOpenResult, StartUrdfResult } from "../main/ipc";
@@ -68,6 +69,8 @@ export function App() {
   const [mode, setMode] = useState<Mode>("Check");
   const [checkState, setCheckState] = useState<CheckState>({ kind: "open" });
   const [opened, setOpened] = useState<OpenedDocument | null>(null);
+  const [chats, setChats] = useState<Record<string, Chat>>({}); // per robot, this app run; the panel itself unmounts when closed
+  const [assistantOpen, setAssistantOpen] = useState(false); // closed by default; nothing runs until first opened
   const [recents, setRecents] = useState(readRecents);
   const [openError, setOpenError] = useState<string | null>(null);
   const [startNote, setStartNote] = useState<string | null>(null);
@@ -88,6 +91,7 @@ export function App() {
   const [fitIds, setFitIds] = useState<string[]>([]);
   const documentGeneration = useRef(0);
   const documentLoad = useRef(0);
+  const openedPathRef = useRef<string | undefined>(undefined);
   const errorGeneration = useRef(0);
   const renderedGeneration = documentGeneration.current;
   const sidecarState = useSidecarState();
@@ -98,21 +102,30 @@ export function App() {
   }, [connected]);
 
   async function onOpenLockfile(contract: string): Promise<void> {
+    const load = ++documentLoad.current; // ordered by when the open began, not by when its IPC returns
     setOpenError(null);
     setStartNote(null);
     setRetryOpen(() => () => onOpenLockfile(contract));
     try {
-      await loadOpened(await window.lockwire.openLockfile({ contract }));
+      await loadOpened(await window.lockwire.openLockfile({ contract }), load);
     } catch (error) {
       ++errorGeneration.current;
       setOpenError(errorMessage(error));
     }
   }
 
-  async function loadOpened(result: FileOpenResult): Promise<void> {
+  // a different robot must not inherit the last one's diff, picked value, review or plan.
+  function resetPerRobot(path: string | undefined): void {
+    if (path === openedPathRef.current) return; // a re-check of the same robot keeps its place
+    openedPathRef.current = path;
+    setHistoryDiff(null); setFindingSel(null); setPickedPath(null); setDeclareReview(false); setProHighlight([]);
+  }
+
+  async function loadOpened(result: FileOpenResult, token?: number): Promise<void> {
     if (!result.opened) return; // user cancelled the dialog -- stay on OpenFace
-    const load = ++documentLoad.current;
+    const load = token ?? ++documentLoad.current;
     const errors = errorGeneration.current;
+    if (load !== documentLoad.current) return; // a newer open began meanwhile
     setRetryOpen(() => () => onOpenLockfile(result.path));
     if ("error" in result) {
       setOpenError(result.error);
@@ -132,6 +145,7 @@ export function App() {
       ++documentGeneration.current;
       setPlanPayload(null);
       setProResult(null);
+      resetPerRobot(result.path);
       setOpened({ path: result.path, revision, page: pagePayload, declareForm });
       setRecents(pushRecent({ path: result.path, name: pagePayload.robot }));
       setExistingStart((current) => current?.path === result.path ? { ...current, revision } : current);
@@ -157,6 +171,7 @@ export function App() {
       ++documentGeneration.current;
       setPlanPayload(null);
       setProResult(null);
+      resetPerRobot(undefined);
       setOpened(null);
       setCheckDoc(result.checkPayload);
       setCheckState({ kind: "check", payload: result.payload });
@@ -165,9 +180,9 @@ export function App() {
   }
 
   // One door for every way a robot gets opened (button, File > Open Robot, drop).
-  async function applyStart(result: StartUrdfResult): Promise<void> {
+  async function applyStart(result: StartUrdfResult, token?: number): Promise<void> {
     if (!result.started) {
-      if (result.opened) { setExistingStart(null); setMode("Check"); await loadOpened(result.opened); }
+      if (result.opened) { setExistingStart(null); setMode("Check"); await loadOpened(result.opened, token); }
       return;
     }
     setStartNote(result.start.note ?? null);
@@ -175,7 +190,7 @@ export function App() {
       urdf: result.urdf, path: result.start.path, revision: result.start.revision,
     });
     setMode("Check");
-    await loadOpened(result.opened);
+    await loadOpened(result.opened, token);
     if (result.start.written && "error" in result.opened) {
       setOpenError(`Lockfile was written, but opening failed: ${result.opened.error}`);
     }
@@ -185,9 +200,10 @@ export function App() {
     setOpenError(null);
     setStartNote(null);
     setRetryOpen(() => () => onStartFromUrdf(overwrite));
+    const load = ++documentLoad.current;
     try {
       await applyStart(await window.lockwire.startFromUrdf(overwrite && existingStart
-        ? { urdf: existingStart.urdf, expected_revision: existingStart.revision } : undefined));
+        ? { urdf: existingStart.urdf, expected_revision: existingStart.revision } : undefined), load);
     } catch (error) {
       ++errorGeneration.current; // a still-running older load must not clear this
       setOpenError(errorMessage(error));
@@ -200,7 +216,8 @@ export function App() {
     setStartNote(null);
     setRetryOpen(() => () => onNewRobot(starter));
     try {
-      await applyStart(await window.lockwire.newRobot(starter));
+      const load = ++documentLoad.current;
+      await applyStart(await window.lockwire.newRobot(starter), load);
     } catch (error) {
       ++errorGeneration.current;
       setOpenError(errorMessage(error));
@@ -585,7 +602,8 @@ export function App() {
       robotName={page?.robot ?? payload?.robot}
       onRobot={payload && (mode !== "Design" || selectedIds.length) ? () => { showWhole(); setMode("Design"); } : undefined}
       mode={mode}
-      wide={mode === "Reference"}
+      wide={mode === "Reference" && !(assistantOpen && opened)}
+      assistant={{ open: assistantOpen && !!opened, onToggle: opened ? () => setAssistantOpen((o) => !o) : undefined }}
       onModeChange={(next) => {
         setFindingSel(null);
         // A part chosen elsewhere opens on its own Declare row.
@@ -644,6 +662,9 @@ export function App() {
     >
       {mode === "Check" || mode === "Design" || mode === "Reference" || !body || (OWN_PANEL.has(mode) && opened) ? body : (
         <Panel title={label}>{body}</Panel>
+      )}
+      {assistantOpen && opened && ( // docks under the mode's own panel; the right slot scrolls when both are tall
+        <AssistantPanel contract={opened.path} revision={opened.revision} mode={mode} witness={opened.declareForm.witness.prefill} chat={chats[opened.path] ?? EMPTY_CHAT} onChat={(f) => setChats((m) => ({ ...m, [opened.path]: f(m[opened.path] ?? EMPTY_CHAT) }))} onApplied={onOpenLockfile} />
       )}
       {pro && (
         <pro.Pages

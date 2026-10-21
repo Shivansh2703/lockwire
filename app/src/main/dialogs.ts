@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { dialog } from "electron";
 
 const ROBOT_FILTERS = [
-  { name: "Robot model or lockfile", extensions: ["urdf", "sdf", "xacro", "yaml", "yml"] },
+  { name: "Robot model or lockfile", extensions: ["urdf", "sdf", "xacro", "glb", "gltf", "yaml", "yml"] },
   { name: "All files", extensions: ["*"] },
 ];
 

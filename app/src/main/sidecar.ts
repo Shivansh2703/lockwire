@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { app } from "electron";
 
 import { PRODUCT_NAME } from "../shared/branding";
-import { logDirectory } from "./log";
+import { logDirectory, writeLogLine } from "./log";
 
 const STARTUP_TIMEOUT_MS = 10_000;
 // built from the one branding constant rather than typed again, so the header
@@ -116,6 +116,16 @@ export function onSidecarState(cb: (next: SidecarState) => void): () => void {
   return () => events.off("state", cb);
 }
 
+// a hostile .xacro expands `$(env NAME)`, so the child gets an allowlist, not the app's
+// whole environment (tokens, cloud keys, agent sockets stay behind). Names the sidecar reads:
+// LOCKWIRE_* (LOCKWIRE_LOG_DIR serve.py, LOCKWIRE_CCX analysis.py), HOME, LOCALAPPDATA and
+// XDG_STATE_HOME (serve.py log dir), ROS_PACKAGE_PATH/AMENT_PREFIX_PATH (scene_urdf.py mesh
+// resolution; paths, not secrets), PATH; the rest is what Python/uv/the shell need to run.
+const CHILD_ENV_ALLOW = /^(PATH|HOME|TMPDIR|TMP|TEMP|LANG|LC_.*|TERM|USER|LOGNAME|SHELL|LOCALAPPDATA|APPDATA|USERPROFILE|SystemRoot|XDG_(STATE|CACHE|CONFIG|DATA)_HOME|LOCKWIRE_.*|ROS_.*|AMENT_.*|PYTHON.*|VIRTUAL_ENV|UV_.*|ELECTRON_RUN_AS_NODE)$/;
+export function scrubChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => CHILD_ENV_ALLOW.test(k)));
+}
+
 /** Starts (or restarts) the sidecar. One child at a time -- a prior one is stopped first. */
 export function startSidecar(overrides: SidecarOverrides = {}): void {
   stopSidecar();
@@ -133,12 +143,18 @@ export function startSidecar(overrides: SidecarOverrides = {}): void {
   const proc = spawn(resolved.command, args, {
     stdio: ["pipe", "pipe", "pipe"],
     // --user-data-dir runs (e2e/capture) keep the sidecar's log out of the real ~/Library/Logs.
+    // overrides.env is an explicit test input (production passes none); only the inherited env is scrubbed.
     env: app?.commandLine?.hasSwitch("user-data-dir")
-      ? { ...(overrides.env ?? process.env), LOCKWIRE_LOG_DIR: logDirectory() }
-      : (overrides.env ?? process.env),
+      ? { ...(overrides.env ?? scrubChildEnv(process.env)), LOCKWIRE_LOG_DIR: logDirectory() }
+      : (overrides.env ?? scrubChildEnv(process.env)),
   });
   child = proc;
-  proc.stdin.on("error", () => {}); // EPIPE if the child exits before we ever write
+  proc.stdin.on("error", () => {});
+  // an unread stderr pipe fills (~64-256 KB) and blocks the child. Drain it into the
+  // app log (which rotates at a stated size); each chunk is cut so one burst can't flood it.
+  proc.stderr.on("data", (chunk: Buffer) => {
+    try { writeLogLine(`sidecar stderr: ${chunk.toString().slice(0, 4096).trimEnd()}`); } catch { /* a full disk must not kill the app */ }
+  }); // EPIPE if the child exits before we ever write
 
   const timer = setTimeout(() => {
     if (state.phase === "starting") {
@@ -152,6 +168,7 @@ export function startSidecar(overrides: SidecarOverrides = {}): void {
 
   const rl = createInterface({ input: proc.stdout });
   rl.once("line", (line) => {
+    if (child !== proc) return; // a superseded child's late ready line
     clearTimeout(timer);
     let parsed: unknown;
     try {

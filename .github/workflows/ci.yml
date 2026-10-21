@@ -42,9 +42,7 @@ jobs:
           rc=0; uv run --project "$GITHUB_WORKSPACE" lockwire check || rc=$?
           test "$rc" -eq 1
       - run: uv run pytest -q tests/test_windows_import.py
-      # remove once the first Windows run is green
       - run: uv run pytest -q tests/test_edit.py
-        continue-on-error: true
 
   # The free desktop app: types, tests, then the packaged Linux app driven end to end
   # (Open, Design, Declare, Plan, Check). Node pinned exactly; actions pinned by SHA.

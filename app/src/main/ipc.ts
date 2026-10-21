@@ -21,6 +21,7 @@ import {
   type ContractUndoRequest,
   type ContractWriteRequest,
 } from "../shared/ipc-contract";
+import { handleApply, handleCancel, handleSend, handleSettingsGet, handleSettingsSet } from "./assistant";
 import { checkPayloadToFace } from "./checkPayload";
 import { pickNewRobotLocation, pickRobot } from "./dialogs";
 import { hasOnlyKeys, hasStrings, isRecord, isStringArray, runSidecarCommand, type SidecarRunReply } from "./ipcKit";
@@ -581,6 +582,11 @@ const HANDLERS = {
   "file:choose-plan": handleChoosePlan,
   "sidecar:state": handleSidecarState,
   "sidecar:restart": handleSidecarRestart,
+  "assistant:settings-get": handleSettingsGet,
+  "assistant:settings-set": handleSettingsSet,
+  "assistant:send": handleSend,
+  "assistant:apply": handleApply,
+  "assistant:cancel": handleCancel,
 } satisfies Record<CommandClass, (args: unknown) => Promise<unknown>>;
 
 // Exhaustiveness check: every name in the shared list must be a key of HANDLERS (and vice versa,

@@ -1,0 +1,132 @@
+schema_version: '0.2'
+robot:
+  name: fourbargrashof
+model:
+  source: fourbargrashof.urdf
+  source_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  structure_hash: derived-from-recorded-structure
+  links:
+  - name: ground
+    mass:
+      value: 1.0
+      unit: kg
+    com:
+    - 0.0
+    - 0.0
+    - 0.0
+    frame: ground
+  - name: crank
+    mass:
+      value: 1.0
+      unit: kg
+    com:
+    - 0.0
+    - 0.0
+    - 0.0
+    frame: crank
+  - name: coupler
+    mass:
+      value: 1.0
+      unit: kg
+    com:
+    - 0.0
+    - 0.0
+    - 0.0
+    frame: coupler
+  - name: rocker
+    mass:
+      value: 1.0
+      unit: kg
+    com:
+    - 0.0
+    - 0.0
+    - 0.0
+    frame: rocker
+  joints:
+  - name: ground_to_crank
+    type: revolute
+    parent: ground
+    child: crank
+    origin:
+      xyz:
+      - 0.4
+      - 0
+      - 0
+      rpy:
+      - 0.0
+      - 0.0
+      - 0.0
+    axis:
+    - 0.0
+    - 0.0
+    - 1.0
+    limits:
+      lower: -1.0
+      upper: 1.0
+      effort: 5.0
+      velocity: 2.0
+  - name: crank_to_coupler
+    type: revolute
+    parent: crank
+    child: coupler
+    origin:
+      xyz:
+      - 0.1
+      - 0
+      - 0
+      rpy:
+      - 0.0
+      - 0.0
+      - 0.0
+    axis:
+    - 0.0
+    - 0.0
+    - 1.0
+    limits:
+      lower: -1.0
+      upper: 1.0
+      effort: 5.0
+      velocity: 2.0
+  - name: coupler_to_rocker
+    type: revolute
+    parent: coupler
+    child: rocker
+    origin:
+      xyz:
+      - 0.35
+      - 0
+      - 0
+      rpy:
+      - 0.0
+      - 0.0
+      - 0.0
+    axis:
+    - 0.0
+    - 0.0
+    - 1.0
+    limits:
+      lower: -1.0
+      upper: 1.0
+      effort: 5.0
+      velocity: 2.0
+  - name: rocker_to_ground
+    type: continuous
+    parent: rocker
+    child: ground
+    origin:
+      xyz:
+      - 0.3
+      - 0
+      - 0
+      rpy:
+      - 0.0
+      - 0.0
+      - 0.0
+    axis:
+    - 0.0
+    - 0.0
+    - 1.0
+  provenance:
+    witness: w0
+    source: fourbargrashof.urdf
+    locked_at: 2026-09-08

@@ -40,7 +40,7 @@ export function measureInset(root: HTMLElement): ViewInset {
 }
 
 export function Shell({
-  robotName, onRobot, mode, onModeChange, scene, sceneSummary, locked, connected, cliLine, onFit, onOverwrite, notices, wide, center, left, above, tools, children,
+  robotName, onRobot, mode, onModeChange, scene, sceneSummary, locked, connected, cliLine, onFit, onOverwrite, notices, wide, center, left, above, tools, assistant, children,
 }: {
   robotName?: string;
   /** The robot's name chip opens Design on the whole robot. */
@@ -68,6 +68,8 @@ export function Shell({
   above?: ReactNode;
   /** Extra icon buttons in the bottom tool pill. */
   tools?: ReactNode;
+  /** The top-bar Assistant button; no onToggle = no robot open yet, so it is disabled. */
+  assistant?: { open: boolean; onToggle?: () => void };
   /** The right-hand panel. */
   children?: ReactNode;
 }) {
@@ -100,7 +102,7 @@ export function Shell({
         top={locked ? undefined : <div className="app-no-drag shell-tabs"><PillTabs tabs={TABS} value={mode} onChange={onModeChange} label="Mode" />{!pro && ["Test", "Run"].map((t) => (
           <span key={t} className="shell-pro-tab" aria-disabled="true" title={`Test and Run are in ${PRODUCT_NAME} Pro`}>{t}<span className="shell-pro-badge">Pro</span></span>
         ))}</div>}
-        topRight={<div className="app-no-drag"><ToolPill label="App"><ThemeToggle /></ToolPill></div>}
+        topRight={<div className="app-no-drag"><ToolPill label="App">{assistant && <Button variant="quiet" aria-pressed={assistant.open} disabled={!assistant.onToggle} onClick={assistant.onToggle}>Assistant</Button>}<ThemeToggle /></ToolPill></div>}
         left={left}
         right={children}
         bottomLeft={locked && connected ? undefined : <div className="app-no-drag"><StatusPill status={connected ? "go" : "bad"}>{connected ? "Connected" : "Not connected"}</StatusPill></div>}

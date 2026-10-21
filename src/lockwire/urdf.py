@@ -42,6 +42,29 @@ class UnresolvedXacroError(ValueError):
     """Input still contains xacro/ROS substitutions; refuse rather than invent names."""
 
 
+def read_model_bytes(path: Path) -> bytes:
+    """The model's URDF/SDF bytes; a ``.xacro`` file is expanded in memory (no ROS needed).
+
+    A failed expansion (including ``$(find pkg)``, which needs ROS) raises
+    ``UnresolvedXacroError`` carrying xacro's own message plus the manual remedy.
+    """
+    raw = path.read_bytes()
+    if path.suffix.lower() != ".xacro":
+        return raw
+    _refuse_doctype_entity(raw, path)
+    import xacro
+
+    try:
+        return xacro.process_file(str(path)).toxml().encode()
+    except Exception as exc:  # xacro raises XacroException, ParseError, even SystemExit-ish
+        if "ament_index_python" in str(exc):
+            raise UnresolvedXacroError(
+                f"{path}: xacro expansion failed — $(find …) needs a ROS environment. Expand it "
+                f"there (xacro model.urdf.xacro > model.urdf), then re-run. ({exc})"
+            ) from exc
+        raise UnresolvedXacroError(f"{path}: xacro expansion failed — {exc}. {_REMEDY}") from exc
+
+
 def _local_tag(tag: str) -> str:
     """Strip Clark notation `{ns}local` → `local`; leave un-namespaced tags alone."""
     if tag.startswith("{") and "}" in tag:
@@ -52,8 +75,8 @@ def _local_tag(tag: str) -> str:
 def robot_name(path: Path) -> str:
     """The URDF's own ``<robot name>``; the file stem when it has none."""
     try:
-        return ET.parse(path).getroot().get("name") or path.stem
-    except (OSError, ET.ParseError):
+        return ET.fromstring(read_model_bytes(path)).get("name") or path.stem
+    except (OSError, ET.ParseError, UnresolvedXacroError):
         return path.stem
 
 
@@ -196,15 +219,44 @@ def _structure_hash(root: ET.Element) -> str:
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
+_AXIS_TYPES = ("revolute", "continuous", "prismatic", "planar")
+
+
+def _same_axis(locked: Joint, disk: Joint) -> bool:
+    """Equal axes; an unset locked axis equals the default on axis-bearing joints."""
+    if locked.type in ("fixed", "floating") and disk.type == locked.type:
+        return True
+    if locked.axis is None and disk.type in _AXIS_TYPES:
+        return disk.axis == (1.0, 0.0, 0.0)
+    return disk.axis == locked.axis
+
+
+def locked_record_hash(model: ModelRecord, topology: "UrdfTopology") -> str:
+    """The on-disk record hash, reading axes the way the lock was written."""
+    locked = {j.name: j for j in model.joints}
+    joints = [
+        j.model_copy(update={"axis": None})
+        if j.name in locked and locked[j.name].axis is None and _same_axis(locked[j.name], j)
+        else j
+        for j in topology.joints
+    ]
+    return _model_structure_hash([Link(name=n) for n in topology.link_names], joints)
+
+
 def _parse_joint(el: ET.Element) -> Joint:
     """URDF joint -> schema Joint; consumed by URDF drift."""
     parent = el.find("parent")
     child = el.find("child")
     xyz, rpy = _xyz_rpy(el.find("origin"))
     axis_el = el.find("axis")
+    jtype = el.get("type", "fixed")
+    # URDF spec: absent <axis> means (1, 0, 0), but only joints that have an axis
     axis = None
-    if axis_el is not None:
-        axis = tuple(float(x) for x in axis_el.get("xyz", "0 0 1").split())  # type: ignore[assignment]
+    if axis_el is not None or jtype in _AXIS_TYPES:
+        axis = tuple(
+            float(x)
+            for x in (axis_el.get("xyz", "0 0 1") if axis_el is not None else "1 0 0").split()
+        )
     limit_el = el.find("limit")
     limits = None
     if limit_el is not None:
@@ -218,7 +270,7 @@ def _parse_joint(el: ET.Element) -> Joint:
         )
     return Joint(
         name=el.get("name", "?"),
-        type=el.get("type", "fixed"),  # type: ignore[arg-type]
+        type=jtype,  # type: ignore[arg-type]
         parent=parent.get("link", "?") if parent is not None else "?",
         child=child.get("link", "?") if child is not None else "?",
         origin=JointOrigin(xyz=xyz, rpy=rpy),
@@ -242,6 +294,33 @@ _DOCTYPE_ENTITY_FORBIDDEN = (
 )
 
 
+def _xml_text(raw: bytes) -> str:
+    """Decode XML bytes the way a parser would: BOM, else NUL-pattern, else declared encoding."""
+    if raw[:4] in (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff"):
+        enc = "utf-32"
+    elif raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        enc = "utf-16"
+    elif raw[:2] == b"<\x00":
+        enc = "utf-16-le"
+    elif raw[:2] == b"\x00<":
+        enc = "utf-16-be"
+    elif raw[:4] in (b"<\x00\x00\x00", b"\x00\x00\x00<"):
+        enc = "utf-32-le" if raw[:1] == b"<" else "utf-32-be"
+    else:
+        m = re.match(rb"""\s*<\?xml[^>]*encoding\s*=\s*["']([\w.-]+)""", raw)
+        enc = m.group(1).decode("ascii") if m else "utf-8"
+    try:
+        return raw.decode(enc, errors="replace")
+    except LookupError:
+        return raw.decode("latin-1")
+
+
+def _has_doctype_entity(raw: bytes) -> bool:
+    # raw bytes too: a lying declaration must not hide an ASCII DOCTYPE
+    txt = _xml_text(raw)
+    return any(t in txt or t.encode() in raw for t in ("<!DOCTYPE", "<!ENTITY"))
+
+
 def _refuse_doctype_entity(raw: bytes, path: Path) -> None:
     """Refuse a DOCTYPE/ENTITY-bearing URDF before ``ET.fromstring`` ever sees it.
 
@@ -251,13 +330,13 @@ def _refuse_doctype_entity(raw: bytes, path: Path) -> None:
     error. Refusing on the raw bytes, the same shape ``schema.py`` uses for
     YAML anchors/aliases, means the parser never has a chance to expand it.
     """
-    if b"<!DOCTYPE" in raw or b"<!ENTITY" in raw:
+    if _has_doctype_entity(raw):
         raise ValueError(f"{path}: {_DOCTYPE_ENTITY_FORBIDDEN}")
 
 
 def read_urdf_topology(path: Path) -> UrdfTopology:
     """Read on-disk URDF topology for drift checks. Raises on I/O or parse errors."""
-    raw = path.read_bytes()
+    raw = read_model_bytes(path)
     _refuse_doctype_entity(raw, path)
     root = ET.fromstring(raw)
     if root.tag != "robot":
@@ -308,7 +387,7 @@ def describe_structure_drift(model: ModelRecord, topology: UrdfTopology) -> str:
                 changes.append(f"type {locked.type} -> {disk.type}")
             if disk.origin.xyz != locked.origin.xyz or disk.origin.rpy != locked.origin.rpy:
                 changes.append("origin moved")
-            if disk.axis != locked.axis:
+            if not _same_axis(locked, disk):
                 changes.append("axis changed")
             if disk.limits != locked.limits:
                 changes.append("limits changed")
@@ -327,7 +406,7 @@ def describe_structure_drift(model: ModelRecord, topology: UrdfTopology) -> str:
 
 
 def parse_urdf(path: Path) -> ModelRecord:
-    raw = path.read_bytes()
+    raw = read_model_bytes(path)  # for .xacro: the expanded bytes, so an include edit is drift
     _refuse_doctype_entity(raw, path)
     root = ET.fromstring(raw)
     if root.tag != "robot":

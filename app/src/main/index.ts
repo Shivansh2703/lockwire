@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { BrowserWindow, Menu, app } from "electron";
 
 import { forwardSidecarState, registerIpc } from "./ipc";
+import { writeLogLine } from "./log";
 import { buildMenu } from "./menu";
 import {
   registerRendererProtocol,
@@ -14,6 +15,15 @@ import { startSidecar, stopSidecar } from "./sidecar";
 import { windowOptions } from "./window-options";
 
 registerRendererScheme();
+
+// Reveal Logs opens this file, so write it (startup line below) and log what would
+// otherwise vanish silently.
+const log = (line: string): void => {
+  try { writeLogLine(line); } catch { /* logging must never take the app down */ }
+};
+process.on("unhandledRejection", (reason) => {
+  log(`unhandledRejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`);
+});
 
 function createWindow(hidden: boolean, onRendererLoaded?: () => void): BrowserWindow {
   const win = new BrowserWindow(windowOptions(hidden));
@@ -39,6 +49,7 @@ function createWindow(hidden: boolean, onRendererLoaded?: () => void): BrowserWi
 void app
   .whenReady()
   .then(() => {
+    log("app started");
     const readyFile = process.env.LOCKWIRE_GATE_READY_FILE;
     const hidden = Boolean(readyFile);
     // Before ready,: the dock icon must never bounce, even for an instant.

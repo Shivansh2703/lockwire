@@ -1562,16 +1562,10 @@ def test_under_cap_flow_list_reaches_validation_bounded(tmp_path):
     assert size < MAX_CONTRACT_BYTES, f"under-cap fixture is {size} bytes"
     assert size > 150 * 1024, f"under-cap fixture too small ({size} bytes)"
     started = time.perf_counter()
-    try:
+    # A too-tight size guard raises its own ValueError (not ValidationError), which
+    # fails the test; a loader that accepts the extra key fails "DID NOT RAISE".
+    with pytest.raises(ValidationError):
         load_contract(path)
-    except ValidationError:
-        pass  # primary: size guard admitted the file; schema validation ran
-    except ValueError as exc:
-        # MUTATION-BITE: a neutered/too-tight size guard rejects under-cap input
-        # with the size-limit ValueError instead of reaching validation.
-        pytest.fail(f"guard rejected under-cap flow list before validation: {exc}")
-    else:
-        pytest.fail("expected ValidationError from extra top-level key 'x'")
     elapsed = time.perf_counter() - started
     # Secondary sanity only — not a load-sensitive gate (minutes, not seconds).
     assert elapsed < 300.0, f"under-cap flow list hung ({elapsed:.1f}s)"
@@ -1585,14 +1579,8 @@ def _time_admitted_under_cap_parse(path: Path) -> float:
     of the extra top-level key ``x`` proves validation ran.
     """
     started = time.perf_counter()
-    try:
+    with pytest.raises(ValidationError):
         load_contract(path)
-    except ValidationError:
-        pass
-    except ValueError as exc:
-        pytest.fail(f"guard rejected under-cap flow list before validation: {exc}")
-    else:
-        pytest.fail("expected ValidationError from extra top-level key 'x'")
     elapsed = time.perf_counter() - started
     # Hang backstop only (same 300 s ceiling) — not a speed gate.
     assert elapsed < 300.0, f"under-cap flow list hung ({elapsed:.1f}s)"
@@ -2027,3 +2015,132 @@ def test_compared_from_is_optional_and_round_trips_without_changing_legacy_prove
     assert legacy.compared_from is None
     assert "compared_from" not in legacy.model_dump(exclude_none=True)
     assert copied.model_dump()["compared_from"] == "x500.flight-controller.pixhawk-6c"
+
+
+def test_rail_output_tolerance_optional_and_bounded():
+    rail = dict(id="r", capacity={"value": 1, "unit": "W"})
+    assert Rail(**rail).output_tolerance_pct is None
+    assert Rail(**rail, output_tolerance_pct=4).output_tolerance_pct == 4
+    with pytest.raises(ValueError):
+        Rail(**rail, output_tolerance_pct=-1)
+
+
+# ---- batch 2 schema-store ----
+
+
+def test_save_contract_is_a_fresh_dump_and_atomic(tmp_path, monkeypatch):
+    """Save is a fresh dump; a failed write leaves the original."""
+    src = Path(__file__).parent / "fixtures" / "contract_live.yaml"
+    path = tmp_path / "c.yaml"
+    path.write_bytes(src.read_bytes())
+    save_contract(load_contract(path), path)
+    assert load_contract(path) == load_contract(src)
+
+    original = path.read_bytes()
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("lockwire.schema.os.replace", boom)
+    with pytest.raises(OSError):
+        save_contract(Contract(robot=RobotInfo(name="other")), path)
+    assert path.read_bytes() == original
+    assert [p.name for p in tmp_path.iterdir()] == ["c.yaml"]
+
+
+def test_init_force_over_commented_file_still_loads(tmp_path):
+    """`init --force` over a commented lockfile writes a loadable file."""
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    fixtures = Path(__file__).parent / "fixtures"
+    out = tmp_path / "x.yaml"
+    out.write_bytes((fixtures / "contract_clean.yaml").read_bytes())
+    result = CliRunner().invoke(
+        app, ["init", str(fixtures / "testbot.urdf"), "--out", str(out), "--force"]
+    )
+    assert result.exit_code == 0, result.output
+    load_contract(out)
+
+
+def test_save_after_emptying_a_commented_list_still_loads(tmp_path):
+    """Dropping the first device of a commented lockfile saves a loadable file."""
+    path = tmp_path / "c.yaml"
+    path.write_bytes((Path(__file__).parent / "fixtures" / "contract_demo.yaml").read_bytes())
+    contract = load_contract(path)
+    del contract.devices[0]
+    save_contract(contract, path)
+    assert len(load_contract(path).devices) == len(contract.devices)
+
+
+def test_missing_schema_version_is_one_default_for_load_and_upgrade():
+    """a keyless document means the latest version in load and in upgrade."""
+    text = "robot:\n  name: r\nstructural: {}\n"
+    doc = YAML().load(text)
+    assert upgrade_contract_document(dict(doc))["schema_version"] == "0.4"
+    assert "schema_version" in upgrade_contract_text("robot:\n  name: r\n")
+
+
+def _joint(**kw):
+    return {"name": "j", "type": "revolute", "parent": "a", "child": "b", **kw}
+
+
+def test_joint_parent_and_child_must_be_links():
+    """a ghost parent or child link is refused, naming joint and link."""
+    from lockwire.schema import ModelRecord
+
+    base = {
+        "source": "x.urdf",
+        "source_sha256": "0" * 64,
+        "structure_hash": "x",
+        "provenance": {"witness": "human", "source": "x", "locked_at": "2026-01-01"},
+    }
+    links = [{"name": "a"}, {"name": "b"}]
+    ModelRecord.model_validate({**base, "links": links, "joints": [_joint()]})
+    with pytest.raises(ValidationError, match="joint 'j'.*ghost_link"):
+        ModelRecord.model_validate(
+            {**base, "links": links, "joints": [_joint(parent="ghost_link")]}
+        )
+    with pytest.raises(ValidationError, match="joint 'j'.*ghost_link"):
+        ModelRecord.model_validate({**base, "links": links, "joints": [_joint(child="ghost_link")]})
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [{"lower": 1.0, "upper": 1.0}, {"lower": 3.0, "upper": -3.0}, {"velocity": -3.0}],
+)
+def test_joint_limits_bounded(limits):
+    """lower >= upper and negative velocity are refused, field named."""
+    from lockwire.schema import JointLimits
+
+    with pytest.raises(ValidationError, match="lower|upper|velocity"):
+        JointLimits(**limits)
+    JointLimits(lower=-1.0, upper=1.0, velocity=0.0, effort=-1.0)
+
+
+@pytest.mark.parametrize("pct", [1e9, -5, 100.5])
+def test_tolerance_rel_pct_bounded(pct):
+    """rel_pct outside 0-100 is refused, field named."""
+    from lockwire.schema import Tolerance
+
+    with pytest.raises(ValidationError, match="rel_pct"):
+        Tolerance(rel_pct=pct)
+    Tolerance(rel_pct=0)
+    Tolerance(rel_pct=100)
+
+
+def test_unquoted_float_schema_version_is_accepted():
+    """`schema_version: 0.3` (a YAML float) loads as the version it spells."""
+    from lockwire.schema import load_contract_bytes
+
+    c = load_contract_bytes(b"schema_version: 0.3\nrobot:\n  name: r\n")
+    assert c.schema_version == "0.3"
+
+
+def test_numeric_field_refuses_string():
+    """`output_tolerance_pct: "5"` is refused rather than coerced."""
+    with pytest.raises(ValidationError, match="output_tolerance_pct"):
+        Rail.model_validate(
+            {"id": "r", "capacity": {"value": 5, "unit": "W"}, "output_tolerance_pct": "5"}
+        )

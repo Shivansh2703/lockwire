@@ -18,6 +18,7 @@ import json
 import math
 import os
 import re
+import shutil
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -627,8 +628,9 @@ def _load_doc_bytes_guarded(raw_bytes: bytes) -> tuple[str, Any, tuple[int, int]
     if size > MAX_CONTRACT_BYTES:
         raise ValueError(f"contract file exceeds size limit ({size} bytes > {MAX_CONTRACT_BYTES})")
     text = raw_bytes.decode("utf-8")
-    style = _sniff_sequence_style(text)
-    doc = _load_yaml_guarded(_yaml(*style), io.StringIO(text))
+    lf_text = text.replace("\r\n", "\n")  # CRLF file: parse/sniff/diff as LF, write back as CRLF
+    style = _sniff_sequence_style(lf_text)
+    doc = _load_yaml_guarded(_yaml(*style), io.StringIO(lf_text))
     _reject_yaml_anchors_aliases(doc)
     return text, doc, style
 
@@ -691,6 +693,11 @@ _ASSISTANT_NAME_DENYLIST = frozenset(
 )
 
 
+def _fdopen_text(fd: int, original_text: str) -> Any:
+    """Text handle that writes LF text back in the original file's own newline style."""
+    return os.fdopen(fd, "w", encoding="utf-8", newline="\r\n" if "\r\n" in original_text else "\n")
+
+
 def _is_inside_git_repo(path: Path) -> bool:
     """Walk up from ``path``'s parent looking for a ``.git`` dir or file.
 
@@ -718,6 +725,7 @@ def _backup_temp(path: Path, contents: bytes) -> Path:
 
 def _replace_then_backup(tmp_path: Path, contract_path: Path, original_text: str) -> None:
     """Pair a contract replacement with its non-git undo baseline."""
+    shutil.copymode(contract_path, tmp_path)  # the file keeps its permissions
     if _is_inside_git_repo(contract_path):
         os.replace(tmp_path, contract_path)
         return
@@ -1063,7 +1071,7 @@ def propose_changes_from_bytes(
 
     diff = "".join(
         difflib.unified_diff(
-            original_text.splitlines(keepends=True),
+            original_text.replace("\r\n", "\n").splitlines(keepends=True),
             new_text.splitlines(keepends=True),
             fromfile=str(contract_path),
             tofile=str(contract_path),
@@ -1099,7 +1107,7 @@ def apply_changes(
     )
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with _fdopen_text(fd, proposal.original_text) as handle:
             handle.write(proposal.text)
         _replace_then_backup(tmp_path, contract_path, proposal.original_text)
         proposal.result.written = True
@@ -1155,7 +1163,7 @@ def apply_review(
     )
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with _fdopen_text(fd, original_text) as handle:
             handle.write(new_text)
         try:
             load_contract(tmp_path)
@@ -1165,7 +1173,7 @@ def apply_review(
             raise EditRefusal(f"review of {path}: {error}") from error
         diff = "".join(
             difflib.unified_diff(
-                original_text.splitlines(keepends=True),
+                original_text.replace("\r\n", "\n").splitlines(keepends=True),
                 new_text.splitlines(keepends=True),
                 fromfile=str(contract_path),
                 tofile=str(contract_path),
@@ -1359,7 +1367,7 @@ def add_entry(
     )
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with _fdopen_text(fd, original_text) as handle:
             handle.write(new_text)
         try:
             load_contract(tmp_path)
@@ -1370,7 +1378,7 @@ def add_entry(
 
         diff = "".join(
             difflib.unified_diff(
-                original_text.splitlines(keepends=True),
+                original_text.replace("\r\n", "\n").splitlines(keepends=True),
                 new_text.splitlines(keepends=True),
                 fromfile=str(contract_path),
                 tofile=str(contract_path),
@@ -1429,7 +1437,7 @@ def _add_battery_entry(
     )
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with _fdopen_text(fd, original_text) as handle:
             handle.write(new_text)
         try:
             load_contract(tmp_path)
@@ -1440,7 +1448,7 @@ def _add_battery_entry(
 
         diff = "".join(
             difflib.unified_diff(
-                original_text.splitlines(keepends=True),
+                original_text.replace("\r\n", "\n").splitlines(keepends=True),
                 new_text.splitlines(keepends=True),
                 fromfile=str(contract_path),
                 tofile=str(contract_path),

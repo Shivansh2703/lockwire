@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="arm">
+  <xacro:property name="m" value="2.5"/>
+  <xacro:macro name="blk" params="n mesh">
+    <link name="${n}">
+      <visual><geometry><mesh filename="${mesh}"/></geometry></visual>
+      <inertial><mass value="${m}"/><inertia ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="1"/></inertial>
+    </link>
+  </xacro:macro>
+  <xacro:blk n="base" mesh="package://robot_description/meshes/base.stl"/>
+</robot>

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lockwire.scene import SceneRefusal
+from lockwire.urdf import _has_doctype_entity
 
 _MAX_FILE_BYTES = 64 * 1024 * 1024
 _MAX_INSTANCE_NODE_DEPTH = 32
@@ -50,7 +51,7 @@ def _refuse_doctype_entity(raw: bytes, path: Path) -> None:
     """Same posture as `urdf._refuse_doctype_entity`: refuse on raw bytes before parsing —
     an internal `<!ENTITY>` still expands under stdlib `xml.etree`, so refusing before the
     parser ever sees it is the only safe posture."""
-    if b"<!DOCTYPE" in raw or b"<!ENTITY" in raw:
+    if _has_doctype_entity(raw):
         raise SceneRefusal(
             f"{path}: DOCTYPE/ENTITY declarations are refused (XML entity expansion risk). "
             "Re-export the file without an internal DTD."

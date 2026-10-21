@@ -6,6 +6,7 @@ import { App } from "./App";
 import { DECLARE_FORM, DIFF, HISTORY, PAGE, PAGE_WITH_SCENE, PLAN, deferred, mockMatchMedia, picked } from "./App.testkit";
 import type { PagePayload, PlanPayload } from "../shared/api.gen";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
+import { readRecents } from "./recents";
 import { applyHighlight } from "./scene/robotScene";
 import { getSelectedPartId, setSelectedPartId } from "./scene/selectionStore";
 
@@ -325,15 +326,42 @@ describe("App owns the mode tab router", () => {
     expect(container.querySelector(".reference-plan-finding")).toBeNull();
   });
 
+  it("opening another robot clears the previous robot's history diff", async () => {
+    await openToCheckFace();
+    const showDiff = async () => {
+      clickTab("Docs");
+      act(() => [...container.querySelectorAll<HTMLInputElement>(".kit-seg-opt input")].find((i) => i.parentElement?.textContent === "History")!.click());
+      return container.querySelector(".history-diff-result");
+    };
+    await showDiff();
+    await act(async () => container.querySelector<HTMLButtonElement>(".history-diff-disk")!.click());
+    expect(container.querySelector(".history-diff-result")).not.toBeNull();
+    clickTab("Check");
+    Object.assign(window.lockwire, { openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/tmp/b.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }) });
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Re-check")!.click());
+    expect(await showDiff()).toBeNull();
+  });
+
+  it("a slow earlier open landing after a faster later one does not win", async () => {
+    const first = deferred<any>(), second = deferred<any>(); let opens = 0;
+    Object.assign(window, { lockwire: { startFromUrdf: () => (++opens === 1 ? first.promise : second.promise).then(picked),
+      getContractPage: vi.fn().mockResolvedValue(PAGE), getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
+    root = createRoot(container); act(() => root.render(<App />)); clickOpenRobot(); clickOpenRobot();
+    const doc = (path: string) => ({ opened: true, path, payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD });
+    await act(async () => second.resolve(doc("/tmp/b.yaml")));
+    await act(async () => first.resolve(doc("/tmp/a.yaml")));
+    expect(readRecents()[0]?.path).toBe("/tmp/b.yaml");
+  });
+
   it("drops a late Plan result when a second document opens", async () => {
     const first = deferred<any>(), second = deferred<any>(), plan = deferred<PlanPayload>();
     const secondPage = deferred<PagePayload>(); let pages = 0;
-    let opens = 0;
-    Object.assign(window, { lockwire: { startFromUrdf: () => (++opens === 1 ? first.promise : second.promise).then(picked),
+    Object.assign(window, { lockwire: { startFromUrdf: () => first.promise.then(picked), openLockfile: () => second.promise,
       getContractPage: () => ++pages === 1 ? Promise.resolve(PAGE) : secondPage.promise, getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]),
       choosePlan: vi.fn().mockResolvedValue("/tmp/plan"), checkPlan: (r: { plan: string }) => (r.plan === "" ? Promise.resolve(null) : plan.promise) } });
-    root = createRoot(container); act(() => root.render(<App />)); clickOpenRobot(); clickOpenRobot();
+    root = createRoot(container); act(() => root.render(<App />)); clickOpenRobot();
     await act(async () => first.resolve({ opened: true, path: "/tmp/a.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }));
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "Re-check")!.click()); // opens are ordered by start; the second begins once the first has landed
     await act(async () => second.resolve({ opened: true, path: "/tmp/b.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }));
     clickTab("Plan"); await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click());
     await act(async () => secondPage.resolve(PAGE));

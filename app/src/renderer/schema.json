@@ -3540,6 +3540,18 @@
         "additionalProperties": false,
         "description": "A comparison that PASSED: two populated operands, no violation.\n\nFindings only ever carry problems and blind spots; this is the missing\n\"it agrees\" half. ``quantity`` is the contract path (exact-text toggle\nonly); ``observed``/``expected``/``margin`` are already plain words for\ndirect rendering \u2014 never a quantity path or code identifier.",
         "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Detail"
+          },
           "expected": {
             "title": "Expected",
             "type": "string"

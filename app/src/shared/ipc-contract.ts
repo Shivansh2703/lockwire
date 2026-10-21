@@ -12,6 +12,10 @@ export const SIDECAR_STATE_CHANGED_CHANNEL = "lockwire:sidecar-state-changed";
 // main -> renderer: File > Open Robot... finished; payload { result: StartUrdfResult } | { error }.
 export const MENU_OPENED_CHANNEL = "lockwire:opened-from-menu";
 
+// main -> renderer push: Assistant tool-call progress ({ type: "tool", name }) and the final
+// message ({ type: "done", turn }). Same shape as the pushes above.
+export const ASSISTANT_EVENT_CHANNEL = "lockwire:assistant-event";
+
 export const PERMITTED_COMMAND_CLASSES = [
   "contract:edit",
   "contract:write",
@@ -32,6 +36,11 @@ export const PERMITTED_COMMAND_CLASSES = [
   "file:choose-plan",
   "sidecar:state",
   "sidecar:restart",
+  "assistant:settings-get",
+  "assistant:settings-set",
+  "assistant:send",
+  "assistant:apply",
+  "assistant:cancel",
 ] as const;
 
 export type CommandClass = (typeof PERMITTED_COMMAND_CLASSES)[number];
@@ -126,3 +135,19 @@ export type ContractWhatIfRequest = {
 export type PlanRequest = { contract: string; plan: string };
 export type DiffRequest = { contract: string; a?: string; b?: string };
 export type HistoryRequest = { contract: string; revision_range?: string | null };
+
+// The Assistant (main/assistant.ts). The key only ever travels renderer -> main, never back.
+export type AssistantSettings = { hasKey: boolean; model: string; enabledRobots: string[] };
+export type AssistantSetRequest = {
+  key?: string;
+  forgetKey?: boolean;
+  model?: string;
+  enableRobot?: string;
+  disableRobot?: string;
+};
+export type AssistantSetResult = { settings: AssistantSettings; error?: string };
+export type AssistantSendRequest = { contract: string; revision: string; mode: string; text: string };
+export type AssistantProposal = { id: string; command: string; args: Record<string, unknown>; revision: string; /** The sidecar's own dry-run diff: what signing would change. */ diff: string };
+export type AssistantTurn = { text: string; proposals: AssistantProposal[]; error?: string };
+export type AssistantApplyResult = { ok: true } | { ok: false; error: string };
+export type AssistantEvent = { type: "tool"; name: string } | { type: "done"; turn: AssistantTurn };

@@ -136,6 +136,39 @@ def test_run_needs_token(client: TestClient):
     assert response.status_code == 401
 
 
+def test_declare_dry_run_with_a_placeholder_name_returns_a_diff_and_writes_nothing(tmp_path: Path):
+    """The Assistant previews an edit before anyone signs it, so a dry run must be
+    accepted with a stand-in name and show the change without touching the file."""
+    contract = tmp_path / "contract.yaml"
+    contract.write_bytes((FIXTURES / "contract_clean.yaml").read_bytes())
+    (tmp_path / "testbot.urdf").write_bytes((FIXTURES / "testbot.urdf").read_bytes())
+    before = contract.read_bytes()
+    reply = (
+        _client(create_app(TOKEN))
+        .post(
+            "/v1/run",
+            headers=_auth(),
+            json={
+                "command": "declare",
+                "args": {
+                    "contract": str(contract),
+                    "path": "topology/rails/rail.5v/capacity",
+                    "value": "1 W",
+                    "source": "docs/datasheet.pdf",
+                    "witness": "your name",
+                    "dry_run": True,
+                    "expected_revision": contract_revision(contract),
+                },
+            },
+        )
+        .json()
+    )
+    assert reply["refusal"] is None
+    assert reply["payload"]["written"] is False
+    assert reply["payload"]["diff"]
+    assert contract.read_bytes() == before
+
+
 def test_what_if_is_api_routed_stale_checked_and_never_writes(tmp_path: Path):
     contract = tmp_path / "contract.yaml"
     contract.write_bytes((FIXTURES / "contract_clean.yaml").read_bytes())
@@ -585,7 +618,7 @@ def test_anymal_check_payload_contains_dae_meshes(client: TestClient):
     assert all(part["positions"]["data"] and part["indices"]["data"] for part in scene["parts"])
 
 
-def test_parsed_scene_cached_by_path_mtime_size(client: TestClient, tmp_path: Path):
+def test_parsed_scene_cached_by_path_and_content_digest(client: TestClient, tmp_path: Path):
     from lockwire import serve
 
     contract_path = _x500_with_matching_scene_stem(tmp_path)
@@ -601,7 +634,7 @@ def test_parsed_scene_cached_by_path_mtime_size(client: TestClient, tmp_path: Pa
         headers=_auth(),
         json={"command": "check", "args": {"contract": str(contract_path)}},
     )
-    # Same (path, mtime, size) -> still exactly one entry, not re-parsed into a
+    # Same (path, content digest) -> still exactly one entry, not re-parsed into a
     # second cache slot.
     assert len(serve._SCENE_CACHE) == 1
 
@@ -1064,7 +1097,8 @@ def test_no_cors_middleware_is_mounted():
 def test_robot_mode_lists_write_commands_in_hello():
     robot = _client(create_app(TOKEN, robot=True))
     names = {c["name"] for c in robot.get("/v1/hello", headers=_auth()).json()["commands"]}
-    assert serve._WRITE_COMMANDS <= names
+    # robot mode is an allowlist now; what it refuses is still listed.
+    assert set(serve._FREE_COMMANDS) - serve._ROBOT_READ_COMMANDS <= names
 
 
 @pytest.mark.parametrize("command", ["diff", "log"])
@@ -1653,3 +1687,58 @@ def test_served_start_example_writes_once_and_checks_no_go(client, tmp_path):
         "/v1/run", headers=_auth(), json={"command": "check", "args": {"contract": str(out)}}
     ).json()
     assert checked["verdict"] == "NO-GO"
+
+
+@pytest.mark.parametrize(
+    ("command", "out_arg"),
+    [("report", "elsewhere/victim.txt"), ("describe", "elsewhere"), ("report", "lockwire.yaml")],
+)
+def test_sidecar_writes_stay_in_the_contract_folder(tmp_path: Path, command: str, out_arg: str):
+    """the sidecar's report/describe never write outside the
+    contract's folder, nor over the contract (the measured chain turned it into HTML)."""
+    (tmp_path / "pkg").mkdir()
+    contract = tmp_path / "pkg" / "lockwire.yaml"
+    shutil.copy(X500, contract)
+    victim = tmp_path / "elsewhere" / "victim.txt"
+    victim.parent.mkdir()
+    victim.write_text("precious user notes\n")
+    out = contract if out_arg == "lockwire.yaml" else tmp_path / out_arg
+    body = {"command": command, "args": {"contract": str(contract), "out": str(out)}}
+    reply = _client(create_app(TOKEN)).post("/v1/run", headers=_auth(), json=body).json()
+    assert reply["exit_code"] == 2 and reply["refusal"].startswith("refusing to write")
+    assert (
+        list(victim.parent.iterdir()) == [victim] and victim.read_text() == "precious user notes\n"
+    )
+    assert contract.read_bytes() == X500.read_bytes()
+
+
+@pytest.mark.parametrize("command", ["diff", "plan"])
+def test_refusals_never_echo_file_values(tmp_path: Path, command: str):
+    """A refusal names the field, never the value read."""
+    secrets = tmp_path / "secrets.yaml"
+    secrets.write_text("aws_access_key_id: FAKE-KEY-NOT-REAL-0000\n")
+    args = {"a": str(secrets), "b": str(X500)} if command == "diff" else {"plan": str(secrets)}
+    body = {"command": command, "args": {"contract": str(X500), **args}}
+    reply = _client(create_app(TOKEN)).post("/v1/run", headers=_auth(), json=body).json()
+    assert reply["exit_code"] == 2 and "aws_access_key_id" in reply["refusal"]
+    assert "FAKE-KEY-NOT-REAL-0000" not in reply["refusal"]
+
+
+@pytest.mark.parametrize(
+    ("command", "args"),
+    [
+        ("describe", {"out": "described"}),
+        ("check", {}),
+    ],
+)
+def test_robot_mode_serves_an_allowlist_of_reads(tmp_path: Path, command: str, args: dict):
+    """robot mode allows reads only; describe --out, health json_out
+    and run-start wrote or started jobs on the robot. check is still served."""
+    robot = _client(create_app(TOKEN, robot=True))
+    if command not in serve.commands():
+        pytest.skip(f"{command} is not installed here")
+    args = {"contract": str(X500), **{k: str(tmp_path / v) for k, v in args.items()}}
+    reply = robot.post("/v1/run", headers=_auth(), json={"command": command, "args": args}).json()
+    refused = f"write commands are not served on the robot: {command}"
+    assert reply["refusal"] == (None if command == "check" else refused)
+    assert list(tmp_path.iterdir()) == []

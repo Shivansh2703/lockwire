@@ -82,6 +82,9 @@ class Mechanism:
     p_plus_q: float | None = None
     lengths_m: tuple[float, ...] = ()
     declared_fully_rotating: tuple[str, ...] = ()
+    #: Joints that really turn all the way round: the two at the ends of the shortest
+    #: link. Grashof's verdict is for the linkage; every other joint only rocks.
+    rotating_joints: tuple[str, ...] = ()
 
     @property
     def scored(self) -> bool:
@@ -337,20 +340,20 @@ def _analyse_loop(component: list[Joint]) -> Mechanism:
     crank = order[lengths.index(shortest)]
     sums = f"s + l = {_fmt(s_plus_l)} m, p + q = {_fmt(p_plus_q)} m"
 
-    if s_plus_l < p_plus_q:
-        verdict: Verdict = "rotates"
-        text = (
-            f"this four-bar has a fully rotating link: {sums}, and the Grashof condition "
-            f"s + l <= p + q holds, so the shortest link ({crank}, {_fmt(shortest)} m) turns "
-            "all the way round relative to the other three."
-        )
-    elif s_plus_l == p_plus_q:
+    if math.isclose(s_plus_l, p_plus_q, rel_tol=1e-9):
         verdict = "change-point"
         text = (
             f"this four-bar is a change-point linkage: {sums} are equal, the boundary of the "
             f"Grashof condition. The shortest link ({crank}, {_fmt(shortest)} m) can turn all "
             "the way round, but the linkage passes through a folded position where its motion "
             "is indeterminate — which branch it takes is not decided by the link lengths."
+        )
+    elif s_plus_l < p_plus_q:
+        verdict: Verdict = "rotates"
+        text = (
+            f"this four-bar has a fully rotating link: {sums}, and the Grashof condition "
+            f"s + l <= p + q holds, so the shortest link ({crank}, {_fmt(shortest)} m) turns "
+            "all the way round relative to the other three."
         )
     else:
         verdict = "locking"
@@ -359,6 +362,19 @@ def _analyse_loop(component: list[Joint]) -> Mechanism:
             "s + l <= p + q fails and every link only rocks between two limits."
         )
 
+    by_ends = {frozenset((j.parent, j.child)): j.name for j in component}
+    rotating = tuple(
+        sorted(
+            {
+                by_ends[frozenset((order[k], order[(k + step) % 4]))]
+                for k, length in enumerate(lengths)
+                if math.isclose(length, shortest, rel_tol=1e-9)
+                for step in (-1, 1)
+            }
+        )
+        if verdict != "locking"
+        else ()
+    )
     return Mechanism(
         kind=kind,
         verdict=verdict,
@@ -369,6 +385,7 @@ def _analyse_loop(component: list[Joint]) -> Mechanism:
         p_plus_q=p_plus_q,
         lengths_m=tuple(lengths),
         declared_fully_rotating=declared,
+        rotating_joints=rotating,
     )
 
 

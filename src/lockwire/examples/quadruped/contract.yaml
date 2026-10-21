@@ -21,45 +21,58 @@ model:
   links:
   - name: base_link
     mass: {value: 1.25123725, unit: kg}
+    com: [-0.00082966, 1.05e-06, -0.0006021]
     frame: base_link
   - name: FL_SHOULDER
     mass: {value: 0.14196048, unit: kg}
+    com: [-0.09407251, -0.00438935, 1.384e-05]
     frame: FL_SHOULDER
   - name: FL_UPPER_LEG
     mass: {value: 0.14737324, unit: kg}
+    com: [1.53e-05, 0.0176764, -0.0783823]
     frame: FL_UPPER_LEG
   - name: FL_LOWER_LEG
     mass: {value: 0.02318294, unit: kg}
+    com: [0.0, 0.00776716, -0.07003876]
     frame: FL_LOWER_LEG
   - {name: FL_FOOT}
   - name: FR_SHOULDER
     mass: {value: 0.14196048, unit: kg}
+    com: [-0.09407251, 0.00438935, -1.384e-05]
     frame: FR_SHOULDER
   - name: FR_UPPER_LEG
     mass: {value: 0.14737324, unit: kg}
+    com: [-1.53e-05, -0.0176764, -0.0783823]
     frame: FR_UPPER_LEG
   - name: FR_LOWER_LEG
     mass: {value: 0.02318294, unit: kg}
+    com: [0.0, -0.00776716, -0.07003876]
     frame: FR_LOWER_LEG
   - {name: FR_FOOT}
   - name: HL_SHOULDER
     mass: {value: 0.14196048, unit: kg}
+    com: [0.09407251, -0.00438935, -1.384e-05]
     frame: HL_SHOULDER
   - name: HL_UPPER_LEG
     mass: {value: 0.14737324, unit: kg}
+    com: [1.53e-05, 0.0176764, -0.0783823]
     frame: HL_UPPER_LEG
   - name: HL_LOWER_LEG
     mass: {value: 0.02318294, unit: kg}
+    com: [0.0, 0.00776716, -0.07003876]
     frame: HL_LOWER_LEG
   - {name: HL_FOOT}
   - name: HR_SHOULDER
     mass: {value: 0.14196048, unit: kg}
+    com: [0.09407251, 0.00438935, 1.384e-05]
     frame: HR_SHOULDER
   - name: HR_UPPER_LEG
     mass: {value: 0.14737324, unit: kg}
+    com: [-1.53e-05, -0.0176764, -0.0783823]
     frame: HR_UPPER_LEG
   - name: HR_LOWER_LEG
     mass: {value: 0.02318294, unit: kg}
+    com: [0.0, -0.00776716, -0.07003876]
     frame: HR_LOWER_LEG
   - {name: HR_FOOT}
   joints:

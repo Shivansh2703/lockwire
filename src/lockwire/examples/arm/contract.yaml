@@ -28,26 +28,33 @@ model:
   links:
   - name: base_link
     mass: {value: 0.147, unit: kg}
+    com: [0.0137179, -5.19711e-05, 0.0334843]
     frame: base_link
   - name: shoulder_link
     mass: {value: 0.100006, unit: kg}
+    com: [-0.0307604, -1.66727e-05, -0.0252713]
     frame: shoulder_link
   - name: upper_arm_link
     mass: {value: 0.103, unit: kg}
+    com: [-0.0898471, -0.00838224, 0.0184089]
     frame: upper_arm_link
   - name: lower_arm_link
     mass: {value: 0.104, unit: kg}
+    com: [-0.0980701, 0.00324376, 0.0182831]
     frame: lower_arm_link
   - name: wrist_link
     mass: {value: 0.079, unit: kg}
+    com: [-0.000103312, -0.0386143, 0.0281156]
     frame: wrist_link
   - name: gripper_link
     mass: {value: 0.087, unit: kg}
+    com: [0.000213627, 0.000245138, -0.025187]
     frame: gripper_link
   - name: gripper_frame_link
     frame: gripper_frame_link
   - name: moving_jaw_so101_v1_link
     mass: {value: 0.012, unit: kg}
+    com: [-0.00157495, -0.0300244, 0.0192755]
     frame: moving_jaw_so101_v1_link
   joints:
   - name: gripper_frame_joint

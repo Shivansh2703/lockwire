@@ -80,6 +80,25 @@ describe("Check panel", () => {
     expect(onRecheck).toHaveBeenCalledTimes(1);
   });
 
+  it("a grouped card titled with its own numbers shows each joint's line, with no shared note", async () => {
+    const weak = (n: string) => ({ ...first!, severity: "violation" as const, shape: "devices/*/drives_joint", group_title: "{n} servos can't reach their joint limit", title: `${n}: servo 1.91 N·m, joint limit 10 N·m`, label: "Servo too weak", targets: [{ kind: "device" as const, id: `dev.${n}`, label: `Servo ${n}` }] });
+    const page = { ...PAGE, cards: [weak("Elbow"), weak("Gripper")] };
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={page as never} selected={0} onSelect={() => {}} onRecheck={() => {}} />));
+    expect(container.querySelector(".kit-finding-title")!.textContent).toBe("2 servos can't reach their joint limit");
+    expect([...container.querySelectorAll(".check-group .kit-finding-title")].map((e) => e.textContent)).toEqual(["Elbow: servo 1.91 N·m, joint limit 10 N·m", "Gripper: servo 1.91 N·m, joint limit 10 N·m"]);
+    expect(container.querySelector(".check-group-note")).toBeNull();
+  });
+
+  it("a grouped stage-recording card set keeps its shared note and labels rows by device", () => {
+    const rec = (n: string) => ({ ...first!, severity: "violation" as const, shape: "devices/*/rate_hz", group_title: "{n} recording differs from lockfile", title: `${n}: recording differs from lockfile`, label: "Rate", targets: [{ kind: "device" as const, id: `dev.${n}`, label: `Cam ${n}` }] });
+    const page = { ...PAGE, cards: [rec("a"), rec("b")] };
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={page as never} selected={0} onSelect={() => {}} onRecheck={() => {}} />));
+    expect([...container.querySelectorAll(".check-group .kit-finding-title")].map((e) => e.textContent)).toEqual(["Cam a", "Cam b"]);
+    expect(container.querySelectorAll(".check-group-note")).toHaveLength(1);
+  });
+
   it("only an engine-flagged whole-robot card gets the Whole robot chip and tint", async () => {
     const mk = (n: number, whole: boolean) => ({ ...first!, severity: "violation" as const, shape: `s${n}`, title: `t${n}`, label: `l${n}`, targets: [], whole });
     const page = { ...PAGE, cards: [mk(0, false), mk(1, true)] };

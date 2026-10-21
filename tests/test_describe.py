@@ -30,6 +30,7 @@ from lockwire.schema import (
     DeviceModel,
     Driver,
     Joint,
+    Link,
     JointLimits,
     ModelRecord,
     Provenance,
@@ -193,6 +194,7 @@ def test_role_adjusts_from_actuator_and_drives_joint():
         source="test.urdf",
         source_sha256="abc123",
         structure_hash="def456",
+        links=[Link(name="link1"), Link(name="link2")],
         joints=[joint],
         provenance=Provenance(witness="test", source="test.urdf", locked_at="2026-01-01"),
     )
@@ -503,3 +505,23 @@ def test_human_sheet_plain_joints_battery_and_mass_reason(x500_contract):
         "gravity": {"kind": "declared", "value": 9.81, "unit": "m/s^2"},
     }
     assert "- Total mass: NOT SCORED — no total-mass budget declared" in _forces_plain(doc)
+
+
+def test_describe_refuses_a_device_id_that_leaves_the_out_folder(tmp_path):
+    """device id `../../escaped` wrote `out/../../escaped.md`."""
+    from fastapi.testclient import TestClient
+
+    from lockwire.serve import create_app
+
+    text = (FIXTURES / "contract_clean.yaml").read_text(encoding="utf-8")
+    contract = tmp_path / "a" / "lockwire.yaml"
+    contract.parent.mkdir()
+    contract.write_text(text.replace("  - id: dev.esc.busless", "  - id: ../../escaped"))
+    out = tmp_path / "a" / "b" / "out"
+    result = runner.invoke(app, ["describe", str(contract), "--out", str(out)])
+    assert result.exit_code == 2 and "refusing to write outside" in result.output
+    body = {"command": "describe", "args": {"contract": str(contract), "out": str(out)}}
+    client = TestClient(create_app("t"), base_url="http://127.0.0.1")
+    reply = client.post("/v1/run", headers={"X-Lockwire-Token": "t"}, json=body).json()
+    assert reply["exit_code"] == 2 and reply["refusal"].startswith("refusing to write outside")
+    assert not (tmp_path / "a" / "escaped.md").exists()

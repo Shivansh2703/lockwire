@@ -283,3 +283,14 @@ def test_real_world_fixture_l_finger_tip():
     for positions, _normals, _indices in result.meshes:
         for v in positions:
             assert math.isfinite(v)
+
+
+def test_refuses_utf16_doctype(tmp_path):
+    """same decode-before-match guard as the URDF path."""
+    xml = '<?xml version="1.0"?>\n<!DOCTYPE COLLADA [<!ENTITY x "y">]>\n' + _wrap(
+        _triangles_geometry()
+    )
+    path = tmp_path / "u16.dae"
+    path.write_bytes(xml.encode("utf-16"))
+    with pytest.raises(SceneRefusal, match="DOCTYPE"):
+        read_dae(path)

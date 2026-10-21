@@ -307,3 +307,48 @@ def test_a_device_reparent_leaves_the_structure_hash_alone(tmp_path):
     assert "structure hash moved" not in plain(result.output), result.output
     assert load_contract(contract).model.structure_hash == before
     assert load_contract(contract).devices[0].physical.mount_frame == "elbow"
+
+
+_UTF16_DOC = (
+    '<?xml version="1.0" encoding="UTF-16"?>\n{dt}<robot name="r"><link name="base_&e;"/></robot>'
+)
+_DT = '<!DOCTYPE robot [<!ENTITY e "EXPANDED">]>\n'
+
+
+@pytest.mark.parametrize("enc", ["utf-16", "utf-16-le", "utf-16-be"])
+def test_utf16_doctype_is_refused(tmp_path, enc):
+    """the guard must see through the encoding."""
+    path = tmp_path / "u16.urdf"
+    path.write_bytes(_UTF16_DOC.format(dt=_DT).encode(enc))
+    with pytest.raises(ValueError, match=r"DOCTYPE/ENTITY"):
+        parse_urdf(path)
+    with pytest.raises(ValueError, match=r"DOCTYPE/ENTITY"):
+        read_urdf_topology(path)
+
+
+def test_utf16_without_doctype_still_loads(tmp_path):
+    """encoding alone is not a refusal."""
+    path = tmp_path / "u16ok.urdf"
+    path.write_bytes(_UTF16_DOC.format(dt="").replace("&e;", "x").encode("utf-16"))
+    assert read_urdf_topology(path).link_names == {"base_x"}
+
+
+def test_joint_without_axis_defaults_to_x(tmp_path):
+    """The URDF default axis is (1, 0, 0)."""
+    p = tmp_path / "r.urdf"
+    p.write_text(
+        '<robot name="r"><link name="a"/><link name="b"/>'
+        '<joint name="j" type="revolute"><parent link="a"/><child link="b"/>'
+        '<limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>'
+    )
+    assert parse_urdf(p).joints[0].axis == (1.0, 0.0, 0.0)
+
+
+def test_fixed_joint_without_axis_has_no_axis(tmp_path):
+    """A fixed joint has no axis, so leaving it out records none."""
+    p = tmp_path / "f.urdf"
+    p.write_text(
+        '<robot name="r"><link name="a"/><link name="b"/>'
+        '<joint name="j" type="fixed"><parent link="a"/><child link="b"/></joint></robot>'
+    )
+    assert parse_urdf(p).joints[0].axis is None

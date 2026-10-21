@@ -1,5 +1,7 @@
+import ipaddress
 import os
 import re
+import socket
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,43 @@ os.environ["COLUMNS"] = "200"
 from lockwire.schema import Contract, load_contract
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+# Running with the network off is a tested property. Under LOCKWIRE_OFFLINE=1
+# (the `offline` CI job) any connect or DNS lookup to a non-loopback host raises.
+# The flag is read per call so tests can flip it; in-process only, so subprocesses
+# the suite spawns are not covered.
+def _offline_check(host) -> None:
+    if os.environ.get("LOCKWIRE_OFFLINE") != "1" or host in (None, "", "localhost"):
+        return
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return
+    except ValueError:
+        pass
+    raise OSError(f"LOCKWIRE_OFFLINE=1: network access to {host!r} blocked")
+
+
+def _guard_connect(real):
+    def wrapper(self, address):
+        if self.family in (socket.AF_INET, socket.AF_INET6):
+            _offline_check(address[0])
+        return real(self, address)
+
+    return wrapper
+
+
+socket.socket.connect = _guard_connect(socket.socket.connect)
+socket.socket.connect_ex = _guard_connect(socket.socket.connect_ex)
+_real_getaddrinfo = socket.getaddrinfo
+
+
+def _guard_getaddrinfo(host, *args, **kwargs):
+    _offline_check(host)
+    return _real_getaddrinfo(host, *args, **kwargs)
+
+
+socket.getaddrinfo = _guard_getaddrinfo
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 

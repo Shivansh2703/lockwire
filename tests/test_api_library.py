@@ -84,3 +84,20 @@ def test_mcp_tools_call_the_library_not_checks_directly(monkeypatch):
     result = asyncio.run(run())
     assert result.structured_content["verdict"] == "SENTINEL"
     assert result.structured_content["cli_line"] == f"lockwire check {X500}"
+
+
+def test_from_parts_none_is_a_plain_value_error():
+    """from_parts(None) was a bare AttributeError; neighbours raise ValueError."""
+    from lockwire import api
+
+    with pytest.raises(ValueError, match="parts list"):
+        api.from_parts(None)
+
+
+def test_all_and_functions_agree():
+    """every FUNCTIONS name (hyphens as underscores) is in __all__, and nothing else is a twin."""
+    from lockwire import api
+
+    extras = {"DOCUMENT_VERSION", "FUNCTIONS", "check_document", "from_parts", "is_stale"}
+    extras.add("verdict_document")
+    assert {n.replace("-", "_") for n in api.FUNCTIONS} == set(api.__all__) - extras

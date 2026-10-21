@@ -77,32 +77,11 @@ print(sorted(files))                 # ['SYSTEM.md', 'dev.imu.md', ...]
 print(files["SYSTEM.md"][:200])
 ```
 
-## `preflight(contract, recording, *, context="nominal-op") -> dict`
+## Not in the free library
 
-*Requires Lockwire Pro.*
-
-The go/no-go gate against a recording directory, a PX4 `.ulg`, or a rosbag2
-`.mcap`. The document `lockwire preflight --json` writes, including `scored` and
-`scored_by_stage` — a vacuous pass stays visibly distinct from a real one.
-
-```python
-document = lw.preflight("lockwire.yaml", "recordings/2026-09-08-bench")
-if document["exit_code"] != 0:
-    raise SystemExit(document["verdict"])
-```
-
-## `health(contract, *, now=None) -> dict`
-
-*Requires Lockwire Pro.*
-
-The health ledger's summary — what `lockwire health --json` writes, read from the
-`<stem>.health.jsonl` sidecar beside the contract. Nothing is
-predicted; this only reports what the ledger already recorded.
-
-```python
-state = lw.health("lockwire.yaml")
-print(state["worst"], state["watched"], state["last_run"])
-```
+`preflight` and `health` are part of Lockwire Pro and are **not** on `lockwire.api`
+in the free package: `lw.preflight(...)` and `lw.health(...)` raise
+`AttributeError` there. The free library's full list is `lw.FUNCTIONS`.
 
 ## `declare(contract, path, value, *, source, witness, ...) -> dict`
 
@@ -122,6 +101,51 @@ result = lw.declare(
 )
 print(result["written"], result["diff"])
 ```
+
+## The other write functions
+
+Every one takes the contract path first, needs a `source` and a `witness`, and
+accepts `dry_run=True` (show the diff, write nothing) and
+`expected_revision=` (refuse if the file changed since you read it). Each
+returns the same document as the matching CLI command's `--json`.
+
+- `add(contract, kind, *, id=None, source, witness, **fields)` — a device, rail, bus, family, model, budget or battery block.
+- `review(contract, path, state, *, witness, note=None)` — approve or question one declared value.
+- `place(contract, target, on, offset, *, unit, source, witness)` — put a device on a link with its offset.
+- `move(contract, target, offset, *, unit, source, witness)` — move a device in its mount frame, or a link in its parent's.
+- `rotate(contract, target, rpy, *, unit, source, witness)` — set a link's orientation; the unit is never assumed.
+- `reparent(contract, target, to, *, source, witness)` — change a device's mount link or a link's joint parent.
+- `mount_shape(contract, target, shape, *, source, witness)` — set a device's mount geometry.
+
+```python
+result = lw.move(
+    "lockwire.yaml",
+    "dev.flight-controller.pixhawk-6c",
+    (0.01, 0.0, 0.0),
+    unit="m",
+    source="hand measurement",
+    witness="shivansh",
+    dry_run=True,
+)
+print(result["written"])   # False
+```
+
+## Starting, importing, upgrading
+
+- `start(urdf, *, overwrite=False, expected_revision=None)` — write a first lockfile beside a robot model. It never replaces an existing lockfile unless `overwrite=True`.
+- `from_parts(text, *, out=None, catalog=None)` — match a pasted parts list to the catalog; with `out`, also write a draft lockfile.
+- `upgrade(contract, *, out, expected_revision)` — write a new lockfile from an older-format one without changing the original.
+- `api_schema(out)` and `api_types(out)` — write the JSON schema and the TypeScript types for the documents above.
+- `what_if(contract, changes)` is described above; `is_stale(document, contract)` says whether a document you hold is older than the file on disk.
+- `verdict_document(...)` and `check_document(...)` build the findings documents that every door shares; most callers want `check` instead.
+
+```python
+rows = lw.from_parts("Pixhawk 6C\nOAK-D Lite")
+print(sorted(rows))
+```
+
+`contract_sha`, `declare_form`, `load_scene` and `page` exist in the module but are
+deliberately outside the public list (`lw.__all__`) and may change.
 
 ## Git history
 

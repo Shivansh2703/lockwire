@@ -134,7 +134,7 @@ devices:
           locked_at: 2026-07-27
           note: "GNSS rate band is author-chosen engineering headroom; not fitted to a recording."
     owner: shivansh
-  # Declared but never carried by the bag — stages 0/1 disclose absence (not a no-go).
+  # Declared but never carried by the bag — stages 0/1 disclose it as declared and not seen (not scored).
   - id: dev.radio.absent
     model: mdl.radio.rfd900
     identity: {bus_ref: bus.serial1, host: nav-computer, serial_number: RFD900X-ABSENT}
