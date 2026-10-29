@@ -259,7 +259,8 @@ def _parse_joint(el: ET.Element) -> Joint:
         )
     limit_el = el.find("limit")
     limits = None
-    if limit_el is not None:
+    # A mimic joint follows its parent and has no limits of its own (OnRobot's RG6 ships 0/0/effort 0).
+    if limit_el is not None and el.find("mimic") is None:
         lower_raw, upper_raw = limit_el.get("lower"), limit_el.get("upper")
         effort_raw, velocity_raw = limit_el.get("effort"), limit_el.get("velocity")
         limits = JointLimits(

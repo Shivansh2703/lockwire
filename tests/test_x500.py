@@ -100,7 +100,8 @@ def test_x500_scored_floor_and_not_scored_set_after_b1_contract_growth():
     assert report.scored is not None
     assert report.scored >= 6  # bites losing a scored budget/voltage-compat comparison
     # bud.mass.payload has unknown masses, so it is not scored: 10 -> 9.
-    assert report.scored == 9  # one scored key per comparison — 9 total on x500
+    # The six bench-idle IMU bands each score against the board's hard limits: 9 -> 15.
+    assert report.scored == 15  # one scored key per comparison — 15 total on x500
     assert (
         report.scored_keys
         == {
@@ -113,6 +114,12 @@ def test_x500_scored_floor_and_not_scored_set_after_b1_contract_growth():
             "devices/dev.radio.rfd900x/power/rail",  # voltage compatibility, radio now on a modeled rail
             "devices/dev.radio.rfd900x/link_budget",  # no longer shares a key with the voltage-compat comparison above
             "rails/rail.pixhawk-telem1-5v",  # new rail's voltage comparison vs its upstream
+            "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/accel_x",
+            "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/accel_y",
+            "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/accel_z",
+            "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/gyro_x",
+            "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/gyro_y",
+            "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/gyro_z",
         }
     )
 

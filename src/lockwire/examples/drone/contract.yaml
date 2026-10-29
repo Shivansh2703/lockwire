@@ -64,7 +64,14 @@ device_models:
       witness: w0
       source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification
       locked_at: 2026-07-25
-      note: "Board current draw is unknown; aluminium/plastic case masses are variants, so no installed mass is selected."
+      note: "Board current draw is unknown; aluminium/plastic case masses are variants, so no installed mass is selected. Sensor limits (hard_limits): the board's primary IMU is the ICM-42688-P (see mdl.imu.icm-42688-p), so the limits below are its selected full-scale ranges from the TDK InvenSense datasheet DS-000347 section 3.1/3.2 (read 2026-10-22): accelerometer +/-16 g (ACCEL_FS_SEL=0) = +/-156.9064 m/s^2, gyroscope +/-2000 deg/s (GYRO_FS_SEL=0) = +/-34.9066 rad/s. These are the ranges the flight stack configures only if it selects the widest scale; a narrower selection would clip earlier."
+    hard_limits:
+      accel_x: {lo: -156.9064, hi: 156.9064, unit: "m/s^2"}
+      accel_y: {lo: -156.9064, hi: 156.9064, unit: "m/s^2"}
+      accel_z: {lo: -156.9064, hi: 156.9064, unit: "m/s^2"}
+      gyro_x: {lo: -34.9066, hi: 34.9066, unit: "rad/s"}
+      gyro_y: {lo: -34.9066, hi: 34.9066, unit: "rad/s"}
+      gyro_z: {lo: -34.9066, hi: 34.9066, unit: "rad/s"}
   - id: mdl.companion.jetson-orin-nano
     family: fam.companion.sbc
     provenance:
@@ -284,6 +291,26 @@ devices:
     physical:
       mass: {value: 59.3, unit: g}
       mount_frame: x500_frame
+    envelopes:
+      - context: bench-idle
+        signals:
+          accel_x:
+            band: {lo: -0.196133, hi: 0.196133, unit: m/s^2}
+          accel_y:
+            band: {lo: -0.196133, hi: 0.196133, unit: m/s^2}
+          accel_z:
+            band: {lo: -10.002783, hi: -9.610517, unit: m/s^2}
+          gyro_x:
+            band: {lo: -0.0087266, hi: 0.0087266, unit: rad/s}
+          gyro_y:
+            band: {lo: -0.0087266, hi: 0.0087266, unit: rad/s}
+          gyro_z:
+            band: {lo: -0.0087266, hi: 0.0087266, unit: rad/s}
+        provenance:
+          witness: human
+          source: "TDK InvenSense ICM-42688-P Datasheet DS-000347, section 3.1 and 3.2 (read from the datasheet PDF, Revision 1.2 mirror, 2026-10-22); product page https://invensense.tdk.com/products/motion-tracking/6-axis/icm-42688-p/ for the current revision"
+          locked_at: 2026-10-22
+          note: "The Pixhawk 6C carries the ICM-42688-P as its primary IMU (see mdl.imu.icm-42688-p), so the IMU bands are declared on the flight controller device, which is what the recording reports. Vehicle at rest, level, on the bench (+Z reads -g in the recording's sign convention). Gyro band is the datasheet row 'Initial ZRO Tolerance, Board-level, 25C: +/-0.5 deg/s' = +/-0.0087266 rad/s (0.5 x pi/180). Accel x/y band is the row 'ZERO-G OUTPUT Initial Tolerance, Board-level, all axes: +/-20 mg' = +/-0.196133 m/s^2 (20e-3 x 9.80665); the z band is -9.80665 +/- 0.196133 for the same tolerance. The datasheet figures are at 25 C and board level; ZRO drifts +/-0.005 deg/s per C and zero-g +/-0.15 mg per C (same tables), which this band does not widen for. Assumes a level mount: a tilted airframe reads gravity on x/y and would trip it. Newer datasheet revisions were not readable (TDK site blocks automated fetch); the +/-20 figure matches the TDK product page listing 'Accel ZGO'."
     owner: avionics-integration
     provenance:
       witness: w0

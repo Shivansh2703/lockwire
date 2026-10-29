@@ -16,6 +16,10 @@ export const MENU_OPENED_CHANNEL = "lockwire:opened-from-menu";
 // message ({ type: "done", turn }). Same shape as the pushes above.
 export const ASSISTANT_EVENT_CHANNEL = "lockwire:assistant-event";
 
+// main -> renderer push: the drawer Terminal's pty output ({ type: "data", data }) and its end
+// ({ type: "exit", code }).
+export const TERMINAL_EVENT_CHANNEL = "lockwire:terminal-event";
+
 export const PERMITTED_COMMAND_CLASSES = [
   "contract:edit",
   "contract:write",
@@ -41,6 +45,10 @@ export const PERMITTED_COMMAND_CLASSES = [
   "assistant:send",
   "assistant:apply",
   "assistant:cancel",
+  "terminal:start",
+  "terminal:write",
+  "terminal:resize",
+  "terminal:kill",
 ] as const;
 
 export type CommandClass = (typeof PERMITTED_COMMAND_CLASSES)[number];
@@ -151,3 +159,6 @@ export type AssistantProposal = { id: string; command: string; args: Record<stri
 export type AssistantTurn = { text: string; proposals: AssistantProposal[]; error?: string };
 export type AssistantApplyResult = { ok: true } | { ok: false; error: string };
 export type AssistantEvent = { type: "tool"; name: string } | { type: "done"; turn: AssistantTurn };
+
+export type TerminalStartRequest = { cols: number; rows: number; /** The open robot's folder; main falls back to home. */ cwd?: string };
+export type TerminalEvent = { type: "data"; data: string } | { type: "exit"; code: number };

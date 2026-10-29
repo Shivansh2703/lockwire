@@ -28,7 +28,7 @@ const GAP = 12;
 // What the floating pieces cover: a side with a panel is cleared by its measured rect + gap, a side without one keeps only a small margin, so the robot centres in the open area that is really visible. Top/bottom keep the bar floors.
 const SIDE_MARGIN = 24;
 export function measureInset(root: HTMLElement): ViewInset {
-  const box = root.getBoundingClientRect();
+  const box = (root.querySelector(".kit-workspace") ?? root).getBoundingClientRect(); // the workspace, not the shell: the drawer narrows it
   const slot = (n: string) => { const r = root.querySelector(`.kit-slot-${n}`)?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? r : undefined; };
   const top = slot("top"), right = slot("right"), bottom = slot("bottom"), left = slot("left");
   return {
@@ -40,7 +40,7 @@ export function measureInset(root: HTMLElement): ViewInset {
 }
 
 export function Shell({
-  robotName, onRobot, mode, onModeChange, scene, sceneSummary, locked, connected, cliLine, onFit, onOverwrite, notices, wide, center, left, above, tools, assistant, children,
+  robotName, onRobot, mode, onModeChange, scene, sceneSummary, locked, connected, cliLine, onFit, onOverwrite, notices, wide, center, left, above, tools, assistant, drawer, children,
 }: {
   robotName?: string;
   /** The robot's name chip opens Design on the whole robot. */
@@ -70,6 +70,8 @@ export function Shell({
   tools?: ReactNode;
   /** The top-bar Assistant button; no onToggle = no robot open yet, so it is disabled. */
   assistant?: { open: boolean; onToggle?: () => void };
+  /** The side drawer (SideDrawer); it sits outside the workspace, which shrinks to make room. */
+  drawer?: ReactNode;
   /** The right-hand panel. */
   children?: ReactNode;
 }) {
@@ -90,7 +92,7 @@ export function Shell({
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     el.querySelectorAll(".kit-slot-top, .kit-slot-right, .kit-slot-bottom, .kit-slot-left").forEach((n) => ro?.observe(n));
     return () => { window.removeEventListener("resize", update); ro?.disconnect(); };
-  }, [mode, wide, !!children, !!left, !!above]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, wide, !!children, !!left, !!above, !!assistant?.open]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <CommandCtx.Provider value={setPageCommand}>
     <div className="shell" ref={ref} data-wide={wide || undefined}>
@@ -102,7 +104,7 @@ export function Shell({
         top={locked ? undefined : <div className="app-no-drag shell-tabs"><PillTabs tabs={TABS} value={mode} onChange={onModeChange} label="Mode" />{!pro && ["Test", "Run"].map((t) => (
           <span key={t} className="shell-pro-tab" aria-disabled="true" title={`Test and Run are in ${PRODUCT_NAME} Pro`}>{t}<span className="shell-pro-badge">Pro</span></span>
         ))}</div>}
-        topRight={<div className="app-no-drag"><ToolPill label="App">{assistant && <Button variant="quiet" aria-pressed={assistant.open} disabled={!assistant.onToggle} onClick={assistant.onToggle}>Assistant</Button>}<ThemeToggle /></ToolPill></div>}
+        topRight={<div className="app-no-drag"><ToolPill label="App">{assistant && <Button variant="quiet" aria-expanded={assistant.open} aria-controls="side-drawer" disabled={!assistant.onToggle} onClick={assistant.onToggle}>Assistant</Button>}<ThemeToggle /></ToolPill></div>}
         left={left}
         right={children}
         bottomLeft={locked && connected ? undefined : <div className="app-no-drag"><StatusPill status={connected ? "go" : "bad"}>{connected ? "Connected" : "Not connected"}</StatusPill></div>}
@@ -124,6 +126,7 @@ export function Shell({
         {center && <div className="shell-center">{center}</div>}
         {notices && <div className="shell-notices">{notices}</div>}
       </Workspace>
+      {drawer}
     </div>
     </CommandCtx.Provider>
   );

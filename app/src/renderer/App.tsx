@@ -22,6 +22,7 @@ import { declarePart, highlightsFromCards, highlightsFromFindings, partsOfPath, 
 import { Shell } from "./Shell";
 import { toScenePart } from "./DesignPanel";
 import type { Mode } from "./Frame";
+import { SideDrawer } from "./SideDrawer";
 import { AssistantPanel, EMPTY_CHAT, type Chat } from "./AssistantPanel";
 import { DocsPanel } from "./DocsPanel";
 import { OpenFace } from "./OpenFace";
@@ -604,6 +605,9 @@ export function App() {
       mode={mode}
       wide={mode === "Reference" && !(assistantOpen && opened)}
       assistant={{ open: assistantOpen && !!opened, onToggle: opened ? () => setAssistantOpen((o) => !o) : undefined }}
+      drawer={<SideDrawer open={assistantOpen && !!opened} onClose={() => setAssistantOpen(false)} cwd={assistantOpen ? opened?.path.replace(/[\\/][^\\/]*$/, "") : undefined} assistant={assistantOpen && opened && (
+        <AssistantPanel contract={opened.path} revision={opened.revision} mode={mode} witness={opened.declareForm.witness.prefill} chat={chats[opened.path] ?? EMPTY_CHAT} onChat={(f) => setChats((m) => ({ ...m, [opened.path]: f(m[opened.path] ?? EMPTY_CHAT) }))} onApplied={onOpenLockfile} />
+      )} />}
       onModeChange={(next) => {
         setFindingSel(null);
         // A part chosen elsewhere opens on its own Declare row.
@@ -662,9 +666,6 @@ export function App() {
     >
       {mode === "Check" || mode === "Design" || mode === "Reference" || !body || (OWN_PANEL.has(mode) && opened) ? body : (
         <Panel title={label}>{body}</Panel>
-      )}
-      {assistantOpen && opened && ( // docks under the mode's own panel; the right slot scrolls when both are tall
-        <AssistantPanel contract={opened.path} revision={opened.revision} mode={mode} witness={opened.declareForm.witness.prefill} chat={chats[opened.path] ?? EMPTY_CHAT} onChat={(f) => setChats((m) => ({ ...m, [opened.path]: f(m[opened.path] ?? EMPTY_CHAT) }))} onApplied={onOpenLockfile} />
       )}
       {pro && (
         <pro.Pages

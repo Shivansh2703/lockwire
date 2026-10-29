@@ -1103,50 +1103,60 @@ device_models:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/"
       locked_at: 2026-10-15
-      note: "Robotis e-Manual, XC330-T288, fetched 2026-10-15: Stall Torque 1.00 N.m at 12.0 V, 0.88 A; Input Voltage 6.5 ~ 12.0 V (recommended 11.1 V). Stall draw at 12 V = 12 V x 0.88 A = 10.56 W."
+      note: "Robotis e-Manual, XC330-T288, fetched 2026-10-15: Stall Torque 1.00 N.m at 12.0 V, 0.88 A; Input Voltage 6.5 ~ 12.0 V (recommended 11.1 V). Stall draw at 12 V = 12 V x 0.88 A = 10.56 W. temperature_c hard limit -5 to 70 C: Robotis e-Manual (read 2026-10-22) Specifications table, 'Operating Temperature -5 ~ +70 [°C]' (https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/); control table row 'Present Temperature' (address 146, read-only, unit C). The Temperature Limit register (row '31 1 Temperature Limit RW 70 0 ~ 100 1 [℃]') is a user-writable shutdown default; the operating range is used as the limit."
     input_voltage_range:
       min: {value: 6.5, unit: V}
       max: {value: 12.0, unit: V}
+    hard_limits:
+      temperature_c: {lo: -5, hi: 70, unit: degC, why: "Outside the servo's published operating temperature range"}
   - id: mdl.servo.2xc430-w250
     family: fam.servo.dynamixel
     provenance:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/"
       locked_at: 2026-10-15
-      note: "Robotis e-Manual, 2XC430-W250, fetched 2026-10-15: Stall Torque 1.8 N.m at 12.0 V, 1.4 A; Input Voltage 6.5 ~ 14.8 V (recommended 12.0 V); the page lists one stall figure for the whole two-axis module. Stall draw at 12 V = 12 V x 1.4 A = 16.8 W."
+      note: "Robotis e-Manual, 2XC430-W250, fetched 2026-10-15: Stall Torque 1.8 N.m at 12.0 V, 1.4 A; Input Voltage 6.5 ~ 14.8 V (recommended 12.0 V); the page lists one stall figure for the whole two-axis module. Stall draw at 12 V = 12 V x 1.4 A = 16.8 W. temperature_c hard limit -5 to 72 C: Robotis e-Manual (read 2026-10-22) Specifications table, 'Operating Temperature -5 ~ +72 [°C]' (https://emanual.robotis.com/docs/en/dxl/x/2xc430-w250/); control table row 'Present Temperature' (address 146, read-only, unit C). The Temperature Limit register (row '31 | 1 | Temperature Limit | RW | 80 | 0 ~ 100 | 1 [°C]') is a user-writable shutdown default; the operating range is used as the limit."
     input_voltage_range:
       min: {value: 6.5, unit: V}
       max: {value: 14.8, unit: V}
+    hard_limits:
+      temperature_c: {lo: -5, hi: 72, unit: degC, why: "Outside the servo's published operating temperature range"}
   - id: mdl.servo.xc430-t240bb
     family: fam.servo.dynamixel
     provenance:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/"
       locked_at: 2026-10-15
-      note: "Robotis e-Manual, XC430-T240BB, fetched 2026-10-15: Stall Torque 1.9 N.m at 12.0 V, 1.4 A; Input Voltage 6.5 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 1.4 A = 16.8 W."
+      note: "Robotis e-Manual, XC430-T240BB, fetched 2026-10-15: Stall Torque 1.9 N.m at 12.0 V, 1.4 A; Input Voltage 6.5 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 1.4 A = 16.8 W. temperature_c hard limit -5 to 80 C: Robotis e-Manual (read 2026-10-22) Specifications table, 'Operating Temperature -5 ~ +80 [°C]' (https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/); control table row 'Present Temperature' (address 146, read-only, unit C). The Temperature Limit register (row '31 | 1 | Temperature Limit | RW | 80 | 0 ~ 100 | 1 [°C]') is a user-writable shutdown default; the operating range is used as the limit."
     input_voltage_range:
       min: {value: 6.5, unit: V}
       max: {value: 14.8, unit: V}
+    hard_limits:
+      temperature_c: {lo: -5, hi: 80, unit: degC, why: "Outside the servo's published operating temperature range"}
   - id: mdl.servo.xm430-w210
     family: fam.servo.dynamixel
     provenance:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/"
       locked_at: 2026-10-15
-      note: "Robotis e-Manual, XM430-W210, fetched 2026-10-15: Stall Torque 3.0 N.m at 12.0 V, 2.3 A; Input Voltage 10.0 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 2.3 A = 27.6 W."
+      note: "Robotis e-Manual, XM430-W210, fetched 2026-10-15: Stall Torque 3.0 N.m at 12.0 V, 2.3 A; Input Voltage 10.0 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 2.3 A = 27.6 W. temperature_c hard limit -5 to 80 C: Robotis e-Manual (read 2026-10-22) Specifications table, 'Operating Temperature -5 ~ +80 [°C]' (https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/); control table row 'Present Temperature' (address 146, read-only, unit C). The Temperature Limit register (row '31 | 1 | Temperature Limit | RW | 80 | 0 ~ 100 | 1 [°C]') is a user-writable shutdown default; the operating range is used as the limit."
     input_voltage_range:
       min: {value: 10.0, unit: V}
       max: {value: 14.8, unit: V}
+    hard_limits:
+      temperature_c: {lo: -5, hi: 80, unit: degC, why: "Outside the servo's published operating temperature range"}
   - id: mdl.servo.xm430-w350
     family: fam.servo.dynamixel
     provenance:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/"
       locked_at: 2026-10-15
-      note: "Robotis e-Manual, XM430-W350, fetched 2026-10-15: Stall Torque 4.1 N.m at 12.0 V, 2.3 A; Input Voltage 10.0 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 2.3 A = 27.6 W."
+      note: "Robotis e-Manual, XM430-W350, fetched 2026-10-15: Stall Torque 4.1 N.m at 12.0 V, 2.3 A; Input Voltage 10.0 ~ 14.8 V (recommended 12.0 V). Stall draw at 12 V = 12 V x 2.3 A = 27.6 W. temperature_c hard limit -5 to 80 C: Robotis e-Manual (read 2026-10-22) Specifications table, 'Operating Temperature -5 ~ +80 [°C]' (https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/); control table row 'Present Temperature' (address 146, read-only, unit C). The Temperature Limit register (row '31 1 Temperature Limit RW 80 0 ~ 100 -') is a user-writable shutdown default; the operating range is used as the limit."
     input_voltage_range:
       min: {value: 10.0, unit: V}
       max: {value: 14.8, unit: V}
+    hard_limits:
+      temperature_c: {lo: -5, hi: 80, unit: degC, why: "Outside the servo's published operating temperature range"}
   - id: mdl.regulator.pololu-d36v50f12
     family: fam.regulator
     provenance:

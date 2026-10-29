@@ -233,10 +233,12 @@ device_models:
       witness: w0
       source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware mechanics/actuator_module_v1/README.md; electronics/micro_driver_electronics/README.md; arxiv.org/abs/1910.00093"
       locked_at: 2026-10-15
-      note: "T-Motor Antigravity 4004 300KV, dual-stage timing belt 3:1 x 3:1 = 9:1 (actuator README; paper II-A). Paper: k_i = 0.025 N m/A, tau_joint = 0.225 i, tau_max = 2.7 N m at 12 A. Micro-driver board input 5-32 V, 'we operate our robots at 24 V' (micro-driver README), used as the input range."
+      note: "T-Motor Antigravity 4004 300KV, dual-stage timing belt 3:1 x 3:1 = 9:1 (actuator README; paper II-A). Paper: k_i = 0.025 N m/A, tau_joint = 0.225 i, tau_max = 2.7 N m at 12 A. Micro-driver board input 5-32 V, 'we operate our robots at 24 V' (micro-driver README), used as the input range. current_a hard limit +/-12 A: the paper (https://arxiv.org/pdf/1910.00093, read 2026-10-22) states 'The actuator can output tau_max = 2.7 N m joint torque at 12 A.'; the 12 A is a rated peak, and the paper gives no lower bound beyond its symmetric reading for reverse torque. The Solo12's IMU and per-motor temperature are NOT declared: the motor driver publishes no temperature figure, and the IMU bias figures could not be sourced to a page that names the Solo12's part."
     input_voltage_range:
       min: {value: 5, unit: V}
       max: {value: 32, unit: V}
+    hard_limits:
+      current_a: {lo: -12, hi: 12, unit: A, why: "The ODRI paper rates the actuator at 12 A (2.7 N m joint torque); above it the module is outside its published envelope"}
 devices:
   - id: dev.motor.front-left-hip-abduction
     model: mdl.actuator.odri-4004-9to1

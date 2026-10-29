@@ -1,13 +1,14 @@
 {
   "name": "lockwire-app",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "main": "./out/main/index.js",
+  "allowScripts": { "node-pty@1.1.0": true },
   "engines": {
     "node": ">=22.22.2"
   },
   "scripts": {
-    "postinstall": "node node_modules/electron/install.js",
+    "postinstall": "node node_modules/electron/install.js && node scripts/chmod-pty-helper.mjs",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
@@ -21,6 +22,8 @@
     "appId": "com.shivansh.lockwire",
     "productName": "Lockwire",
     "files": ["out/**/*"],
+    "asarUnpack": ["node_modules/node-pty/**"],
+    "npmRebuild": false,
     "icon": "assets/icon.png",
     "extraResources": [
       {
@@ -51,7 +54,10 @@
     }
   },
   "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "ajv": "8.20.0",
+    "node-pty": "1.1.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "three": "0.185.1"

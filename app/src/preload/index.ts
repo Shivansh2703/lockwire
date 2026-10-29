@@ -8,6 +8,7 @@ import {
   ASSISTANT_EVENT_CHANNEL,
   MENU_OPENED_CHANNEL,
   RUN_CHANNEL,
+  TERMINAL_EVENT_CHANNEL,
   SIDECAR_STATE_CHANGED_CHANNEL,
   type CommandClass,
   type AssistantApplyResult,
@@ -17,6 +18,8 @@ import {
   type AssistantSetRequest,
   type AssistantSetResult,
   type AssistantTurn,
+  type TerminalEvent,
+  type TerminalStartRequest,
   type StartUrdfRequest,
   type ContractWhatIfRequest,
   type ContractPageRequest,
@@ -75,6 +78,15 @@ const lockwire = {
     const listener = (_event: unknown, payload: AssistantEvent) => cb(payload);
     ipcRenderer.on(ASSISTANT_EVENT_CHANNEL, listener);
     return () => ipcRenderer.removeListener(ASSISTANT_EVENT_CHANNEL, listener);
+  },
+  startTerminal: (request: TerminalStartRequest): Promise<{ ok: true }> => run("terminal:start", request),
+  writeTerminal: (data: string): Promise<{ ok: true }> => run("terminal:write", { data }),
+  resizeTerminal: (cols: number, rows: number): Promise<{ ok: true }> => run("terminal:resize", { cols, rows }),
+  killTerminal: (): Promise<{ ok: true }> => run("terminal:kill", undefined),
+  onTerminalEvent: (cb: (event: TerminalEvent) => void): (() => void) => {
+    const listener = (_event: unknown, payload: TerminalEvent) => cb(payload);
+    ipcRenderer.on(TERMINAL_EVENT_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(TERMINAL_EVENT_CHANNEL, listener);
   },
   onSidecarState: (cb: (state: SidecarState) => void): (() => void) => {
     const listener = (_event: unknown, state: SidecarState) => cb(state);

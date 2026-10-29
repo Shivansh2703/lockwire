@@ -1655,6 +1655,10 @@ def _build_budget(fields: dict[str, Any], doc: Any) -> CommentedMap:
         entry["draw_mode"] = fields["draw_mode"]
     if fields.get("sources"):
         entry["sources"] = fields["sources"]
+    if fields.get("nominal"):
+        entry["nominal"] = parse_value(fields["nominal"], field_name="nominal")
+    if fields.get("tolerance_pct"):
+        entry["tolerance_pct"] = float(fields["tolerance_pct"])
     entry["owner"] = fields["owner"]
     return entry
 

@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 
 describe("preload exposes a small, explicitly enumerated API", () => {
-  it("test_exposed_surface_is_exactly_the_twenty_eight_named_methods", async () => {
+  it("test_exposed_surface_is_exactly_the_thirty_three_named_methods", async () => {
     await import("./index");
     expect(Object.keys(exposed.lockwire as object).sort()).toEqual([
       "applyAssistant",
@@ -44,21 +44,26 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       "getHistory",
       "getSidecarState",
       "getStarters",
+      "killTerminal",
       "newRobot",
       "onAssistantEvent",
       "onOpenedFromMenu",
       "onSidecarState",
+      "onTerminalEvent",
       "openDroppedPath",
       "openLockfile",
       "pathForFile",
+      "resizeTerminal",
       "restartSidecar",
       "runProbe",
       "sendAssistant",
       "sendRobotCommand",
       "setAssistantSettings",
       "startFromUrdf",
+      "startTerminal",
       "undoContract",
       "writeContract",
+      "writeTerminal",
     ]);
   });
 

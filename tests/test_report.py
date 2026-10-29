@@ -824,7 +824,8 @@ def test_scored_line_reports_adds_up_do_not_and_not_scored():
     # the mass budget has three devices with unknown mass, so it moves
     # from scored to not scored (the budget total is not scored, not a partial sum), and
     # the per-device rows stay: scored 10 -> 9 (one add-up row gone), not scored 9 -> 10.
-    assert lines[scored_index] == "scored 9: 7 add up, 2 do not · 10 not scored"
+    # The starters' six bench-idle IMU bands sit inside the hard limits: 9 -> 15, 7 -> 13 add up.
+    assert lines[scored_index] == "scored 15: 13 add up, 2 do not · 10 not scored"
     assert scored_index == verdict_index - 1  # directly before the verdict line
 
 

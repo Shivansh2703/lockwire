@@ -7,6 +7,7 @@ import hashlib
 import json
 import multiprocessing
 import queue
+import sys
 import time
 import traceback
 from contextlib import contextmanager
@@ -2714,6 +2715,7 @@ def test_invalid_mount_shape_and_place_refusals_preserve_exact_bytes(tmp_path):
         assert contract.read_bytes() == before, f"{label} wrote to the file"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows chmod sets only the read-only bit")
 def test_edit_keeps_file_mode(tmp_path):
     """An edit keeps the contract's file mode. The lock file beside the contract is kept on
     purpose: it is the shared inode other editors wait on."""

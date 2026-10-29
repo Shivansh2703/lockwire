@@ -135,7 +135,9 @@ device_models:
       witness: w0
       source: "emanual.robotis.com/docs/en/dxl/x/xl430-w250/"
       locked_at: 2026-10-15
-      note: "Input 6.5-12.0 V (recommended 11.1 V); stall torque 1.4 N.m at 11.1 V, 1.3 A; standby current 52 mA; mass 57.2 g."
+      note: "Input 6.5-12.0 V (recommended 11.1 V); stall torque 1.4 N.m at 11.1 V, 1.3 A; standby current 52 mA; mass 57.2 g. temperature_c hard limit -5 to 72 C: Robotis e-Manual (read 2026-10-22) Specifications table, 'Operating Temperature -5 ~ +72 [°C]' (https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/); control table row 'Present Temperature' (address 146, read-only, unit C). The Temperature Limit register (row '31 1 Temperature Limit RW 72 0 ~ 100 1 [°C]') is a user-writable shutdown default; the operating range is used as the limit."
+    hard_limits:
+      temperature_c: {lo: -5, hi: 72, unit: degC, why: "Outside the servo's published operating temperature range"}
   - id: mdl.lidar.lds-02
     family: fam.lidar
     provenance:

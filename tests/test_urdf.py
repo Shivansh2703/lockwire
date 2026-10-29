@@ -352,3 +352,14 @@ def test_fixed_joint_without_axis_has_no_axis(tmp_path):
         '<joint name="j" type="fixed"><parent link="a"/><child link="b"/></joint></robot>'
     )
     assert parse_urdf(p).joints[0].axis is None
+
+
+def test_mimic_joint_with_zero_limits_loads(tmp_path):
+    """A mimic joint's own lower=upper=0 limit is ignored, not refused (OnRobot RG6)."""
+    p = tmp_path / "m.urdf"
+    p.write_text(
+        '<robot name="r"><link name="a"/><link name="b"/><joint name="j" type="revolute">'
+        '<parent link="a"/><child link="b"/><limit lower="0" upper="0"/><mimic joint="k"/>'
+        "</joint></robot>"
+    )
+    assert parse_urdf(p).joints[0].limits is None

@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.2.4 — unreleased
+## 0.2.5 — unreleased
+
+- A side drawer in the app, opened with the Assistant button: the Assistant moves into it, and a Terminal tab gives you a real shell that starts in your robot's folder.
+- The drone, arm, quadruped, rover and humanoid starters declare sourced sensor limits.
+- A `mass_total` budget can declare an optional `nominal` mass and `tolerance_pct`; existing lockfiles stay valid.
+- URDF mimic joints with zero limits load again.
+- The file-mode test runs only on macOS and Linux, where file modes exist, so Windows CI is green again.
+- Fixed: a URDF whose fixed joint carries `lower="0" upper="0"` limits (Kinova's gen3_lite.urdf, for one) opens again. Limits are only checked on moving joints.
+
+## 0.2.4 — 2026-10-21
 
 New in the free app and library:
 

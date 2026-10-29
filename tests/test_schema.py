@@ -2111,12 +2111,17 @@ def test_joint_parent_and_child_must_be_links():
     [{"lower": 1.0, "upper": 1.0}, {"lower": 3.0, "upper": -3.0}, {"velocity": -3.0}],
 )
 def test_joint_limits_bounded(limits):
-    """lower >= upper and negative velocity are refused, field named."""
-    from lockwire.schema import JointLimits
+    """lower >= upper on a moving joint and negative velocity are refused, field named;
+    a fixed joint's 0/0 limits load (Kinova's gen3_lite.urdf ships them)."""
+    from lockwire.schema import Joint
 
     with pytest.raises(ValidationError, match="lower|upper|velocity"):
-        JointLimits(**limits)
-    JointLimits(lower=-1.0, upper=1.0, velocity=0.0, effort=-1.0)
+        Joint.model_validate(_joint(limits=limits))
+    Joint.model_validate(
+        _joint(limits={"lower": -1.0, "upper": 1.0, "velocity": 0.0, "effort": -1.0})
+    )
+    Joint.model_validate(_joint(type="fixed", limits={"lower": 0.0, "upper": 0.0}))
+    Joint.model_validate(_joint(type="continuous", limits={"lower": 0.0, "upper": 0.0}))
 
 
 @pytest.mark.parametrize("pct", [1e9, -5, 100.5])
@@ -2144,3 +2149,13 @@ def test_numeric_field_refuses_string():
         Rail.model_validate(
             {"id": "r", "capacity": {"value": 5, "unit": "W"}, "output_tolerance_pct": "5"}
         )
+
+
+def test_budget_nominal_must_be_positive():
+    """A 0 kg nominal would divide by zero in the mass check; it is refused."""
+    from lockwire.schema import Budget
+
+    base = {"id": "b", "kind": "mass_total", "limit": {"value": 2, "unit": "kg"}, "owner": "o"}
+    with pytest.raises(ValidationError, match="nominal must be positive"):
+        Budget.model_validate({**base, "nominal": {"value": 0, "unit": "kg"}})
+    Budget.model_validate({**base, "nominal": {"value": 1, "unit": "kg"}})

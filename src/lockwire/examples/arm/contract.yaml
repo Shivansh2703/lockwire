@@ -137,10 +137,15 @@ device_models:
       witness: w0
       source: "https://www.waveshare.com/st3215-servo.htm; github.com/TheRobotStudio/SO-ARM100 README.md (Bill of Materials, follower-arm note)"
       locked_at: 2026-10-15
-      note: "STS3215 12 V version: operating voltage 6-12.6 V, 30 kg.cm at 12 V, no-load current 200 mA, locked-rotor current 2.7 A (Waveshare retailer listing, not manufacturer). The README says the 12 V version has 30 kg.cm stall torque; the 7.4 V version is 16.5 kg.cm at 6 V."
+      note: "STS3215 12 V version: operating voltage 6-12.6 V, 30 kg.cm at 12 V, no-load current 200 mA, locked-rotor current 2.7 A (Waveshare retailer listing, not manufacturer). The README says the 12 V version has 30 kg.cm stall torque; the 7.4 V version is 16.5 kg.cm at 6 V. temperature_c hard limit 70 C: Feetech STS memory table (https://aifitlab-wiki.super.site/feetech-servo-motor-docs/feetech-sts-servo-memory-table-analysis, read 2026-10-22, a third-party transcription of the Feetech table): row Maximum Temperature Limit, address 13 (0x0D), initial value 70, range 0 ~ 100, unit C; row Present Temperature, address 63 (0x3F), read-only, unit C, Internal temperature of the servo. The 70 C is a user-writable default, not an absolute rating; a translated vendor datasheet is said to state torque output turns off above 70 C (second-hand, could not read the PDF). No lower temperature bound is published, so the floor is absolute zero."
     input_voltage_range:
       min: {value: 6, unit: V}
       max: {value: 12.6, unit: V}
+    hard_limits:
+      # Feetech STS memory table: Maximum Temperature Limit, address 13 (0x0D), initial value 70, range 0-100, unit C;
+      # Present Temperature, address 63 (0x3F), read-only, unit C. The lower bound is NOT published: absolute zero is
+      # used only as a non-binding floor so the bound is one-sided.
+      temperature_c: {lo: -273.15, hi: 70, unit: degC, why: "Feetech STS servos switch torque off above their Maximum Temperature Limit, default 70 C"}
   - id: mdl.controller.waveshare-bus-servo-adapter-a
     family: fam.controller.servo-adapter
     provenance:

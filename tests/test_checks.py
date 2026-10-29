@@ -3762,3 +3762,15 @@ def test_real_axis_change_still_reported(tmp_path):
     findings = check_urdf_drift(contract)
     assert [f.severity for f in findings] == ["violation"]
     assert "axis changed" in findings[0].observed
+
+
+@pytest.mark.parametrize("nominal_kg, flagged", [(1.25, True), (1.1, False)])
+def test_mass_total_nominal(clean_contract, nominal_kg, flagged):
+    """Links summing to 1.09 kg against a datasheet 1.25 kg at 5% is flagged; 1.1 kg is not."""
+    budget = next(b for b in clean_contract.budgets if b.kind == "mass_total")
+    budget.sources, budget.limit = "links", Quantity(value=10.0, unit="kg")
+    budget.nominal, budget.tolerance_pct = Quantity(value=nominal_kg, unit="kg"), 5.0
+    for link, kg in zip(clean_contract.model.links, (0.59, 0.5)):
+        link.mass = Quantity(value=kg, unit="kg")
+    found = [f for f in check_budgets(clean_contract) if f.quantity.endswith("/nominal")]
+    assert bool(found) is flagged and (not flagged or "-13%" in found[0].delta)

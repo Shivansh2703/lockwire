@@ -11,6 +11,7 @@ import {
   rendererUrl,
 } from "./renderer-protocol";
 import { applySecurity } from "./security";
+import { killTerminal } from "./terminal";
 import { startSidecar, stopSidecar } from "./sidecar";
 import { windowOptions } from "./window-options";
 
@@ -42,7 +43,7 @@ function createWindow(hidden: boolean, onRendererLoaded?: () => void): BrowserWi
   // e9-join: push every sidecar state change to this window (FailureBanner/CheckFace's
   // side of the same bridge that "sidecar:state"/"sidecar:restart" answer on request).
   const stopForwarding = forwardSidecarState(win);
-  win.once("closed", stopForwarding);
+  win.once("closed", () => { stopForwarding(); killTerminal(); });
   return win;
 }
 
@@ -78,4 +79,5 @@ app.on("window-all-closed", () => {
 // on every quit path -- clean quit, quit-from-dock, Cmd+Q, app.quit().
 app.on("before-quit", () => {
   stopSidecar();
+  killTerminal();
 });

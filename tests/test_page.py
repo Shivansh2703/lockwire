@@ -548,11 +548,15 @@ def test_x500_adds_up_rows_are_plain_words_not_quantity_paths():
     names = [row["name"] for row in payload["adds_up"]]
     # B10: radio adds passing rows. B13 (2026-09-06): its link_budget now scores
     # a real pass too (bundled antenna gain published), adding an 8th row.
-    assert len(names) == 7, (
+    # 2026-10-22: +6 passes, the Pixhawk's six IMU axes inside their datasheet full-scale limits.
+    assert len(names) == 13, (
         "fixture assumption changed"
     )  # payload mass budget no longer a pass (Jetson, OAK-D, magnetometer masses unknown)
     for name in names:
-        assert "/" not in name, f"row title still carries a quantity path: {name!r}"
+        # units like m/s^2 and rad/s carry a slash; a quantity path does not end in one
+        assert "/" not in name.replace("m/s^2", "").replace("rad/s", ""), (
+            f"row title still carries a quantity path: {name!r}"
+        )
         assert "bud." not in name, f"row title still names a budget id: {name!r}"
 
     joined = " | ".join(names)

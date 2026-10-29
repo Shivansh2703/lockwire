@@ -1584,6 +1584,14 @@ def add_cmd(
     sources: str | None = typer.Option(
         None, "--sources", help="budget (mass_total only): devices|links|links+devices."
     ),
+    nominal: str | None = typer.Option(
+        None,
+        "--nominal",
+        help="budget (mass_total): datasheet mass the sum must match, e.g. '1.25 kg'.",
+    ),
+    tolerance_pct: float | None = typer.Option(
+        None, "--tolerance-pct", help="budget: percent the sum may differ from --nominal."
+    ),
     nominal_voltage: str | None = typer.Option(
         None, "--nominal-voltage", help="battery: voltage, e.g. '25.9 V'."
     ),
@@ -1649,6 +1657,8 @@ def add_cmd(
         "limit": limit,
         "draw_mode": draw_mode,
         "sources": sources,
+        "nominal": nominal,
+        "tolerance_pct": tolerance_pct,
         "rail": rail,
         "nominal_voltage": nominal_voltage,
         "chemistry": chemistry,

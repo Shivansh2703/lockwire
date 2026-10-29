@@ -37,6 +37,7 @@ import {
   validatePlanPayload,
   validateWhatIfPayload,
 } from "./pagePayload";
+import { handleTerminalKill, handleTerminalResize, handleTerminalStart, handleTerminalWrite } from "./terminal";
 import { proMain } from "./proRegistry";
 import { rendererUrl } from "./renderer-protocol";
 import { getSidecarState, onSidecarState, startSidecar, type SidecarState } from "./sidecar";
@@ -587,6 +588,10 @@ const HANDLERS = {
   "assistant:send": handleSend,
   "assistant:apply": handleApply,
   "assistant:cancel": handleCancel,
+  "terminal:start": handleTerminalStart,
+  "terminal:write": handleTerminalWrite,
+  "terminal:resize": handleTerminalResize,
+  "terminal:kill": handleTerminalKill,
 } satisfies Record<CommandClass, (args: unknown) => Promise<unknown>>;
 
 // Exhaustiveness check: every name in the shared list must be a key of HANDLERS (and vice versa,

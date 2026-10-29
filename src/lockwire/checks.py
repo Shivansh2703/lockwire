@@ -2104,6 +2104,28 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                         f"({headroom_kg / limit_kg * 100:.0f}%)"
                     ),
                 )
+            if b.nominal is not None and total_kg > 0.0:
+                nominal_kg = b.nominal.base()
+                gap_pct = (total_kg - nominal_kg) / nominal_kg * 100
+                # a partial sum (unknown masses) can only prove "too heavy", never "too light"
+                if abs(gap_pct) > (b.tolerance_pct or 0.0) and (not unknown_mass or gap_pct > 0):
+                    out.append(
+                        Finding(
+                            severity="violation",
+                            quantity=f"budgets/{b.id}/nominal",
+                            observed=format_magnitude(total_kg, "kg"),
+                            expected=f"{format_magnitude(nominal_kg, 'kg')} +/- {b.tolerance_pct or 0:g}%",
+                            observed_quantity=Quantity(value=total_kg, unit="kg"),
+                            expected_quantity=Quantity(value=nominal_kg, unit="kg"),
+                            delta=f"{gap_pct:+.0f}% ({total_kg - nominal_kg:+.2f} kg)",
+                            dependent=", ".join(contributors),
+                            owner=b.owner,
+                            source=b.provenance.source if b.provenance is not None else None,
+                            witness=b.provenance.witness if b.provenance is not None else None,
+                            locked_at=b.provenance.locked_at if b.provenance is not None else None,
+                            action="the summed link masses disagree with the declared nominal mass; fix the model or the declared value",
+                        )
+                    )
 
         elif b.kind == "endurance":
             _, _, battery_w, battery_witnesses, _, battery_unknown = _power_rollup(c, b.draw_mode)

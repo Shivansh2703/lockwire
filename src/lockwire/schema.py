@@ -519,8 +519,6 @@ class JointLimits(Base):
 
     @model_validator(mode="after")
     def _ordered(self) -> "JointLimits":
-        if self.lower is not None and self.upper is not None and self.lower >= self.upper:
-            raise ValueError(f"joint limit lower {self.lower} >= upper {self.upper}")
         if self.velocity is not None and self.velocity < 0:
             raise ValueError(f"joint velocity limit must be >= 0, got {self.velocity}")
         for limit in ("lower", "upper", "effort", "velocity"):
@@ -539,6 +537,21 @@ class Joint(Base):
     origin: JointOrigin = JointOrigin()
     axis: tuple[float, float, float] | None = None
     limits: JointLimits | None = None
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "Joint":
+        # Only a moving joint has a range: URDF ignores lower/upper on fixed and continuous
+        # joints, and real files carry lower="0" upper="0" there (Kinova's gen3_lite.urdf).
+        lim = self.limits
+        if (
+            self.type in ("revolute", "prismatic")
+            and lim
+            and lim.lower is not None
+            and lim.upper is not None
+            and lim.lower >= lim.upper
+        ):
+            raise ValueError(f"joint {self.name!r} limit lower {lim.lower} >= upper {lim.upper}")
+        return self
 
 
 def _model_structure_hash(links: list[Link], joints: list[Joint]) -> str:
@@ -1485,6 +1498,8 @@ class Budget(Base):
     sources: Literal["devices", "links", "links+devices"] = "devices"  # mass_total: what to
     # sum — explicit so double-counting a device that also appears in the URDF is a declared
     # choice, not an accident
+    nominal: Quantity | None = None  # mass_total only: the datasheet mass the sum must match
+    tolerance_pct: float | None = None  # with nominal; absent means exact
     owner: str
     provenance: Provenance | None = None
 
@@ -1505,6 +1520,14 @@ class Budget(Base):
             "mass_total": "mass",
         }[self.kind]
         _quantity_dimension(expected, f"{self.kind} budget limit")(self.limit)
+        if self.nominal is not None:
+            if self.kind != "mass_total":
+                raise ValueError("nominal is for mass_total budgets only")
+            _quantity_dimension("mass", "budget nominal")(self.nominal)
+            if self.nominal.base() <= 0:
+                raise ValueError("budget nominal must be positive")
+        if self.tolerance_pct is not None and (self.nominal is None or self.tolerance_pct < 0):
+            raise ValueError("tolerance_pct needs nominal and must not be negative")
         return self
 
 

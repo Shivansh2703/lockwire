@@ -48,6 +48,10 @@ const FREE_CLASSES = [
   "robot:command",
   "sidecar:restart",
   "sidecar:state",
+  "terminal:kill",
+  "terminal:resize",
+  "terminal:start",
+  "terminal:write",
 ];
 
 describe("the free IPC surface (no pro/ folder)", () => {
