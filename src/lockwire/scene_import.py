@@ -25,7 +25,7 @@ from lockwire.edit import (
     EditConflict,
     _backup_temp,
     _locked_write,
-    _replace_then_backup,
+    _replace,
     apply_changes,
     propose_changes,
     validate_source,
@@ -238,7 +238,7 @@ def write_change_file(entries: tuple[dict[str, Any], ...], out: Path, *, scene_s
             handle.write(f"# written by lockwire scene import — {scene_source}, {today}\n")
             yaml.dump([_flow_lists(entry) for entry in entries], handle)
         if out.exists():
-            _replace_then_backup(temporary_path, out, out.read_text(encoding="utf-8"))
+            _replace(temporary_path, out)
         else:
             os.replace(temporary_path, out)
     finally:

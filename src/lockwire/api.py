@@ -40,7 +40,7 @@ from ruamel.yaml import YAMLError
 
 from lockwire import blame as blame_history
 from lockwire import gitref
-from lockwire.checks import run_record_checks
+from lockwire.checks import check_urdf_drift, run_record_checks
 from lockwire.describe import describe_all
 from lockwire.edit import (
     Change,
@@ -62,6 +62,7 @@ from lockwire.plan_payload import PlanPayload
 from lockwire.report import (
     Finding,
     ScoredRecord,
+    not_compared,
     verdict,
     verdict_headline,
     verdict_word,
@@ -97,12 +98,16 @@ def contract_sha(contract_path: Path) -> str:
 
 
 def start(
-    urdf: Path | str, *, overwrite: bool = False, expected_revision: str | None = None
-) -> dict[str, str | bool]:
-    """Start beside the selected model, with revision-bound replacement."""
+    urdf: Path | str,
+    *,
+    overwrite: bool = False,
+    expected_revision: str | None = None,
+    out: Path | str | None = None,
+) -> dict[str, Any]:
+    """Start beside the selected model (or at ``out``), with revision-bound replacement."""
     from lockwire.start_operation import start_contract
 
-    return start_contract(urdf, overwrite=overwrite, expected_revision=expected_revision)
+    return start_contract(urdf, out=out, overwrite=overwrite, expected_revision=expected_revision)
 
 
 def from_parts(
@@ -317,8 +322,12 @@ def verdict_document(
             },
             "scored": decision.scored,
             "findings": [finding.model_dump(mode="json") for finding in findings],
+            "not_compared": not_compared(findings),
         },
     )
+    accepted = getattr(findings, "accepted", None)
+    if accepted:  # a gap accepted on record is shown, never dropped from the document
+        document["accepted"] = [finding.model_dump(mode="json") for finding in accepted]
     outcomes = getattr(findings, "outcomes", None)
     if outcomes is not None:
         document["outcomes"] = [outcome.model_dump(mode="json") for outcome in outcomes]
@@ -561,8 +570,17 @@ def check(
     evidence_root: Path | str | None = None,
     expected_revision: str | None = None,
     contract_path: Path | str | None = None,
+    rerun: str | None = None,
+    model: str | None = None,
+    model_file: Path | None = None,
+    mass: str | None = None,
 ) -> dict[str, Any]:
     """Record-level checks: the document ``lockwire check --json`` writes.
+
+    ``rerun`` (model-file checks): the command that re-checks a datasheet-mass mismatch.
+    ``model_file``: the model as typed, when ``contract_path`` is a throwaway lock of it;
+    hints then name that model, as ``lockwire check <model>`` prints them, minus a re-run of
+    the ``mass`` comparison just made.
 
     ``contract_path`` retains raw-revision and path-backed evidence semantics when
     a transport has already loaded ``contract`` through its shared refusal boundary.
@@ -584,7 +602,17 @@ def check(
         actuator_evidence=admitted_evidence,
         evidence_root=admitted_root,
         contract_sha256=revision,
+        model=model,
     )
+    if rerun:
+        from lockwire.start_operation import rerun_command  # noqa: PLC0415
+
+        rerun_command(findings, rerun)
+    if model_file is not None and path is not None:
+        from lockwire.start_operation import drop_same_figure, typed_paths  # noqa: PLC0415
+
+        typed_paths(findings, path, model_file)
+        drop_same_figure(findings, mass)
     return check_document(
         loaded,
         findings,
@@ -1125,8 +1153,11 @@ def upgrade(
     *,
     out: Path | str,
     expected_revision: str,
-) -> None:
-    """Write a new 0.4 contract from an exact legacy revision without changing it.
+) -> list[str]:
+    """Write a new current-version contract from an exact legacy revision without changing it.
+
+    Returns notices: a locked joint axis the new version reads differently (re-read from the
+    URDF when it is present), never rewritten here.
 
     The destination is published only by a hard link from a fully fsynced sibling
     temporary file, so an occupied target is refused and the selected legacy
@@ -1145,8 +1176,8 @@ def upgrade(
         raise ValueError("legacy contract changed since its revision was selected")
     upgraded = upgrade_contract_text(raw.decode("utf-8")).encode("utf-8")
     legacy = load_contract_bytes(raw)
-    if legacy.schema_version not in {"0.2", "0.3"}:
-        raise ValueError("upgrade requires an explicit legacy schema_version 0.2 or 0.3")
+    if legacy.schema_version not in {"0.2", "0.3", "0.4"}:
+        raise ValueError("upgrade requires an explicit legacy schema_version 0.2, 0.3 or 0.4")
     load_contract_bytes(upgraded)
     if contract_path.read_bytes() != raw:
         raise ValueError("legacy contract changed during upgrade")
@@ -1164,6 +1195,11 @@ def upgrade(
         os.link(temporary_name, out_path)
     finally:
         Path(temporary_name).unlink(missing_ok=True)
+    return [
+        f.observed
+        for f in check_urdf_drift(legacy, contract_path=contract_path)
+        if f.severity == "warning"
+    ]
 
 
 # ---------------------------------------------------------------------------

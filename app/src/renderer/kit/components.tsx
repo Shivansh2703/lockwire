@@ -22,8 +22,8 @@ const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ")
 
 /* ---------- layout ---------- */
 
-type Slot = "top" | "topLeft" | "topRight" | "left" | "right" | "bottom" | "bottomLeft";
-const SLOTS: Slot[] = ["top", "topLeft", "topRight", "left", "right", "bottom", "bottomLeft"];
+type Slot = "top" | "topLeft" | "topRight" | "left" | "right" | "bottom" | "bottomLeft" | "bottomRight";
+const SLOTS: Slot[] = ["top", "topLeft", "topRight", "left", "right", "bottom", "bottomLeft", "bottomRight"];
 
 export function Workspace({
   children,

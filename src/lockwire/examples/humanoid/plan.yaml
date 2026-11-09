@@ -1,10 +1,11 @@
-# Example plan for the humanoid starter: put the left knee servo in stall (the worst case it can
-# draw), then add a 10 W accessory on the battery pack. Check it with
-# `lockwire plan <lockfile> <plan>`.
+# Example plan for the humanoid starter: bend the left knee to -1.0 rad and lift the right
+# shoulder, both inside their URDF joint limits. Check it with `lockwire plan <lockfile> <plan>`.
+# (A power step is scored against every other servo at its worst declared mode, stall, so on
+# these 54 W converters any power step is refused: the accepted stall gap in contract.yaml.)
 steps:
-  - kind: set_power_mode
-    device: dev.servo.left-knee
-    mode: stall
-  - kind: rail_load
-    rail: rail.battery-pack
-    draw: {value: 10, unit: W}
+  - kind: joint_target
+    joint: left_knee
+    position: -1.0
+  - kind: joint_target
+    joint: right_shoulder_pitch
+    position: 0.5

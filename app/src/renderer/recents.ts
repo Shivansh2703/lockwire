@@ -12,15 +12,32 @@ export function readRecents(): Recent[] {
   }
 }
 
-/** Newest first, no duplicate paths, at most 5. Returns the new list. */
-export function pushRecent(item: Recent): Recent[] {
-  const next = [{ ...item, at: item.at ?? Date.now() }, ...readRecents().filter((r) => r.path !== item.path)].slice(0, 5);
+function save(next: Recent[]): Recent[] {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(next));
   } catch {
     // no persistence; the list still shows for this session
   }
   return next;
+}
+
+/** Newest first, no duplicate paths, at most 5. Returns the new list. */
+export function pushRecent(item: Recent): Recent[] {
+  return save([{ ...item, at: item.at ?? Date.now() }, ...readRecents().filter((r) => r.path !== item.path)].slice(0, 5));
+}
+
+/** A recent whose file is gone leaves the list. Returns the new list. */
+export function removeRecent(path: string): Recent[] {
+  return save(readRecents().filter((r) => r.path !== path));
+}
+
+/** "Checked by" is asked once and remembered: the last name used fills it next time. */
+const BY = "lockwire.checkedBy";
+export function lastCheckedBy(): string | null {
+  try { return window.localStorage.getItem(BY); } catch { return null; }
+}
+export function rememberCheckedBy(name: string): void {
+  try { if (name.trim()) window.localStorage.setItem(BY, name.trim()); } catch { /* this session only */ }
 }
 
 /** "today", "yesterday", "3 days ago" -- calendar days, so 23:50 then 00:10 reads "yesterday". */

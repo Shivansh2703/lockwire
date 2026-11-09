@@ -9,8 +9,8 @@ export function WaysFace() {
     <div className="ways-face">
       <h3>Ways to use {PRODUCT_NAME}</h3>
       {ways.ways.map((w) => (
-        <section key={w.id} className="ways-card" data-pro={"pro" in w ? "true" : undefined}>
-          <h4>{w.title}{"pro" in w && <span className="ways-pro">{` · ${PRODUCT_NAME} Pro`}</span>}</h4>
+        <section key={w.id} className="ways-card">
+          <h4>{w.title}</h4>
           <p>{w.use}</p>
           {("code" in w ? (w.code as string[]) : []).map((c) => (
             <div key={c} className="ways-code"><CommandLine command={c} display={c} /></div>

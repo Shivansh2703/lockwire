@@ -1,27 +1,20 @@
-import { PackageRootRows } from "./PackageRootRows";
+import type { MeshGap } from "../shared/api.gen";
+import { Button } from "./kit";
 
-// The named empty-geometry state (plan v8 line 458): when the contract has no geometry, this
-// panel names the unresolved prefix -- in `start`'s own words, never a second composed
-// sentence -- offers the package-root control inline, and after a pick reports
-// "resolved N of M meshes" using the count the command returned, not one this file computes.
+// The mesh-folder fixer, one row under the verdict: `start` could not find the robot's meshes. One
+// pick of the robot's package folder moves the lockfile there and re-checks; the count is `start`'s.
 export interface EmptyGeometryPanelProps {
-  /** `start`'s own stderr reason, verbatim, e.g. "package://arm_description/... not resolved". */
-  reason: string;
-  /** Set once a resolution attempt has run; the counts are the command's, not computed here. */
-  resolved?: { count: number; total: number };
-  onPackageRootsChange?: (roots: string[]) => void;
+  gap: MeshGap;
+  onChooseFolder: () => void;
+  onSkip: () => void;
 }
 
-export function EmptyGeometryPanel({ reason, resolved, onPackageRootsChange }: EmptyGeometryPanelProps) {
+export function EmptyGeometryPanel({ gap, onChooseFolder, onSkip }: EmptyGeometryPanelProps) {
   return (
-    <div className="empty-geometry-panel">
-      <p className="empty-geometry-reason">{reason}</p>
-      <PackageRootRows onChange={onPackageRootsChange} />
-      {resolved && (
-        <p className="empty-geometry-resolved">
-          resolved {resolved.count} of {resolved.total} meshes
-        </p>
-      )}
+    <div className="empty-geometry-panel" role="status">
+      <span><strong>Meshes not found ({gap.missing})</strong> Choose the robot's package folder to show its shapes.</span>
+      <Button variant="primary" onClick={onChooseFolder}>Choose folder…</Button>
+      <Button variant="quiet" onClick={onSkip}>Skip</Button>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
 
-from conftest import plain
+import pytest
+
 from ruamel.yaml import YAML
 from typer.testing import CliRunner
 
@@ -28,18 +29,6 @@ def _sources_present(node, path="") -> list[str]:
         for k, v in enumerate(node):
             bad += _sources_present(v, f"{path}[{k}]")
     return bad
-
-
-def test_rover_start_then_check_is_no_go(tmp_path):
-    out = tmp_path / "x.yaml"
-    assert runner.invoke(app, ["start", "--example", "rover", "--out", str(out)]).exit_code == 0
-    assert (tmp_path / "x.glb").is_file()
-    result = runner.invoke(app, ["check", str(out)])
-    assert result.exit_code == 1, result.output
-    out_text = plain(result.output)
-    assert "rail.jetson-header-5v/current_limit" in out_text
-    assert out_text.count("VIOLATION") == 1  # one fault, not a budget and a current limit
-    assert "NO-GO" in out_text
 
 
 def test_rover_plan_loads_and_scores_against_the_contract():
@@ -71,19 +60,6 @@ def test_rover_scene_and_card():
     assert (folder / "NOTICE").is_file()
 
 
-def test_quadruped_start_then_check_names_the_supply_finding(tmp_path):
-    out = tmp_path / "x.yaml"
-    assert runner.invoke(app, ["start", "--example", "quadruped", "--out", str(out)]).exit_code == 0
-    assert out.with_suffix(".glb").is_file()
-    checked = runner.invoke(app, ["check", str(out)])
-    assert checked.exit_code == 1
-    assert (
-        "bud.power.bench-supply-24v" in checked.output
-        and "678.60 W (draw mode: jump)" in checked.output
-    )
-    assert "bud.power.bench-supply-24v.walk" not in checked.output  # the walking budget passes
-
-
 def test_quadruped_names_are_human_and_example_plan_is_scored():
     from lockwire.copy import human_name
     from lockwire.plan import load_plan, validate_plan
@@ -96,8 +72,8 @@ def test_quadruped_names_are_human_and_example_plan_is_scored():
         "Motor Hind Right Hip Abduction",
     }
     assert human_name(contract.topology.rails[0].id) == "Bench Supply 24 V"
-    findings = validate_plan(contract, load_plan(folder / "plan.yaml"))
-    assert any("dev.motor.front-left-knee" in str(f) for f in findings)
+    report = validate_plan(contract, load_plan(folder / "plan.yaml"))
+    assert [o.status for o in report.outcomes] == ["PASS"]  # a jump fits the 30 A supply
 
 
 def test_quadruped_every_block_carries_a_provenance_source():
@@ -118,19 +94,6 @@ def test_quadruped_scene_loads_small_and_matches_the_contract_and_starter_json()
     assert (folder / "NOTICE").is_file()
 
 
-def test_arm_starter_is_no_go_on_the_supply_budget(tmp_path):
-    out = tmp_path / "x.yaml"
-    assert runner.invoke(app, ["start", "--example", "arm", "--out", str(out)]).exit_code == 0
-    assert (tmp_path / "x.glb").is_file()
-    result = runner.invoke(app, ["check", str(out)])
-    assert result.exit_code == 1, result.output
-    text = plain(result.output)
-    assert (
-        "observed 194.40 W (draw mode: stall)" in text
-    )  # 6 x 2.7 A x 12 V; only the failure says it
-    assert "supply-12v-no-load" not in text  # the no-load budget passes
-
-
 def test_arm_example_plan_is_scored_against_the_starter():
     from lockwire.plan import load_plan, validate_plan
     from lockwire.schema import load_contract
@@ -138,9 +101,7 @@ def test_arm_example_plan_is_scored_against_the_starter():
     folder = ops.EXAMPLES / "arm"
     plan = load_plan(folder / "plan.yaml")
     findings = validate_plan(load_contract(folder / "contract.yaml"), plan)
-    assert len(plan.steps) == 2
-    assert [f.severity for f in findings] == ["violation", "violation"]
-    assert "194.40 W" in findings[0].observed
+    assert len(plan.steps) == 2 and list(findings) == []
 
 
 def test_arm_starter_has_no_placeholder_mass_and_human_ids():
@@ -201,17 +162,6 @@ def _humanoid_assert_every_number_sourced(contract: dict) -> None:
         )
 
 
-def test_humanoid_starts_and_checks_no_go_on_the_motor_converters(tmp_path):
-    out = tmp_path / "x.yaml"
-    assert runner.invoke(app, ["start", "--example", "humanoid", "--out", str(out)]).exit_code == 0
-    assert out.is_file() and out.with_suffix(".glb").is_file()
-    checked = runner.invoke(app, ["check", str(out)])
-    text = " ".join(checked.output.split())
-    assert checked.exit_code == 1 and "NO-GO" in text
-    # 12 servos on a 54 W converter: only the failing contract says this.
-    assert "observed 275.52 W (draw mode: stall), expected <= 54.00 W" in text
-
-
 def test_humanoid_every_number_is_sourced():
     _humanoid_assert_every_number_sourced(_load(EXAMPLES / "humanoid/contract.yaml"))
 
@@ -239,16 +189,9 @@ def test_drone_starter_names_scene_ids_and_plan(tmp_path):
     contract = load_contract(folder / "contract.yaml")
     ids = [d.id for d in contract.devices] + [r.id for r in contract.topology.rails]
     assert human_name("dev.esc.esc-1") == "ESC 1" and human_name("rail.supply-5v") == "Supply 5 V"
-    assert not [
-        i for i in ids if re.search(r"\.m\d$|esc\d$|oak|jetson|servo-motor|here3|rfd900", i)
-    ]
+    assert not [i for i in ids if re.search(r"\.m\d$|esc\d$|servo-motor|here3|rfd900", i)]
     assert set(ids) <= set(load_scene(folder / "scene.glb").nodes_with_ids)
-    findings = validate_plan(
-        contract, load_plan(folder / "plan.yaml")
-    )  # step 1 is over the supply rail, step 2 fits
-    assert [f.quantity for f in findings if f.severity == "violation"] == [
-        "plan/steps/0/set_power_mode/draw"
-    ]
+    assert list(validate_plan(contract, load_plan(folder / "plan.yaml"))) == []  # both steps fit
 
 
 def test_humanoid_reads_as_a_robot_with_plain_names():
@@ -269,7 +212,18 @@ def test_humanoid_reads_as_a_robot_with_plain_names():
 def test_humanoid_plan_is_accepted_against_the_contract():
     folder = EXAMPLES / "humanoid"
     report = validate_plan(load_contract(folder / "contract.yaml"), load_plan(folder / "plan.yaml"))
-    assert {o.path for o in report.outcomes} >= {
-        "plan/steps/0/set_power_mode/draw",
-        "plan/steps/1/rail_load/draw",
-    } and not report.errors
+    assert [o.status for o in report.outcomes] == ["PASS", "PASS"] and not report.errors
+
+
+@pytest.mark.parametrize("name", ["arm", "drone", "humanoid", "quadruped", "rover"])
+def test_every_starter_opens_go_with_no_violation(name, tmp_path, monkeypatch):
+    """A bundled starter is a clean starting point; known gaps are accepted, not hidden."""
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["start", "--example", name]).exit_code == 0
+    checked = runner.invoke(app, ["check", "lockwire.yaml", "--json", "out.json"])
+    doc = json.loads((tmp_path / "out.json").read_text())
+    assert not [f["quantity"] for f in doc["findings"] if f["severity"] == "violation"]
+    assert checked.exit_code == 0, checked.output
+    # every accepted gap still matches its finding (shown as accepted, never silently stale)
+    rows = _load(tmp_path / "lockwire.yaml").get("accepted") or []
+    assert len(doc.get("accepted") or []) == len(rows)

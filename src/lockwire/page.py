@@ -19,7 +19,14 @@ from typing import Any, Union, get_args, get_origin
 from pydantic import BaseModel
 
 from lockwire import plugins
-from lockwire.checks import _ScoreBook, check_scene_placement, run_record_checks
+from lockwire.checks import (
+    _ScoreBook,
+    check_scene_placement,
+    check_zero_mass,
+    is_lock_drift,
+    run_record_checks,
+)
+from lockwire.cli_line import cli_line
 from lockwire.constraints import constraint_rows
 from lockwire.describe import describe_all, engineer_detail, render_power_tree
 from lockwire.edit import resolve_witness
@@ -372,7 +379,7 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
             f"{len(group)} {thing} not declared",
             f"{_join([finding.quantity.split('/')[1] for finding in group])}: "
             "the model names parts the contract doesn't declare — declare them "
-            "(lockwire add device …), or give the model extras.lockwire.id for "
+            f"({cli_line('lockwire', 'add', 'device')} …), or give the model extras.lockwire.id for "
             "the parts that are devices, or leave them as structure by removing the id",
         )
 
@@ -381,8 +388,33 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
         return (f"{who} over its current limit", measured)
     if first.stage is not None and stopped:
         return (f"{who}: recording differs from lockfile", measured)
+    if stopped and shape == "model/joints/*/limits/effort" and "stall torque" in first.expected:
+        joint = human_name(first.quantity.split("/")[2]) if len(group) == 1 else "Joint effort"
+        return (f"{joint} above the servo's stall torque", measured)
+    if stopped and shape.startswith("datasheet/"):
+        return (f"{who} differs from the datasheet", measured)
     if stopped:
         return (f"{who} differs from lockfile", measured)
+    if first.severity == "warning":  # measured, so never worded as a check that couldn't run
+        if shape == "devices/*/power/rail" and " -> " in first.observed:
+            n = len(group)
+            side = "above" if first.expected.startswith("at most") else "below"
+            side += f" {'its' if n == 1 else 'their'} {'max' if side == 'above' else 'min'}"
+            bound = re.search(r"([\d.]+ V) (?:max|min) input", first.expected)
+            vs = f" ({first.observed.split(' -> ')[-1]} vs {bound[1]})" if bound else ""
+            return (f"{n} {'part' if n == 1 else 'parts'} {side} input voltage{vs}", measured)
+        # model/links/<id>/<check>: the part is the id, not the check's own leaf name.
+        parts = [f.quantity.split("/") for f in group]
+        named = [
+            p[2]
+            if len(p) == 4 and p[:2] in (["model", "links"], ["model", "joints"])
+            else _subject(f)
+            for p, f in zip(parts, group)
+        ]
+        return (
+            f"{finding_label(first)}: {_join([human_name(s) for s in dict.fromkeys(named)])}",
+            measured,
+        )
     if len(group) > 1:
         return (f"{len(group)} checks couldn't run", measured)
     return (f"Couldn't check {who}", measured)
@@ -648,6 +680,9 @@ def _grouped(findings: list[Finding]) -> list[list[Finding]]:
         key = (
             (finding.severity, shape, finding.observed)
             if finding.severity == "not_scored" and shape == "topology/buses/*/bandwidth"
+            # one card per voltage window, so its title can quote the numbers
+            else (finding.severity, shape, finding.observed, finding.expected)
+            if finding.severity == "warning" and shape == "devices/*/power/rail"
             else (finding.severity, shape)
         )
         if key in index:
@@ -714,6 +749,7 @@ def _card(
     count_by: str = "gui._cards",
     quantity: str | None = None,
     owner: str | None = None,
+    cluster_root: str | None = None,
 ) -> dict[str, Any]:
     """The one constructor for every `api_payload.Card`-shaped dict `gui.py` emits.
 
@@ -754,6 +790,7 @@ def _card(
         "also_in_run": also_in_run,
         "quantity": quantity,
         "owner": owner,
+        "cluster_root": cluster_root,
     }
 
 
@@ -769,17 +806,23 @@ def _cards(
     for group in _grouped(findings):
         title, body = _sentence(contract, group)
         observed, expected, figure_note = _card_figures(group[0])
+        targets = _targets(contract, group)
+        fix = fix_text(group[0].action)
+        for t in sorted(
+            targets or [], key=lambda t: -len(t["id"])
+        ):  # a part's shown name, not its raw id
+            fix = re.sub(rf"(?<![\w.]){re.escape(t['id'])}(?![\w.])", t["label"], fix)
         cards.append(
             _card(
                 severity=group[0].severity,
                 title=title,
                 body=body,
-                fix=fix_text(group[0].action),
+                fix=fix,
                 raw=_raw_text(group, redact_paths=redact_paths),
                 hits=_hits(contract, group),
                 faults=_faults(contract, group),
                 affected=_affected(contract, group),
-                targets=_targets(contract, group),
+                targets=targets,
                 whole=_whole(contract, group[0]),
                 consumer=_consumer_files(contract, group),
                 count=len(group),
@@ -798,6 +841,7 @@ def _cards(
                 also_in_run=any(_finding_key(finding) in echoed for finding in group),
                 quantity=group[0].quantity,
                 owner=group[0].owner,
+                cluster_root=group[0].cluster_root,
             )
         )
     return cards
@@ -899,18 +943,21 @@ def _setup_gaps(contract: Contract) -> list[dict[str, str]]:
     """
     gaps: list[dict[str, str]] = []
     topology = contract.topology
+    warned = {finding.quantity for finding in check_zero_mass(contract)}
 
     if contract.model is None or not contract.model.links:
         gaps.append(
             {
                 "title": "No robot model yet",
                 "why": "Nothing describes the frame, so weights and mounts can't be checked.",
-                "snippet": "lockwire init path/to/robot.urdf",
+                "snippet": cli_line("lockwire", "init") + " path/to/robot.urdf",
             }
         )
-    elif contract.model.zero_mass_links:
-        count = len(contract.model.zero_mass_links)
-        names = ", ".join(contract.model.zero_mass_links[:6])
+    elif weightless := [  # only links check_zero_mass warns on; pure frames weigh nothing anyway
+        name for name in contract.model.zero_mass_links if f"model/links/{name}/mass" in warned
+    ]:
+        count = len(weightless)
+        names = ", ".join(weightless[:6])
         more = "" if count <= 6 else " (and more)"
         weigh = "part of the frame weighs" if count == 1 else "parts of the frame weigh"
         gaps.append(
@@ -1035,8 +1082,8 @@ def _headline(
 
 
 _NOTHING_DECLARED_NEXT_STEP = (
-    "nothing declared yet — add what is on it: lockwire add device|rail|bus …, "
-    "or declare from the model: lockwire scene import"
+    f"nothing declared yet — add what is on it: {cli_line('lockwire', 'add')} device|rail|bus …, "
+    f"or declare from the model: {cli_line('lockwire', 'scene', 'import')}"
 )
 
 
@@ -1182,8 +1229,10 @@ _COMMAND_MODES = {
     "declare": "declare",
     "apply": "declare",
     "review": "declare",  # approve/question a declared value, same mode group
+    "accept": "declare",  # records a known gap (reason, witness) in the lock, like review
     "check": "check",
     "what-if": "check",
+    "check-sim": "check",  # a sim file read beside the lock; no app face yet
     "hw": "check",
     "plan": "plan",
     "mcp": "plan",
@@ -1193,6 +1242,10 @@ _COMMAND_MODES = {
     "upgrade": "reference",  # pinned legacy->0.4 migration, writes and retains, no mode face of its own
     "report": "reference",
     "describe": "reference",
+    "catalog": "reference",  # read-only list of bundled robot datasheet rows
+    "agent-setup": "reference",  # writes repo files; no app face
+    "hook-check": "reference",  # stdin hook for coding agents; no app face
+    "help": "reference",  # lists the commands; no app face
     "serve": "reference",  # the sidecar launcher: infra, not a mode of its own
     # A detection/forwarding corpus report, not part of the contract-findings
     # page (eb-05 brief's paths table: "page: no") — reference like report/describe.
@@ -1223,7 +1276,8 @@ def _design_face(contract: Contract) -> dict[str, Any]:
     return {
         "title": "What's declared",
         "parts": parts,
-        "cli": "lockwire add device --model <model-id> --rail <rail-id> <contract>",
+        "cli": cli_line("lockwire", "add", "device")
+        + " --model <model-id> --rail <rail-id> <contract>",
     }
 
 
@@ -1232,14 +1286,14 @@ def _declare_face(contract_path: Path | None) -> dict[str, Any]:
     return {
         "title": "Declare a fact",
         "lines": [
-            f"lockwire declare {path} devices.dev.<id>.physical.mass 0.5 "
+            f"{cli_line('lockwire', 'declare', path)} devices.dev.<id>.physical.mass 0.5 "
             f'--source "datasheet" --witness "you"',
-            "lockwire apply changes.yaml",
-            f"lockwire add device --model <model-id> --rail <rail-id> {path}",
+            cli_line("lockwire", "apply", "changes.yaml"),
+            cli_line("lockwire", "add", "device") + f" --model <model-id> --rail <rail-id> {path}",
             # a reviewer approves or questions a declared value, in the
             # same face — the notes land beside the fact they judge, not in a
             # section of their own.
-            f"lockwire review {path} devices.dev.<id>.physical.mass "
+            f"{cli_line('lockwire', 'review', path)} devices.dev.<id>.physical.mass "
             f'--approve --witness "your name"',
         ],
     }
@@ -1433,11 +1487,11 @@ def _plan_face(
     cpath = str(contract_path) if contract_path is not None else "lockwire.yaml"
     face: dict[str, Any] = {
         "title": "Check a plan before it runs",
-        "cli": f"lockwire plan {cpath} plan.yaml",
+        "cli": cli_line("lockwire", "plan", cpath, "plan.yaml"),
         "outcomes": None,
     }
     if plan_path is not None and outcomes is not None:
-        face["cli"] = f"lockwire plan {cpath} {plan_path}"
+        face["cli"] = cli_line("lockwire", "plan", cpath, plan_path)
         face["outcomes"] = [{"path": o.path, "status": o.status} for o in outcomes]
     return face
 
@@ -1460,7 +1514,7 @@ def _reference_face(contract: Contract, contract_path: Path | None) -> dict[str,
             "title": "Reference sheets",
             "content": files["SYSTEM.md"],
             "provenance": "generated from the contract",
-            "cli_line": f"lockwire describe {cpath}",
+            "cli_line": cli_line("lockwire", "describe", cpath),
         },
         {
             "title": "Engineer report",
@@ -1468,14 +1522,14 @@ def _reference_face(contract: Contract, contract_path: Path | None) -> dict[str,
             "provenance on every page — what a student hands a supervisor.\n\n"
             + engineer_detail(contract),
             "provenance": "generated from the contract, deterministic",
-            "cli_line": f"lockwire report {cpath} -o report.html --no-open",
+            "cli_line": cli_line("lockwire", "report", cpath, "-o", "report.html", "--no-open"),
         },
         {
             "title": "Hardware scan",
             "content": "Enumerates this machine's own hardware into a draft — never "
             "authoritative, always reviewed before it is locked.",
             "provenance": "from this machine, unreviewed",
-            "cli_line": "lockwire scan --robot <robot-name>",
+            "cli_line": cli_line("lockwire", "scan", "--robot") + " <robot-name>",
         },
     ]
     tree = render_power_tree(contract, human=True)
@@ -1500,6 +1554,30 @@ def _faces(
         "plan": _plan_face(contract_path, plan_path, plan_outcomes),
         "reference": _reference_face(contract, contract_path),
     }
+
+
+def _accepted_rows(contract: Contract, accepted: list[Finding]) -> list[dict[str, str]]:
+    """Findings the lockfile accepted on record (`accepted:`): shown muted, never hidden."""
+    pins = {(a.id, a.observed): a for a in contract.accepted or []}
+    titles = [_sentence(contract, [f])[0] for f in accepted]
+    rows = []
+    for f, title in zip(accepted, titles, strict=True):
+        pin = pins[(f.quantity, f.observed)]
+        if titles.count(title) > 1:
+            # Six servos over the same rail read as one row repeated; name the device
+            # the way the CLI's `accepted:` line does (its id in the finding's path).
+            device = next((p for p in reversed(f.quantity.split("/")) if "." in p), f.quantity)
+            title = f"{device}: {title.removeprefix('1 part ')}"
+        rows.append(
+            {
+                "title": title,
+                "observed": f.observed,
+                "reason": pin.reason,
+                "witness": pin.provenance.witness,
+                "date": str(pin.provenance.locked_at),
+            }
+        )
+    return rows
 
 
 def build_payload(
@@ -1542,13 +1620,13 @@ def build_payload(
     adds_up = len(scored_records)
     state, headline, qualifier = _headline(decision.code, violations, warnings, unchecked, adds_up)
     cards = _cards(contract, record_findings, echoed=echoed, redact_paths=redact_paths)
-    if not cards and _nothing_declared(contract):
+    if _nothing_declared(contract) and all(c["severity"] == "not_scored" for c in cards):
         # a lockfile fresh out of `start` has nothing to compare, so the
         # generic per-severity grammar above produces no card at all — the page
         # then falls back to "Nothing disagrees", which reads as a pass over a
         # page that checked nothing. Say what to do next instead.
         qualifier = _NOTHING_DECLARED_NEXT_STEP
-        cards = [_empty_state_card()]
+        cards = [_empty_state_card(), *cards]  # notes (e.g. SDF values) stay, after the next step
 
     payload: dict[str, Any] = {
         "robot": robot_title(contract.robot.name),
@@ -1562,6 +1640,8 @@ def build_payload(
         "unchecked": unchecked,
         "adds_up": _adds_up_rows(contract, scored_records),
         "cards": cards,
+        "accepted": _accepted_rows(contract, getattr(record, "accepted", [])),
+        "model_changed": any(is_lock_drift(f) for f in record_findings),
         **_robot_model(contract),
         "graph": _graph(contract),
         "budgets": _budget_rows(contract, record_findings, redact_paths=redact_paths),

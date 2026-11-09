@@ -1,0 +1,26 @@
+<!-- check-sim fixture, written by hand: three SO-101 bodies as MJCF, values copied from
+     so101.urdf, then two edits a stale sim file would carry: shoulder mass +15 %
+     (0.100006 -> 0.115007 kg) and shoulder_pan range narrowed (+-110 deg -> +-90 deg).
+     No <compiler angle>, so ranges are in degrees (the MJCF default). -->
+<mujoco model="so101">
+  <worldbody>
+    <body name="base_link">
+      <inertial pos="0.0137179 -5.19711e-05 0.0334843" mass="0.147"
+                fullinertia="0.000114686 0.000136117 0.000130364 -4.59787e-07 4.97151e-06 9.75275e-08"/>
+      <body name="shoulder" pos="0.0388353 0 0.0624">
+        <inertial pos="-0.0307604 -1.66727e-05 -0.0252713" mass="0.115007"
+                  diaginertia="2.395523983503068e-05 8.103880894259969e-05 8.37835512223695e-05"/>
+        <joint name="shoulder_pan" type="hinge" axis="0 0 1" range="-90 90" damping="0.6" armature="0.028"/>
+        <body name="upper_arm" pos="-0.0303992 -0.0182778 -0.0542">
+          <inertial pos="-0.0898471 -0.00838224 0.0184089" mass="0.103"
+                    diaginertia="3.724505629277975e-05 0.00014248698340212697 0.00015087316030509344"/>
+          <joint name="shoulder_lift" axis="0 0 1" range="-100 100"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor joint="shoulder_pan" forcerange="-10 10"/>
+    <general joint="shoulder_lift" ctrlrange="-1 1" gear="10"/>
+  </actuator>
+</mujoco>

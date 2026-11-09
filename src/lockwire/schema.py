@@ -50,10 +50,12 @@ from ruamel.yaml import YAML
 
 import numpy as np
 
-from lockwire import units
+from lockwire import fieldpath, units
 
-SCHEMA_VERSION = "0.4"
-SUPPORTED_SCHEMA_VERSIONS = frozenset({"0.2", "0.3", SCHEMA_VERSION})
+# 0.5: a URDF <axis/> with no xyz reads (1, 0, 0) per the URDF spec (0.4 and older read 0 0 1).
+SCHEMA_VERSION = "0.5"
+SUPPORTED_SCHEMA_VERSIONS = frozenset({"0.2", "0.3", "0.4", SCHEMA_VERSION})
+_V04_ON = frozenset({"0.4", SCHEMA_VERSION})  # versions with the 0.4 sections
 
 
 def _declared_version(document: Any) -> object:
@@ -531,7 +533,7 @@ class Joint(Base):
     """Kinematic joint consumed by joint-limit dependency edges and URDF drift."""
 
     name: str
-    type: Literal["fixed", "revolute", "continuous", "prismatic", "floating", "planar"]
+    type: Literal["fixed", "revolute", "continuous", "prismatic", "floating", "planar", "ball"]
     parent: str
     child: str
     origin: JointOrigin = JointOrigin()
@@ -568,6 +570,14 @@ def _model_structure_hash(links: list[Link], joints: list[Joint]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+class MeshRef(Base):
+    """One link's <mesh> file and scale as the model writes them."""
+
+    link: str
+    uri: str
+    scale: str = "1 1 1"
+
+
 class ModelRecord(Base):
     source: str
     source_sha256: str
@@ -575,6 +585,8 @@ class ModelRecord(Base):
     # Exact bytes for external URDF/SDF mesh files, relative to the contract.
     # A selected model with mesh geometry refuses an undeclared or changed file.
     external_assets: list[ArtifactRef] = []
+    # None: written before mesh refs were recorded, so a scale or file edit is not compared.
+    mesh_refs: list[MeshRef] | None = None
     links: list[Link] = []
     joints: list[Joint] = []  # dependency edges target limits; URDF drift consumes the full row
     zero_mass_links: list[str] = []
@@ -661,6 +673,17 @@ class Assumption(Base):
     statement: str
     owner: str
     last_reviewed: dt.date
+
+
+class AcceptedFinding(Base):
+    """A known gap accepted on record (`lockwire accept`): that finding, at exactly this
+    observed value, reports as accepted instead of failing. A changed value fires again."""
+
+    id: str  # the finding's quantity, e.g. datasheet/turtlebot3-waffle-pi/mass_total
+    # ponytail: pinned on the rendered observed text (datasheet findings carry no typed quantity)
+    observed: str
+    reason: str
+    provenance: Provenance  # witness + date of the acceptance
 
 
 # ---------------------------------------------------------------- Tier D: devices
@@ -896,7 +919,8 @@ class DeviceIdentity(Base):
 class SignalSource(Base):
     """Where one lockwire signal lives inside a ROS message, and in what unit.
 
-    `field` is a dotted path into the message (`linear_acceleration.z`).
+    `field` is a path into the message: `linear_acceleration.z`, `effort[0]`, or
+    `position[name=knee_joint]` (index found in the sibling `name` array; see fieldpath.py).
 
     **`unit` is required and never inferred** — type it. A `sensor_msgs/msg/Imu` linear acceleration is m/s² by REP 145
     and could be derived from the message type, and that is exactly the shortcut
@@ -913,6 +937,7 @@ class SignalSource(Base):
     def _nonempty_field(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("signal field path must not be blank")
+        fieldpath.parse(v)  # `a.b`, `a[2]`, `a[name=x]`; a bad path fails at load, not on the robot
         return v
 
     @field_validator("unit")
@@ -1440,6 +1465,16 @@ class Battery(Base):
     capacity: EnergyQuantity  # energy (nominal, at room temperature)
     voltage: VoltageQuantity | None = None  # rail-voltage consistency; endurance interpretation
     derating: list[CapacityDerating] = []
+    # Chemistry group: optional and additive, so SCHEMA_VERSION does not move and
+    # every older lock loads unchanged. Absent chemistry -> the battery chemistry checks are silent.
+    chemistry: Literal["li-ion", "lipo", "lifepo4", "nimh", "lead-acid"] | None = None
+    cells_series: int | None = Field(default=None, gt=0)
+    c_rate_continuous: float | None = Field(default=None, gt=0)  # datasheet max continuous C
+    c_rate_burst: float | None = Field(default=None, gt=0)  # datasheet max burst C
+    internal_resistance_mohm: float | None = Field(default=None, gt=0)  # whole pack, DC, mOhm
+    charge_temp_c: Band | None = None  # datasheet charge window, unit C; overrides the default
+    discharge_temp_c: Band | None = None  # datasheet discharge window, unit C
+    mass: MassQuantity | None = None  # pack mass; energy-density sanity
 
 
 class Wire(Base):
@@ -3370,6 +3405,12 @@ class Contract(Base):
     actuator_cases: list[ActuatorCase] = []
     structural: StructuralInputs | None = None
     simulation: SimulationInputs | None = None
+    # Additive: None (not []) so a lockfile without acceptances is written byte-identical.
+    accepted: list[AcceptedFinding] | None = None
+    # Additive, like `accepted`: the catalog servo driving the joints, one id
+    # for all, or joint-name pattern -> id;
+    # `check --servo` overrides it. None keeps older lockfiles byte-identical.
+    servo: str | dict[str, str] | None = None
 
     @model_validator(mode="after")
     def _unique_ids(self) -> "Contract":
@@ -3405,10 +3446,10 @@ class Contract(Base):
 
         if (fitted_inventory or self.fitted_band_allocations) and self.schema_version not in {
             "0.3",
-            "0.4",
+            *_V04_ON,
         }:
             raise ValueError(
-                "fitted_bands and fitted_band_allocations require schema_version '0.3' or '0.4'"
+                "fitted_bands and fitted_band_allocations require schema_version '0.3' or later"
             )
         if not fitted_inventory and not self.fitted_band_allocations:
             return self
@@ -3465,8 +3506,8 @@ class Contract(Base):
 
     @model_validator(mode="after")
     def _valid_actuator_cases(self) -> "Contract":
-        if self.actuator_cases and self.schema_version != "0.4":
-            raise ValueError("actuator_cases require schema_version '0.4'")
+        if self.actuator_cases and self.schema_version not in _V04_ON:
+            raise ValueError("actuator_cases require schema_version '0.4' or later")
         for case in self.actuator_cases:
             device = self.device(case.actuator_device)
             joint = (
@@ -3491,8 +3532,10 @@ class Contract(Base):
     def _valid_structural_simulation_sections(self) -> "Contract":
         if (
             self.structural is not None or self.simulation is not None
-        ) and self.schema_version != "0.4":
-            raise ValueError("structural and simulation sections require schema_version '0.4'")
+        ) and self.schema_version not in _V04_ON:
+            raise ValueError(
+                "structural and simulation sections require schema_version '0.4' or later"
+            )
         if self.structural is not None:
             if self.model is None:
                 raise ValueError("structural section requires Contract.model")
@@ -3690,7 +3733,7 @@ def load_contract_bytes(raw: bytes) -> Contract:
 
 
 def upgrade_contract_document(document: dict[str, Any]) -> dict[str, Any]:
-    """Return a proposed v0.4 document without mutating the caller's object."""
+    """Return a proposed current-version document without mutating the caller's object."""
 
     proposed = deepcopy(document)
     declared = _declared_version(proposed)
@@ -3700,12 +3743,12 @@ def upgrade_contract_document(document: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("legacy contract must not contain structural or simulation v1 sections")
     if declared in {"0.2", "0.3"} and proposed.get("actuator_cases"):
         raise ValueError("legacy contract must not contain actuator_cases")
-    proposed["schema_version"] = "0.4"
+    proposed["schema_version"] = SCHEMA_VERSION
     return proposed
 
 
 def upgrade_contract_text(text: str) -> str:
-    """Pure in-memory preview of the explicit v0.4 upgrade."""
+    """Pure in-memory preview of the explicit upgrade to the current version."""
 
     data = _load_yaml_guarded(_yaml(), StringIO(text))
     _reject_yaml_anchors_aliases(data)

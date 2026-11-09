@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<!-- Check pack 1: one planted mistake per check (tests/test_checks.py). -->
+<robot name="pack1">
+  <link name="base">
+    <inertial><mass value="1"/><inertia ixx="0.001667" ixy="0" ixz="0" iyy="0.001667" iyz="0" izz="0.001667"/></inertial>
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <!-- 1000 kg in a 10 cm cube: grams typed as kilograms -->
+  <link name="heavy">
+    <inertial><mass value="1000"/><inertia ixx="1.667" ixy="0" ixz="0" iyy="1.667" iyz="0" izz="1.667"/></inertial>
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <!-- CoM a metre outside its 10 cm box -->
+  <link name="offset">
+    <inertial><origin xyz="1 0 0"/><mass value="1"/><inertia ixx="0.001667" ixy="0" ixz="0" iyy="0.001667" iyz="0" izz="0.001667"/></inertial>
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <!-- placeholder inertia -->
+  <link name="flat">
+    <inertial><mass value="1"/><inertia ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="1"/></inertial>
+    <visual><geometry><mesh filename="meshes/a/part.stl"/></geometry></visual>
+  </link>
+  <link name="deg_link">
+    <inertial><mass value="1"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.003" iyz="0" izz="0.004"/></inertial>
+  </link>
+  <link name="finger">
+    <inertial><mass value="1"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.003" iyz="0" izz="0.004"/></inertial>
+    <visual><geometry><mesh filename="meshes/b/part.stl"/></geometry></visual>
+  </link>
+  <joint name="j_inverted" type="revolute">
+    <parent link="base"/><child link="heavy"/>
+    <limit lower="1" upper="-1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j_no_velocity" type="revolute">
+    <parent link="base"/><child link="flat"/><axis xyz="0 0 2"/>
+    <limit lower="-1" upper="1" effort="1"/>
+  </joint>
+  <joint name="j_degrees" type="revolute">
+    <parent link="flat"/><child link="deg_link"/>
+    <limit lower="-180" upper="180" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j_mimic" type="revolute">
+    <parent link="flat"/><child link="finger"/>
+    <limit lower="-0.5" upper="0.5" effort="1" velocity="1"/>
+    <mimic joint="j_no_velocity" multiplier="1" offset="0"/>
+  </joint>
+  <joint name="j_offset" type="fixed">
+    <parent link="base"/><child link="offset"/>
+  </joint>
+  <joint name="j_loop" type="fixed">
+    <parent link="heavy"/><child link="finger"/>
+  </joint>
+  <!-- velocity 500 rad/s; origin 6 m; radius of gyration 1.4 m in a 10 cm box -->
+  <link name="fast"><inertial><mass value="1"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.003" iyz="0" izz="0.004"/></inertial></link>
+  <link name="far"><inertial><mass value="1"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.003" iyz="0" izz="0.004"/></inertial></link>
+  <link name="spin">
+    <inertial><mass value="1"/><inertia ixx="1" ixy="0" ixz="0" iyy="2" iyz="0" izz="2"/></inertial>
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <joint name="j_fast" type="revolute">
+    <parent link="base"/><child link="fast"/>
+    <limit lower="-1" upper="1" effort="1" velocity="500"/>
+  </joint>
+  <joint name="j_far" type="fixed"><parent link="base"/><child link="far"/><origin xyz="6 0 0"/></joint>
+  <joint name="j_spin" type="fixed"><parent link="base"/><child link="spin"/></joint>
+</robot>

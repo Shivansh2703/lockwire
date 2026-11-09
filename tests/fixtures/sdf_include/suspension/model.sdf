@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="suspension">
+    <link name="link">
+      <inertial>
+        <mass>2.0</mass>
+        <inertia><ixx>0.00172717</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.00172717</iyy><iyz>0</iyz><izz>0.0121</izz></inertia>
+      </inertial>
+      <visual name="v"><geometry><mesh><uri>model://suspension/meshes/arm.stl</uri></mesh></geometry></visual>
+    </link>
+  </model>
+</sdf>

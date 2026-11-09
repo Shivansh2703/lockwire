@@ -1,9 +1,11 @@
 """One-off: write src/lockwire/examples/drone/scene.glb from the x500 fixture scene with the starter's
 descriptive ids (stdlib only; run with `python3 scripts/starters/drone_scene.py`).
 
-The geometry is tests/fixtures/x500/x500.glb; only node names and lockwire ids are renamed (RENAMES,
-the same map the drone contract uses; test_cli applies it to the x500 fixture to prove they match)."""
+The geometry is tests/fixtures/x500/x500.glb; node names and lockwire ids are renamed (RENAMES, the
+same map the drone contract uses), and the parts the starter does not carry (DROP: the fixture's
+companion computer, depth camera and their buses) are taken out of the drawn scene."""
 
+import json
 import re
 import struct
 from pathlib import Path
@@ -25,6 +27,22 @@ RENAMES = {
 }
 
 
+DROP = {"dev.onboard-computer", "dev.depth-camera", "bus.uart.companion", "bus.usb.companion"}
+
+
+def drop_parts(text: str) -> str:
+    """Remove the DROP ids' root nodes from the drawn scene (the node records stay, unreferenced)."""
+    doc = json.loads(text)
+    nodes = doc["nodes"]
+    for scene in doc["scenes"]:
+        scene["nodes"] = [
+            i
+            for i in scene["nodes"]
+            if (nodes[i].get("extras") or {}).get("lockwire", {}).get("id") not in DROP
+        ]
+    return json.dumps(doc, separators=(",", ":"))
+
+
 def rename(text: str) -> str:
     for old, new in RENAMES.items():
         text = re.sub(old + r"(?![\w-])", new, text)
@@ -34,7 +52,7 @@ def rename(text: str) -> str:
 if __name__ == "__main__":
     data = (ROOT / "tests/fixtures/x500/x500.glb").read_bytes()
     n = struct.unpack("<I", data[12:16])[0]
-    doc = rename(data[20 : 20 + n].decode())
+    doc = drop_parts(rename(data[20 : 20 + n].decode()))
     body = doc.encode()
     body += b" " * (-len(body) % 4)
     rest = data[20 + n :]

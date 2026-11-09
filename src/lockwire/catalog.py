@@ -17,13 +17,16 @@ number is a bug in the seed data, not a permitted state (see `_source_not_blank`
 
 from __future__ import annotations
 
+import datetime as dt
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ruamel.yaml import YAML
 
 _SEED_PATH = Path(__file__).parent / "catalog_seed.yaml"
+_ROBOTS_PATH = Path(__file__).parent / "catalog_robots.yaml"
 
 # "datasheet": a manufacturer datasheet, spec page or product-listing figure, cited by URL/name.
 # "source_file": a real number read out of a file already in this repo (e.g. a vendor URDF's
@@ -98,3 +101,85 @@ def load_catalog(path: Path | str | None = None) -> Catalog:
     p = Path(path) if path is not None else _SEED_PATH
     data = yaml.load(p.read_text())
     return Catalog.model_validate(data)
+
+
+# What a whole-robot sheet's mass figure includes; a URDF often models less.
+Scope = Literal["with_battery", "dry", "with_gripper", "with_cable", "arm_only"]
+RobotQuantity = Literal["mass_total", "dof", "reach_m", "payload_kg", "joint_speed_max"]
+
+
+class RobotNumber(SourcedNumber):
+    """A robot-row number: a vendor datasheet figure, URL first, with the day it was read."""
+
+    scope: Scope | None = None
+    retrieved: dt.date
+
+    @field_validator("kind")
+    @classmethod
+    def _datasheet_only(cls, v: str) -> str:
+        if v != "datasheet":
+            raise ValueError("robot rows take datasheet numbers only")
+        return v
+
+    @field_validator("source")
+    @classmethod
+    def _url_first(cls, v: str) -> str:
+        if not v.startswith("https://"):
+            raise ValueError("a robot-row source starts with the https:// URL that was opened")
+        return v
+
+    @property
+    def url(self) -> str:
+        return self.source.split()[0] if self.source.startswith("https://") else self.source
+
+
+class Robot(BaseModel):
+    """One whole robot and what its vendor publishes about it (catalog_robots.yaml)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    variant: str | None = None
+    aliases: list[str]
+    fingerprint: list[str]
+    numbers: dict[RobotQuantity, RobotNumber]
+    known_urdf_deviations: list[str] = []
+
+    @model_validator(mode="after")
+    def _required(self) -> Robot:
+        mass = self.numbers.get("mass_total")
+        if mass is None or mass.scope is None or "dof" not in self.numbers:
+            raise ValueError(f"{self.id}: mass_total (with a scope) and dof are required")
+        return self
+
+
+def load_robots(path: Path | str | None = None) -> list[Robot]:
+    """The robot rows (default: the ones shipped with lockwire)."""
+    data = YAML(typ="safe").load(Path(path or _ROBOTS_PATH).read_text())
+    robots = [Robot.model_validate(row) for row in data["robots"]]
+    if len({r.id for r in robots}) != len(robots):
+        raise ValueError("duplicate robot id in the catalog")
+    return robots
+
+
+def recognise(name: str, links: Iterable[str], model: str | None = None) -> Robot | None:
+    """`model` (a row id) wins; else an exact alias of the URDF's robot name; else the one row
+    whose link names overlap >= 80 % (Jaccard); else None. An unknown `model` is refused."""
+    robots = load_robots()
+    if model is not None:
+        for robot in robots:
+            if robot.id == model:
+                return robot
+        known = ", ".join(r.id for r in robots)
+        raise ValueError(f"no robot {model!r} in the catalog; known: {known}")
+    for robot in robots:
+        if name.lower() in (a.lower() for a in robot.aliases):
+            return robot
+    have = set(links)
+    scored = sorted(
+        ((len(have & set(r.fingerprint)) / len(have | set(r.fingerprint)), r) for r in robots),
+        key=lambda pair: -pair[0],
+    )
+    best, runner_up = scored[0][0], scored[1][0] if len(scored) > 1 else 0.0
+    return scored[0][1] if best >= 0.8 and runner_up < best else None

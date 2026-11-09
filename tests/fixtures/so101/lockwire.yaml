@@ -1,0 +1,152 @@
+# check-sim fixture: three SO-101 links and the two joints between them, cut from
+# so101.urdf by `lockwire start`, plus a battery (a fact no sim format can hold).
+schema_version: '0.4'
+robot:
+  name: so101_new_calib
+model:
+  source: so101.urdf
+  source_sha256: 
+    3a65d2d35e68a8d2f0c2cc176d19b884506543c93ba72980145b80abe276022c
+  structure_hash: 
+    ac5360cbadbcc175af747c871b521bea88aa280b43d9362902fb234f281b550c
+  external_assets: []
+  links:
+  - name: base_link
+    mass:
+      value: 0.147
+      unit: kg
+    com:
+    - 0.0137179
+    - -5.19711e-05
+    - 0.0334843
+    frame: base_link
+    inertia:
+      moments_kgm2:
+      - 0.0001132328432002171
+      - 0.00013180727904032427
+      - 0.00013612687775945865
+      axes:
+      - - 0.9601443949805495
+        - 0.020479147103396537
+        - -0.2787531978674898
+      - - -0.2786454854891127
+        - -0.007994946518543915
+        - -0.9603607521378111
+      - - -0.021895986024182416
+        - 0.9997583134758538
+        - -0.0019698812009202307
+  - name: shoulder_link
+    mass:
+      value: 0.100006
+      unit: kg
+    com:
+    - -0.0307604
+    - -1.66727e-05
+    - -0.0252713
+    frame: shoulder_link
+    inertia:
+      moments_kgm2:
+      - 2.395523983503068e-05
+      - 8.103880894259969e-05
+      - 8.37835512223695e-05
+      axes:
+      - - -0.019453661163777062
+        - 0.0027345670726426053
+        - -0.9998070199844821
+      - - -0.026376014308117007
+        - 0.9996468179638253
+        - 0.003247337989212737
+      - - -0.9994627861689216
+        - -0.026434096877392923
+        - 0.01937466349988164
+  - name: upper_arm_link
+    mass:
+      value: 0.103
+      unit: kg
+    com:
+    - -0.0898471
+    - -0.00838224
+    - 0.0184089
+    frame: upper_arm_link
+    inertia:
+      moments_kgm2:
+      - 3.724505629277975e-05
+      - 0.00014248698340212697
+      - 0.00015087316030509344
+      axes:
+      - - 0.984231914349133
+        - 0.17688246906090635
+        - 0.00036182255091127773
+      - - 1.9476590297963136e-05
+        - 0.0019371755268383845
+        - -0.9999981234840597
+      - - -0.17688283805192423
+        - 0.9842300744693268
+        - 0.001903184909829642
+  joints:
+  - name: shoulder_lift
+    type: revolute
+    parent: shoulder_link
+    child: upper_arm_link
+    origin:
+      xyz:
+      - -0.0303992
+      - -0.0182778
+      - -0.0542
+      rpy:
+      - -1.5708
+      - -1.5708
+      - 0.0
+    axis:
+    - 0.0
+    - 0.0
+    - 1.0
+    limits:
+      lower: -1.74533
+      upper: 1.74533
+      effort: 10.0
+      velocity: 10.0
+  - name: shoulder_pan
+    type: revolute
+    parent: base_link
+    child: shoulder_link
+    origin:
+      xyz:
+      - 0.0388353
+      - -8.97657e-09
+      - 0.0624
+      rpy:
+      - 3.14159
+      - 4.18253e-17
+      - -3.14159
+    axis:
+    - 0.0
+    - 0.0
+    - 1.0
+    limits:
+      lower: -1.91986
+      upper: 1.91986
+      effort: 10.0
+      velocity: 10.0
+  zero_mass_links: []
+  provenance:
+    witness: w2
+    source: so101.urdf
+    locked_at: '2026-11-05'
+edges: []
+assumptions: []
+families: []
+device_models: []
+devices: []
+budgets: []
+gearboxes: []
+fitted_band_allocations: []
+actuator_cases: []
+topology:
+  battery:
+    capacity:
+      value: 50
+      unit: Wh
+    voltage:
+      value: 12
+      unit: V

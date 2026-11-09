@@ -1,0 +1,43 @@
+# The contract for the sample bag (`lockwire bag check --example`). Each device's
+# driver block is the three lines you write for your own bag: topic, msg_type,
+# and signals, each a field path in the message plus the unit you typed.
+schema_version: "0.3"
+robot: {name: sample-bag-bot}
+families:
+  - {id: fam.joints, name: Leg joint encoders}
+  - {id: fam.imu, name: MEMS IMU}
+  - {id: fam.battery, name: Battery pack}
+device_models:
+  - {id: mdl.joints, family: fam.joints}
+  - {id: mdl.imu, family: fam.imu}
+  - {id: mdl.battery, family: fam.battery}
+devices:
+  - id: dev.leg
+    model: mdl.joints
+    owner: you
+    driver:
+      topic: /joint_states
+      msg_type: sensor_msgs/msg/JointState
+      nominal_rate_hz: 50.0
+      signals:
+        knee_position: {field: "position[name=knee_joint]", unit: rad}
+        knee_effort: {field: "effort[name=knee_joint]", unit: N*m}
+  - id: dev.imu
+    model: mdl.imu
+    owner: you
+    driver:
+      topic: /imu/data
+      msg_type: sensor_msgs/msg/Imu
+      nominal_rate_hz: 100.0
+      signals:
+        accel_z: {field: linear_acceleration.z, unit: m/s^2}
+  - id: dev.battery
+    model: mdl.battery
+    owner: you
+    driver:
+      topic: /battery_state
+      msg_type: sensor_msgs/msg/BatteryState
+      nominal_rate_hz: 10.0
+      signals:
+        pack_voltage: {field: voltage, unit: V}
+        cell0_voltage: {field: "cell_voltage[0]", unit: V}

@@ -13,16 +13,16 @@ from __future__ import annotations
 
 import secrets
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from lockwire.confine import without_values
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 from ruamel.yaml import YAMLError
 
-from lockwire import api, plugins
+from lockwire import __version__, api, plugins
 from lockwire.cli_line import cli_line as _build_cli_line
 from lockwire.describe import _role
 from lockwire.describe import describe_device as _describe_device
@@ -72,12 +72,29 @@ def _cli_line(*parts: str) -> str:
 def _with_cli_line(document: dict[str, Any], cli_line: str) -> dict[str, Any]:
     """One library document plus the paste-able command that reproduces it.
 
-    The document itself is `lockwire.api`'s — MCP adds the transport's own field
-    and nothing else, so an agent and a terminal cannot be told different things
-    about one run.
+    The verdict and each finding's values are `lockwire.api`'s, so an agent and a terminal
+    cannot be told different things about one run. Only the layout is the agent's: findings
+    worst first, and a finding's empty fields left out (`check --json` keeps every field).
     """
+    if isinstance(document.get("findings"), list):
+        worst = {"violation": 0, "warning": 1}
+        document["findings"] = [
+            {k: v for k, v in f.items() if v not in (None, "", [], {})}
+            for f in sorted(document["findings"], key=lambda f: worst.get(f.get("severity"), 2))
+        ]
     document["cli_line"] = cli_line
     return document
+
+
+def _arg(description: str) -> Any:
+    """A tool parameter's description, shown to the agent in tools/list."""
+    return Field(description=description)
+
+
+CONTRACT = Annotated[str, _arg("Path to the lockwire.yaml contract, relative to the server's cwd.")]
+REVISION = Annotated[
+    str | None, _arg("SHA-256 of the contract bytes you read; refuses a file changed since.")
+]
 
 
 def _load_contract(contract: str) -> Contract:
@@ -101,16 +118,21 @@ def _load_contract(contract: str) -> Contract:
 
 def build_server() -> MCPServer:
     """Construct the lockwire MCP server (no stdio — tests can drive it in-process)."""
-    server = MCPServer("lockwire")
+    server = MCPServer("lockwire", version=__version__)
 
     @server.tool()
     def check_contract(
-        contract: str,
-        actuator_evidence: dict[str, ArtifactRef] | None = None,
-        evidence_root: str | None = None,
-        expected_revision: str | None = None,
+        contract: CONTRACT,
+        actuator_evidence: Annotated[
+            dict[str, ArtifactRef] | None,
+            _arg("Actuator case id -> evidence file {path, sha256} to check that case against."),
+        ] = None,
+        evidence_root: Annotated[
+            str | None, _arg("Folder the actuator evidence paths are relative to.")
+        ] = None,
+        expected_revision: REVISION = None,
     ) -> dict[str, Any]:
-        """Run lockwire's record-level checks on the contract and return its verdict and findings; refuses a contract path that does not exist."""
+        """Run lockwire's record-level checks on the contract and return its verdict and findings, each carrying a `next_command` where one applies; refuses a contract path that does not exist."""
         loaded = _load_contract(contract)
         try:
             options: dict[str, Any] = {"contract_path": contract}
@@ -135,10 +157,88 @@ def build_server() -> MCPServer:
         return _with_cli_line(document, _cli_line(*line))
 
     @server.tool()
+    def check_model(
+        path: Annotated[str, _arg("The robot model file: a .urdf, .xacro or .sdf path.")],
+        datasheet_mass: Annotated[
+            str | None, _arg("The vendor's total mass with units, e.g. '1.8 kg'.")
+        ] = None,
+        source: Annotated[str | None, _arg("Where datasheet_mass comes from (URL or doc).")] = None,
+        tolerance_pct: Annotated[
+            float, _arg("How far the model may differ from datasheet_mass, in percent.")
+        ] = 5.0,
+        model: Annotated[
+            str | None,
+            _arg("A list_robots id whose datasheet to compare with; default: recognised."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Check a robot model file (.urdf/.xacro/.sdf) at `path` with no lockfile, optionally
+        against a datasheet mass. Same document as check_contract plus `not_compared`.
+        Writes nothing."""
+        import tempfile
+
+        from lockwire.schema import load_contract
+        from lockwire.start_operation import MODEL_SUFFIXES, model_lock
+
+        file = Path(path)
+        if file.is_absolute() and file.is_relative_to(Path.cwd()):  # hints run from the cwd
+            path = str(file := file.relative_to(Path.cwd()))
+        if file.suffix.lower() not in MODEL_SUFFIXES or not file.is_file():
+            raise ToolError(f"no .urdf/.xacro/.sdf model at {path}")
+        try:
+            with tempfile.TemporaryDirectory(prefix="lockwire-") as folder:
+                lock = model_lock(
+                    file,
+                    Path(folder),
+                    mass=datasheet_mass,
+                    source=source,
+                    tolerance_pct=tolerance_pct,
+                )
+                loaded = load_contract(lock)
+                line = ["check", path] + (["--mass", datasheet_mass] if datasheet_mass else [])
+                line += ["--model", model] if model else []
+                document = api.check(
+                    loaded, contract_path=lock, model=model, model_file=file, mass=datasheet_mass
+                )
+        except (OSError, SyntaxError, TypeError, ValueError, YAMLError) as error:
+            raise ToolError(without_values(str(error))) from error
+        return _with_cli_line(document, _cli_line(*line))
+
+    @server.tool()
+    def check_sim_config(
+        path: Annotated[str, _arg("The sim file: a MuJoCo .xml (MJCF) or .sdf path.")],
+        lock: Annotated[str | None, _arg("The lockwire.yaml to compare with.")] = None,
+    ) -> dict[str, Any]:
+        """Compare a MuJoCo (MJCF) or SDF sim file with the lock (default ./lockwire.yaml):
+        masses, COM, inertia and joint limits, each disagreement naming the sim value and the
+        lock value; `cannot_express` lists what the lock holds that the format has no field
+        for. Same document as `lockwire check-sim --json -`. Never runs a simulation."""
+        from lockwire.check_sim import sim_document
+
+        lock_path = lock or "lockwire.yaml"
+        loaded = _load_contract(lock_path)
+        try:
+            _report, document = sim_document(Path(path), loaded, Path(lock_path))
+        except (OSError, SyntaxError, TypeError, ValueError) as error:
+            raise ToolError(without_values(str(error))) from error
+        return _with_cli_line(document, _cli_line("check-sim", path, "--lock", lock_path))
+
+    @server.tool()
+    def list_robots() -> dict[str, Any]:
+        """The catalog robots check_model and check_contract compare with a vendor datasheet."""
+        from lockwire.catalog import load_robots
+
+        robots = [{"id": r.id, "name": r.name} for r in load_robots()]
+        return {"robots": robots, "cli_line": _cli_line("catalog", "robots")}
+
+    @server.tool()
     def upgrade_contract(
-        contract: str, out: str | None = None, expected_revision: str | None = None
+        contract: CONTRACT,
+        out: Annotated[
+            str | None, _arg("Where to write the upgraded contract (must be free).")
+        ] = None,
+        expected_revision: REVISION = None,
     ) -> dict[str, str]:
-        """Write a new 0.4 contract from an exact 0.2/0.3 file revision without
+        """Write a new current-version contract from an exact 0.2/0.3/0.4 file revision without
         changing that legacy file; refuses a stale revision or occupied output path.
         """
         # `out`/`expected_revision` are optional in the signature only so a missing
@@ -149,13 +249,14 @@ def build_server() -> MCPServer:
             missing = "out" if out is None else "expected_revision"
             raise ToolError(f"REFUSED — upgrade_contract requires {missing}")
         try:
-            api.upgrade(contract, out=out, expected_revision=expected_revision)
+            notices = api.upgrade(contract, out=out, expected_revision=expected_revision)
         except (OSError, UnicodeError, ValueError, YAMLError) as error:
             raise ToolError(f"REFUSED — {error}") from error
         return {
             "contract": contract,
             "out": out,
             "legacy_revision": expected_revision,
+            "notices": "; ".join(notices),
             "cli_line": _cli_line(
                 "upgrade", contract, "--out", out, "--expected-revision", expected_revision
             ),
@@ -163,12 +264,12 @@ def build_server() -> MCPServer:
 
     @server.tool()
     def compare_proposal(
-        contract: str,
-        change: list[str],
-        source: str,
-        witness: str | None = None,
+        contract: CONTRACT,
+        change: Annotated[list[str], _arg("Proposed edits, each PATH=VALUE, e.g. 'x.mass=2 kg'.")],
+        source: Annotated[str, _arg("Where the proposed values come from.")],
+        witness: Annotated[str | None, _arg("The human who vouches for the values.")] = None,
     ) -> dict[str, Any]:
-        """Compare current and proposed contract checks without writing the contract or health ledger."""
+        """Compare current and proposed contract checks without writing the contract or health ledger; findings carry a `next_command` where one applies."""
         _load_contract(contract)
         try:
             changes = []
@@ -198,7 +299,9 @@ def build_server() -> MCPServer:
         return _with_cli_line(document, _cli_line(*line))
 
     @server.tool()
-    def describe_device(contract: str, device_id: str) -> dict[str, Any]:
+    def describe_device(
+        contract: CONTRACT, device_id: Annotated[str, _arg("A device id from list_devices.")]
+    ) -> dict[str, Any]:
         """Render one device's Markdown reference from the contract; refuses an unknown device id or a contract path that does not exist."""
         loaded = _load_contract(contract)
         device = next((d for d in loaded.devices if d.id == device_id), None)
@@ -213,7 +316,7 @@ def build_server() -> MCPServer:
         }
 
     @server.tool()
-    def describe_system(contract: str) -> dict[str, Any]:
+    def describe_system(contract: CONTRACT) -> dict[str, Any]:
         """Render the system-level Markdown reference (rails, buses, budgets, joints) from the contract; refuses a contract path that does not exist."""
         loaded = _load_contract(contract)
         return {
@@ -222,8 +325,11 @@ def build_server() -> MCPServer:
         }
 
     @server.tool()
-    def validate_plan(contract: str, plan: dict[str, Any]) -> dict[str, Any]:
-        """Score an agent's intended plan (same shape as plan.yaml) against the contract before it executes; refuses a malformed plan or a contract path that does not exist."""
+    def validate_plan(
+        contract: CONTRACT,
+        plan: Annotated[dict[str, Any], _arg("The intended plan, same shape as plan.yaml.")],
+    ) -> dict[str, Any]:
+        """Score an agent's intended plan (same shape as plan.yaml) against the contract before it executes (findings carry a `next_command` where one applies); refuses a malformed plan or a contract path that does not exist."""
         loaded = _load_contract(contract)
         try:
             parsed = Plan.model_validate(plan)
@@ -238,7 +344,7 @@ def build_server() -> MCPServer:
         )
 
     @server.tool()
-    def list_devices(contract: str) -> dict[str, Any]:
+    def list_devices(contract: CONTRACT) -> dict[str, Any]:
         """List every device declared in the contract with its model and derived role; refuses a contract path that does not exist."""
         loaded = _load_contract(contract)
         devices = [
@@ -253,12 +359,12 @@ def build_server() -> MCPServer:
 
     @server.tool()
     def review_value(
-        contract: str,
-        path: str,
-        state: str,
-        witness: str,
-        note: str | None = None,
-        expected_revision: str | None = None,
+        contract: CONTRACT,
+        path: Annotated[str, _arg("The declared value's path in the contract.")],
+        state: Annotated[str, _arg("'approved' or 'questioned'.")],
+        witness: Annotated[str, _arg("The human reviewer's name.")],
+        note: Annotated[str | None, _arg("Why; required when questioned.")] = None,
+        expected_revision: REVISION = None,
     ) -> dict[str, Any]:
         """Approve or question one already-declared value, writing the reviewer's
         note into the file; refuses a blank/"you"/assistant-name witness, a
@@ -286,7 +392,10 @@ def build_server() -> MCPServer:
         )
 
     @server.tool()
-    def match_parts_list(parts: str, catalog: str | None = None) -> dict[str, Any]:
+    def match_parts_list(
+        parts: Annotated[str, _arg("The parts list as text, one part per line.")],
+        catalog: Annotated[str | None, _arg("A catalog folder; default: the bundled one.")] = None,
+    ) -> dict[str, Any]:
         """Match a pasted parts list (one part per line, free text) to the catalog; returns each line as MATCHED (catalog id, confidence) or NO MATCH, plus numbers written in the line that disagree with the catalog. Writes nothing; use the CLI's --out for a draft lockfile."""
         try:
             document = api.from_parts(parts, catalog=catalog)

@@ -2,14 +2,13 @@
 # Based on Solo-12 (BSD-3-Clause, https://github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware;
 # 3D body from https://github.com/open-dynamic-robot-initiative/robot_properties_solo, see NOTICE).
 #
-# Deliberate real-world finding (ODRI maintainer, open_robot_actuator_hardware issue #42): a builder
-# sizes the supply from the average draw (3-5 A at 24 V) and buys the smaller listed lab supply, a
-# 20 A one. The maintainer: "all the motors will draw a high current at the same instance" on a jump,
-# the voltage sags, and below 8 V the motor-driver microcontrollers reset (ODRI used a 30 A supply).
-# `lockwire check` on this file ends NO-GO: 12 x 56.55 W = 678.6 W peak against 24 V x 20 A = 480 W.
-# NO-GO holds even on this lower bound.
-# The walking budget (96 W) passes; only the jump budget fails. Master board, micro-driver boards and
-# IMU draw are not published in the ODRI repos read, so they are left out (not guessed).
+# Power: the 24 V lab supply ODRI itself uses, the VOLTCRAFT DPPS-32-30 (30 A). An ODRI maintainer
+# in open_robot_actuator_hardware issue #42: "We use a 30A power supply"; on a jump "all the motors
+# will draw a high current at the same instance", and a supply that cannot follow that peak sags (below 8 V the
+# motor-driver microcontrollers reset). Sized that way, `lockwire check` on this starter is GO (with notes):
+# 12 x 56.55 W = 678.6 W jump peak within 24 V x 30 A = 720 W; walking (96 W) has wide headroom.
+# Master board, micro-driver boards and IMU draw are not published in the ODRI repos read, so they
+# are left out (not guessed).
 schema_version: "0.2"
 robot:
   name: Quadruped
@@ -460,32 +459,32 @@ topology:
   rails:
     - id: rail.bench-supply-24v
       voltage: {value: 24, unit: V}
-      capacity: {value: 480, unit: W}
+      capacity: {value: 720, unit: W}
       provenance:
         witness: w0
-        source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply)"
+        source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply); https://github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware/issues/42"
         locked_at: 2026-10-15
-        note: "The lab supply VOLTCRAFT DPPS-32-20 (1-32 V DC, 0-20 A, 640 W, '20A max.') is the smaller of the two the ODRI table lists (the other is the DPPS-32-30, 30 A). Run at the 24 V ODRI operates at (micro-driver README): 24 V x 20 A = 480 W. Solo-12 v1 is tethered, no battery (quadruped README: 'a connection wire for power supply and ethernet')."
+        note: "The lab supply VOLTCRAFT DPPS-32-30 (table row: '1-32V DC 0-30A 960 W', '30A max.'), the one ODRI uses: issue #42 (https://github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware/issues/42), maintainer fgrimminger: 'We use a 30A power supply', linking this table; read 2026-11-06. The table also lists the DPPS-32-20 (20 A); 678.6 W of jump peak would not fit its 480 W at 24 V. Run at the 24 V ODRI operates at (micro-driver README): 24 V x 30 A = 720 W. Solo-12 v1 is tethered, no battery (quadruped README: 'a connection wire for power supply and ethernet')."
 budgets:
   - id: bud.power.bench-supply-24v
     kind: rail_power
     rail: rail.bench-supply-24v
-    limit: {value: 480, unit: W}
+    limit: {value: 720, unit: W}
     draw_mode: "jump"
     owner: you
     provenance:
       witness: w0
-      source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply)"
+      source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply); https://github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware/issues/42"
       locked_at: 2026-10-15
-      note: "Limit equals the rail: 24 V x 20 A = 480 W. Jump draw: 12 x 56.55 W = 678.6 W, over by 198.6 W."
+      note: "Limit equals the rail: 24 V x 30 A = 720 W (DPPS-32-30, the supply ODRI uses, issue #42). Jump draw: 12 x 56.55 W = 678.6 W, 41.4 W (about 6%) of headroom."
   - id: bud.power.bench-supply-24v.walk
     kind: rail_power
     rail: rail.bench-supply-24v
-    limit: {value: 480, unit: W}
+    limit: {value: 720, unit: W}
     draw_mode: "walk"
     owner: you
     provenance:
       witness: w0
-      source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply)"
+      source: "github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware electronics/details/details_components.md (Power Supply); https://github.com/open-dynamic-robot-initiative/open_robot_actuator_hardware/issues/42"
       locked_at: 2026-10-15
-      note: "Same limit, walking draw: 12 x 8 W = 96 W, within 480 W. This is the budget the builder sized the supply from."
+      note: "Same limit, walking draw: 12 x 8 W = 96 W, within 720 W. Issue #42: sizing the supply from this average is the mistake; the jump budget is the one that sizes it."

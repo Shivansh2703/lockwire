@@ -274,8 +274,8 @@ def test_payload_matches_the_empty_state_card_after_start(tmp_path, monkeypatch)
 
     contract = load_contract(tmp_path / "contract.yaml")
     payload = build_payload(contract, contract_path=tmp_path / "contract.yaml")
-    assert len(payload["cards"]) == 1
     assert payload["cards"][0]["shape"] == "setup/nothing_declared"
+    assert [c["shape"] for c in payload["cards"][1:]] == []  # SDF values and sanity both run
     PagePayload.model_validate(payload)
 
 

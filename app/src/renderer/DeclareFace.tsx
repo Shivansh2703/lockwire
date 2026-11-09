@@ -7,6 +7,7 @@ import type { DeclareFormPayload } from "../shared/api.gen";
 import { useShellCommand } from "./Shell";
 import { Button, CommandLine, Disclosure, Field, FindingDetail, Figure, IconButton, Jumper, Notice, Panel, PartTree, Segmented } from "./kit";
 import { MeasureCompareDeclare } from "./MeasureCompareDeclare";
+import { lastCheckedBy, rememberCheckedBy } from "./recents";
 import type { AddPartSubmission } from "./AddPartForm";
 
 export type { AddPartSubmission };
@@ -145,11 +146,11 @@ export function DeclareFace({
   const [value, setValue] = useState(() => valueToString(selectedRow?.value ?? null));
   const [valueFocused, setValueFocused] = useState(false);
   const [source, setSource] = useState("");
-  const [witness, setWitness] = useState(payload.witness.prefill);
+  const [prefill] = useState(() => lastCheckedBy() || payload.witness.prefill);
+  const [witness, setWitness] = useState(prefill); // one "Checked by" for Declare and Review
   const [status, setStatus] = useState<Sent>("idle");
   const [refusal, setRefusal] = useState<string | null>(null);
   const [reviewState, setReviewState] = useState<"" | "approved" | "questioned">("");
-  const [reviewWitness, setReviewWitness] = useState(payload.witness.prefill);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewStatus, setReviewStatus] = useState<Sent>("idle");
   const [reviewRefusal, setReviewRefusal] = useState<string | null>(null);
@@ -172,7 +173,7 @@ export function DeclareFace({
   function cancelDraft() {
     setValue(valueToString(selectedRow?.value ?? null));
     setSource("");
-    setWitness(payload.witness.prefill);
+    setWitness(prefill);
   }
 
   const selectedUnit = selectedRow?.unit ?? null;
@@ -209,6 +210,7 @@ export function DeclareFace({
         witness,
       });
       if (result.written) {
+        rememberCheckedBy(witness);
         setStatus("written");
       } else {
         setStatus("refused");
@@ -228,10 +230,11 @@ export function DeclareFace({
       const result = await onReview({
         path: selectedRow.path,
         state: reviewState,
-        witness: reviewWitness,
+        witness,
         ...(reviewNote.trim() ? { note: reviewNote } : {}),
       });
       setReviewStatus(result.written ? "written" : "refused");
+      if (result.written) rememberCheckedBy(witness);
       if (!result.written) setReviewRefusal(result.refusal ?? null);
     } catch (error) {
       setReviewStatus("refused");
@@ -239,7 +242,7 @@ export function DeclareFace({
     }
   }
 
-  const witnessIsDefault = witness === payload.witness.prefill;
+  const witnessIsDefault = witness === prefill;
   const reviewable = selectedRow !== null && selectedRow.value !== null && selectedRow.provenance !== null;
 
   return (
@@ -255,7 +258,7 @@ export function DeclareFace({
           onChange={(event: { target: { value: string } }) => setValue(event.target.value)} />
         <Field label="Source" hint="Where the number came from" placeholder="e.g. datasheet p.12" aria-label="source" value={source} onChange={(event: { target: { value: string } }) => setSource(event.target.value)} />
         <Field
-          label="Witness"
+          label="Checked by"
           hint={witnessIsDefault ? "Who checked it (default)" : "Who checked it"}
           placeholder="Who checked it"
           aria-label="witness"
@@ -295,11 +298,10 @@ export function DeclareFace({
               value={reviewState}
               onChange={(v) => { setReviewState(v); setReviewStatus("idle"); }}
             />
-            <Field label="Witness" aria-label="Review witness" value={reviewWitness} onChange={(event: { target: { value: string } }) => { setReviewWitness(event.target.value); setReviewStatus("idle"); }} />
             <Field label="Note" control="textarea" aria-label="Review note" value={reviewNote} onChange={(event: { target: { value: string } }) => { setReviewNote(event.target.value); setReviewStatus("idle"); }} />
             <Button
               onClick={submitReview}
-              disabled={reviewStatus === "submitting" || !reviewable || !reviewState || !reviewWitness.trim() || (reviewState === "questioned" && !reviewNote.trim())}
+              disabled={reviewStatus === "submitting" || !reviewable || !reviewState || !witness.trim() || (reviewState === "questioned" && !reviewNote.trim())}
             >
               Record review
             </Button>

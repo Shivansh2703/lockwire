@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// `npm run check:free` -- proves the free app stands on its own.
+// `npm run check:free` -- a module-boundary check: the core app stands on its own without the
+// `pro/` folders (everything ships open source; `pro/` is architecture, not a paywall).
 //
 // Copies app/ without any `pro/` folder, then in the copy: typecheck, build (electron-vite), vitest,
 // and a grep proving no paid identifier is left in the copy's src or in its built bundles. If a
@@ -21,10 +22,6 @@ export const PAID = [
   "RunPanel", "TestFace", "TestInput", "PreflightPayload", "RunStatePayload", "HealthSummary",
   "health_words", "actuator-review-draft", "analysis:start",
 ];
-// The one string the free app may carry about the paid half (owner one dim line, no link).
-// The product name comes from build metadata, never a second authored literal (branding.test.ts).
-const PRODUCT = JSON.parse(readFileSync(join(APP, "package.json"), "utf8")).build.productName;
-export const ALLOWED_STRING = `Test / Run: ${PRODUCT} Pro`;
 // Command-class strings that must not survive into a free build's bundles.
 export const BUNDLE_PAID = ["run:start", "run:poll", "run:cancel", "contract:preflight", "file:choose-recording", "analysis:start", "contract:actuator-review-draft", "analysis:poll", "analysis:cancel"];
 
@@ -52,12 +49,11 @@ function walk(dir) {
   });
 }
 
-/** Paid identifiers found in `text`, with line numbers; the allowed sentence is blanked out first. */
+/** Pro-module identifiers found in `text`, with line numbers. */
 export function findPaid(text, ids = PAID) {
   const hits = [];
   text.split("\n").forEach((line, i) => {
-    const clean = line.split(ALLOWED_STRING).join("");
-    for (const id of ids) if (clean.includes(id)) hits.push({ line: i + 1, id });
+    for (const id of ids) if (line.includes(id)) hits.push({ line: i + 1, id });
   });
   return hits;
 }

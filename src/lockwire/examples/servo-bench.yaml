@@ -3,7 +3,7 @@
 # stall at 4 x 7 W. `lockwire check` on this file ends NO-GO: the rail browns out.
 schema_version: "0.2"
 robot:
-  name: Servo bench
+  name: Servo bench (built to fail)
   id: servo-bench
 families:
   - id: fam.companion.sbc

@@ -24,6 +24,30 @@ describe("Shell", () => {
     act(() => root.render(<Shell mode="Check" onModeChange={() => {}} connected locked />));
     expect(box.querySelector(".shell-chip")).toBeNull();
     expect(box.querySelector('[role="tab"]')).toBeNull(); // Open: no page tabs until a robot is open
+    act(() => root.render(<Shell mode="Check" onModeChange={() => {}} connected notices={<p>n</p>} />));
+    expect(box.querySelector<HTMLElement>(".shell-notices")!.style.maxWidth).toBe("calc(100% - 48px)"); // inside the uncovered canvas
+    act(() => root.unmount());
+    box.remove();
+  });
+  it("Hide panels leaves only the robot, theme, Connected and fit; one tap brings them back; the hint goes at the first touch", () => {
+    const box = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(box);
+    act(() => root.render(<Shell mode="Check" onModeChange={() => {}} connected robotName="QArm" assistant={{ open: false, onToggle: () => {} }} left={<p>parts</p>} notices={<p>note</p>}><p>panel</p></Shell>));
+    const toggle = () => box.querySelector<HTMLButtonElement>(".kit-slot-bottomRight button")!;
+    expect(box.querySelector(".shell-hint")?.textContent).toContain("pinch to zoom");
+    act(() => box.querySelector(".shell-scene")!.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(box.querySelector(".shell-hint")).toBeNull();
+    act(() => toggle().click());
+    expect(box.querySelector(".kit-slot-left, .kit-slot-right, .kit-slot-top, .shell-chip")).toBeNull();
+    expect(box.querySelector(".shell-notices")?.textContent).toBe("note"); // errors and Restart never hide
+    expect(box.querySelector(".kit-slot-topRight")?.textContent).not.toContain("Assistant");
+    expect(box.querySelector("button[title='Fit view']")).not.toBeNull();
+    expect(box.textContent).toContain("Connected");
+    expect(toggle().textContent).toBe("◐ Show panels");
+    act(() => toggle().click());
+    expect(box.querySelector(".kit-slot-right")?.textContent).toBe("panel");
+    act(() => root.render(<Shell mode="Check" onModeChange={() => {}} connected center={<p>open</p>}><p>panel</p></Shell>));
+    expect(box.querySelector(".kit-slot-bottomRight button")).toBeNull(); // nothing to hide on the open screen
     act(() => root.unmount());
     box.remove();
   });

@@ -57,6 +57,7 @@ function clickOpenRobot() {
 }
 
 function clickModeTab(name: string) {
+  act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click()); 
   const button = Array.from(container.querySelectorAll('button[role="tab"]')).find((b) => b.textContent === name)!;
   act(() => button.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 }

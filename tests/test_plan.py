@@ -1164,3 +1164,10 @@ def test_free_api_plan_document_carries_joined_steps(tmp_path: Path):
     assert document["finding_labels"] == []
     assert [s["status"] for s in document["steps"]] == ["UNSCORED"]
     assert document["steps"][0]["not_scored_reason"]
+
+
+def test_a_plan_publish_resolves_joint_arrays_like_the_bag_reader():
+    from lockwire.plan import _resolve_field
+
+    msg = {"name": ["hip", "knee"], "position": [0.1, 0.2]}
+    assert _resolve_field(msg, "position[name=knee]") == (0.2, None)

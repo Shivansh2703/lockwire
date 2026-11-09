@@ -1,12 +1,13 @@
 import { useState } from "react";
 import type { Starter } from "../shared/api.gen";
 import { PRODUCT_NAME } from "../shared/branding";
-import { Button, Icon, Panel } from "./kit";
+import { Button, Panel } from "./kit";
 import { ago, type Recent } from "./recents";
-import { EmptyGeometryPanel, type EmptyGeometryPanelProps } from "./EmptyGeometryPanel";
 
-// The first-launch screen: one "Open robot" button -- a model or a lockfile, one dialog --
-// and a recent list (empty at first, honest about it). The dialog and the `start` command themselves live outside this component (the
+export const VIEW_HINT = "Drag to turn · two-finger scroll to move · pinch to zoom";
+
+// The first-launch screen (mockup 1): one "Open robot" button -- a model or a lockfile, one
+// dialog -- the starters demoted to small example chips, and a recent list (empty at first). The dialog and the `start` command themselves live outside this component (the
 // main process and the sidecar) -- this face only renders what it is given and reports
 // what the user did, never a second file-open or a second copy of `start`'s output.
 
@@ -19,35 +20,16 @@ export interface OpenFaceProps {
   /** A starter's name, or null for a blank robot. */
   onNewRobot?: (starter: string | null) => void;
   onOpenRecent?: (path: string) => void;
-  /** Set once the loaded contract has no geometry (plan v8 line 458). */
-  emptyGeometry?: EmptyGeometryPanelProps;
 }
 
-// Short model name per bundled starter (full provenance stays in the tooltip); line glyphs, 20x20 grid.
+// Short model name per bundled starter (full provenance stays in the tooltip).
 const MODEL: Record<string, string> = { arm: "SO-101", drone: "Holybro X500", humanoid: "ToddlerBot", quadruped: "Solo-12", rover: "TurtleBot3" };
-const GLYPH: Record<string, string> = {
-  arm: "M4 17h6M7 17v-4l5-5M12 8l4 2M16 10a1.5 1.5 0 1 0 0 .1",
-  drone: "M7 7l6 6M13 7l-6 6M4 4h3M13 4h3M4 16h3M13 16h3",
-  humanoid: "M10 3a1.5 1.5 0 1 0 0 .1M6 8h8M10 8v5M10 13l-3 4M10 13l3 4",
-  quadruped: "M4 8h12v3H4zM5 11v5M8 11v5M12 11v5M15 11v5",
-  rover: "M3 11h14v3H3zM6 11V8h6l2 3M6 16a1 1 0 1 0 0 .1M14 16a1 1 0 1 0 0 .1",
-  blank: "M10 5v10M5 10h10",
-};
-function Glyph({ name }: { name: string }) {
-  return (
-    <svg className="kit-icon open-face-glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-      <path d={GLYPH[name] ?? GLYPH.blank} />
-    </svg>
-  );
-}
-
 export function OpenFace({
   recent = [],
   onOpenRobot,
   starters = [],
   onNewRobot,
   onOpenRecent,
-  emptyGeometry,
 }: OpenFaceProps) {
   const [drag, setDrag] = useState(false);
   return (
@@ -73,50 +55,41 @@ export function OpenFace({
           onDragLeave={() => setDrag(false)}
           onDrop={() => setDrag(false)}
         >
-          <Icon name="upload" />
-          <p className="open-face-hint">Drop a model file</p>
+          {/* The drop itself bubbles to App's window-level handler (pathForFile -> openDroppedPath). */}
+          <p className="open-face-hint">Drop a model file, or</p>
           <div className="open-face-actions">
             <Button variant="primary" onClick={onOpenRobot}>
               Open robot
             </Button>
           </div>
+          <small className="open-face-hint">URDF, SDF, xacro or a lockfile</small>
         </div>
 
         <div className="open-face-new">
-          <p className="open-face-label">New robot</p>
+          <p className="open-face-label">OR TRY AN EXAMPLE</p>
           <ul>
             {starters.map((s) => (
               <li key={s.name}>
-                <Button title={`Based on ${s.based_on}`} onClick={() => onNewRobot?.(s.name)}>
-                  <Glyph name={s.name} />
-                  <span>
-                    {s.title}
-                    <small className="open-face-folder">{MODEL[s.name] ?? s.based_on}</small>
-                  </span>
+                <Button variant="quiet" title={`Based on ${s.based_on}`} onClick={() => onNewRobot?.(s.name)}>
+                  {`${s.title} · ${MODEL[s.name] ?? s.based_on}`}
                 </Button>
               </li>
             ))}
-            <li data-blank>
-              <Button variant="quiet" onClick={() => onNewRobot?.(null)}>
-                <Glyph name="blank" />
-                <span>
-                  Blank
-                  <small className="open-face-folder">Start empty</small>
-                </span>
-              </Button>
+            <li>
+              <Button variant="quiet" onClick={() => onNewRobot?.(null)}>Blank</Button>
             </li>
           </ul>
         </div>
 
         <div className="open-face-recents">
-          {recent.length > 0 && <p className="open-face-label">Recent</p>}
+          <p className="open-face-label">RECENT</p>
           {recent.length > 0 ? (
             <ul>
               {recent.map(({ path, name, at }) => (
                 <li key={path}>
                   <Button variant="quiet" title={path} onClick={() => onOpenRecent?.(path)}>
                     {name}
-                    <small className="open-face-folder">{[path.split(/[\\/]/).slice(-2, -1)[0], Number.isFinite(at) && ago(at as number)].filter(Boolean).join(" · ")}</small>
+                    {Number.isFinite(at) && <small className="open-face-folder">{ago(at as number)}</small>}
                   </Button>
                 </li>
               ))}
@@ -126,8 +99,6 @@ export function OpenFace({
           )}
         </div>
       </Panel>
-
-      {emptyGeometry && <EmptyGeometryPanel {...emptyGeometry} />}
     </div>
   );
 }

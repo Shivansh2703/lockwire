@@ -5,12 +5,14 @@ import type { SidecarState } from "../main/sidecar";
 import type { DeclareFormPayload, DiffPayload, LogPayload, PagePayload, PlanPayload, Starter, WhatIfPayload } from "../shared/api.gen";
 import { proApi } from "./proRegistry";
 import {
+  AGENT_EVENT_CHANNEL,
   ASSISTANT_EVENT_CHANNEL,
   MENU_OPENED_CHANNEL,
   RUN_CHANNEL,
   TERMINAL_EVENT_CHANNEL,
   SIDECAR_STATE_CHANGED_CHANNEL,
   type CommandClass,
+  type AgentPush,
   type AssistantApplyResult,
   type AssistantEvent,
   type AssistantSendRequest,
@@ -53,8 +55,9 @@ const lockwire = {
     run("robot:command", args),
   openLockfile: (request: ContractPageRequest): Promise<FileOpenResult> => run("file:open", request),
   startFromUrdf: (request?: StartUrdfRequest): Promise<StartUrdfResult> => run("file:start-urdf", request),
-  newRobot: (starter: string | null): Promise<StartUrdfResult> => run("file:new-robot", { starter }),
+  newRobot: (starter: string | null, copy?: boolean): Promise<StartUrdfResult> => run("file:new-robot", copy ? { starter, copy } : { starter }),
   getStarters: (): Promise<Starter[]> => run("file:starters", undefined),
+  choosePackageFolder: (): Promise<StartUrdfResult> => run("file:choose-package-folder", undefined),
   // Drag-to-open: pathForFile turns a dropped File into its path (webUtils), openDroppedPath
   // runs the same start/open+check flow; main refuses any extension but urdf/sdf/xacro/yaml/yml.
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -78,6 +81,13 @@ const lockwire = {
     const listener = (_event: unknown, payload: AssistantEvent) => cb(payload);
     ipcRenderer.on(ASSISTANT_EVENT_CHANNEL, listener);
     return () => ipcRenderer.removeListener(ASSISTANT_EVENT_CHANNEL, listener);
+  },
+  startAgent: (contract: string, text: string, revision: string): Promise<{ ok: true } | { ok: false; error: string }> => run("agent:start", { contract, text, revision }),
+  stopAgent: (contract: string): Promise<{ ok: true }> => run("agent:stop", { contract }),
+  onAgentEvent: (cb: (push: AgentPush) => void): (() => void) => {
+    const listener = (_event: unknown, payload: AgentPush) => cb(payload);
+    ipcRenderer.on(AGENT_EVENT_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(AGENT_EVENT_CHANNEL, listener);
   },
   startTerminal: (request: TerminalStartRequest): Promise<{ ok: true }> => run("terminal:start", request),
   writeTerminal: (data: string): Promise<{ ok: true }> => run("terminal:write", { data }),

@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import type { Figure as ApiFigure } from "../shared/api.gen";
 import type { Card, CheckFacePayload } from "./checkFacePayload";
 import { FindingList, ModeBlocks, VERDICT, WHOLE, capChips, chipJump, linkTo, liveChips, modeHeads, targetChips, type Chip, type FindingItem } from "./FindingList";
 import { insteadJump, type Jump, type OnJump } from "./jump";
-import { Button, CommandLine, Disclosure, Figure, FindingDetail, FindingRow, Jumper, Panel, StatusPill } from "./kit";
+import { Button, CommandLine, Disclosure, Figure, FindingDetail, FindingRow, Panel, StatusPill } from "./kit";
+import { MASS_NOMINAL, massLine } from "./MeasureCompareDeclare";
 
 // Check: the verdict, one row per finding, the selected one open inline. Every
 // word is the payload's own; the only fixed words are the panel title, the verdict label,
@@ -19,7 +20,7 @@ const fig = (f: ApiFigure) => (
 const ownerWord = (o: string) => { const w = o.replace(/-integration$/, "").replace(/[-_]/g, " "); return w.replace(/^./, (c) => c.toUpperCase()); };
 
 export function CheckPanel({
-  payload, selected, onSelect, onRecheck, pills, more, onJump,
+  payload, selected, onSelect, onRecheck, pills, more, onJump, onCompare, notice, saved,
 }: {
   payload: CheckFacePayload;
   selected: number | null;
@@ -31,6 +32,12 @@ export function CheckPanel({
   more?: ReactNode;
   /** Chips, numbers, fixes and alternatives lead to the part or the Declare row they name. */
   onJump?: OnJump;
+  /** "Compare with datasheet": the whole-robot button on the verdict card (part rows say "Declare it"). */
+  onCompare?: () => void;
+  /** One row under the verdict (the mesh-folder fixer): inside the panel, never over the verdict. */
+  notice?: ReactNode;
+  /** Where the lockfile was just saved ("saved beside your model"): the count line's last item. */
+  saved?: string;
 }) {
   const [verdictStatus, verdictLabel] = VERDICT[payload.verdict] ?? ["muted", payload.verdict];
   const owners = [...new Set(payload.findings.map((f) => f.owner).filter((o): o is string => Boolean(o)))];
@@ -40,27 +47,28 @@ export function CheckPanel({
   const groups = groupCards(payload.cards).filter((g) => !isNote(g.members[0]!));
   const problem = (g: Group) => ["violation", "warning"].includes(payload.cards[g.members[0]!]!.severity);
   const firstProblem = groups.find(problem)?.members[0];
-  const firstQuiet = groups.find((g) => !problem(g))?.members[0];
   const { problems, quiet } = countWords(groups, payload.cards);
+  const accepted = payload.accepted ?? [];
+  const count = [problems, quiet, accepted.length ? `${accepted.length} accepted` : "", saved].filter(Boolean).join(" · ");
+  // Check lands on the first problem, already open: nothing to tap to see what is wrong (mockup 2B).
+  useEffect(() => { if (selected === null && firstProblem !== undefined) onSelect(firstProblem); }, [payload.cards]);
   return (
-    <Panel
-      title="Findings"
-      actions={
-        <>
-          <span className={`check-headline check-headline-left verdict-${payload.verdict.toLowerCase().replace(/_/g, "-")}`} role="status" title={payload.headline}>
-            {firstProblem === undefined || selected === firstProblem ? <StatusPill status={verdictStatus}>{verdictLabel}</StatusPill> : (
-              <button type="button" className="check-headline-btn" aria-label={`${verdictLabel}: show the first problem`} onClick={() => onSelect(firstProblem)}>
-                <StatusPill status={verdictStatus}>{verdictLabel}</StatusPill>
-                <span className="check-count">{problems}</span>
-              </button>
-            )}
-            {(firstProblem === undefined || selected === firstProblem) && <span className="check-count">{problems}</span>}
-            {quiet && firstQuiet !== undefined && <span className="check-count">{" · "}<Jumper label={`Show the ${quiet}`} onClick={() => onSelect(firstQuiet)}>{quiet}</Jumper></span>}
-          </span>
-          {onRecheck && <Button variant="primary" onClick={onRecheck}>Re-check</Button>}
-        </>
-      }
-    >
+    <Panel>
+      <div className={`check-verdict check-verdict-${verdictStatus}`}>
+        <div className={`check-headline verdict-${payload.verdict.toLowerCase().replace(/_/g, "-")}`} role="status" title={payload.headline}>
+          <span className="check-verdict-kicker">Verdict</span>
+          <span className="check-verdict-word">{verdictLabel}</span>
+          <span className="check-count">{count}</span>
+        </div>
+        {/* One wrapping group: at 1280x800 the pair drops under the headline instead of clipping. */}
+        {(onCompare || onRecheck) && (
+          <div className="check-verdict-actions">
+            {onCompare && <Button variant="quiet" onClick={onCompare}>Compare with datasheet</Button>}
+            {onRecheck && <Button variant="primary" onClick={onRecheck}>Re-check</Button>}
+          </div>
+        )}
+      </div>
+      {notice}
       {(pills || owners.length > 1) && (
         <div className="check-pills">
           {pills}
@@ -74,7 +82,14 @@ export function CheckPanel({
           })}
         </div>
       )}
-      <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={groups.map((g) => groupItem(payload.cards, g, selected, onSelect, onJump, payload.cli_line))} />
+      {firstProblem !== undefined && <h3 className="check-section">Problems</h3>}
+      <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={groups.map((g) => groupItem(payload.cards, g, selected, onSelect, onJump, payload.cli_line))} quietSummary={(n) => `Not compared yet (${n})`} />
+      {accepted.length > 0 && (
+        // Accepted on record: muted, never red, never hidden.
+        <Disclosure summary={`Accepted (${accepted.length})`}>
+          {accepted.map((a, i) => <p key={i} className="check-note">{a.title}: {a.reason}. Signed by {a.witness}, {a.date}</p>)}
+        </Disclosure>
+      )}
       {noteCard && <p className="check-note">{noteWords(noteCard)}</p>}
       {more}
     </Panel>
@@ -141,7 +156,8 @@ const groupCards = (cards: Card[]): Group[] => {
   const byKey = new Map<string, Group>();
   const out: Group[] = [];
   cards.forEach((c, i) => {
-    const key = `${c.severity}|${c.shape}|${c.group_title || noMode(c.title)}`;
+    // A rail's budget and current-limit cards are one fact (the engine's cluster_root): one row.
+    const key = c.cluster_root ? `${c.severity}|cluster|${c.cluster_root}` : `${c.severity}|${c.shape}|${c.group_title || noMode(c.title)}`;
     const hit = byKey.get(key);
     if (hit) hit.members.push(i);
     else { const g = { members: [i] }; byKey.set(key, g); out.push(g); }
@@ -149,19 +165,28 @@ const groupCards = (cards: Card[]): Group[] => {
   return out;
 };
 
+/** Plain words, one row one count: "1 problem · 5 not compared yet" (never engine arithmetic like "2 modes"). */
 const countWords = (groups: Group[], cards: Card[]) => {
-  const quiet = groups.filter((g) => cards[g.members[0]!]!.severity !== "violation" && cards[g.members[0]!]!.severity !== "warning").length;
-  // A rail's modes are one row but still its engine findings: say both ("1 problem · 2 modes").
-  const bad = groups.filter((g) => !(cards[g.members[0]!]!.severity !== "violation" && cards[g.members[0]!]!.severity !== "warning"));
-  const p = bad.length;
-  const engine = bad.reduce((n, g) => n + (g.members.some((i) => noMode(cards[i]!.title) !== cards[i]!.title) ? g.members.length : 1), 0);
-  return { problems: `${p} ${p === 1 ? "problem" : "problems"}${engine > p ? ` · ${engine} modes` : ""}`, quiet: quiet ? `${quiet} not checked` : "" };
+  const p = groups.filter((g) => ["violation", "warning"].includes(cards[g.members[0]!]!.severity)).length;
+  const quiet = groups.length - p;
+  return { problems: `${p} ${p === 1 ? "problem" : "problems"}`, quiet: quiet ? `${quiet} not compared yet` : "" };
 };
 
 const groupOf = (groups: Group[], selected: number | null) =>
   selected === null ? null : groups.findIndex((g) => g.members.includes(selected));
 
 function groupItem(cards: Card[], g: Group, selected: number | null, onSelect: (index: number | null) => void, onJump?: OnJump, cli?: string | null): FindingItem {
+  const first = cards[g.members[0]!]!;
+  const item = groupRow(cards, g, selected, onSelect, onJump, cli);
+  // A not-compared row offers its next step: Declare it (part rows too).
+  const declare: Jump = { path: first.quantity, targets: first.targets, declare: true };
+  // The datasheet-mass result reads as the comparison it is, and offers Declare it (mockup 3B).
+  const mass = first.quantity === MASS_NOMINAL ? massLine(first) : null;
+  if ((first.severity !== "not_scored" && !mass) || !onJump?.can(declare)) return item;
+  return { ...item, title: mass || item.title, action: <Button variant="quiet" onClick={() => onJump(declare)}>Declare it</Button> };
+}
+
+function groupRow(cards: Card[], g: Group, selected: number | null, onSelect: (index: number | null) => void, onJump?: OnJump, cli?: string | null): FindingItem {
   const first = cards[g.members[0]!]!;
   const onChip = onJump && ((c: Chip) => onJump(chipJump(c)));
   const severity = first.severity === "violation" ? "bad" : first.severity === "warning" ? "warn" : "muted";
@@ -171,7 +196,7 @@ function groupItem(cards: Card[], g: Group, selected: number | null, onSelect: (
   }
   const heads = modeHeads(g.members.map((i) => ({ observed: cards[i]!.raw, observed_quantity: cards[i]!.observed, expected_quantity: cards[i]!.expected })), g.members.map((i) => cards[i]!.targets.find((t) => t.kind === "rail")?.label));
   const targets = g.members.flatMap((i) => cards[i]!.targets).filter((t, n, all) => all.findIndex((u) => u.id === t.id && u.kind === t.kind) === n);
-  const merged = !first.group_title && heads && g.members.some((i) => noMode(cards[i]!.title) !== cards[i]!.title);
+  const merged = !first.group_title && heads && (!!first.cluster_root || g.members.some((i) => noMode(cards[i]!.title) !== cards[i]!.title));
   if (merged) {
     return { key: `${first.shape}-${g.members[0]!}`, severity, title: noMode(first.title), chips: liveChips(capChips(targetChips(targets)), onJump), onChip, className, shape: first.shape, detail: <ModeBlocks heads={heads} details={g.members.map((i) => <Detail key={i} card={cards[i]!} onJump={onJump} cli={cli} bare />)} /> };
   }

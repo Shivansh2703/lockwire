@@ -229,7 +229,7 @@ def test_only_the_contract_and_its_sidecars_are_committed(scratch_repo):
     tracked_or_staged = {line[3:] for line in status if not line.startswith("?? ")}
     untracked = {line[3:] for line in status if line.startswith("?? ")}
     assert tracked_or_staged == {"other.txt"}  # staged neighbour remains outside the commit
-    assert untracked == {".lockwire.yaml.lock"}  # shared lock inode is intentionally retained
+    assert untracked == set()  # the shared lock inode lives in the temp folder
     assert result["untouched"] == ["other.txt"]
 
     body = _git(["log", "-1", "--format=%B"], cwd=scratch_repo)
@@ -410,7 +410,6 @@ def test_alias_undo_waits_for_the_canonical_contract_lock(aliased_repo, app_styl
     assert result.get(timeout=5) == ("undo", "ok")
     assert contract.read_bytes() == _gu_git(repo, "show", "HEAD:contracts/lockwire.yaml").encode()
     assert alias.is_symlink()
-    assert (contract.parent / ".lockwire.yaml.lock").is_file()
     assert not (repo / ".alias.yaml.lock").exists()
 
 

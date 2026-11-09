@@ -19,6 +19,10 @@ def test_version_flag_actually_prints_a_version():
     assert __version__ in result.output
 
 
+def test_a_source_checkout_says_dev_build():
+    assert "(dev build)" in runner.invoke(app, ["--version"]).output
+
+
 def test_a_bare_invocation_still_shows_help():
     """invoke_without_command must not turn `lockwire` into a silent no-op."""
     result = runner.invoke(app, [])

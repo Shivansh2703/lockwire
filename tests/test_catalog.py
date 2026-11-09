@@ -137,3 +137,38 @@ def test_no_module_straddles_catalog_and_registry_vocabularies():
         "(registry vocabulary) — the design requires a consumer needing both to go through one door, "
         f"not both models directly. Offending file(s): {offenders}"
     )
+
+
+def test_every_robot_number_is_a_fetched_datasheet_figure_and_assumed_is_refused():
+    from lockwire.catalog import RobotNumber, load_robots
+
+    robots = load_robots()
+    assert len(robots) == 8
+    for number in (n for r in robots for n in r.numbers.values()):
+        assert number.kind == "datasheet" and number.url.startswith("https://") and number.retrieved
+    assert all(r.numbers["mass_total"].scope and "dof" in r.numbers for r in robots)
+    with pytest.raises(ValidationError, match="datasheet"):
+        RobotNumber(value=1, unit="kg", kind="assumed", source="https://x", retrieved="2026-11-04")
+
+
+def test_recognise_by_model_then_name_then_fingerprint_else_nothing():
+    from lockwire.catalog import recognise
+
+    waffle = ["base_footprint", "base_link", "wheel_left_link", "wheel_right_link", "imu_link"]
+    waffle += ["caster_back_right_link", "caster_back_left_link", "base_scan", "camera_link"]
+    assert recognise("anything", [], "ur5e").id == "ur5e"
+    assert recognise("turtlebot3_waffle_pi", []).id == "turtlebot3-waffle-pi"
+    assert recognise("renamed", waffle).id == "turtlebot3-waffle-pi"  # 9 of 11, not Burger
+    assert recognise("ur", ["base_link", "shoulder_link"]) is None
+    with pytest.raises(ValueError, match="turtlebot3-burger"):
+        recognise("x", [], "nope")
+
+
+def test_fingerprint_needs_80_percent_link_overlap():
+    from lockwire.catalog import recognise
+
+    burger = ["base_footprint", "base_link", "wheel_left_link", "wheel_right_link"]
+    burger += ["caster_back_link", "imu_link", "base_scan"]
+    assert recognise("renamed", burger + ["extra_link"]).id == "turtlebot3-burger"  # 7 of 8
+    half = ["base_footprint", "base_link", "caster_back_link", "imu_link"]
+    assert recognise("renamed", half) is None  # 4 of 7: a partial match recognises nothing

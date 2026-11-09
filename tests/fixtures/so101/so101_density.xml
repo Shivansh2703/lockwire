@@ -1,0 +1,18 @@
+<!-- check-sim fixture, written by hand: base_link has no <inertial>, so MuJoCo infers its
+     mass from geom density (lockwire does not); camera_mount has no locked link. -->
+<mujoco model="so101_density">
+  <compiler angle="radian"/>
+  <worldbody>
+    <body name="base_link">
+      <geom type="box" size="0.05 0.05 0.03" density="1200"/>
+      <body name="shoulder_link">
+        <inertial pos="-0.0307604 -1.66727e-05 -0.0252713" mass="0.100006"
+                  diaginertia="2.395523983503068e-05 8.103880894259969e-05 8.37835512223695e-05"/>
+        <joint name="shoulder_pan" range="-1.91986 1.91986"/>
+      </body>
+      <body name="camera_mount">
+        <inertial pos="0 0 0" mass="0.02" diaginertia="1e-6 1e-6 1e-6"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

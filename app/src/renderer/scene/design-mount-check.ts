@@ -45,7 +45,7 @@ void app.whenReady().then(async () => {
   // lives there), not Design -- DesignPanel, and its `__lockwireReadNonBackgroundPixel` hook,
   // only mount once the Design tab is selected. A click is now required where none was before.
   await win.webContents.executeJavaScript(
-    `Array.from(document.querySelectorAll('[role="tab"]')).find((b) => b.textContent === "Design")?.click();`,
+    `(async () => { document.querySelector('.shell-more')?.click(); await new Promise((r) => setTimeout(r, 0)); Array.from(document.querySelectorAll('[role="tab"]')).find((b) => b.textContent === "Design")?.click(); })()`,
   );
 
   // Poll rather than a fixed frame count: `Canvas`'s own mount effect (buildScene + setCtx)

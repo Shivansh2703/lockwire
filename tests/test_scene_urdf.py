@@ -214,6 +214,18 @@ def test_package_resolved_via_package_root(tmp_path):
     assert len(scene.parts[0].indices) == 6
 
 
+def test_unreadable_folder_on_package_walk_is_skipped(tmp_path, monkeypatch):
+    from pathlib import Path
+    from unittest.mock import Mock
+
+    from lockwire.scene_urdf import _find_package_dir, package_root
+
+    monkeypatch.setattr(Path, "is_file", Mock(side_effect=PermissionError(13, "denied")))
+    (tmp_path / "locked" / "my_pkg").mkdir(parents=True)
+    assert package_root(tmp_path / "locked" / "robot.urdf") is None
+    assert _find_package_dir(tmp_path, "my_pkg", 3) == tmp_path / "locked" / "my_pkg"
+
+
 def test_package_resolved_via_ament_prefix_path(tmp_path, monkeypatch):
     share_dir = tmp_path / "install" / "share" / "my_pkg" / "meshes"
     share_dir.mkdir(parents=True)

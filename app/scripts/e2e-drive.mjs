@@ -8,6 +8,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron } from "playwright-core";
+import pkg from "../package.json" with { type: "json" };
 
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -54,7 +55,7 @@ export async function waitForSidecar(page) {
 
 const paint = (page) => page.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
 const clickTab = (page, name) => page.evaluate(
-  `Array.from(document.querySelectorAll('.shell-tabs [role="tab"]')).find((b) => b.textContent === ${JSON.stringify(name)})?.click();`);
+  `(async () => { document.querySelector('.shell-more')?.click(); await new Promise((r) => setTimeout(r, 0)); Array.from(document.querySelectorAll('.shell-tabs [role="tab"]')).find((b) => b.textContent === ${JSON.stringify(name)})?.click(); })()`);
 const isVisible = (app) => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible());
 
 // Main-process capture, as the old in-app hook did: Playwright's page.screenshot hangs on a hidden
@@ -81,13 +82,12 @@ export async function driveSidecarFailure({ app, page, screenshotBase }) {
     (function poll() {
       const banner = document.querySelector('.failure-banner');
       if (banner) return resolve({ title: banner.querySelector('.kit-notice > span > span')?.textContent?.trim() ?? '',
-        reason: banner.querySelector('.failure-reason')?.textContent?.trim() ?? '',
         restart: Boolean(banner.querySelector('button')), frameCount: document.querySelectorAll('.shell').length });
       if (Date.now() - startedAt > 12000) return reject(new Error('missing-sidecar failure banner did not appear'));
       setTimeout(poll, 50);
     })();
   })`);
-  if (failure.title !== "the lockwire engine stopped" || !failure.reason || !failure.restart || failure.frameCount !== 1) {
+  if (failure.title !== `${pkg.build.productName} stopped working.` || !failure.restart || failure.frameCount !== 1) {
     throw new Error(`missing-sidecar banner was not actionable or renderer frame crashed: ${JSON.stringify(failure)}`);
   }
   return { sidecarFailure: true, failure, screenshot: await checkpoint(app, screenshotBase, "missing-sidecar"), visible: await isVisible(app) };
@@ -108,7 +108,8 @@ const noPrompt = (page) => page.evaluate(`!document.querySelector('[role="alertd
  * "Open robot" on a model with a lockfile already beside it. Proven from outside: the file dialog,
  * the check on screen with no prompt, the rendered error, and the bytes on disk (the caller
  * compares them). Scenarios: cancel, reopen (lockfile untouched), overwrite and stale (both via
- * the Check page's "Overwrite from model"; stale proves the refusal text plus surviving bytes).
+ * the Check page's "Update from model file", which shows only once the model drifted from its lock; the
+ * caller edits the model for those two; stale proves the refusal text plus surviving bytes).
  */
 export async function driveUrdf({ app, page, scenario, urdfPath, externalWrite, screenshotBase }) {
   await stubDialogs(app, { robot: scenario === "cancel" ? undefined : urdfPath });
@@ -126,10 +127,11 @@ export async function driveUrdf({ app, page, scenario, urdfPath, externalWrite, 
   await waitSelector(page, ".check-headline");
   if (!await noPrompt(page)) throw new Error("re-opening a model with a lockfile beside it asked a question");
   if (scenario === "reopen") {
+    if (await page.evaluate(`Boolean(document.querySelector('.overwrite-from-model'))`)) throw new Error("an unchanged model offered Update from model file");
     return { urdfScenario: scenario, noPrompt: true, screenshot: await checkpoint(app, screenshotBase, "reopen"), visible: await isVisible(app) };
   }
   if (scenario === "stale") externalWrite();
-  await clickButton(page, "Overwrite from model");
+  await clickButton(page, "Update from model file");
   if (scenario === "overwrite") {
     await waitSelector(page, ".overwrite-from-model", "detached");
     return { urdfScenario: scenario, screenshot: await checkpoint(app, screenshotBase, "overwrite"), visible: await isVisible(app) };
@@ -149,7 +151,7 @@ export async function driveUrdf({ app, page, scenario, urdfPath, externalWrite, 
 /**
  * The aha distance: a model with NO lockfile, one "Open robot" click (plus the dialog pick), then
  * no further input until the first finding card. Reports clicks, ms from click to first card and
- * that card's text; `expectText` must appear on screen once the first card is opened (one more click).
+ * that card's text; `expectText` must appear on screen once the first card is open (a click only if none opened itself).
  */
 export async function driveFresh({ app, page, urdfPath, expectText }) {
   await stubDialogs(app, { robot: urdfPath });
@@ -163,15 +165,18 @@ export async function driveFresh({ app, page, urdfPath, expectText }) {
   const cardTop = await page.evaluate(`document.querySelector('.finding-card').getBoundingClientRect().top`);
   const viewH = await page.evaluate(`window.innerHeight`);
   if (!(cardTop >= 0 && cardTop < viewH)) throw new Error(`first finding card is off screen (top ${cardTop}, window ${viewH})`);
-  // Rows show a title only; the reason is in the row's detail, so open the first row as a user would and
-  // read what is on screen (innerText: the collapsed raw finding does not count).
-  if (expectText) {
+  // Rows show a title only; the reason is in the row's detail. The first problem opens on landing; open the
+  // first row only if nothing is open (a click on the open row closes it), then read what is on screen
+  // (innerText: the collapsed raw finding does not count).
+  let opened = false;
+  if (expectText && !(await page.evaluate(`Boolean(document.querySelector('.check-detail'))`))) {
     await page.locator(".finding-card .kit-finding").first().click({ timeout: 8000 });
     await paint(page);
+    opened = true;
   }
   const cards = await page.evaluate(`Array.from(document.querySelectorAll('.finding-card')).map((c) => c.innerText.trim())`);
   if (expectText && !cards.some((c) => c.includes(expectText))) throw new Error(`no finding card mentions "${expectText}": ${JSON.stringify(cards.slice(0, 6))}`);
-  return { clicks: expectText ? 2 : 1, dialogPicks: await app.evaluate(() => globalThis.__lwDialogCalls), msToFirstCard: ms, firstCard: cards[0],
+  return { clicks: opened ? 2 : 1, dialogPicks: await app.evaluate(() => globalThis.__lwDialogCalls), msToFirstCard: ms, firstCard: cards[0],
     headline: await page.evaluate(`document.querySelector('.check-headline').textContent.trim()`), visible: await isVisible(app) };
 }
 

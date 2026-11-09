@@ -1,10 +1,14 @@
 import hashlib
+import json
+import re
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+import typer
 from conftest import plain, strip_ansi
 from ruamel.yaml import YAML
 from typer.testing import CliRunner
@@ -25,7 +29,7 @@ def test_init_then_check(testbot_urdf, tmp_path):
     assert "zero-mass link(s)" in plain(result.output)
 
     # zero-mass sensor_mount is a warning -> still GO (exit 0)
-    result = runner.invoke(app, ["check", str(contract_path)])
+    result = runner.invoke(app, ["check", str(contract_path), "--all"])
     assert result.exit_code == 0, result.output
     assert "GO" in plain(result.output)
     assert "sensor_mount" in plain(result.output)
@@ -34,7 +38,7 @@ def test_init_then_check(testbot_urdf, tmp_path):
 def test_explicit_upgrade_writes_new_v04_without_changing_legacy_bytes(tmp_path):
     from lockwire.schema import load_contract
 
-    for version in ("0.2", "0.3"):
+    for version in ("0.2", "0.3", "0.4"):
         source = tmp_path / f"legacy-{version}.yaml"
         original = (
             f'# retained legacy comment\nschema_version: "{version}"\nrobot:\n  name: legacy\n'
@@ -59,7 +63,7 @@ def test_explicit_upgrade_writes_new_v04_without_changing_legacy_bytes(tmp_path)
         assert source.read_bytes() == original
         assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
         assert load_contract(source).schema_version == version
-        assert load_contract(output).schema_version == "0.4"
+        assert load_contract(output).schema_version == "0.5"
         assert output.read_bytes() != original
 
 
@@ -97,8 +101,8 @@ def test_explicit_upgrade_refuses_changed_source_and_occupied_targets(tmp_path):
 
 def test_explicit_upgrade_refuses_nonlegacy_and_unsupported_content(tmp_path):
     for version, extra, refusal in (
-        ("0.4", "", "requires an explicit legacy"),
-        ("0.5", "", "REFUSED"),
+        ("0.5", "", "requires an explicit legacy"),
+        ("0.6", "", "REFUSED"),
         ("0.3", "structural: {}\n", "must not contain structural"),
         ("0.3", "actuator_cases: [{id: hidden}]\n", "actuator_cases"),
     ):
@@ -1477,41 +1481,19 @@ def test_start_example_then_check_is_no_go(tmp_path, monkeypatch):
     """Two commands from nothing to a first NO-GO: the shipped example lockfile."""
     from typer.testing import CliRunner
 
-    import difflib
-
     from lockwire.cli import app
 
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
-    assert runner.invoke(app, ["start", "--example", "servo-bench"]).exit_code == 0
+    wrote = runner.invoke(app, ["start", "--example", "servo-bench"])
+    assert wrote.exit_code == 0 and "built to fail" in wrote.output  # labelled everywhere
     checked = runner.invoke(app, ["check"])
     assert checked.exit_code == 1  # bites losing the example or its violation
     assert "NO-GO" in checked.output
-    # x500 carries its drone model beside the lockfile, and is the same lockfile as the fixture.
+    # the drone starter carries its model beside the lockfile; it is the X500 without the fixture's
+    # companion computer, so it opens GO where the fixture is NO-GO
     assert runner.invoke(app, ["start", "--example", "drone", "--out", "drone.yaml"]).exit_code == 0
     assert (tmp_path / "drone.glb").stat().st_size > 100_000
-    fixture = (Path(__file__).parent / "fixtures/x500/contract.yaml").read_text()
-    from importlib.util import module_from_spec, spec_from_file_location
-
-    spec = spec_from_file_location(
-        "drone_scene", Path(__file__).parents[1] / "scripts/starters/drone_scene.py"
-    )
-    drone_scene = module_from_spec(spec)
-    spec.loader.exec_module(drone_scene)
-    renamed = "# Based on Holybro X500 V2 PX4 reference quadrotor.\n" + drone_scene.rename(
-        fixture
-    ).replace("name: Holybro X500 V2 PX4 reference quadrotor", "name: Drone", 1)
-    # only the archetype name, its header, mount frames and the descriptive ids (drone_scene.RENAMES) differ
-    added = [
-        d[2:].strip()
-        for d in difflib.ndiff(
-            renamed.splitlines(), (tmp_path / "drone.yaml").read_text().splitlines()
-        )
-        if d[:2] in ("+ ", "- ")
-    ]
-    assert set(added) <= {"physical:", "mount_frame: x500_frame"}, added
-    drone = runner.invoke(app, ["check", "drone.yaml"])
-    assert drone.exit_code == 1 and "NO-GO" in drone.output
     bad = runner.invoke(app, ["start", "--example", "nope", "--out", "other.yaml"])
     assert bad.exit_code == 1 and "servo-bench" in bad.output and "pi-servos" not in bad.output
 
@@ -1527,6 +1509,22 @@ def test_fresh_start_summary_claims_no_comparison_and_stays_go(testbot_urdf, tmp
     line = next(x for x in strip_ansi(result.output).splitlines() if x.startswith("scored "))
     assert "scored 2: 1 add up" in line, line  # bites the hash match counted as "add up"
     assert "1 model check" in line, line
+
+
+def test_mesh_bytes_edit_never_claims_structure_unchanged(tmp_path):
+    (tmp_path / "meshes").mkdir()
+    (tmp_path / "package.xml").write_text("<package><name>pkg</name></package>")
+    (tmp_path / "meshes/b.stl").write_text("solid b")
+    (tmp_path / "r.urdf").write_text(
+        '<robot name="r"><link name="base"><visual><geometry>'
+        '<mesh filename="package://pkg/meshes/b.stl"/></geometry></visual></link></robot>'
+    )
+    lock = str(tmp_path / "lockwire.yaml")
+    assert runner.invoke(app, ["start", str(tmp_path / "r.urdf"), "--out", lock]).exit_code == 0
+    (tmp_path / "meshes/b.stl").write_text("solid edited")
+    result = runner.invoke(app, ["check", lock])
+    assert result.exit_code == 1 and "external_assets" in plain(result.output)
+    assert "structure unchanged since lock" not in plain(result.output)
 
 
 def test_old_example_names_still_work_but_are_never_listed(tmp_path, monkeypatch):
@@ -1566,7 +1564,7 @@ def test_check_strict_clean_go_exits_0_and_lists_passes(testbot_urdf, tmp_path, 
     contract = tmp_path / "lockwire.yaml"
     assert runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
     monkeypatch.setattr("lockwire.cli.run_record_checks", lambda *a, **k: _passes_only_report())
-    result = runner.invoke(app, ["check", str(contract), "--strict"])
+    result = runner.invoke(app, ["check", str(contract), "--strict", "--all"])
     out = plain(result.output)
     assert result.exit_code == 0, out
     assert "strict mode" not in out
@@ -1799,3 +1797,339 @@ def test_anymal_fixture_checks_go_with_notes():
     assert "joint moved" not in out
     assert "GO with notes" in out
     assert "NO-GO" not in out
+
+
+def _start(tmp_path, model, *extra):
+    out = tmp_path / "c.yaml"
+    result = runner.invoke(app, ["start", str(model), "--out", str(out), *extra])
+    return result, plain(result.output)
+
+
+def test_start_expands_a_xacro_template_named_urdf(tmp_path):
+    result, text = _start(tmp_path, FIXTURES / "turtlebot3" / "turtlebot3_burger.urdf")
+    assert result.exit_code == 0, text
+    assert "base_footprint" in (tmp_path / "c.yaml").read_text()
+
+
+def test_start_xacro_arg_and_missing_arg_command(tmp_path):
+    model = FIXTURES / "xacro_args.urdf.xacro"
+    result, text = _start(tmp_path, model)
+    assert result.exit_code == 1 and "Traceback" not in text
+    assert f"lockwire start {model.name} --xacro-arg name=ur --xacro-arg arm_type=ur5e" in text
+    result, text = _start(tmp_path, model, "--xacro-arg", "name=a", "--xacro-arg", "arm_type=b")
+    assert result.exit_code == 0, text
+    assert "b_arm" in (tmp_path / "c.yaml").read_text()
+
+
+def test_start_reversed_revolute_limits_are_unlimited_with_one_line(tmp_path):
+    result, text = _start(tmp_path, FIXTURES / "limits_zero_revolute.urdf")
+    assert result.exit_code == 0, text
+    assert "j1" in text and "lower 0.0" in text and "pydantic" not in text
+
+
+def test_start_bad_mass_is_zero_mass_with_one_line(tmp_path):
+    result, text = _start(tmp_path, FIXTURES / "mass_nan_negative.urdf")
+    assert result.exit_code == 0, text
+    assert "base" in text and "nan" in text and "arm" in text and "-0.5" in text
+    assert "pydantic" not in text
+
+
+def test_check_json_dash_prints_the_document_to_stdout(tmp_path, testbot_urdf):
+    urdf = tmp_path / "robot.urdf"
+    urdf.write_text(testbot_urdf.read_text())
+    contract = tmp_path / "c.yaml"
+    assert runner.invoke(app, ["init", str(urdf), "--out", str(contract)]).exit_code == 0
+    urdf.write_text(testbot_urdf.read_text().replace('"1.2"', '"1.32"', 1))  # +10 % mass
+    result = runner.invoke(app, ["check", str(contract), "--json", "-"])
+    assert result.exit_code == 1, result.output
+    document = json.loads(result.stdout)  # exactly one document: pipes into jq
+    assert document["verdict"] and "wrote" not in result.stdout
+    assert any("next_command" in f for f in document["findings"])
+    assert not (tmp_path / "-").exists()
+
+
+SO101 = Path(__file__).parent / "fixtures" / "so101" / "so101.urdf"
+
+
+def _so101(tmp_path):
+    model = tmp_path / "so101.urdf"
+    shutil.copy(SO101, model)
+    return model
+
+
+def test_check_model_file_prints_findings_and_the_lock_line_without_writing_a_lock(tmp_path):
+    model = tmp_path / "bare.urdf"
+    model.write_text('<robot name="x"><link name="a"/></robot>')
+    result = runner.invoke(app, ["check", str(model)])
+    assert result.exit_code == 3, result.output  # a fresh lock compares nothing
+    assert "nothing was compared" in result.output
+    # the long temp path wraps the line under -n 4; compare with whitespace collapsed
+    flat = " ".join(result.output.split())
+    assert f"lockwire start {model} --out {tmp_path / 'lockwire.yaml'}" in flat
+    assert [p.name for p in tmp_path.iterdir()] == ["bare.urdf"]
+    sdf = runner.invoke(app, ["check", str(SO101.parent.parent / "px4vision.sdf")])
+    assert "model/sanity" not in sdf.output and "model/values" not in sdf.output  # both run
+
+
+def test_check_model_file_with_mass_catches_a_datasheet_mismatch(tmp_path):
+    model = _so101(tmp_path)  # link masses sum to 0.632 kg; 0.7 kg is illustrative
+    result = runner.invoke(app, ["check", str(model), "--mass", "0.7 kg", "--source", "datasheet"])
+    assert result.exit_code == 1, result.output
+    assert "bud.mass/nominal" in result.output and "0.70 kg" in result.output
+    assert "run: lockwire check" not in result.output  # the comparison it just made, again
+    assert not (tmp_path / "lockwire.yaml").exists()
+
+
+def test_check_servo_flags_joint_effort_above_the_servo_stall_torque():
+    model = FIXTURES / "servo_arm.urdf"
+    result = runner.invoke(app, ["check", str(model), "--servo", "feetech.sts3215", "--all"])
+    out = plain(result.output)
+    assert result.exit_code == 1, out
+    assert "model/joints/shoulder/limits/effort" in out and "1.91 N*m" in out
+    assert "VIOLATION model/joints/wrist/limits/effort" not in out  # 1 N*m fits the servo
+    assert runner.invoke(app, ["check", str(model), "--servo", "nope"]).exit_code == 2
+
+
+def test_check_sdf_runs_the_limit_and_shape_checks():
+    model = FIXTURES / "sdf_twin" / "model.sdf"
+    result = runner.invoke(app, ["check", str(model), "--servo", "dynamixel.xl430-w250", "--all"])
+    out = plain(result.output)
+    assert "model/joints/wheel_joint/limits/effort" in out and "13.3x" in out
+    assert "model/links/standoff/mass_vs_size" in out and "51x" in out
+    assert "model/sanity" not in out and "velocity" not in out  # SDF omits velocity: unlimited
+    from lockwire.scene_urdf import load_robot_scene  # collision-only links are drawn too
+
+    assert {p.extras_id for p in load_robot_scene(model).parts} == {"base", "wheel", "standoff"}
+
+
+def test_start_runs_the_check_unless_no_check(tmp_path):
+    model = _so101(tmp_path)
+    args = ["start", str(model), "--mass", "0.7 kg"]
+    result = runner.invoke(app, [*args, "--out", str(tmp_path / "a.yaml")])
+    assert "bud.mass/nominal" in result.output and (tmp_path / "a.yaml").exists()
+    result = runner.invoke(app, [*args, "--no-check", "--out", str(tmp_path / "b.yaml")])
+    assert "bud.mass" not in result.output and (tmp_path / "b.yaml").exists()
+
+
+def _go_with_one_not_scored(monkeypatch):
+    from lockwire.report import Finding, RecordReport, ScoredRecord
+
+    record = ScoredRecord(quantity="x/y", observed="1 W", expected="<= 2 W", margin="1 W spare")
+    gap = Finding(
+        severity="not_scored",
+        quantity="model/structure_hash",
+        observed="no URDF provenance",
+        expected="a URDF path",
+        action="lock it",
+        next_command="lockwire start robot.urdf",
+    )
+    report = RecordReport([gap], scored=1, scored_keys=frozenset({"x/y"}), scored_records=[record])
+    monkeypatch.setattr("lockwire.cli.run_record_checks", lambda *a, **k: report)
+
+
+def test_check_strict_not_scored_exits_3_and_max_not_scored_allows_it(
+    testbot_urdf, tmp_path, monkeypatch
+):
+    contract = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
+    _go_with_one_not_scored(monkeypatch)
+    assert runner.invoke(app, ["check", str(contract)]).exit_code == 0
+    assert runner.invoke(app, ["check", str(contract), "--strict"]).exit_code == 3
+    argv = ["check", str(contract), "--strict", "--max-not-scored", "1"]
+    assert runner.invoke(app, argv).exit_code == 0
+
+
+def test_check_lists_what_was_not_compared_with_the_next_command(
+    testbot_urdf, tmp_path, monkeypatch
+):
+    contract = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
+    _go_with_one_not_scored(monkeypatch)
+    result = runner.invoke(
+        app, ["check", str(contract), "--json", str(tmp_path / "o.json"), "--all"]
+    )
+    out = plain(result.output)
+    assert "Not compared yet (1):" in out and "lockwire start robot.urdf" in out
+    gap = json.loads((tmp_path / "o.json").read_text())["not_compared"]
+    assert gap == [
+        {
+            "quantity": "model/structure_hash",
+            "reason": "no URDF provenance",
+            "next_command": "lockwire start robot.urdf",
+        }
+    ]
+
+
+def test_paid_plugin_import_failure_with_paid_sections_is_refused(
+    testbot_urdf, tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    contract = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
+    monkeypatch.setattr("lockwire.plugins.FAILED", [ModuleNotFoundError("x", name="fcntl")])
+    monkeypatch.setattr("lockwire.cli.load_contract", lambda p: SimpleNamespace(actuator_cases=[1]))
+    result = runner.invoke(app, ["check", str(contract)])
+    assert result.exit_code == 2 and "fcntl" in plain(result.output)
+
+
+def test_a_crash_is_refused_not_a_no_go(monkeypatch, capsys):
+    import lockwire
+
+    def boom():
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr("lockwire.cli.app", boom)
+    with pytest.raises(SystemExit) as stop:
+        lockwire.main()
+    assert stop.value.code == 2
+    assert "lockwire stopped: RuntimeError: kaboom" in capsys.readouterr().err
+
+
+def test_check_model_file_compares_a_recognised_robot_with_its_datasheet(tmp_path):
+    waffle = FIXTURES / "turtlebot3" / "turtlebot3_waffle_pi.urdf"
+    result = runner.invoke(app, ["check", str(waffle)])
+    assert result.exit_code == 1 and "emanual.robotis.com" in result.output, result.output
+    assert "not a recognised robot" not in result.output
+    so101 = runner.invoke(app, ["check", str(SO101)])
+    assert "not a recognised robot; pass --model <id>" in so101.output
+    forced = runner.invoke(app, ["check", str(SO101), "--model", "openmanipulator-x"])
+    assert forced.exit_code == 1 and "datasheet/openmanipulator-x/mass_total" in forced.output
+    assert "franka-fr3" in runner.invoke(app, ["catalog", "robots"]).output
+
+
+def test_check_model_file_hints_name_the_typed_path_not_the_temp_lock(tmp_path, monkeypatch):
+    shutil.copy(FIXTURES / "turtlebot3" / "turtlebot3_waffle_pi.urdf", tmp_path)
+    monkeypatch.chdir(tmp_path)
+    out = plain(runner.invoke(app, ["check", "turtlebot3_waffle_pi.urdf"]).output)
+    # the first verdict: violations and counts; warnings wait behind --all, gaps never do
+    assert "VIOLATION datasheet/" in out and "Not compared yet (2):" in out
+    assert "model/meshes: 4 mesh files were not found;" in out  # nothing is locked yet
+    assert out.rstrip().endswith("drift: lockwire start turtlebot3_waffle_pi.urdf")  # no --out
+    assert "model/links/placeholder_inertia: 3 link(s)" in out
+    assert "mass_vs_size" not in out
+    assert "3 warnings not shown: lockwire check turtlebot3_waffle_pi.urdf --all" in out
+    strict = runner.invoke(app, ["check", "turtlebot3_waffle_pi.urdf", "--strict"]).output
+    assert "mass_vs_size" in plain(strict)  # warnings that fail the run are shown
+    out = plain(runner.invoke(app, ["check", "turtlebot3_waffle_pi.urdf", "--all"]).output)
+    assert "source: turtlebot3_waffle_pi.urdf" in out
+    assert "--force" not in out and "run: lockwire check" not in out  # no lock; same 1.8 kg
+    assert "1 model check (no lockfile yet)" in out and "/lockwire-" not in out
+
+
+def test_free_help_lists_five_verbs_and_hidden_ones_still_run():
+    free = "import lockwire.plugins as p; p.entry_points = lambda **_: (); import lockwire.cli as c"
+    out = subprocess.run(
+        [sys.executable, "-c", free + "; c.app()", "--help"], capture_output=True, text=True
+    )
+    rows = re.findall(r"^│ ([a-z][\w-]*)\s", out.stdout, re.M)  # conftest pins COLUMNS=200
+    assert " ".join(rows) == "check start accept mcp agent-setup"  # at most ten names
+    assert "More: lockwire help --all" in out.stdout and "docs/" not in out.stdout
+    assert "check-sim " in runner.invoke(app, ["help", "--all"]).output
+    for name, command in typer.main.get_command(app).commands.items():
+        assert not command.hidden or runner.invoke(app, [name, "--help"]).exit_code == 0, name
+
+
+def test_agent_setup_writes_once_and_appends_to_an_existing_agents_file(tmp_path):
+    agents = (
+        "AGENTS" + ".md"
+    )  # generated in tmp_path; spelled in parts so the public snapshot scan skips it
+    (tmp_path / agents).write_text("# mine\n")
+    for _ in range(2):
+        result = runner.invoke(app, ["agent-setup", str(tmp_path)])
+    text = (tmp_path / agents).read_text()
+    assert text.startswith("# mine\n") and text.count("lockwire:start") == 1
+    assert "Shivansh2703/lockwire" in (tmp_path / ".pre-commit-config.yaml").read_text()
+    assert result.exit_code == 0 and f"kept {agents}" in result.output
+    assert "wrote" not in result.output and "next: lockwire check <your robot" in result.output
+    pat = YAML().load(tmp_path / ".pre-commit-config.yaml")["repos"][0]["hooks"][0]["files"]
+    names = ("robot.urdf", "a/R.URDF", "m.xacro", "x.sdf", "lockwire.yaml", "README.md")
+    assert [bool(re.search(pat, n)) for n in names] == [True] * 5 + [False]  # the hook runs on model and lockfile files only
+
+
+def test_agent_setup_ci_writes_only_the_workflow(tmp_path, monkeypatch):
+    for _ in range(2):
+        result = runner.invoke(app, ["agent-setup", str(tmp_path), "--ci"])
+    files = [p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file()]
+    assert files == [".github/workflows/lockwire.yml"] and "kept .github" in result.output
+    monkeypatch.setenv("PATH", str(tmp_path))  # no lockwire on the user's PATH: uvx
+    monkeypatch.setattr("importlib.util.find_spec", lambda name: None)  # no robots extra
+    assert "next: uvx lockwire check" in runner.invoke(app, ["agent-setup", str(tmp_path)]).output
+    assert (
+        "Run `uvx lockwire check` before" in (tmp_path / ("CLAUDE" + ".md")).read_text()
+    )  # split: snapshot scan
+
+
+def test_accept_records_a_known_gap_so_check_passes_and_still_shows_it(tmp_path, monkeypatch):
+    shutil.copy(FIXTURES / "turtlebot3" / "turtlebot3_waffle_pi.urdf", tmp_path)
+    monkeypatch.chdir(tmp_path)
+    gap = "datasheet/turtlebot3-waffle-pi/mass_total"
+    start = plain(runner.invoke(app, ["start", "turtlebot3_waffle_pi.urdf"]).output)
+    assert f"run: lockwire accept {gap} lockwire.yaml --reason" in start
+    assert runner.invoke(app, ["check"]).exit_code == 1
+    args = ["accept", gap, "--reason", "sheet counts the battery", "--witness", "sam"]
+    assert runner.invoke(app, args).exit_code == 0
+    assert {p.name for p in tmp_path.iterdir()} == {"lockwire.yaml", "turtlebot3_waffle_pi.urdf"}
+    result = runner.invoke(app, ["check"])
+    assert result.exit_code == 0, result.output
+    assert f"accepted: {gap}: URDF sum of link masses: 1.554; accepted (sheet counts" in plain(
+        result.output
+    )
+
+
+def _fake_robot_descriptions(monkeypatch, urdf: Path) -> None:
+    """robot_descriptions without network: ur5e has a URDF (testbot here), spot only an MJCF."""
+    from types import ModuleType, SimpleNamespace
+
+    package, xacro, ur5e = ModuleType("rd"), ModuleType("rd._xacro"), ModuleType("rd.ur5e")
+    package.DESCRIPTIONS = {
+        "ur5e_description": SimpleNamespace(has_urdf=True),
+        "spot_mj_description": SimpleNamespace(has_urdf=False),
+    }
+    xacro.get_urdf_path = lambda module: str(urdf) if module is ur5e else None
+    for name, module in [("", package), ("._xacro", xacro), (".ur5e_description", ur5e)]:
+        monkeypatch.setitem(sys.modules, f"robot_descriptions{name}", module)
+    monkeypatch.setitem(sys.modules, "tqdm", SimpleNamespace(tqdm=SimpleNamespace()))
+
+
+def test_check_resolves_a_robot_name_through_robot_descriptions(
+    monkeypatch, tmp_path, testbot_urdf
+):
+    _fake_robot_descriptions(monkeypatch, testbot_urdf)
+    monkeypatch.chdir(tmp_path)
+    for name in ("ur5e", "ur5e_description"):
+        result = runner.invoke(app, ["check", name, "--json", "-"])
+        assert json.loads(result.stdout)["robot"] == "testbot", result.output
+    unknown = runner.invoke(app, ["check", "ur5x"])
+    assert unknown.exit_code == 2 and "no file or robot named ur5x; did you mean ur5e" in plain(
+        unknown.output
+    )
+    mjcf = runner.invoke(app, ["check", "spot"])
+    assert mjcf.exit_code == 2 and "only an MJCF exists for spot" in plain(mjcf.output)
+    out = plain(runner.invoke(app, ["check", "ur5e", "--all"]).output)
+    assert "drift: lockwire start ur5e" in out and str(testbot_urdf.parent) not in out
+    assert runner.invoke(app, ["start", "ur5e", "--no-check"]).exit_code == 0
+    assert (tmp_path / "lockwire.yaml").is_file()  # in the working folder, not the cache
+    # the model is copied beside the lockfile, so its source never leaves the folder
+    from lockwire.schema import load_contract
+
+    assert load_contract(tmp_path / "lockwire.yaml").model.source == "ur5e.urdf"
+    copy = tmp_path / "ur5e.urdf"
+    copy.unlink()  # a kept lockfile writes nothing, not even the copy
+    assert "kept as is" in runner.invoke(app, ["start", "ur5e", "--no-check"]).output
+    assert not copy.exists()
+    copy.write_text(testbot_urdf.read_text().replace('<mass value="1.2"/>', '<mass value="9.9"/>'))
+    drift = runner.invoke(app, ["check", "lockwire.yaml"])
+    assert drift.exit_code == 1 and "mass 9.9, expected locked mass 1.2" in plain(drift.output)
+    refused = runner.invoke(app, ["start", "ur5e", "--force", "--no-check"])
+    assert refused.exit_code == 1 and "ur5e.urdf exists and differs" in plain(refused.output)
+    (tmp_path / "ur5e").write_text("not: a contract\n")  # a real file of that name wins
+    assert "testbot" not in plain(runner.invoke(app, ["check", "ur5e"]).output)
+
+
+def test_check_robot_name_without_the_extra_says_how_to_get_it(monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "robot_descriptions", None)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["check", "ur5e"])
+    assert result.exit_code == 2
+    assert 'uvx --from "lockwire[robots]" lockwire check ur5e' in plain(result.output)

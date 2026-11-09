@@ -6,6 +6,7 @@ import { App } from "./App";
 import { DECLARE_FORM, DIFF, HISTORY, PAGE, PAGE_WITH_SCENE, PLAN, deferred, mockMatchMedia, picked } from "./App.testkit";
 import type { PagePayload, PlanPayload } from "../shared/api.gen";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
+import { pro } from "./proRegistry";
 import { readRecents } from "./recents";
 import { applyHighlight } from "./scene/robotScene";
 import { getSelectedPartId, setSelectedPartId } from "./scene/selectionStore";
@@ -48,7 +49,9 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
       started: true, urdf: "/tmp/robot.urdf", start: { path: "/tmp/lockwire.yaml", revision: "a".repeat(64), written: false },
       opened: { opened: true, path: "/tmp/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD },
     });
-    Object.assign(window, { lockwire: { startFromUrdf, getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
+    const getContractPage = vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) });
+    const openLockfile = vi.fn().mockResolvedValue({ opened: true, path: "/tmp/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD });
+    Object.assign(window, { lockwire: { startFromUrdf, getContractPage, openLockfile,
       getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
     root = createRoot(container);
     act(() => root.render(<App />));
@@ -59,7 +62,10 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     expect(container.querySelector(".check-headline")).not.toBeNull();
     expect(container.querySelector(".finding-card")).not.toBeNull();
     expect(container.querySelector("[role=alertdialog]")).toBeNull();
-    await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Overwrite from model")!.click());
+    expect(container.querySelector(".overwrite-from-model")).toBeNull(); // the model has not changed since its lock
+    getContractPage.mockResolvedValue({ ...PAGE, revision: "a".repeat(64), model_changed: true });
+    await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Re-check")!.click());
+    await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Update from model file")!.click());
     expect(startFromUrdf).toHaveBeenLastCalledWith({ urdf: "/tmp/robot.urdf", expected_revision: "a".repeat(64) });
   });
 
@@ -75,22 +81,97 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     act(() => root.render(<App />));
     await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Open robot")!.click());
     expect(container.querySelector(".start-note")?.textContent).toBe(note);
+    expect(container.querySelector(".check-count")?.textContent).toMatch(/ · saved beside your model$/); // a line in the verdict card, not a box over the robot
   });
 
-  it("a slow first load does not wipe the refusal from an overwrite clicked meanwhile", async () => {
+  it("missing meshes mount the folder fixer; Choose folder re-starts there and re-checks, and the panel goes", async () => {
+    const opened = (path: string) => ({ opened: true, path, payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD });
+    const startFromUrdf = vi.fn().mockResolvedValue({ started: true, urdf: "/r/urdf/a.urdf", opened: opened("/r/urdf/lockwire.yaml"),
+      start: { path: "/r/urdf/lockwire.yaml", revision: "a".repeat(64), written: true, note: "4 of 4 mesh files not found (e.g. package://p/meshes/b.stl).", mesh_gap: { missing: 4, total: 4, example: "package://p/meshes/b.stl" } } });
+    const choosePackageFolder = vi.fn().mockResolvedValue({ started: true, urdf: "/r/urdf/a.urdf", opened: opened("/r/lockwire.yaml"), removed: "/r/urdf/lockwire.yaml", start: { path: "/r/lockwire.yaml", revision: "b".repeat(64), written: true } });
+    Object.assign(window, { lockwire: { startFromUrdf, choosePackageFolder, getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
+      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
+    root = createRoot(container);
+    act(() => root.render(<App />));
+    await act(async () => clickOpenRobot());
+    expect(container.querySelector(".check-verdict + .empty-geometry-panel strong")?.textContent).toBe("Meshes not found (4)"); // under the verdict, not over it
+    expect(container.querySelector(".start-note")).toBeNull(); // saved beside: the verdict card says it; the fixer says the meshes
+    await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Choose folder…")!.click());
+    expect(choosePackageFolder).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".empty-geometry-panel")).toBeNull();
+    expect(container.querySelector(".start-note")?.textContent).toBe("Saved lockwire.yaml in the robot's package folder, /r.");
+    expect(readRecents().map((r) => r.path).filter((p) => p.startsWith("/r/"))).toEqual(["/r/lockwire.yaml"]); // moved: Recent lists the robot once
+  });
+
+  it("an example opens from the app's folder and says where, with Save a copy… asking where to put an editable one", async () => {
+    const newRobot = vi.fn().mockResolvedValue({ started: false, example: "/ud/examples/rover", opened: { opened: true, path: "/ud/examples/rover/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
+    Object.assign(window, { lockwire: { newRobot, getStarters: vi.fn().mockResolvedValue([]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
+      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
+    root = createRoot(container);
+    act(() => root.render(<App />));
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".open-face-new button")].find((b) => b.textContent === "Blank")!.click());
+    expect(container.querySelector(".start-note")?.textContent).toBe("Opened from /ud/examples/roverSave a copy…");
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Save a copy…")!.click());
+    expect(newRobot.mock.calls).toEqual([[null, undefined], [null, true]]);
+  });
+
+  it("a drifted robot opened from Recent offers Update from model file, re-locking the lockfile's own model", async () => {
+    localStorage.setItem("lockwire.recent", JSON.stringify([{ path: "/r/lockwire.yaml", name: "Arm" }]));
+    const startFromUrdf = vi.fn().mockResolvedValue({ started: false });
+    Object.assign(window, { lockwire: { startFromUrdf, getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]),
+      openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/r/lockwire.yaml", model: "/r/arm.urdf", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }),
+      getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64), model_changed: true }) } });
+    act(() => (root = createRoot(container)).render(<App />));
+    await act(async () => container.querySelector<HTMLButtonElement>(".open-face-recents button")!.click());
+    await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Update from model file")!.click());
+    expect(startFromUrdf).toHaveBeenLastCalledWith({ urdf: "/r/arm.urdf", expected_revision: "a".repeat(64) });
+  });
+
+  it("opening a robot whose lockfile names no re-lockable model drops the last robot's Update from model file", async () => {
+    localStorage.setItem("lockwire.recent", JSON.stringify([{ path: "/r/lockwire.yaml", name: "Arm" }]));
+    const startFromUrdf = vi.fn().mockResolvedValue({ started: false });
+    Object.assign(window, { lockwire: { startFromUrdf, getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]),
+      openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/r/lockwire.yaml", model: "/r/arm.urdf", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }),
+      getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64), model_changed: true }) } });
+    act(() => (root = createRoot(container)).render(<App />));
+    await act(async () => container.querySelector<HTMLButtonElement>(".open-face-recents button")!.click());
+    const update = () => [...container.querySelectorAll("button")].find(b => b.textContent === "Update from model file");
+    expect(update()).toBeDefined();
+    Object.assign(window.lockwire, { openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/b/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }) });
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Re-check")!.click());
+    expect(update()).toBeUndefined();
+    expect(startFromUrdf).not.toHaveBeenCalled();
+  });
+
+  it("a recent whose lockfile is gone leaves the list with one line, not an error and a Retry", async () => {
+    localStorage.setItem("lockwire.recent", JSON.stringify([{ path: "/gone/lockwire.yaml", name: "Gone arm" }]));
+    const openLockfile = vi.fn().mockResolvedValue({ opened: true, path: "/gone/lockwire.yaml", error: "no contract at /gone/lockwire.yaml — run `lockwire start <urdf>` first" });
+    Object.assign(window, { lockwire: { openLockfile } });
+    root = createRoot(container);
+    act(() => root.render(<App />));
+    await act(async () => container.querySelector<HTMLButtonElement>(".open-face-recents button")!.click());
+    expect(container.querySelector(".start-note")?.textContent).toBe("Gone arm is no longer there, so it was removed from Recent.");
+    expect(container.querySelector(".open-face-error")).toBeNull();
+    expect(readRecents()).toEqual([]);
+    expect(container.textContent).toContain("No recent robots");
+  });
+
+  it("a slow re-check does not wipe the refusal from an overwrite clicked meanwhile", async () => {
     const page = deferred<PagePayload>();
+    const opened = { opened: true, path: "/tmp/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD };
     const startFromUrdf = vi.fn().mockResolvedValueOnce({
       started: true, urdf: "/tmp/robot.urdf", start: { path: "/tmp/lockwire.yaml", revision: "a".repeat(64), written: false },
       opened: { opened: true, path: "/tmp/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD },
     }).mockRejectedValue(new Error("lockfile changed since it was opened; reload before overwriting"));
-    Object.assign(window, { lockwire: { startFromUrdf, getContractPage: vi.fn().mockReturnValue(page.promise),
+    Object.assign(window, { lockwire: { startFromUrdf, openLockfile: vi.fn().mockResolvedValue(opened), getContractPage: vi.fn().mockResolvedValueOnce({ ...PAGE, revision: "a".repeat(64), model_changed: true }).mockReturnValue(page.promise),
       getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
     root = createRoot(container);
     act(() => root.render(<App />));
     const click = (label: string) => [...container.querySelectorAll("button")].find(b => b.textContent === label)!.click();
     await act(async () => click("Open robot"));
-    await act(async () => click("Overwrite from model"));
-    await act(async () => page.resolve({ ...PAGE, revision: "a".repeat(64) }));
+    await act(async () => click("Re-check"));
+    await act(async () => click("Update from model file"));
+    await act(async () => page.resolve({ ...PAGE, revision: "a".repeat(64), model_changed: true }));
     expect(container.querySelector(".open-face-error")?.textContent).toContain("changed since");
   });
 
@@ -145,12 +226,12 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     expect(headline).not.toBeNull();
     // The sentence moved to the pill's tooltip; the page shows the verdict and the count.
     expect(headline!.getAttribute("title")).toBe(X500_CHECK_PAYLOAD.headline);
-    expect(headline!.textContent).toMatch(/^NO-GO\d+ problems?( · \d+ modes)?( · \d+ not checked)?$/);
+    expect(headline!.textContent).toMatch(/^VerdictNO-GO\d+ problems?( · \d+ not compared yet)?$/);
   });
 });
 
 describe("App owns the mode tab router", () => {
-  async function openToCheckFace(page: PagePayload = PAGE, form: unknown = DECLARE_FORM) {
+  async function openToCheckFace(page: PagePayload = PAGE, form: unknown = DECLARE_FORM, sibling: PlanPayload | Error | null = null) {
     const writeContract = vi.fn().mockResolvedValue({ payload: { written: true }, refusal: null });
     const compareContractWhatIf = vi.fn().mockResolvedValue({
       current: { verdict: "NO-GO", scored: 1, findings: [{}] },
@@ -169,7 +250,7 @@ describe("App owns the mode tab router", () => {
       compareContractWhatIf,
       undoContract,
       choosePlan: vi.fn().mockResolvedValue("/tmp/plan.yaml"),
-      checkPlan: vi.fn().mockImplementation(async (r: { plan: string }) => (r.plan === "" ? null : PLAN)),
+      checkPlan: vi.fn().mockImplementation(async (r: { plan: string }) => { if (r.plan === "" && sibling instanceof Error) throw sibling; return r.plan === "" ? sibling : PLAN; }),
     };
     root = createRoot(container);
     act(() => root.render(<App />));
@@ -179,9 +260,26 @@ describe("App owns the mode tab router", () => {
   }
 
   function clickTab(name: string) {
+    act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click());
     const tab = Array.from(container.querySelectorAll('[role="tab"]')).find((el) => el.textContent === name)!;
     act(() => tab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   }
+
+  it("a fresh open shows Check and Docs only; a sibling plan, a jump or More reveals the rest", async () => {
+    const tabs = () => [...container.querySelectorAll('.shell-tabs [role="tab"]')].map((t) => t.textContent);
+    await openToCheckFace();
+    expect(tabs()).toEqual(["Check", "Docs"]);
+    await act(async () => container.querySelector<HTMLButtonElement>(".shell-chip-btn")!.click()); // the robot's name opens Design
+    expect(tabs()).toEqual(["Design", "Check", "Docs"]);
+    act(() => [...container.querySelectorAll<HTMLElement>('.shell-tabs [role="tab"]')].find((t) => t.textContent === "Check")!.click());
+    expect(tabs()).toEqual(["Design", "Check", "Docs"]); // a tab this robot has been to stays
+    act(() => container.querySelector<HTMLButtonElement>(".shell-more")!.click());
+    expect(tabs()).toEqual(["Design", "Declare", "Check", "Plan", ...(pro?.modes.map((m) => m.label) ?? []), "Docs"]); // pro/ tabs only when that folder is present
+    act(() => root.unmount());
+    root = createRoot(container);
+    await openToCheckFace(PAGE, DECLARE_FORM, PLAN);
+    expect(tabs()).toEqual(["Check", "Plan", "Docs"]);
+  });
 
   it("test_check_mode_renders_frame_with_check_face", async () => {
     await openToCheckFace();
@@ -189,7 +287,7 @@ describe("App owns the mode tab router", () => {
     expect(container.querySelector(".check-headline")).not.toBeNull();
     const cards = Array.from(container.querySelectorAll<HTMLElement>(".finding-card"));
     const firstCard = cards[0];
-    act(() => firstCard!.querySelector("button")!.click()); // the detail opens inline on select
+    // The first problem lands already open (no tap).
     expect(firstCard?.dataset.shape).toBe(PAGE.cards[0]?.shape);
     expect(firstCard?.querySelector(".finding-info")?.getAttribute("title")).toBe(PAGE.cards[0]?.figure_note); // number-note: a tooltip, not body text
     expect(firstCard?.querySelector(".finding-fix")?.textContent).toBe(PAGE.cards[0]?.fix);
@@ -241,8 +339,7 @@ describe("App owns the mode tab router", () => {
     expect(container.querySelector(".verdict-word")).toBeNull();
     act(() => root.unmount());
     root = createRoot(container);
-    await openToCheckFace();
-    vi.mocked(window.lockwire.checkPlan).mockResolvedValue(PLAN);
+    await openToCheckFace(PAGE, DECLARE_FORM, PLAN);
     clickTab("Plan");
     await act(async () => {});
     expect(container.querySelector(".verdict-word")?.textContent).toBe("GO");
@@ -250,8 +347,7 @@ describe("App owns the mode tab router", () => {
   });
 
   it("a sibling plan that cannot be read says so in one line", async () => {
-    await openToCheckFace();
-    vi.mocked(window.lockwire.checkPlan).mockRejectedValue(new Error("bad plan file"));
+    await openToCheckFace(PAGE, DECLARE_FORM, new Error("bad plan file"));
     clickTab("Plan");
     await act(async () => {});
     expect(container.querySelector(".plan-total")?.textContent).toBe("The example plan couldn't be read: bad plan file");

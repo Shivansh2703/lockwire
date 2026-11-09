@@ -176,15 +176,22 @@ if (sha256(anymalContractPath) !== anymalShaBefore) throw new Error("ANYmal cont
 // "Open robot" on a model: cancel, reopen (no prompt), overwrite, stale. Proven by what the user sees and by the
 // bytes left on disk. (The old in-process witness of the IPC argument expected_revision is gone
 // with the test hooks; a stale write is proven by the refusal text plus the external bytes surviving.)
-const urdfSource = join(repoRoot, "tests/fixtures/anymal/contract.urdf");
+// "Update from model file" shows only when the model drifted from its lock, so the staged lockfile names the
+// staged model (the exact file it was locked from) and overwrite/stale edit one mass after the lock, as a user would.
+const urdfSource = join(repoRoot, "tests/fixtures/anymal_d.urdf");
 const urdfExternalBytes = "# external writer changed these bytes after the app observed its revision\n";
 function stageUrdfScenario(name) {
   const scenarioDir = join(fixtureDir, `urdf-${name}`);
   mkdirSync(scenarioDir, { recursive: true });
   const urdfPath = join(scenarioDir, "robot.urdf");
   const contract = join(scenarioDir, "lockwire.yaml");
-  cpSync(urdfSource, urdfPath);
-  cpSync(join(repoRoot, "tests/fixtures/anymal/contract.yaml"), contract);
+  const lock = readFileSync(join(repoRoot, "tests/fixtures/anymal/contract.yaml"), "utf8");
+  if (!lock.includes("source: ../anymal_d.urdf")) throw new Error("anymal lockfile fixture no longer names ../anymal_d.urdf");
+  writeFileSync(contract, lock.replaceAll("source: ../anymal_d.urdf", "source: robot.urdf"));
+  const urdf = readFileSync(urdfSource, "utf8");
+  const drifted = urdf.replace('<mass value="8.27629"/>', '<mass value="9.27629"/>');
+  if (drifted === urdf) throw new Error("anymal_d.urdf fixture lost the base_inertia mass the drift edit changes");
+  writeFileSync(urdfPath, name === "overwrite" || name === "stale" ? drifted : urdf);
   return { urdfPath, contract, before: readFileSync(contract) };
 }
 async function runUrdf(name) {

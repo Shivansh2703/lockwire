@@ -155,7 +155,7 @@ def test_empty_actuator_slot_reports_not_run(monkeypatch):
     ours = [f for f in report if f.quantity == "actuator_cases/conformance"]
     assert len(ours) == 1
     assert ours[0].severity == "not_scored"
-    assert ours[0].observed == "not run: needs Lockwire Pro"
+    assert ours[0].observed == "not run: the recording checks did not load"
     assert not [f for f in report if f.quantity.startswith("actuator_cases/elbow")]
     rest = [f for f in report if f is not ours[0]]
     assert verdict(report).code == verdict(rest).code

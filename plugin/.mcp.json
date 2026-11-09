@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "lockwire": {
+      "command": "uvx",
+      "args": ["--from", "lockwire[mcp]", "lockwire", "mcp"]
+    }
+  }
+}

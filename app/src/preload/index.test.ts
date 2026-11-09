@@ -28,12 +28,13 @@ beforeEach(() => {
 });
 
 describe("preload exposes a small, explicitly enumerated API", () => {
-  it("test_exposed_surface_is_exactly_the_thirty_three_named_methods", async () => {
+  it("test_exposed_surface_is_exactly_the_thirty_six_named_methods", async () => {
     await import("./index");
     expect(Object.keys(exposed.lockwire as object).sort()).toEqual([
       "applyAssistant",
       "cancelAssistant",
       "checkPlan",
+      "choosePackageFolder",
       "choosePlan",
       "compareContractWhatIf",
       "diffContract",
@@ -46,6 +47,7 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       "getStarters",
       "killTerminal",
       "newRobot",
+      "onAgentEvent",
       "onAssistantEvent",
       "onOpenedFromMenu",
       "onSidecarState",
@@ -59,8 +61,10 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       "sendAssistant",
       "sendRobotCommand",
       "setAssistantSettings",
+      "startAgent",
       "startFromUrdf",
       "startTerminal",
+      "stopAgent",
       "undoContract",
       "writeContract",
       "writeTerminal",

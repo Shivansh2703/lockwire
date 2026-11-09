@@ -134,11 +134,15 @@ class GravityPlan(NamedTuple):
     kg: np.ndarray  # (n,)
     payload: np.ndarray  # (n,) declared payload kg, 0 for link masses
     carries: np.ndarray  # (K, n) 1 where mass i hangs off scored joint k
+    device: np.ndarray  # (n,) device kg, 0 for link and payload masses
 
 
-def gravity_plan(model, under: str | None = None) -> GravityPlan | None:
+def gravity_plan(
+    model, under: str | None = None, devices: dict[str, list[tuple]] | None = None
+) -> GravityPlan | None:
     """Walk order of the tree from its single root; ``under`` keeps only the root-to-joint
     path and that joint's subtree (other branches cannot change its subtree's torques).
+    ``devices`` maps a link name to the (xyz in that link's frame, kg) of devices mounted on it.
 
     Raises ChainError for a closed chain or a zero-length axis. Returns None, never a guess,
     when the model has no single root, a rotary joint has no axis, no link has a positive mass, or a
@@ -166,7 +170,7 @@ def gravity_plan(model, under: str | None = None) -> GravityPlan | None:
             name = parent_of.get(name, name)
     steps: list[tuple] = []
     joints: list = []
-    masses: list[tuple] = []  # (link, local point, kg, payload kg, frames above)
+    masses: list[tuple] = []  # (link, local point, kg, payload kg, frames above, device kg)
     stack = [(roots[0], under is None, frozenset())]
     seen = {roots[0]}
     while stack:
@@ -175,10 +179,11 @@ def gravity_plan(model, under: str | None = None) -> GravityPlan | None:
         if link is not None and link.mass is not None and link.mass.base() > 0:
             if link.com is None or link.frame not in (None, name):
                 return None
-            masses.append((name, link.com, link.mass.base(), 0.0, above))
+            masses.append((name, link.com, link.mass.base(), 0.0, above, 0.0))
         if link is not None and link.payload is not None:
             kg = link.payload.base()
-            masses.append((name, (0.0, 0.0, 0.0), kg, kg, above))
+            masses.append((name, (0.0, 0.0, 0.0), kg, kg, above, 0.0))
+        masses += [(name, xyz, kg, 0.0, above, kg) for xyz, kg in (devices or {}).get(name, [])]
         for joint in kids.get(name, []):
             below = inside or joint.name == under
             if not below and joint.child not in path:
@@ -189,17 +194,18 @@ def gravity_plan(model, under: str | None = None) -> GravityPlan | None:
                 )
             seen.add(joint.child)
             axis, k, ab = None, None, above
-            if joint.type in ("revolute", "continuous"):
-                if joint.axis is None:
-                    return None
-                norm = math.sqrt(sum(a * a for a in joint.axis))
-                if not norm:
+            slide = joint.type == "prismatic"  # scored as a force along its axis, held at zero
+            if joint.type in ("revolute", "continuous") or slide:
+                norm = math.sqrt(sum(a * a for a in joint.axis)) if joint.axis else 0.0
+                if not norm and not slide:
+                    if joint.axis is None:
+                        return None
                     raise ChainError(f"joint '{joint.name}' has a zero-length axis")
-                axis = np.array(joint.axis, dtype=float) / norm
-                if below:
+                axis = np.array(joint.axis, dtype=float) / norm if norm else None
+                if axis is not None and below:
                     k, ab = len(joints), above | {len(joints)}
                     joints.append(joint)
-            # prismatic, planar and floating joints are held at their zero pose
+            # planar and floating joints are held at their zero pose
             o = joint.origin
             xyz = np.array(o.xyz, dtype=float)
             steps.append((name, joint.child, joint, xyz, _rpy(*o.rpy), axis, k))
@@ -215,12 +221,16 @@ def gravity_plan(model, under: str | None = None) -> GravityPlan | None:
         np.array([m[2] for m in masses], dtype=float),
         np.array([m[3] for m in masses], dtype=float),
         carries.reshape(len(joints), len(masses)),
+        np.array([m[5] for m in masses], dtype=float),
     )
 
 
-def plan_torques(plan: GravityPlan, names: list[str], angles, g: float = STANDARD_G) -> np.ndarray:
+def plan_torques(
+    plan: GravityPlan, names: list[str], angles, g: float = STANDARD_G, signed: bool = False
+) -> np.ndarray:
     """|Static gravity torque| (P, K) at each scored joint k for each pose row of ``angles``
-    (P, len(names), radians; joints not named sit at 0), all poses at once.
+    (P, len(names), radians; joints not named sit at 0), all poses at once. ``signed`` keeps the
+    sign of rotary torques. A prismatic joint scores its weight along its axis, m * g * |axis_z| in N.
 
     torque_j = axis_j . sum_i (r_i - p_j) x (m_i * g_vec), over every mass i in the subtree
     of joint j (CoM or payload point r_i, joint origin p_j, root frame, gravity along -Z).
@@ -238,7 +248,7 @@ def plan_torques(plan: GravityPlan, names: list[str], angles, g: float = STANDAR
         if axis is not None:
             if k is not None:
                 axes[:, k], origins[:, k] = r @ axis, p
-            if joint.name in col:
+            if joint.name in col and joint.type != "prismatic":
                 r = r @ _axis_angle(axis, angles[:, col[joint.name]])
         rot[child], pos[child] = r, p
     world = np.zeros((count, 0, 3))  # a subtree with no mass carries nothing
@@ -246,13 +256,12 @@ def plan_torques(plan: GravityPlan, names: list[str], angles, g: float = STANDAR
         world = np.stack([pos[n] + rot[n] @ q for n, q in zip(plan.links, plan.local)], axis=1)
     mass = plan.carries @ plan.kg  # (K,)
     moment = np.einsum("kn,pni->pki", plan.carries, plan.kg[None, :, None] * world)
-    return np.abs(
-        g
-        * (
-            axes[..., 1] * (moment[..., 0] - origins[..., 0] * mass)
-            - axes[..., 0] * (moment[..., 1] - origins[..., 1] * mass)
-        )
+    lever = g * (
+        axes[..., 1] * (moment[..., 0] - origins[..., 0] * mass)
+        - axes[..., 0] * (moment[..., 1] - origins[..., 1] * mass)
     )
+    slide = np.array([j.type == "prismatic" for j in plan.joints], dtype=bool)
+    return np.where(slide, g * mass * np.abs(axes[..., 2]), lever if signed else np.abs(lever))
 
 
 def plan_rows(plan: GravityPlan, torques) -> list[JointTorque]:

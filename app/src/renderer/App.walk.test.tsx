@@ -37,6 +37,7 @@ afterEach(() => { if (root) act(() => root!.unmount()); root = null; container.r
 const replies = (): Record<string, unknown> => ({
   startFromUrdf: picked({ opened: true, path: "/tmp/robot/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }),
   getContractPage: robot.page, getDeclareForm: robot.form, getHistory: HISTORY, choosePlan: "/tmp/plan.yaml", checkPlan: robot.plan,
+  getAssistantSettings: { hasKey: false, model: "", enabledRobots: [] },
   diffContract: { changed: false, changes: [], added: [], removed: [], findings_new: [], findings_gone: [] },
 });
 const click = (el: Element) => act(() => (el as HTMLElement).click());
@@ -55,7 +56,7 @@ async function setup(tab: string, prep?: () => Promise<void> | void) {
   act(() => root!.render(<App />));
   await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Open robot")!.click());
   await act(async () => {});
-  click([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === tab)!);
+  act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click()); click([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === tab)!);
   await prep?.();
 }
 const state = () => JSON.stringify([document.documentElement.outerHTML, getSelectedPartId(), getSelectedGroup(), getDesignView(), calls, vi.mocked(focusCamera).mock.calls.length, vi.mocked(applyHighlight).mock.calls.length]);
@@ -84,7 +85,7 @@ const openFirst = (sel: string) => () => { const row = container.querySelector(s
 
 describe.each(["X500", "ANYmal"] as const)("every button in the five tabs does something (%s)", (which) => {
   beforeEach(() => { robot = ROBOTS[which]; });
-  it("Check", async () => expect(await deadButtons("Check", openFirst(".finding-card .kit-finding"))).toEqual([]), 60_000);
+  it("Check", async () => expect(await deadButtons("Check", () => { if (!container.querySelector(".check-detail")) openFirst(".finding-card .kit-finding")(); })).toEqual([]), 60_000);
   it("Plan", async () => expect(await deadButtons("Plan", async () => {
     await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click());
     await act(async () => {});

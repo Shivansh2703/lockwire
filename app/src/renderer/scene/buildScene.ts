@@ -316,6 +316,7 @@ export function buildScene(
   renderer.setSize(width, height, false);
 
   const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; // zoom stays on for touch pinch; attachWheel takes the wheel first
 
   const resolution = new THREE.Vector2(width, height);
 
@@ -358,7 +359,7 @@ export function buildScene(
 
 /** WASD walk: hold W/S/A/D to move camera and target together over the ground plane (Z-up),
  * speed scaled to the framing (camera-to-target distance per second). Keyboard-only; never while typing. */
-const WASD = { w: [1, 0], s: [-1, 0], d: [0, 1], a: [0, -1] } as const;
+const WASD = { w: [1, 0], s: [-1, 0], d: [0, 1], a: [0, -1], arrowup: [1, 0], arrowdown: [-1, 0], arrowright: [0, 1], arrowleft: [0, -1] } as const;
 const typing = (el: Element | null) => !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || (el as HTMLElement).isContentEditable);
 export function attachWasd(ctx: SceneContext): { step: (dt: number) => void; dispose: () => void } {
   const held = new Set<keyof typeof WASD>();
@@ -393,6 +394,23 @@ export function attachWasd(ctx: SceneContext): { step: (dt: number) => void; dis
     },
     dispose() { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", clear); },
   };
+}
+
+/** Trackpad wheel: a pinch (macOS sends it as a wheel with ctrlKey) zooms, a two-finger scroll
+ * moves the view with the fingers. A plain mouse wheel moves the view too (CALL: one rule, no device sniffing). */
+export function wheelAction(e: Pick<WheelEvent, "deltaX" | "deltaY" | "ctrlKey">): { zoom: number } | { pan: [number, number] } {
+  return e.ctrlKey ? { zoom: Math.exp(e.deltaY * 0.01) } : { pan: [-e.deltaX, -e.deltaY] };
+}
+export function attachWheel(ctx: SceneContext): () => void {
+  const el = ctx.renderer.domElement;
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    e.stopImmediatePropagation(); // capture phase runs before OrbitControls' own wheel zoom on the canvas
+    const a = wheelAction(e);
+    if ("zoom" in a) ctx.controls.dollyIn(a.zoom); else ctx.controls.pan(...a.pan);
+  };
+  el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+  return () => el.removeEventListener("wheel", onWheel, { capture: true });
 }
 
 /** The ONE place the resolution uniform is written. Owns the camera aspect and the renderer's

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 
 import type { Card, Finding, RobotJoint, RobotLink } from "../../shared/api.gen";
-import { applyDim, applyHighlight, applyLens, buildSkeleton, declarePart, highlightsFromCards, highlightsFromFindings, jointsOfPath, topHighlight, partsOfPath, paint, skeletonMeshes, wholeHighlight, type ThemeColors } from "./robotScene";
+import { applyDim, applyHighlight, applyLens, buildSkeleton, declarePart, highlightsFromCards, highlightsFromFindings, jointsOfPath, checkHighlight, partsOfPath, paint, skeletonMeshes, wholeHighlight, type ThemeColors } from "./robotScene";
 
 const joint = (name: string, parent: string, child: string, position: number[]): RobotJoint => ({
   name, type: "revolute", parent, child, parent_name: parent, child_name: child, position, axis: [0, 0, 1], lower: null, upper: null, effort: 5,
@@ -49,10 +49,9 @@ describe("RobotView helpers", () => {
     expect(h).toEqual([{ id: "ELBOW", level: "bad" }, { id: "YAW", level: "bad" }]);
   });
 
-  it("Check with nothing picked lights only the top finding's parts", () => {
-    const cards = [card("not_scored", [{ kind: "joint", id: "WRIST", label: "W" }]), card("warning", [{ kind: "joint", id: "ELBOW", label: "E" }]), card("violation", [{ kind: "joint", id: "YAW", label: "Y" }])];
-    expect(topHighlight(cards, joints)).toEqual([{ id: "ELBOW", level: "warn" }]);
-    expect(topHighlight([], joints)).toEqual([]);
+  it("Check lights every flagged part even with the first card picked", () => {
+    const cards = [card("warning", [{ kind: "joint", id: "ELBOW", label: "E" }]), card("violation", [{ kind: "joint", id: "YAW", label: "Y" }])];
+    expect(checkHighlight(cards, cards[0], [], joints)).toEqual([{ id: "ELBOW", level: "warn" }, { id: "YAW", level: "bad" }]);
   });
 
   it("plan/test findings and declare paths light the joint (or the joint carrying the link) they name", () => {
@@ -182,6 +181,22 @@ describe("RobotView helpers", () => {
     const hue = (m: THREE.Mesh) => ((m.userData.outline as THREE.Mesh).material as THREE.ShaderMaterial).uniforms.color!.value.getHex();
     expect(hue(box)).toBeLessThan(hue(blade));
     expect(hue(blade)).toBe(0x0000ff);
+  });
+
+  it("a tiny flagged part gets an on-top halo in its status colour; a big one does not; clearing the flag disposes it", () => {
+    const mk = (r: number, level?: string) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r), new THREE.MeshStandardMaterial()); m.userData = { partId: "P", level }; return m; };
+    const [body, caster, servo] = [mk(1, "warn"), mk(0.025, "bad"), mk(0.12, "warn")]; // robot radius is ~1.73 (box corner): 1.4% gets a halo, 7% does not
+    const z = new THREE.Color(0);
+    const colors = { canvas: z, grid: z, part: z, warn: new THREE.Color(0xfbbf24), bad: new THREE.Color(0xff0000), pass: z, accent: z, outline: z };
+    paint({ meshes: [body, caster, servo] } as never, colors);
+    const halo = caster.userData.halo as THREE.Mesh;
+    expect([body, servo].map((m) => m.userData.halo)).toEqual([undefined, undefined]);
+    expect((halo.material as THREE.MeshBasicMaterial).depthTest).toBe(false);
+    expect((halo.material as THREE.MeshBasicMaterial).color.getHex()).toBe(0xff0000);
+    caster.userData.level = undefined;
+    paint({ meshes: [body, caster] } as never, colors);
+    expect(caster.userData.halo).toBeUndefined();
+    expect(caster.children).toHaveLength(0);
   });
 
   it("ghosting a part recompiles its material: three bakes the opaque define at compile time", () => {

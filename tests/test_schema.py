@@ -866,17 +866,17 @@ def test_resolve_paths(clean_contract):
 
 def test_minimal_contract_valid():
     contract = Contract(robot=RobotInfo(name="bare"))
-    # MUTATION-BITE: catches failure to advance the authored contract default to v0.4.
-    assert contract.schema_version == "0.4"
+    # MUTATION-BITE: catches failure to advance the authored contract default to v0.5.
+    assert contract.schema_version == "0.5"
 
 
 def test_v04_upgrade_is_pure_and_legacy_documents_remain_legacy():
     legacy = {"schema_version": "0.2", "robot": {"name": "legacy"}}
     proposal = upgrade_contract_document(legacy)
     assert legacy["schema_version"] == "0.2"
-    assert proposal["schema_version"] == "0.4"
+    assert proposal["schema_version"] == "0.5"
     assert Contract.model_validate(legacy).schema_version == "0.2"
-    assert "schema_version: '0.4'" in upgrade_contract_text(
+    assert "schema_version: '0.5'" in upgrade_contract_text(
         'schema_version: "0.3"\nrobot:\n  name: legacy\n'
     )
 
@@ -1023,7 +1023,7 @@ def test_schema_v02_remains_read_compatible_but_cannot_carry_fitted_data():
 
     dumped = _fitted_contract().model_dump(mode="python")
     dumped["schema_version"] = "0.2"
-    with pytest.raises(ValidationError, match="require schema_version '0.3' or '0.4'"):
+    with pytest.raises(ValidationError, match="require schema_version '0.3' or later"):
         Contract.model_validate(dumped)
 
 
@@ -1889,7 +1889,7 @@ def test_all_fixtures_still_load_after_why_max_rate(fixture):
     schema version bump."""
     from lockwire.schema import SCHEMA_VERSION
 
-    assert SCHEMA_VERSION == "0.4"
+    assert SCHEMA_VERSION == "0.5"
     contract = load_contract(Path(__file__).parent / "fixtures" / fixture)
     for model in contract.device_models:
         for band in model.hard_limits.values():
@@ -1941,7 +1941,7 @@ def test_unsupported_schema_version_raises_typed(tmp_path):
     still loads."""
     from lockwire.schema import SUPPORTED_SCHEMA_VERSIONS, UnsupportedSchemaVersion
 
-    for version in ("0.1", "0.5"):
+    for version in ("0.1", "0.6"):
         with pytest.raises(UnsupportedSchemaVersion) as caught:
             load_contract(_contract_at_version(tmp_path, version))
         assert caught.value.found == version
@@ -2078,7 +2078,7 @@ def test_missing_schema_version_is_one_default_for_load_and_upgrade():
     """a keyless document means the latest version in load and in upgrade."""
     text = "robot:\n  name: r\nstructural: {}\n"
     doc = YAML().load(text)
-    assert upgrade_contract_document(dict(doc))["schema_version"] == "0.4"
+    assert upgrade_contract_document(dict(doc))["schema_version"] == "0.5"
     assert "schema_version" in upgrade_contract_text("robot:\n  name: r\n")
 
 
@@ -2159,3 +2159,13 @@ def test_budget_nominal_must_be_positive():
     with pytest.raises(ValidationError, match="nominal must be positive"):
         Budget.model_validate({**base, "nominal": {"value": 0, "unit": "kg"}})
     Budget.model_validate({**base, "nominal": {"value": 1, "unit": "kg"}})
+
+
+def test_old_lock_loads_without_battery_chemistry():
+    c = load_contract(Path(__file__).parent / "fixtures" / "contract_clean.yaml")
+    assert c.schema_version == "0.3"  # bites an additive field forcing a version bump
+    assert c.topology.battery.chemistry is None  # bites a default that invents a chemistry
+    ok = {"capacity": {"value": 1, "unit": "Wh"}, "chemistry": "lipo"}
+    assert type(c.topology.battery).model_validate(ok).chemistry == "lipo"
+    with pytest.raises(ValidationError):  # bites an unchecked chemistry string
+        type(c.topology.battery).model_validate({**ok, "chemistry": "alkaline"})

@@ -1,7 +1,7 @@
 # `lockwire.api` — the library door
 
 lockwire answers the same questions through four doors: the command line, the MCP
-server, the HTTP sidecar (`lockwire serve`, Lockwire Pro), and this module. There is exactly **one implementation behind all four**, so
+server, the HTTP sidecar (`lockwire serve`), and this module. There is exactly **one implementation behind all four**, so
 `lockwire.api` *wraps* the existing checks and never recomputes them.
 
 Two properties this module is responsible for:
@@ -77,11 +77,12 @@ print(sorted(files))                 # ['SYSTEM.md', 'dev.imu.md', ...]
 print(files["SYSTEM.md"][:200])
 ```
 
-## Not in the free library
+## Recording operations
 
-`preflight` and `health` are part of Lockwire Pro and are **not** on `lockwire.api`
-in the free package: `lw.preflight(...)` and `lw.health(...)` raise
-`AttributeError` there. The free library's full list is `lw.FUNCTIONS`.
+`preflight` and `health` live in the `lockwire_pro` plugin package (installed with lockwire),
+not on `lockwire.api`: `lw.preflight(...)` raises `AttributeError`. Use
+`lockwire_pro.api_pro`, the complete library door; its full list is `api_pro.FUNCTIONS`.
+`lockwire.api`'s list is `lw.FUNCTIONS`.
 
 ## `declare(contract, path, value, *, source, witness, ...) -> dict`
 

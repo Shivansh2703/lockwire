@@ -1,0 +1,5 @@
+{
+  "name": "lockwire",
+  "version": "0.1.0",
+  "description": "Physics pre-commit for robot models: blocks an edit to a URDF/SDF/lockwire.yaml that breaks the locked physics, plus Lockwire's checks over MCP."
+}

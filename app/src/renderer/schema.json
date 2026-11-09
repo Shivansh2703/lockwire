@@ -1,6 +1,41 @@
 {
   "components": {
     "schemas": {
+      "AcceptedRow": {
+        "additionalProperties": false,
+        "description": "A finding the lockfile accepted on record: the Check panel's muted Accepted rows.",
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "witness": {
+            "title": "Witness",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "observed",
+          "reason",
+          "witness",
+          "date"
+        ],
+        "title": "AcceptedRow",
+        "type": "object"
+      },
       "AddPartNumber": {
         "additionalProperties": false,
         "description": "One sourced catalog number, pre-filled in the Add part form with its badge.",
@@ -439,6 +474,18 @@
             "title": "Body",
             "type": "string"
           },
+          "cluster_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cluster Root"
+          },
           "consumer": {
             "anyOf": [
               {
@@ -671,6 +718,14 @@
             "pattern": "\\S",
             "title": "Headline",
             "type": "string"
+          },
+          "not_compared": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/NotCompared"
+            },
+            "title": "Not Compared",
+            "type": "array"
           },
           "revision": {
             "anyOf": [
@@ -1563,6 +1618,30 @@
             "default": null,
             "title": "Locked At"
           },
+          "next_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Next Command"
+          },
+          "next_tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Next Tool"
+          },
           "observed": {
             "title": "Observed",
             "type": "string"
@@ -2230,6 +2309,63 @@
         "title": "LogPayload",
         "type": "array"
       },
+      "MeshGap": {
+        "additionalProperties": false,
+        "description": "Mesh files `start` could not find inside the robot's package folder.",
+        "properties": {
+          "example": {
+            "title": "Example",
+            "type": "string"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "missing",
+          "total",
+          "example"
+        ],
+        "title": "MeshGap",
+        "type": "object"
+      },
+      "NotCompared": {
+        "additionalProperties": false,
+        "description": "One thing the run could not judge (``report.not_compared``).",
+        "properties": {
+          "next_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Command"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quantity",
+          "reason",
+          "next_command"
+        ],
+        "title": "NotCompared",
+        "type": "object"
+      },
       "PackedIndices": {
         "additionalProperties": false,
         "properties": {
@@ -2304,6 +2440,14 @@
         "additionalProperties": false,
         "description": "``gui.build_payload``'s dict, field for field \u2014 the union's largest\nmember, and the only one with no envelope (seam 1 in the module docstring).",
         "properties": {
+          "accepted": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AcceptedRow"
+            },
+            "title": "Accepted",
+            "type": "array"
+          },
           "adds_up": {
             "items": {
               "$ref": "#/components/schemas/AddsUpRow"
@@ -2388,6 +2532,11 @@
             },
             "title": "Mode Labels",
             "type": "object"
+          },
+          "model_changed": {
+            "default": false,
+            "title": "Model Changed",
+            "type": "boolean"
           },
           "modes": {
             "items": {
@@ -2576,6 +2725,14 @@
           "format_version": {
             "title": "Format Version",
             "type": "string"
+          },
+          "not_compared": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/NotCompared"
+            },
+            "title": "Not Compared",
+            "type": "array"
           },
           "outcomes": {
             "anyOf": [
@@ -2865,6 +3022,14 @@
             "title": "Format Version",
             "type": "string"
           },
+          "not_compared": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/NotCompared"
+            },
+            "title": "Not Compared",
+            "type": "array"
+          },
           "robot": {
             "title": "Robot",
             "type": "string"
@@ -3117,7 +3282,8 @@
               "continuous",
               "prismatic",
               "floating",
-              "planar"
+              "planar",
+              "ball"
             ],
             "title": "Type",
             "type": "string"
@@ -3649,6 +3815,17 @@
       "StartPayload": {
         "additionalProperties": false,
         "properties": {
+          "mesh_gap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeshGap"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "note": {
             "anyOf": [
               {
@@ -3967,6 +4144,14 @@
     },
     "GraphNode.value": {
       "by": "report_html._graph",
+      "kind": "derived"
+    },
+    "MeshGap.missing": {
+      "by": "start_operation._find_meshes",
+      "kind": "derived"
+    },
+    "MeshGap.total": {
+      "by": "start_operation._find_meshes",
       "kind": "derived"
     },
     "PackedVectors.offset": {

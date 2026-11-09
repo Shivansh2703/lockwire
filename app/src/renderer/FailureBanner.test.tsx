@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as sidecar from "../main/sidecar";
+import { PRODUCT_NAME } from "../shared/branding";
 import { FailureBanner, useSidecarFailed } from "./FailureBanner";
 
 // Real sidecar.ts driven by the same fake-child harness sidecar.test.ts uses (reuse
@@ -84,7 +85,7 @@ describe("FailureBanner (e2-h)", () => {
     sidecar.stopSidecar();
     await waitFor(() => sidecar.getSidecarState().phase === "stopped");
     await waitFor(() => container.querySelector(".failure-banner") !== null);
-    expect(container.textContent).toContain("the lockwire engine stopped");
+    expect(container.textContent).toBe(`${PRODUCT_NAME} stopped working.Restart`);
 
     const restartButtons = () => [...container.querySelectorAll(".failure-banner button")];
     expect(restartButtons().length).toBe(1);

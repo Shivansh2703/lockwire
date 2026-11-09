@@ -31,6 +31,8 @@ export interface FindingItem {
   index?: number;
   /** Chips act (select their part) when given. */
   onChip?: (chip: Chip) => void;
+  /** A small button beside the row (Check's "Declare it"); outside the row button, which cannot hold one. */
+  action?: ReactNode;
 }
 
 /** A chip remembers the engine target it came from, so a click can light that target's parts. */
@@ -67,7 +69,7 @@ export function useSelection(selected?: number | null, onSelect?: (index: number
   return selected === undefined || !onSelect ? [own, setOwn] : [selected, onSelect];
 }
 
-export function FindingList({ items, selected, onSelect, between }: { items: FindingItem[]; selected: number | null; onSelect: (index: number | null) => void; /** Rows that sit after the problems and before the "not checked" group (Test: what agreed). */ between?: ReactNode }) {
+export function FindingList({ items, selected, onSelect, between, quietSummary = (n) => `${n} not checked` }: { items: FindingItem[]; selected: number | null; onSelect: (index: number | null) => void; /** Rows that sit after the problems and before the "not checked" group (Test: what agreed). */ between?: ReactNode; quietSummary?: (n: number) => string }) {
   const list = useRef<HTMLDivElement>(null);
   // A selection made elsewhere (a chip, another tab) scrolls its row into view.
   useEffect(() => {
@@ -79,6 +81,7 @@ export function FindingList({ items, selected, onSelect, between }: { items: Fin
     return (
       <div key={it.key} className={it.className} data-shape={it.shape}>
         <FindingRow severity={it.severity} title={it.title} chips={it.chips} note={it.note} selected={selected === i} onSelect={() => onSelect(selected === i ? null : i)} onChip={onChip && ((c) => onChip(c as Chip))} />
+        {it.action}
         {selected === i && it.detail}
       </div>
     );
@@ -90,7 +93,7 @@ export function FindingList({ items, selected, onSelect, between }: { items: Fin
       {items.map((it, pos) => (it.severity === "muted" ? null : row(it, pos)))}
       {between}
       {quiet.length > 0 && (
-        <Disclosure summary={`${quiet.length} not checked`} open={quiet.some(([it, pos]) => (it.index ?? pos) === selected) || undefined}>
+        <Disclosure summary={quietSummary(quiet.length)} open={quiet.some(([it, pos]) => (it.index ?? pos) === selected) || undefined}>
           {quiet.map(([it, pos]) => row(it, pos))}
         </Disclosure>
       )}
@@ -158,7 +161,7 @@ export const liveChips = (chips: Chip[], onJump?: OnJump): Chip[] =>
 /** One Plan / Test finding opened: its evidence, each named thing leading on, provenance behind a
  * disclosure that a link with nowhere else to go opens instead. */
 const MASS = new Set(["kg", "g"]);
-const MODE = /\(draw mode: ([^)]+)\)|at mode '([^']+)'/;
+const MODE = /\((?:draw )?mode: ([^)]+)\)|at mode '([^']+)'/;
 const modeOf = (observed: string) => { const m = MODE.exec(observed); return m ? m[1] ?? m[2] : /rolled-up draw/.test(observed) ? "Load" : undefined; };
 const num = (q: { value: number; unit: string }, vs?: number) => fmtQty(q.value, q.unit, vs);
 /** "<= 15.60 W" in plain words; anything longer (a provenance tail) stays as the engine wrote it. */

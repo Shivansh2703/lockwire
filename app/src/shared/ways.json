@@ -23,11 +23,12 @@
       "title": "AI agents (MCP)",
       "use": "Let Claude Desktop, Claude Code or Cursor check your robot before it acts.",
       "code": [
+        "claude mcp add lockwire -- uvx --from \"lockwire[mcp]\" lockwire mcp",
+        "{\n  \"mcpServers\": {\n    \"lockwire\": { \"command\": \"uvx\", \"args\": [\"--from\", \"lockwire[mcp]\", \"lockwire\", \"mcp\"] }\n  }\n}",
         "pipx install \"lockwire[mcp]\"",
-        "claude mcp add lockwire -- lockwire mcp",
-        "{\n  \"mcpServers\": {\n    \"lockwire\": { \"command\": \"lockwire\", \"args\": [\"mcp\"] }\n  }\n}"
+        "claude mcp add lockwire -- lockwire mcp"
       ],
-      "note": "Claude Code: the claude mcp add line. Claude Desktop: put the JSON in claude_desktop_config.json. Cursor: put the JSON in .cursor/mcp.json (or ~/.cursor/mcp.json). If the app cannot find lockwire, use the full path from which lockwire. Then ask: Check my robot's lockwire.yaml and explain the NO-GO."
+      "note": "Claude Code: the claude mcp add line. Claude Desktop: put the JSON in claude_desktop_config.json. Cursor: put the JSON in .cursor/mcp.json (or ~/.cursor/mcp.json). If the app cannot find uvx (or lockwire), use the full path from which uvx. Then ask: Check my robot's lockwire.yaml and explain the NO-GO."
     },
     {
       "id": "plan",
@@ -35,7 +36,7 @@
       "use": "Score an intended plan, or a proposed change, before anything executes.",
       "code": [
         "lockwire plan lockwire.yaml plan.yaml",
-        "lockwire what-if lockwire.yaml --change \"devices/dev.onboard-computer/physical/mass=300 g\" --source \"my scale\" --witness me"
+        "lockwire what-if lockwire.yaml --change \"devices/dev.gnss-receiver/physical/mass=60 g\" --source \"my scale\" --witness me"
       ],
       "note": "plan.yaml holds steps, for example: steps: [{kind: rail_load, rail: rail.supply-5v, draw: {value: 10, unit: W}}]"
     },
@@ -46,10 +47,9 @@
       "code": ["import lockwire.api as lw\nprint(lw.check(\"lockwire.yaml\")[\"verdict\"])"]
     },
     {
-      "id": "pro",
+      "id": "preflight",
       "title": "ROS, preflight and the local API",
-      "use": "The go/no-go gate for a powered-on robot, ROS and the local server.",
-      "pro": true
+      "use": "The go/no-go gate for a powered-on robot, ROS and the local server."
     }
   ],
   "features": [

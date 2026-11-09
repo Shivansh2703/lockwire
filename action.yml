@@ -1,5 +1,5 @@
 name: Lockwire check
-description: Fail the build when a robot's declared physical assumptions (power, thermal, bus, link, torque budgets) stop adding up.
+description: Fail the build when a robot's masses, inertias or joint limits drift from its lockfile or disagree with the vendor datasheet.
 branding:
   icon: check-circle
   color: green
@@ -16,6 +16,36 @@ inputs:
   python-version:
     description: Python version to run lockwire with.
     default: "3.12"
+  adopt:
+    description: "true annotates and summarises but never fails the job; a comma list of finding ids/prefixes (e.g. datasheet/,model/links/) annotates only those (--adopt)."
+    default: "false"
+  model:
+    description: A URDF/xacro/SDF to check directly when the repo has no lockfile (lockwire check <model>); overrides contract.
+    default: ""
+  mass:
+    description: With model, the datasheet mass to compare, e.g. '1.8 kg' (--mass).
+    default: ""
+  source:
+    description: Where mass comes from, a URL or title (--source).
+    default: ""
+  tolerance-pct:
+    description: Percent mass may differ (--tolerance-pct); empty = lockwire's default.
+    default: ""
+  baseline:
+    description: A committed baseline file (lockwire check --write-baseline); only findings not in it fail (--baseline).
+    default: ""
+  evidence:
+    description: Actuator evidence, one CASE_ID=RELATIVE_PATH@SHA256 per line; each becomes --actuator-evidence.
+    default: ""
+  evidence-root:
+    description: Root containing the evidence paths (--evidence-root).
+    default: ""
+  package-root:
+    description: ROS package roots for package:// URIs, one per line; each becomes --package-root on the report.
+    default: ""
+  badge-json:
+    description: Write a shields.io endpoint JSON of the datasheet comparison (mass, dof) to this path; empty = off.
+    default: ""
 runs:
   using: composite
   steps:
@@ -33,14 +63,51 @@ runs:
       env:
         LW_CONTRACT: ${{ inputs.contract }}
         LW_STRICT: ${{ inputs.strict }}
+        LW_ADOPT: ${{ inputs.adopt }}
+        LW_EVIDENCE: ${{ inputs.evidence }}
+        LW_EVIDENCE_ROOT: ${{ inputs.evidence-root }}
+        LW_BADGE_JSON: ${{ inputs.badge-json }}
+        LW_MODEL: ${{ inputs.model }}
+        LW_MASS: ${{ inputs.mass }}
+        LW_SOURCE: ${{ inputs.source }}
+        LW_TOLERANCE_PCT: ${{ inputs.tolerance-pct }}
+        LW_BASELINE: ${{ inputs.baseline }}
       run: |
-        if [ "$LW_STRICT" = "true" ]; then lockwire check "$LW_CONTRACT" --strict; else lockwire check "$LW_CONTRACT"; fi
+        args=("$LW_CONTRACT" --format github)
+        if [ -n "$LW_MODEL" ]; then args=("$LW_MODEL" --format github); fi
+        if [ -n "$LW_MASS" ]; then args+=(--mass "$LW_MASS"); fi
+        if [ -n "$LW_SOURCE" ]; then args+=(--source "$LW_SOURCE"); fi
+        if [ -n "$LW_TOLERANCE_PCT" ]; then args+=(--tolerance-pct "$LW_TOLERANCE_PCT"); fi
+        if [ -n "$LW_BASELINE" ]; then args+=(--baseline "$LW_BASELINE"); fi
+        if [ "$LW_ADOPT" != "true" ] && [ "$LW_ADOPT" != "false" ] && [ -n "$LW_ADOPT" ]; then args+=(--adopt "$LW_ADOPT"); fi
+        if [ "$LW_STRICT" = "true" ]; then args+=(--strict); fi
+        while IFS= read -r e; do [ -n "$e" ] && args+=(--actuator-evidence "$e"); done <<< "$LW_EVIDENCE"
+        if [ -n "$LW_EVIDENCE_ROOT" ]; then args+=(--evidence-root "$LW_EVIDENCE_ROOT"); fi
+        if [ -n "$LW_BADGE_JSON" ]; then mkdir -p "$(dirname "$LW_BADGE_JSON")"; args+=(--badge-json "$LW_BADGE_JSON"); fi
+        set +e
+        lockwire check "${args[@]}" | tee "$RUNNER_TEMP/lockwire-check.out"
+        code=${PIPESTATUS[0]}
+        set -e
+        if [ "$LW_ADOPT" = "true" ]; then
+          if [ "$LW_STRICT" = "true" ]; then pat='^::(error|warning) '; else pat='^::error '; fi
+          n=$(grep -cE "$pat" "$RUNNER_TEMP/lockwire-check.out" || true)
+          if [ "$code" -eq 2 ]; then echo "::notice::adopt mode: lockwire could not run (exit 2)"
+          elif [ "$code" -ne 0 ]; then echo "::notice::adopt mode: $n findings would fail this build (exit $code)"; fi
+          exit 0
+        fi
+        exit $code
     - name: lockwire report
       if: always()
       shell: bash
       env:
         LW_CONTRACT: ${{ inputs.contract }}
-      run: lockwire report "$LW_CONTRACT" --out "$RUNNER_TEMP/lockwire-report.html" --no-open
+        LW_PACKAGE_ROOT: ${{ inputs.package-root }}
+        LW_MODEL: ${{ inputs.model }}
+      run: |
+        args=()
+        while IFS= read -r p; do [ -n "$p" ] && args+=(--package-root "$p"); done <<< "$LW_PACKAGE_ROOT"
+        if [ -n "$LW_MODEL" ]; then LW_CONTRACT="$RUNNER_TEMP/lockwire.yaml"; lockwire start "$LW_MODEL" --out "$LW_CONTRACT" --no-check; fi
+        lockwire report "$LW_CONTRACT" --out "$RUNNER_TEMP/lockwire-report.html" --no-open "${args[@]}"
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       if: always()
       with:

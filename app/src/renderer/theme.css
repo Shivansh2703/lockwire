@@ -505,7 +505,6 @@ body {
 .day-one-notice,
 .failure-banner,
 .version-mismatch,
-.empty-geometry-panel,
 .named-placeholder {
   border: 0;
   border-radius: var(--radius);
@@ -525,10 +524,12 @@ body {
 .open-face,
 .day-one-notice,
 .failure-banner,
-.version-mismatch,
-.empty-geometry-panel {
+.version-mismatch {
   padding: 14px;
 }
+/* Inside the Check panel, under the verdict: one row, never a card over it. */
+.empty-geometry-panel { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.empty-geometry-panel > span { flex: 1 1 200px; }
 
 /* The page body scrolls inside the canvas; panels stack with a gap. */
 .findings-column {
@@ -1491,7 +1492,7 @@ table {
 .shell .kit-slot-left { top: var(--head); bottom: 56px; }
 .shell .kit-slot-left > .kit-panel { min-height: 0; }
 .shell .kit-slot-left .kit-panel-body,
-.shell .kit-slot-right .kit-panel-body { overflow: auto; min-height: 0; }
+.shell .kit-slot-right .kit-panel-body { overflow: auto; min-height: 0; padding-right: var(--sp-2); } /* rows and highlights stop short of the scrollbar, inset like the left edge */
 .shell .kit-tree ul { max-height: none; }
 .shell-bottom { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); }
 .design-face { display: grid; gap: var(--sp-3); }
@@ -1518,7 +1519,7 @@ table {
 .shell .kit-panel-body:has(.declare-values) { overflow-x: hidden; } /* Declare only: long names never scroll sideways */
 .declare-values .kit-tree-row { overflow: hidden; }
 .declare-values .kit-tree-row:focus-visible { outline-offset: -2px; } /* ring stays inside the clipped body */
-.declare-values .kit-tree { grid-template-columns: minmax(0, 1fr); }
+.shell .kit-tree { grid-template-columns: minmax(0, 1fr); } /* a long row shrinks and ellipsizes instead of widening past the panel */
 .declare-values .kit-tree > ul > li > .kit-tree-row:not(.kit-tree-head) { padding-left: 24px; } /* solo rows line up with the head labels (chevron column) */
 .declare-values .kit-tree-head { min-width: 0; }
 .declare-values .kit-tree-count { flex: none; }
@@ -1560,8 +1561,6 @@ table {
 .shell-bottom .kit-toolpill { width: min(640px, 100%); align-items: center; }
 .shell-bottom .kit-cli { flex: 1; min-width: 0; }
 .shell-tabs { display: flex; align-items: center; gap: 12px; }
-.shell-pro-tab { display: inline-flex; align-items: center; gap: 6px; font: 500 12px var(--sans); color: var(--muted); opacity: 0.6; cursor: default; user-select: none; white-space: nowrap; }
-.shell-pro-badge { font: 600 10px var(--sans); padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); }
 .shell-bottom-spacer { flex: 1; }
 .shell-bottom .kit-iconbtn:disabled { opacity: 0.4; cursor: default; }
 .kit-tab:disabled { opacity: 0.4; cursor: default; }
@@ -1690,7 +1689,6 @@ table {
 
 .ways-face { display: grid; gap: var(--sp-2); }
 .ways-card { padding: var(--sp-2) 0; }
-.ways-card[data-pro="true"] { opacity: 0.5; }
 .ways-card h4, .ways-card p { margin: 0 0 4px; }
 .ways-note { color: var(--muted); font-size: 12px; }
 .ways-code { margin-top: 4px; }
@@ -1717,8 +1715,17 @@ table {
 .kit-chip-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .kit-chips-live { display: flex; padding: 0 var(--sp-2) var(--sp-2) calc(var(--sp-2) * 2 + 16px); }
 .kit-tree-meta { grid-column: 1 / -1; margin-top: -2px; color: var(--muted); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.check-headline-btn { display: inline-flex; align-items: center; gap: var(--sp-2); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: var(--radius-sm); }
-.check-headline-btn:hover .check-count, .check-count.kit-link:hover { color: var(--accent); }
+/* Check: the verdict as a card at the top of the findings panel (mockup 2B). */
+.check-verdict { --v: var(--muted); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3); margin-bottom: var(--sp-3); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--v) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v) 35%, transparent); }
+.check-verdict-go { --v: var(--go); } .check-verdict-warn { --v: var(--warn); } .check-verdict-bad { --v: var(--bad); }
+.check-verdict .check-headline { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.check-verdict-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-left: auto; min-width: 0; }
+.check-verdict-kicker, .check-section { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.check-verdict-word { font-size: 28px; font-weight: 800; line-height: 1.1; color: var(--v); }
+.check-section { margin: 0 0 var(--sp-1); }
+.finding-card.severity-violation > .kit-finding.is-selected { background: color-mix(in srgb, var(--bad) 12%, transparent); box-shadow: inset 3px 0 0 var(--bad); }
+.finding-card.severity-warning > .kit-finding.is-selected { background: color-mix(in srgb, var(--warn) 12%, transparent); box-shadow: inset 3px 0 0 var(--warn); }
+.finding-card > .kit-btn { margin: 2px 0 var(--sp-1) 28px; }
 .kit-pill-btn { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; border-radius: 999px; }
 .kit-pill-btn:hover .kit-pill { outline: 1px solid var(--accent); }
 .plan-outcome-btn { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }
@@ -1738,12 +1745,10 @@ table {
 .conn-bar.is-over { background: var(--bad); }
 .conn-empty { margin: 0; color: var(--muted); font-size: 13px; }
 .open-face-new { width: 100%; }
-.open-face-new ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.open-face-new li button { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: var(--sp-2); width: 100%; height: auto; text-align: left; padding-block: var(--sp-2); }
-.open-face-new li button span { display: block; min-width: 0; }
-.open-face-glyph { flex: none; width: 22px; height: 22px; color: var(--muted); }
-.open-face-new li[data-blank] button { border-style: dashed; background: transparent; font-weight: 400; color: var(--muted); }
-.open-face-label { margin: 0; color: var(--ink); font-size: 12px; font-weight: 600; text-align: left; }
+/* Mockup 1: the starters are small example chips, demoted below Open robot. */
+.open-face-new ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.open-face-new li button { height: auto; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 500; }
+.open-face-label { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-align: left; }
 .open-face-recents { text-align: left; }
 
 /* Plan: one panel width on every robot (as Test); the Declare link sits under its reason. */
@@ -1770,6 +1775,11 @@ table {
 .kit-field select.kit-control { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 15px) 55%, calc(100% - 10px) 55%; background-size: 5px 5px; background-repeat: no-repeat; cursor: pointer; } /* a picker looks like one */
 .add-part-numbers, .add-part-sources { margin: 0; padding-left: var(--sp-4); font-size: 12px; color: var(--muted); }
 .add-part-sources { overflow-wrap: anywhere; }
+
+/* Compare with datasheet (mockup 3B): a left panel, its result warn-tinted. */
+.datasheet-compare { display: flex; flex-direction: column; gap: var(--sp-2); width: 316px; }
+.datasheet-compare-sub { margin: 0; font-size: 12px; color: var(--muted); }
+.datasheet-compare-result { padding: var(--sp-2); border-radius: var(--radius-sm); color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
 
 /* r8: docs */
 .reference-why { color: var(--muted); }
@@ -1888,5 +1898,12 @@ table {
 .drawer-body { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-3); }
 .drawer-body[hidden] { display: none; }
 .drawer-body:has(.drawer-term) { padding: 0; overflow: hidden; background: var(--term-bg); }
-.drawer-term { height: 100%; padding: var(--sp-2); box-sizing: border-box; background: var(--term-bg); }
+.drawer-termbox { display: flex; flex-direction: column; height: 100%; }
+.drawer-warn { margin: 0; padding: 6px var(--sp-2); font-size: 12px; color: var(--term-fg); opacity: 0.75; }
+.drawer-term { flex: 1; min-height: 0; padding: var(--sp-2); box-sizing: border-box; background: var(--term-bg); }
 @keyframes drawer-in { from { transform: translateX(100%); } to { transform: none; } }
+/* Hide panels bottom-right; the gesture hint over the bottom centre. */
+.kit-slot-bottomRight { bottom: var(--sp-3); right: var(--sp-3); }
+.shell .kit-slot-bottomRight { right: 12px; bottom: 12px; }
+.shell .kit-slot-bottomRight .kit-toolpill { border-radius: var(--radius-pill); padding: 3px; }
+.shell-hint { position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%); z-index: 1; pointer-events: none; padding: 6px 14px; border-radius: var(--radius-pill); background: var(--panel); box-shadow: var(--shadow); color: var(--muted); font-size: 12px; white-space: nowrap; }

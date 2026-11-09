@@ -39,7 +39,7 @@ vi.mock("three", async () => {
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };
 });
 
-const { FRAME_INSET, applyViewInset, refit, buildScene, disposeScene, handleResize, updatePixelRatio, attachWasd } = await import("./buildScene");
+const { FRAME_INSET, applyViewInset, refit, buildScene, disposeScene, handleResize, updatePixelRatio, attachWasd, attachWheel } = await import("./buildScene");
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.resolve(here, "../../../../tests/fixtures/scene_roundtrip.json");
@@ -258,5 +258,25 @@ describe("WASD walk", () => {
     expect(ctx.camera.position.equals(cam)).toBe(true);
     input.remove();
     wasd.dispose();
+  });
+});
+
+describe("trackpad wheel", () => {
+  it("a pinch (ctrlKey wheel) zooms; a two-finger scroll moves the view without zooming", () => {
+    const canvas = Object.defineProperty(document.createElement("canvas"), "clientHeight", { value: 300 }); // jsdom lays out nothing; pan divides by it
+    const ctx = buildScene(canvas, makeParts(), 400, 300);
+    expect(ctx.controls.enableZoom).toBe(true); // touch pinch dolly needs it
+    const off = attachWheel(ctx);
+    const wheel = (init: WheelEventInit) => ctx.renderer.domElement.dispatchEvent(new WheelEvent("wheel", { cancelable: true, ...init }));
+    const dist = () => ctx.camera.position.distanceTo(ctx.controls.target);
+    const d0 = dist(), t0 = ctx.controls.target.clone();
+    wheel({ deltaY: 50 });
+    for (let i = 0; i < 200; i++) ctx.controls.update(); // damping settles
+    expect(ctx.controls.target.equals(t0)).toBe(false);
+    expect(dist()).toBeCloseTo(d0);
+    wheel({ deltaY: -50, ctrlKey: true });
+    ctx.controls.update();
+    expect(dist()).toBeLessThan(d0 * 0.9);
+    off();
   });
 });

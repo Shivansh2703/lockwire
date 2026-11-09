@@ -57,37 +57,6 @@ class EditConflict(EditRefusal):
     """The bytes a caller edited are no longer the bytes on disk."""
 
 
-class EditRecoveryError(OSError):
-    """A failed edit left recovery bytes in a named artifact."""
-
-    def __init__(
-        self,
-        recovery_artifact: Path,
-        replace_error: BaseException,
-        recovery_error: BaseException,
-        *,
-        contract_state: str | None = None,
-        backup_state: str | None = None,
-        recovery_action: str = "rollback",
-    ):
-        self.recovery_artifact = recovery_artifact
-        self.contract_state = contract_state
-        self.backup_state = backup_state
-        self.recovery_action = recovery_action
-        if contract_state is None:
-            message = (
-                f"contract replacement failed ({replace_error}); backup rollback failed "
-                f"({recovery_error}); prior undo bytes are at {recovery_artifact}"
-            )
-        else:
-            message = (
-                f"contract replacement failed ({replace_error}); backup {recovery_action} failed "
-                f"({recovery_error}); contract is {contract_state}; {backup_state} at "
-                f"{recovery_artifact}"
-            )
-        super().__init__(message)
-
-
 _locked_contracts: ContextVar[frozenset[Path]] = ContextVar("locked_contracts", default=frozenset())
 
 
@@ -98,17 +67,42 @@ def contract_revision(path: Path | str) -> str:
 
 @contextmanager
 def _contract_lock(path: Path) -> Iterator[None]:
-    """Serialize cooperating writers with a sibling advisory lock."""
-    lock_path = path.with_name(f".{path.name}.lock")
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        _filelock.lock(fd)
-    except TimeoutError:
+    """Serialize cooperating writers with an advisory lock in `$TMPDIR/lockwire-locks/`.
+
+    Keyed by the contract's resolved path, outside the user's folder. The holder
+    unlinks the file before releasing it, so nothing piles up; a waiter that opened the
+    old inode wins its lock, sees the path no longer names that inode, and retries on the
+    fresh file, so two writers never hold different inodes for one contract.
+    ponytail: the temp folder is per user on macOS, so two accounts editing one contract do
+    not serialize; share a lock folder if that ever matters. A crashed holder leaves one
+    file, removed by the next writer of that contract.
+    """
+    # os.path strings, not Path(): Path() picks its flavour from os.name at call time.
+    folder = os.path.join(tempfile.gettempdir(), "lockwire-locks")
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    digest = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:32]
+    lock_path = os.path.join(folder, f"{digest}.lock")
+    while True:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            _filelock.lock(fd)
+        except TimeoutError:
+            os.close(fd)
+            raise EditConflict("contract is locked by another lockwire process; retry") from None
+        try:
+            if os.path.samestat(os.fstat(fd), os.stat(lock_path)):
+                break
+        except FileNotFoundError:
+            pass
+        _filelock.unlock(fd)
         os.close(fd)
-        raise EditConflict("contract is locked by another lockwire process; retry") from None
     try:
         yield
     finally:
+        try:
+            os.unlink(lock_path)  # while still held; Windows refuses an open file: it stays
+        except OSError:
+            pass
         _filelock.unlock(fd)
         os.close(fd)
 
@@ -698,18 +692,6 @@ def _fdopen_text(fd: int, original_text: str) -> Any:
     return os.fdopen(fd, "w", encoding="utf-8", newline="\r\n" if "\r\n" in original_text else "\n")
 
 
-def _is_inside_git_repo(path: Path) -> bool:
-    """Walk up from ``path``'s parent looking for a ``.git`` dir or file.
-
-    No subprocess (cheaper than ``git rev-parse``); a ``.git`` file covers
-    worktrees and submodules, a ``.git`` dir covers the ordinary case.
-    """
-    for parent in (path.resolve().parent, *path.resolve().parent.parents):
-        if (parent / ".git").exists():
-            return True
-    return False
-
-
 def _backup_temp(path: Path, contents: bytes) -> Path:
     """Stage backup bytes beside their destination without changing it."""
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
@@ -723,58 +705,14 @@ def _backup_temp(path: Path, contents: bytes) -> Path:
     return tmp_path
 
 
-def _replace_then_backup(tmp_path: Path, contract_path: Path, original_text: str) -> None:
-    """Pair a contract replacement with its non-git undo baseline."""
-    shutil.copymode(contract_path, tmp_path)  # the file keeps its permissions
-    if _is_inside_git_repo(contract_path):
-        os.replace(tmp_path, contract_path)
-        return
+def _replace(tmp_path: Path, contract_path: Path) -> None:
+    """Install a written file atomically with the file's own permissions.
 
-    backup_path = contract_path.with_name(contract_path.name + ".bak")
-    previous_backup = backup_path.read_bytes() if backup_path.exists() else None
-    staged_backup = _backup_temp(backup_path, original_text.encode("utf-8"))
-    try:
-        # Keep the old undo bytes on disk before changing either destination.
-        restore_backup = (
-            _backup_temp(backup_path, previous_backup) if previous_backup is not None else None
-        )
-        retain_restore = False
-        try:
-            # Install a complete prospective baseline before the contract replacement.
-            # If that replacement fails, restore the exact prior backup under the same lock.
-            os.replace(staged_backup, backup_path)
-            try:
-                os.replace(tmp_path, contract_path)
-            except BaseException as replace_error:
-                try:
-                    if restore_backup is None:
-                        backup_path.unlink(missing_ok=True)
-                    else:
-                        os.replace(restore_backup, backup_path)
-                except BaseException as recovery_error:
-                    # The prior backup remains a complete sibling file even
-                    # when the destination cannot be restored right now.
-                    if restore_backup is not None:
-                        retain_restore = True
-                        raise EditRecoveryError(
-                            restore_backup, replace_error, recovery_error
-                        ) from recovery_error
-                    raise EditRecoveryError(
-                        backup_path,
-                        replace_error,
-                        recovery_error,
-                        contract_state="unchanged",
-                        backup_state=(
-                            "the prospective .bak contains the contract's pre-write bytes"
-                        ),
-                        recovery_action="cleanup",
-                    ) from recovery_error
-                raise
-        finally:
-            if restore_backup is not None and not retain_restore:
-                restore_backup.unlink(missing_ok=True)
-    finally:
-        staged_backup.unlink(missing_ok=True)
+    Nothing is left beside it (no `.bak`): inside git, git is the undo; outside it
+    there is none. A failed replace leaves the old bytes untouched.
+    """
+    shutil.copymode(contract_path, tmp_path)
+    os.replace(tmp_path, contract_path)
 
 
 def _is_valid_witness_name(witness: str) -> bool:
@@ -1109,7 +1047,7 @@ def apply_changes(
     try:
         with _fdopen_text(fd, proposal.original_text) as handle:
             handle.write(proposal.text)
-        _replace_then_backup(tmp_path, contract_path, proposal.original_text)
+        _replace(tmp_path, contract_path)
         proposal.result.written = True
         return proposal.result
     finally:
@@ -1182,7 +1120,7 @@ def apply_review(
         line = f"reviewed {path}: {state} (witness {witness})"
         if dry_run:
             return EditResult(diff=diff, lines=[line], written=False)
-        _replace_then_backup(tmp_path, contract_path, original_text)
+        _replace(tmp_path, contract_path)
         return EditResult(diff=diff, lines=[line], written=True)
     finally:
         tmp_path.unlink(missing_ok=True)
@@ -1207,7 +1145,7 @@ def _correlate_failure(doc: Any, changes: list[Change], error: Exception) -> str
 # ------------------------------------------------- add device|rail|bus|family|model|budget|gearbox
 
 _ADD_KINDS = ("device", "rail", "bus", "family", "model", "budget", "battery", "gearbox")
-_COLLECTION_APPEND_KINDS = ("families", "device_models", "budgets")
+_COLLECTION_APPEND_KINDS = ("families", "device_models", "budgets", "accepted")
 
 
 @_locked_write
@@ -1386,7 +1324,7 @@ def add_entry(
         )
         if dry_run:
             return EditResult(diff=diff, lines=lines, written=False)
-        _replace_then_backup(tmp_path, contract_path, original_text)
+        _replace(tmp_path, contract_path)
         return EditResult(diff=diff, lines=lines, written=True)
     finally:
         tmp_path.unlink(missing_ok=True)
@@ -1457,7 +1395,7 @@ def _add_battery_entry(
         line = f"declared battery capacity (witness {witness}, source {source})"
         if dry_run:
             return EditResult(diff=diff, lines=[line], written=False)
-        _replace_then_backup(tmp_path, contract_path, original_text)
+        _replace(tmp_path, contract_path)
         return EditResult(diff=diff, lines=[line], written=True)
     finally:
         tmp_path.unlink(missing_ok=True)

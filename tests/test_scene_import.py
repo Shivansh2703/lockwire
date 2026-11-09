@@ -244,21 +244,19 @@ def test_written_change_file_parses_and_has_exact_keys(tmp_path, x500_contract, 
         assert {"path", "value", "source", "witness", "note"} <= set(entry.keys())
 
 
-def test_write_change_file_failure_preserves_existing_output_and_backup(
+def test_write_change_file_failure_preserves_existing_output(
     tmp_path, x500_contract, x500_scene, monkeypatch
 ):
-    """A failed staged dump cannot truncate either the change file or its undo baseline."""
+    """A failed staged dump cannot truncate the change file; a good write leaves no .bak."""
     from lockwire.scene_import import write_change_file
 
     result = build_import(x500_contract, x500_scene, witness="human", source_person="Shivansh")
     out = tmp_path / "changes.yaml"
-    original = b"# existing change file\n- path: old\n"
-    out.write_bytes(original)
+    out.write_bytes(b"# existing change file\n- path: old\n")
 
     write_change_file(result.entries, out, scene_source=x500_scene.source)
     baseline = out.read_bytes()
-    backup = out.with_name(out.name + ".bak")
-    assert backup.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [out]
 
     def fail_dump(self, data, stream, *args, **kwargs):
         raise OSError("injected staged dump failure")
@@ -268,45 +266,6 @@ def test_write_change_file_failure_preserves_existing_output_and_backup(
         write_change_file(result.entries, out, scene_source=x500_scene.source)
 
     assert out.read_bytes() == baseline
-    assert backup.read_bytes() == original
-
-
-def test_write_change_file_replace_and_backup_rollback_retain_undo_recovery(
-    tmp_path, x500_contract, x500_scene, monkeypatch
-):
-    """The public scene-import writer retains the old undo bytes if rollback itself fails."""
-    from lockwire.scene_import import write_change_file
-
-    result = build_import(x500_contract, x500_scene, witness="human", source_person="Shivansh")
-    out = tmp_path / "changes.yaml"
-    prior_undo = b"# prior undo baseline\n- path: old\n"
-    out.write_bytes(prior_undo)
-    write_change_file(result.entries, out, scene_source=x500_scene.source)
-    current = out.read_bytes()
-    backup = out.with_name(out.name + ".bak")
-    assert backup.read_bytes() == prior_undo
-
-    real_replace = edit.os.replace
-    backup_replacements = 0
-
-    def fail_output_and_backup_rollback(source, destination):
-        nonlocal backup_replacements
-        if Path(destination) == backup:
-            backup_replacements += 1
-            if backup_replacements == 2:
-                raise OSError("backup rollback failed")
-        if Path(destination) == out:
-            raise OSError("output replace failed")
-        return real_replace(source, destination)
-
-    monkeypatch.setattr(edit.os, "replace", fail_output_and_backup_rollback)
-    with pytest.raises(edit.EditRecoveryError, match="prior undo bytes are at") as caught:
-        write_change_file(result.entries, out, scene_source=x500_scene.source)
-
-    assert backup_replacements == 2
-    assert out.read_bytes() == current
-    assert backup.read_bytes() == current
-    assert caught.value.recovery_artifact.read_bytes() == prior_undo
 
 
 def test_scene_import_write_race_keeps_draft_and_undo_bytes(tmp_path, monkeypatch):

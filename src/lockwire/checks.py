@@ -6,7 +6,9 @@ false-positive budget is a first-class requirement: a clean contract must
 produce zero findings.
 """
 
+import hashlib
 import itertools
+import fnmatch
 import math
 import re
 import xml.etree.ElementTree as ET
@@ -14,11 +16,13 @@ from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from pydantic import BaseModel
 
 from lockwire import plugins, statics, units
 from lockwire.advice import build_rail_alternatives
-from lockwire.catalog import SourcedNumber, load_catalog
+from lockwire.catalog import SourcedNumber, load_catalog, recognise
+from lockwire.cli_line import cli_line
 from lockwire.edit import resolve_source, source_is_absolute
 from lockwire.report import (
     CGContributor,
@@ -30,18 +34,29 @@ from lockwire.report import (
 )
 from lockwire.mechanism import NAMED_SET, Mechanism, analyse_model
 from lockwire.scene import Scene
+from lockwire.scene_urdf import mesh_root
 from lockwire.scene_view import resolve_scene
 from lockwire.schema import (
     ArtifactRef,
     Band,
     Contract,
+    SCHEMA_VERSION,
     ModelRecord,
     Quantity,
     Provenance,
     Tolerance,
 )
-from lockwire.sdf import read_sdf_topology
-from lockwire.urdf import describe_structure_drift, locked_record_hash, read_urdf_topology
+from lockwire.sdf import parse_sdf, read_sdf_root, read_sdf_topology, urdf_view
+from lockwire.urdf import (
+    _has_doctype_entity,
+    describe_structure_drift,
+    legacy_axis_joints,
+    locked_record_hash,
+    mesh_refs,
+    parse_urdf,
+    read_model_bytes,
+    read_urdf_topology,
+)
 
 # the YAML is the truth. This is only how far the model in the scene is
 # allowed to disagree with it before the disagreement is a finding, not a
@@ -154,7 +169,7 @@ def _empty_score_disclosure() -> Finding:
     )
 
 
-# Check slots filled by the paid package (open-core split). Keys:
+# Check slots filled by the recording plugin (module boundary). Keys:
 # "actuator_cases", "condition_envelopes". An empty slot never passes silently.
 PAID_CHECKS: dict[str, Callable[..., Any]] = {}
 
@@ -163,9 +178,9 @@ def _paid_check_missing(quantity: str, what: str) -> Finding:
     return Finding(
         severity="not_scored",
         quantity=quantity,
-        observed="not run: needs Lockwire Pro",
-        expected=f"{what} checked by Lockwire Pro",
-        action=f"install Lockwire Pro to check {what}, or remove them from the contract",
+        observed="not run: the recording checks did not load",
+        expected=f"{what} checked",
+        action=f"reinstall lockwire to check {what}, or remove them from the contract",
     )
 
 
@@ -175,9 +190,11 @@ def run_record_checks(
     *,
     contract_path: Path | None = None,
     current_edge_values: dict[str, float] | None = None,
+    servo: str | None = None,
     actuator_evidence: Mapping[str, ArtifactRef] | None = None,
     evidence_root: Path | None = None,
     contract_sha256: str | None = None,
+    model: str | None = None,
 ) -> RecordReport:
     """Return judgements and severity-free derived information in separate lanes.
 
@@ -211,8 +228,16 @@ def run_record_checks(
     findings += check_bus_bandwidth(contract, scores=scores)
     findings += check_zero_mass(contract, contract_path=contract_path)
     findings += check_unusable_effort(contract)
+    findings += check_servo_stall(contract, servo or contract.servo, scores=scores)
     findings += check_mechanisms(contract, scores=scores)
     findings += check_urdf_drift(contract, scores=scores, contract_path=contract_path)
+    findings += check_model_values(contract, scores=scores, contract_path=contract_path)
+    findings += check_mesh_drift(contract, scores=scores, contract_path=contract_path)
+    findings += check_datasheet_agreement(
+        contract, scores=scores, model=model, contract_path=contract_path
+    )
+    for pack_check in (*CHECK_PACK_1, *CHECK_PACK_2):
+        findings += pack_check(contract, contract_path=contract_path)
     findings += check_envelopes_vs_hard_limits(contract, scores=scores)
     if current_conditions is not None:
         # No caller of the free path passes conditions today, so an empty slot
@@ -236,6 +261,7 @@ def run_record_checks(
     scored = len(scores)
     if scored == 0:
         findings.append(_empty_score_disclosure())
+    findings, accepted = _set_aside_accepted(contract, findings)
     return RecordReport(
         findings,
         compute_system_cg(contract),
@@ -243,7 +269,41 @@ def run_record_checks(
         scored_keys=scores.keys,
         scored_records=scores.records,
         actuator_case_reports=actuator_case_reports,
+        accepted=accepted,
     )
+
+
+_LOCK_DRIFT = re.compile(
+    r"model/structure_hash|model/links/[^/]+/(mass|com|inertia|mesh)|model/external_assets/.+"
+)
+
+
+def is_lock_drift(finding: Finding) -> bool:
+    """The model no longer matches its lock (edited, restructured or unparseable since lock).
+
+    Only re-locking clears it: never accepted, adopted or baselined. The producers are
+    check_urdf_drift and check_model_values (and check-sim's sim-vs-lock rows); a
+    warning with the same id (e.g. an impossible inertia) is not drift.
+    """
+    return finding.severity == "violation" and bool(_LOCK_DRIFT.fullmatch(finding.quantity))
+
+
+def _set_aside_accepted(
+    contract: Contract, findings: list[Finding]
+) -> tuple[list[Finding], list[Finding]]:
+    """Split off findings the lockfile accepted at exactly their observed value."""
+    pins = {(a.id, a.observed): a for a in contract.accepted or []}
+    kept, accepted = [], []
+    for finding in findings:
+        row = pins.get((finding.quantity, finding.observed))
+        if row is None or is_lock_drift(finding):
+            kept.append(finding)
+            continue
+        how = (
+            f"accepted ({row.reason}, witness {row.provenance.witness}, {row.provenance.locked_at})"
+        )
+        accepted.append(finding.model_copy(update={"action": how, "next_command": None}))
+    return kept, accepted
 
 
 def _is_accountable_owner(owner: str) -> bool:
@@ -1747,6 +1807,18 @@ def check_voltage_compatibility(c: Contract, *, scores: _ScoreBook | None = None
     return out
 
 
+def _missing_rail(c: Contract, rail_id: str) -> str | None:
+    """The first rail id on the way up from ``rail_id`` that is not declared, else None."""
+    seen: set[str] = set()
+    while rail_id not in (None, "battery") and rail_id not in seen:
+        seen.add(rail_id)
+        rail = c.rail(rail_id)
+        if rail is None:
+            return rail_id
+        rail_id = rail.upstream
+    return None
+
+
 def power_rollup(
     c: Contract, draw_mode: str
 ) -> tuple[dict[str, float], dict[str, set[str]], float, set[str], dict[str, set[str]], set[str]]:
@@ -1776,6 +1848,9 @@ def power_rollup(
             continue
         rail = c.rail(device.power.rail)
         if rail is None:
+            battery_unknown.add(
+                device.id
+            )  # its rail is undeclared: the path to the battery is unknown
             continue
         selected = next(
             (mode.draw for mode in device.power.modes if mode.name == draw_mode),
@@ -1811,6 +1886,8 @@ def power_rollup(
                 battery_witnesses.add(device.id)
                 break
             parent = c.rail(current.upstream)
+            if parent is None:
+                battery_unknown.add(device.id)  # upstream names a missing rail: never drop its draw
             if parent is None or parent.id in seen:
                 break
             load_w /= current.efficiency
@@ -1989,6 +2066,7 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                             if b.provenance is not None
                             else None
                         ),
+                        cluster_root=b.rail,
                         action=(
                             f"shed load on rail {b.rail!r} or raise its capacity with provenance"
                         ),
@@ -2108,7 +2186,9 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                 nominal_kg = b.nominal.base()
                 gap_pct = (total_kg - nominal_kg) / nominal_kg * 100
                 # a partial sum (unknown masses) can only prove "too heavy", never "too light"
-                if abs(gap_pct) > (b.tolerance_pct or 0.0) and (not unknown_mass or gap_pct > 0):
+                # 1e-9 relative slack: 0.1 kg + 0.2 kg is 0.30000000000000004 kg, not off nominal
+                tol_kg = max((b.tolerance_pct or 0.0) / 100 * nominal_kg, 1e-9 * nominal_kg)
+                if abs(total_kg - nominal_kg) > tol_kg and (not unknown_mass or gap_pct > 0):
                     out.append(
                         Finding(
                             severity="violation",
@@ -2152,7 +2232,11 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                     Finding(
                         severity="not_scored",
                         quantity=f"budgets/{b.id}",
-                        observed=unknown_draw_message(device_id, c.device(device_id).power.rail),
+                        observed=(
+                            f"{device_id}'s path to the battery names rail '{gap}', which is not declared"
+                            if (gap := _missing_rail(c, c.device(device_id).power.rail))
+                            else unknown_draw_message(device_id, c.device(device_id).power.rail)
+                        ),
                         expected="every device reaching the battery to declare a draw",
                         dependent=", ".join(sorted(battery_unknown)),
                         owner=b.owner,
@@ -2596,6 +2680,8 @@ def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list
                         f"(+{(draw_a / limit_a - 1) * 100:.0f}%)"
                     ),
                     dependent=", ".join(contributors),
+                    # one fact with the rail's rail_power budget: one card per rail
+                    cluster_root=rail.id,
                     action=(
                         f"shed load on rail {rail.id!r} or raise its published current_limit "
                         "with provenance"
@@ -2643,9 +2729,9 @@ def _peak_shortfall(device, joint, peak_nm: float) -> Finding:
 
 
 _REACH_ANGLES = (0.0, math.pi / 2, -math.pi / 2)
-# ponytail: per-joint cap of 20k poses (about 2 s); past it the grid thins to {lower, 0, upper},
-# and a joint still over (it carries ~10+ rotary joints, e.g. a humanoid waist) is not_scored.
-# Upgrade path: a real search over the joint's set instead of a grid.
+# ponytail: per-joint cap of 20k poses (about 2 s); past it the grid thins to {-90, 0, +90}
+# (limit points go first), and a joint still over (it carries ~10+ rotary joints, e.g. a humanoid
+# waist) is not_scored. Upgrade path: a real search over the other joints instead of a grid.
 _REACH_MAX_POSES = 20_000
 _ROTARY = ("revolute", "continuous")
 
@@ -2662,14 +2748,44 @@ def _reach_not_scored(why: str) -> list[Finding]:
     ]
 
 
+def _sinusoid_peak(a, b, limits) -> tuple[np.ndarray, np.ndarray]:
+    """Max of |a cos q + b sin q| over the joint's [lower, upper], and the angle that gives it.
+
+    ``a``/``b`` are the signed torque at q=0 and q=pi/2. The peak sqrt(a^2+b^2) sits at
+    q = atan2(b, a) + n*pi; if no such angle is inside the limits the larger limit end wins.
+    """
+    lo = limits.lower if limits is not None and limits.lower is not None else -math.inf
+    hi = limits.upper if limits is not None and limits.upper is not None else math.inf
+    phi = np.arctan2(b, a)
+    if math.isfinite(lo):
+        peak_q = phi + np.ceil((lo - phi) / math.pi - 1e-12) * math.pi
+        ok = peak_q <= hi + 1e-9
+    else:
+        peak_q = phi + (
+            np.floor((hi - phi) / math.pi + 1e-12) * math.pi if math.isfinite(hi) else 0
+        )
+        ok = np.ones(len(a), dtype=bool)
+    best, at = np.where(ok, np.hypot(a, b), 0.0), peak_q
+    for end in (lo, hi):
+        if math.isfinite(end):
+            t = np.abs(a * math.cos(end) + b * math.sin(end))
+            best, at = np.where(t > best, t, best), np.where(t > best, end, at)
+    return best, at
+
+
 def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
-    """Static gravity torque at the worst sampled pose must fit each joint's effort limit.
+    """Static gravity torque at the worst pose must fit each joint's effort limit.
+
+    Each joint's own angle is solved exactly: its torque is a*cos(q) + b*sin(q), so the peak over
+    its limits is sqrt(a^2 + b^2) when the peak angle is allowed, else the larger limit end. The
+    other joints take the grid below. A prismatic joint scores its weight along its axis (N).
 
     Works on a kinematic tree, so the arm starter scores with its gripper: the torque at joint J depends
     only on the rotary joints on the root-to-J path and in J's subtree, so each J gets its own
     pose grid over that set: 0 and +/-90 deg plus the declared lower and upper limit (within
     limits). Prismatic, planar and floating joints are held at zero. A link's declared
-    ``payload`` is a point mass at its origin (payload at the tool tip). Silent when the model has no rotary
+    ``payload`` is a point mass at its origin (payload at the tool tip); a device whose
+    ``mount_frame`` names a link adds its mass at ``mount_xyz`` (origin when unset). Silent when the model has no rotary
     joint, no link mass or no single root; ``not_scored`` says why when it cannot score
     (closed chain, zero or missing axis, a massive link with no CoM, a joint over the pose
     cap). Silent for joints with no effort limit.
@@ -2692,12 +2808,16 @@ def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> lis
 
     def reach_set(j) -> tuple[int, frozenset[str]]:
         """(rotary joints above j, rotary joints on root->j plus j's subtree); loop-safe."""
-        names, seen, up = {j.name}, set(), by_child.get(j.parent)
+        names, seen, up = (
+            {j.name},
+            set(),
+            by_child.get(j.parent),
+        )  # a slide's weight ignores its subtree's angles
         while up is not None and up.name not in seen:
             seen.add(up.name)
             names |= {up.name} if up.type in _ROTARY else set()
             up = by_child.get(up.parent)
-        depth, stack, seen = len(names) - 1, [j.child], set()
+        depth, stack, seen = len(names) - 1, ([j.child] if j.type in _ROTARY else []), set()
         while stack:
             name = stack.pop()
             if name not in seen:
@@ -2706,73 +2826,135 @@ def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> lis
                 stack += [k.child for k in kids.get(name, [])]
         return depth, frozenset(names)
 
-    def grid(names: list[str], angles: tuple[float, ...]) -> list[list[float]]:
+    def grid(names: list[str], angles: tuple[float, ...], ends: bool = True) -> list[list[float]]:
         out = []
         for n in names:
+            if by_name[n].type not in _ROTARY:
+                out.append([0.0])  # a slide is held at zero
+                continue
             lim = by_name[n].limits
             lo = lim.lower if lim and lim.lower is not None else -math.inf
             hi = lim.upper if lim and lim.upper is not None else math.inf
-            pts = {a for a in (*angles, lo, hi) if lo <= a <= hi and math.isfinite(a)}
+            pts = {
+                a
+                for a in (*angles, *((lo, hi) if ends else ()))
+                if lo <= a <= hi and math.isfinite(a)
+            }
             out.append(sorted(pts) or [min(max(0.0, lo), hi)])
         return out
 
-    by_name = {j.name: j for j in rotary}
-    sets = {j.name: reach_set(j) for j in rotary}
+    slides = [
+        j for j in joints if j.type == "prismatic" and j.axis and any(j.axis)
+        and j.limits is not None and j.limits.effort_limit is not None
+    ]  # fmt: skip
+    by_name = {j.name: j for j in (*rotary, *slides)}
+    sets = {j.name: reach_set(j) for j in by_name.values()}
     held = [j.name for j in joints if j.type not in ("fixed", *_ROTARY)]
     note = f"; {', '.join(held[:2])}{', ...' if len(held) > 2 else ''} held at zero" if held else ""
-    worst: dict[str, tuple[Any, dict[str, float]]] = {}
+    link_names = {lk.name for lk in c.model.links}
+    mounted: dict[str, list[tuple]] = {}
+    uncounted: list[str] = []
+    for d in c.devices:
+        p = d.physical
+        if p is None or (p.mass is None and p.mount_frame is None):
+            continue  # nothing declared about where or how heavy: not a mounted device
+        if p.mass is None or p.mount_frame not in link_names:
+            uncounted.append(
+                f"{d.id} (no mass)"
+                if p.mass is None
+                else f"{d.id} (frame {p.mount_frame!r} is not a link)"
+            )
+            continue
+        xyz = tuple(v.base() for v in p.mount_xyz) if p.mount_xyz else (0.0, 0.0, 0.0)
+        mounted.setdefault(p.mount_frame, []).append((xyz, p.mass.base()))
+    if uncounted:
+        more = f", +{len(uncounted) - 3} more" if len(uncounted) > 3 else ""
+        note += f"; {len(uncounted)} device masses not counted: {', '.join(uncounted[:3])}{more}"
+    worst: dict[str, tuple[Any, dict[str, float], str, str]] = {}
     done: list[frozenset[str]] = []
     over: set[frozenset[str]] = set()
-    for j in sorted(rotary, key=lambda j: sets[j.name][0]):  # top of each run first
+    for j in sorted(by_name.values(), key=lambda j: sets[j.name][0]):  # top of each run first
         key = sets[j.name][1]
         if any(key <= d for d in done) or key in over:
             continue  # a superset grid under an ancestor already covered this joint
         names = sorted(key)
-        choices = grid(names, _REACH_ANGLES)
+        choices, how = grid(names, _REACH_ANGLES), "0/+-90 deg and limit points"
         if math.prod(map(len, choices)) > _REACH_MAX_POSES:
-            choices = grid(names, (0.0,))
+            choices, how = (
+                grid(names, _REACH_ANGLES, False),
+                "0/+-90 deg only (limit points dropped)",
+            )
         if math.prod(map(len, choices)) > _REACH_MAX_POSES:
             over.add(key)
             continue
         done.append(key)
         try:
-            plan = statics.gravity_plan(c.model, under=j.name)
+            plan = statics.gravity_plan(c.model, under=j.name, devices=mounted)
         except statics.ChainError as e:
             return _reach_not_scored(str(e))
         if plan is None:
             return []  # no single root or an off-frame CoM: silent, as before
-        poses = list(itertools.product(*choices))
-        torques = statics.plan_torques(plan, names, poses)
-        for i, r in zip(torques.argmax(axis=0), statics.plan_rows(plan, torques.max(axis=0))):
-            if r.limit_nm is not None and (
-                r.joint not in worst or r.torque_nm > worst[r.joint][0].torque_nm
-            ):
-                worst[r.joint] = (r, dict(zip(names, poses[i])))
+        for kk, joint in enumerate(plan.joints):
+            lim = joint.limits.effort_limit if joint.limits is not None else None
+            if lim is None or (joint.type == "prismatic") != (j.type == "prismatic"):
+                continue
+            if joint.type == "prismatic" and joint.name != j.name:
+                continue
+            # the joint's own angle is solved exactly below, so only the other joints take the grid
+            poses = list(
+                itertools.product(
+                    *[[0.0] if n == joint.name else c for n, c in zip(names, choices)]
+                )
+            )
+            ang = np.array(poses, dtype=float).reshape(len(poses), len(names))
+            t0 = statics.plan_torques(plan, names, ang, signed=True)[:, kk]
+            best, q = t0, np.zeros(len(poses))
+            if joint.type in _ROTARY:
+                ang[:, names.index(joint.name)] = math.pi / 2
+                t1 = statics.plan_torques(plan, names, ang, signed=True)[:, kk]
+                best, q = _sinusoid_peak(t0, t1, joint.limits)
+            i = int(best.argmax())
+            if joint.name not in worst or best[i] > worst[joint.name][0].torque_nm:
+                kg = float((plan.carries @ plan.payload)[kk])
+                row = statics.JointTorque(joint.name, float(best[i]), lim, lim - float(best[i]), kg)
+                nd = int((plan.carries @ (plan.device > 0))[kk])
+                dkg = float((plan.carries @ plan.device)[kk])
+                dev = f"includes {nd} device masses ({dkg:g} kg)" if nd else "no device masses"
+                pose = {n: v for n, v in zip(names, poses[i]) if by_name[n].type in _ROTARY}
+                if joint.type in _ROTARY:
+                    pose[joint.name] = float(q[i])
+                worst[joint.name] = (row, pose, how, dev)
     out: list[Finding] = []
     skipped = sorted(n for n, (_, k) in sets.items() if k in over and n not in worst)
     if skipped:
         out += _reach_not_scored(
             f"{', '.join(skipped[:3])}{', ...' if len(skipped) > 3 else ''} carry too many "
-            f"rotary joints for the {_REACH_MAX_POSES} pose grid"
+            f"rotary joints to keep the +/-90 deg poses within the {_REACH_MAX_POSES} pose grid"
         )
-    for name, (r, pose) in worst.items():
+    for name, (r, pose, how, dev) in worst.items():
         quantity = f"model/joints/{name}/limits/effort"
         payload = f"with {r.payload_kg:g} kg payload" if r.payload_kg else "no payload declared"
-        observed = (
-            f"{r.torque_nm:.2f} N*m static gravity torque at pose "
-            + ", ".join(f"{k}={math.degrees(v):.0f}deg" for k, v in pose.items())
-            + f" (worst of a 0/+-90 deg and limit grid, {payload}{note})"
+        unit, what = (
+            ("N", "N weight along the slide axis")
+            if by_name[name].type == "prismatic"
+            else ("N*m", "N*m static gravity torque")
         )
-        expected = f"<= {r.limit_nm:.2f} N*m joint effort limit"
+        observed = (
+            f"{r.torque_nm:.2f} {what} at pose "
+            + ", ".join(f"{k}={round(math.degrees(v))}deg" for k, v in pose.items())
+            + f" (peak over its own range, other joints at {how}; {payload}; "
+            f"{dev}{note})"
+        )
+        expected = f"<= {r.limit_nm:.2f} {unit} joint effort limit"
         if scores is not None:
             scores.record(quantity)
         if r.torque_nm <= r.limit_nm:
             if scores is not None:
                 scores.passed(
                     quantity,
-                    f"{r.torque_nm:.2f} N*m" + (f" {payload}" if r.payload_kg else ""),
+                    f"{r.torque_nm:.2f} {unit}" + (f" {payload}" if r.payload_kg else ""),
                     expected,
-                    f"{r.margin_nm:.2f} N*m headroom",
+                    f"{r.margin_nm:.2f} {unit} headroom",
                     detail=observed,
                 )
             continue
@@ -2782,7 +2964,7 @@ def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> lis
                 quantity=quantity,
                 observed=observed,
                 expected=expected,
-                delta=f"+{r.torque_nm - r.limit_nm:.2f} N*m",
+                delta=f"+{r.torque_nm - r.limit_nm:.2f} {unit}",
                 dependent=quantity,
                 action=(
                     "the joint cannot hold this pose against gravity: raise the effort limit "
@@ -2937,9 +3119,18 @@ def check_bus_bandwidth(c: Contract, *, scores: _ScoreBook | None = None) -> lis
             and device.identity.bus_ref == bus.id
             and device not in contributors
         ]
-        # CAN is scored on wire bits (framing included), the others on payload bits.
-        bits = _can_wire_bits if bus.kind == "can" else (lambda n: n * 8)
-        unit = "bit/s on the wire" if bus.kind == "can" else "bit/s payload"
+        # CAN and the byte-framed buses are scored on wire bits; USB, Ethernet and SPI stay on
+        # payload bits (their framing is not modelled here). Framing rules: UART 8N1 sends 10
+        # bits per byte (start + 8 data + stop); I2C sends 9 bits per byte (8 + ACK) and we
+        # assume 2 extra bytes per message for the start/address.
+        bits, unit = {
+            "can": (_can_wire_bits, "bit/s on the wire"),
+            "serial": (lambda n: n * 10, "bit/s on the wire (8N1 framing)"),
+            "i2c": (
+                lambda n: (n + 2) * 9,
+                "bit/s on the wire (assumes 2 address/start bytes per message)",
+            ),
+        }.get(bus.kind, (lambda n: n * 8, "bit/s payload (framing overhead not modelled)"))
         used_bps = sum(
             device.driver.nominal_rate_hz * bits(device.driver.payload_bytes)
             for device in contributors
@@ -3068,7 +3259,7 @@ def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[F
             expected="a positive mass with units",
             action=(
                 "fill in the link's inertial in the source model, then run "
-                f"`lockwire declare {contract_path or 'lockwire.yaml'} model/links/{name}/mass "
+                f"`{cli_line('lockwire', 'declare', contract_path or 'lockwire.yaml')} model/links/{name}/mass "
                 '"<mass> kg" --source "datasheet" --witness "you"` '
                 "(replace <mass>), or accept as massless with a Tier C assumption"
             ),
@@ -3077,6 +3268,8 @@ def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[F
         if name not in leaves
     ]
     # ponytail: name heuristic only; the schema has no frame mark to opt out, so declare a mass.
+    # A pure root frame (world, odom, ...) is no body at all: not even the "normal" note.
+    leaves = [n for n in leaves if n not in fixed_root]
     if leaves:
         shown = ", ".join(leaves[:2]) + (", ..." if len(leaves) > 2 else "")
         findings.append(
@@ -3089,6 +3282,78 @@ def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[F
             )
         )
     return findings
+
+
+def servo_stall_torque(servo: str) -> SourcedNumber:
+    """The stall torque (N*m) of catalog part ``servo``; ValueError names the parts that have one."""
+    parts = [p for p in load_catalog().parts if "stall_torque" in p.numbers]
+    for part in parts:
+        if part.id == servo:
+            return part.numbers["stall_torque"]
+    known = ", ".join(sorted(p.id for p in parts))
+    raise ValueError(f"no catalog servo {servo!r} with a stall torque (known: {known})")
+
+
+def check_servo_stall(
+    c: Contract, servo: str | dict[str, str] | None, *, scores: _ScoreBook | None = None
+) -> list[Finding]:
+    """Each revolute/continuous joint's effort limit vs the stall torque of the servo that
+    drives it, named by `check --servo <id>` or the lockfile's `servo:` line.
+
+    `servo:` is one catalog id for every joint, or a map of joint-name pattern -> id
+    (`{"arm_*": feetech.sts3215}`); the first matching pattern wins and an unmatched joint is
+    not compared. `check --servo` overrides the lockfile line.
+    """
+    if servo is None or c.model is None:
+        return []
+    rules = servo if isinstance(servo, dict) else {"*": servo}
+    stalls, out = {}, []
+    for sid in dict.fromkeys(rules.values()):
+        try:
+            stalls[sid] = servo_stall_torque(sid)
+        except ValueError as unknown:
+            out.append(
+                Finding(
+                    severity="warning",
+                    quantity="servo",
+                    observed=str(unknown),
+                    expected="a catalog servo id with a stall torque",
+                    action="fix the lockfile's servo: line to one of the known ids",
+                )
+            )
+    for joint in c.model.joints:
+        effort = joint.limits.effort if joint.limits else None
+        sid = next((s for pat, s in rules.items() if fnmatch.fnmatchcase(joint.name, pat)), None)
+        if joint.type not in _ROTARY or effort is None or effort <= 0 or sid not in stalls:
+            continue
+        stall = stalls[sid]
+        quantity = f"model/joints/{joint.name}/limits/effort"
+        if scores is not None:
+            scores.record(quantity)
+        if effort <= stall.value:
+            if scores is not None:
+                scores.passed(
+                    quantity,
+                    observed=f"{effort:.2f} N*m joint effort limit",
+                    expected=f"<= {stall.value:.2f} N*m {sid} stall torque",
+                    margin=f"{stall.value - effort:.2f} N*m headroom",
+                )
+            continue
+        out.append(
+            Finding(
+                severity="violation",
+                quantity=quantity,
+                observed=f"{effort:.2f} N*m joint effort limit",
+                expected=f"<= {stall.value:.2f} N*m, the {sid} stall torque",
+                delta=f"{effort / stall.value:.1f}x the stall torque",
+                source=stall.source,
+                action=(
+                    f"a simulator will let {joint.name} push {effort:g} N*m, which a {sid} cannot; "
+                    f"set its effort to {stall.value:.2f} or less (ignore if another motor drives it)"
+                ),
+            )
+        )
+    return out
 
 
 def check_unusable_effort(c: Contract) -> list[Finding]:
@@ -3254,6 +3519,7 @@ def check_urdf_drift(
                     "lock model provenance to the on-disk URDF, or accept that "
                     "URDF drift is unchecked"
                 ),
+                next_command=cli_line("lockwire", "start") + " <urdf>",
             )
         ]
 
@@ -3282,6 +3548,7 @@ def check_urdf_drift(
                     if named.lower().startswith(("http://", "https://"))
                     else "restore the URDF or correct model provenance to its on-disk path"
                 ),
+                next_command=cli_line("lockwire", "start") + " <urdf>",
             )
         ]
 
@@ -3290,6 +3557,37 @@ def check_urdf_drift(
             read_sdf_topology(path) if path.suffix.lower() == ".sdf" else read_urdf_topology(path)
         )
     except (OSError, ET.ParseError, ValueError, TypeError) as error:
+        try:
+            needs_args = "Undefined substitution argument" in str(
+                error
+            ) or "<xacro:arg" in path.read_text(errors="replace")
+        except OSError:
+            needs_args = False
+        if needs_args:  # xacro args are not kept in the lock, so this is a coverage gap
+            return [
+                Finding(
+                    severity="not_scored",
+                    quantity="model/structure_hash",
+                    observed=(
+                        f"the model needs xacro arguments ({error}); structure drift not scored"
+                    ),
+                    expected="a readable URDF at the provenance path",
+                    source=str(path),
+                    action=f"run {cli_line('lockwire', 'start', path)} --xacro-arg name=value to re-check it",
+                )
+            ]
+        if not isinstance(error, OSError) and (c.model.joints or c.model.links):
+            # it parsed when the lock was written (the lock holds its links/joints)
+            return [
+                Finding(
+                    severity="violation",
+                    quantity="model/structure_hash",
+                    observed=f"the model file no longer parses since it was locked ({error})",
+                    expected="a URDF that parses and matches the locked structure",
+                    source=str(path),
+                    action="fix the URDF, or re-lock the model from a file that parses",
+                )
+            ]
         return [
             Finding(
                 severity="not_scored",
@@ -3311,9 +3609,26 @@ def check_urdf_drift(
     # report.render shows it as its own "model check" bucket.
     if disk_hash == c.model.structure_hash:
         return []
-    # A lock written before the default axis was filled in reads the same file.
-    if c.model.joints and locked_record_hash(c.model, topology) == c.model.structure_hash:
-        return []
+    # A lock written before the default axis was filled in (or before 0.5) reads the same file.
+    legacy = c.schema_version != SCHEMA_VERSION
+    if c.model.joints and locked_record_hash(c.model, topology, legacy) == c.model.structure_hash:
+        old = legacy_axis_joints(c.model, topology) if legacy else []
+        if not old:
+            return []
+        return [
+            Finding(
+                severity="warning",
+                quantity="model/structure_hash",
+                observed=(
+                    f"this schema {c.schema_version} lock read <axis/> with no xyz as 0 0 1; the "
+                    f"URDF spec (and schema {SCHEMA_VERSION}) reads 1 0 0: joint {', '.join(old)}"
+                ),
+                expected="each locked joint axis read the way the URDF spec defines it",
+                source=str(path),
+                action="confirm those joints turn about X (or write their xyz), then re-lock",
+                next_command=_relock_command(path, contract_path),
+            )
+        ]
 
     return [
         Finding(
@@ -3323,9 +3638,365 @@ def check_urdf_drift(
             expected="structure hash matching the on-disk URDF",
             delta=(f"contract {c.model.structure_hash[:12]}... != urdf {disk_hash[:12]}..."),
             source=str(path),
-            action="re-lock the model from the URDF after reviewing the structural change",
+            action=_RELOCK_ACTION,
+            next_command=_relock_command(path, contract_path),
         )
     ]
+
+
+_RELOCK_ACTION = (
+    "review the structural change, then re-lock from the URDF with the command below "
+    "(this discards locked entries)"
+)
+
+
+def _describe_hint(contract_path: Path | str | None) -> str:
+    return cli_line("lockwire", "describe", contract_path or "lockwire.yaml")
+
+
+def _relock_command(urdf: Path, contract_path: Path | None) -> str:
+    default = (
+        contract_path is None or Path(contract_path).resolve() == Path("lockwire.yaml").resolve()
+    )
+    out = [] if default else ["--out", contract_path]  # --out lockwire.yaml is the default
+    return cli_line("lockwire", "start", urdf, *out, "--force")
+
+
+def check_model_values(
+    c: Contract, *, scores: _ScoreBook | None = None, contract_path: Path | None = None
+) -> list[Finding]:
+    """Locked link mass / COM / principal inertia vs the on-disk URDF or SDF.
+
+    `structure_hash` cannot see a value edit, so with the structure unchanged each
+    link's values are compared (relative 1e-6, absolute 1e-9). Anything unreadable
+    stays the drift check's `not_scored`; this check is then silent.
+    """
+    named = _urdf_path_candidate(c.model) if c.model else None
+    if named is None:
+        return []
+    path = (contract_path and resolve_source(contract_path, named)) or Path(named)
+    try:
+        sdf = path.suffix.lower() == ".sdf"
+        topology = read_sdf_topology(path) if sdf else read_urdf_topology(path)
+        disk = {link.name: link for link in (parse_sdf(path) if sdf else parse_urdf(path)).links}
+    except (OSError, ET.ParseError, ValueError, TypeError):
+        return []
+    same = (topology.record_hash if c.model.joints else topology.topology_hash) == (
+        c.model.structure_hash
+    ) or (
+        c.model.joints
+        and locked_record_hash(c.model, topology, c.schema_version != SCHEMA_VERSION)
+        == c.model.structure_hash
+    )
+    if not same:
+        return []
+
+    def differs(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
+        return not all(math.isclose(x, y, rel_tol=1e-6, abs_tol=1e-9) for x, y in zip(a, b))
+
+    def show(v: tuple[float, ...]) -> str:
+        return " ".join(f"{x:.9g}" for x in v)
+
+    findings = []
+    for link in c.model.links:
+        now = disk[link.name]
+        zero = (0.0, 0.0, 0.0)
+        values = {
+            "mass": (
+                (link.mass.base() if link.mass else 0.0,),
+                (now.mass.base() if now.mass else 0.0,),
+            ),
+            "com": (link.com or zero, now.com or zero),
+            "inertia": (
+                link.inertia.moments_kgm2 if link.inertia else zero,
+                now.inertia.moments_kgm2 if now.inertia else zero,
+            ),
+        }
+        for what, (locked, current) in values.items():
+            if differs(locked, current):
+                quantity = f"model/links/{link.name}/{what}"
+                findings.append(
+                    Finding(
+                        severity="violation",
+                        quantity=quantity,
+                        observed=f"model file has {what} {show(current)}",
+                        expected=f"locked {what} {show(locked)}",
+                        source=str(path),
+                        action=(
+                            f"the model file's {what} of {link.name} changed after the lock; if the "
+                            "edit is real, re-lock from the model with the command below "
+                            "(this discards locked entries)"
+                        ),
+                        next_command=_relock_command(path, contract_path),
+                    )
+                )
+                if scores is not None:
+                    scores.record(quantity)
+    return findings
+
+
+def check_mesh_drift(
+    c: Contract, *, scores: _ScoreBook | None = None, contract_path: Path | None = None
+) -> list[Finding]:
+    """Mesh file/scale per link, then recorded mesh bytes, vs the on-disk model.
+
+    structure_hash holds no geometry, so a scale or file edit after the lock needs this.
+    What the lock never recorded is `not_scored`, never a silent pass.
+    """
+    named = _urdf_path_candidate(c.model) if c.model else None
+    path = contract_path and named and resolve_source(contract_path, named)
+    try:
+        if not path:
+            now = []
+        elif path.suffix.lower() == ".sdf":  # includes spliced in, as the lock read it
+            now = mesh_refs(read_sdf_root(path)[0])
+        else:
+            now = mesh_refs(ET.fromstring(read_model_bytes(path)))
+    except (OSError, ET.ParseError, ValueError, TypeError):
+        return []  # the drift check already says why the model can't be read
+    locked = c.model.mesh_refs if c.model else None
+    if not path or (not now and not locked):
+        return []
+    relock = _relock_command(path, contract_path)
+
+    def finding(
+        severity: str,
+        quantity: str,
+        observed: str,
+        expected: str,
+        action: str = "a mesh changed after the lock; if the edit is real, re-lock from the URDF "
+        "with the command below (this discards locked entries)",
+    ) -> Finding:
+        if scores is not None and severity == "violation":
+            scores.record(quantity)
+        return Finding(
+            severity=severity,
+            quantity=quantity,
+            observed=observed,
+            expected=expected,
+            source=str(path),
+            action=action,
+            next_command=relock,
+        )
+
+    if locked is None:
+        return [
+            finding(
+                "not_scored",
+                "model/meshes",
+                "this lock predates recorded mesh files and scales; a mesh edit is not compared",
+                "mesh files and scales recorded at lock",
+                "re-lock with the command below to record them (this discards locked entries)",
+            )
+        ]
+    if locked != now:
+        found = []
+        for link in sorted({m.link for m in locked + now}):
+            before, after = (
+                ", ".join(f"{m.uri} scale {m.scale}" for m in refs if m.link == link) or "no mesh"
+                for refs in (locked, now)
+            )
+            if before != after:
+                found.append(
+                    finding(
+                        "violation",
+                        f"model/links/{link}/mesh",
+                        f"model has {after}",
+                        f"locked {before}",
+                    )
+                )
+        return found
+    if not c.model.external_assets:
+        return [
+            finding(
+                "not_scored",
+                "model/meshes",
+                f"{len({m.uri for m in now})} mesh files were not found at lock; their bytes are not compared",
+                "mesh files inside the robot's package folder, pinned at lock",
+                "make the meshes resolvable inside the robot's package folder, then re-lock",
+            )
+        ]
+    root = mesh_root(path, contract_path.parent)
+    found = []
+    for asset in c.model.external_assets:
+        file = root / asset.path
+        digest = hashlib.sha256(file.read_bytes()).hexdigest() if file.is_file() else None
+        if digest != asset.sha256:
+            found.append(
+                finding(
+                    "violation",
+                    f"model/external_assets/{asset.path}",
+                    f"mesh {asset.path} {'changed' if digest else 'is missing'} since lock",
+                    f"mesh bytes sha256 {asset.sha256[:12]}...",
+                )
+            )
+    return found
+
+
+_SHEET_UNITS = {"kg": 1.0, "g": 1e-3, "m": 1.0, "mm": 1e-3, "count": 1.0, "rad/s": 1.0}
+_SHEET_UNITS |= {"deg/s": math.pi / 180, "rpm": math.pi / 30}
+_SCOPE_WORDS = {
+    "with_battery": "includes the battery, computer and sensors",
+    "with_cable": "includes the cable",
+    "with_gripper": "includes the gripper",
+    "arm_only": "is the arm alone, no controller or tool",
+    "dry": "is dry, no battery or fluids",
+}
+
+
+def check_datasheet_agreement(
+    c: Contract,
+    *,
+    scores: _ScoreBook | None = None,
+    model: str | None = None,
+    contract_path: Path | None = None,
+) -> list[Finding]:
+    """A recognised robot's URDF-derived numbers vs its vendor datasheet (catalog_robots.yaml).
+
+    Mass +-5 % and dof exact are violations; payload and joint speed (the URDF allowing more
+    than the sheet) are warnings; reach (+-3 %) is passed when it agrees, else a not_scored note. A mass_total budget (`--mass`) wins over the
+    row. Silent for an unrecognised robot. At most the 3 largest deltas are reported.
+    """
+    if c.model is None:
+        return []
+    robot = recognise(c.robot.name, [link.name for link in c.model.links], model)
+    if robot is None:
+        return []
+    joints = c.model.joints
+    # urdf.py drops a mimic follower's limits, so a limitless revolute/prismatic is a follower.
+    moving = [
+        j
+        for j in joints
+        if j.type == "continuous" or (j.type in ("revolute", "prismatic") and j.limits)
+    ]
+    by_child = {j.child: j for j in joints}
+    poses: dict[str, _Transform] = {}
+
+    def pose(link: str) -> _Transform:  # the link's frame at the zero pose, in the base frame
+        joint = by_child.get(link)
+        if joint is None or link in poses:
+            return poses.get(link, (_IDENTITY, (0.0, 0.0, 0.0)))
+        poses[link] = (_IDENTITY, (0.0, 0.0, 0.0))  # a cycle ends at the origin, not a crash
+        rot, pos = pose(joint.parent)
+        poses[link] = (
+            _matmul(rot, _rpy_rotation(joint.origin.rpy)),
+            _add(pos, _matvec(rot, joint.origin.xyz)),
+        )
+        return poses[link]
+
+    payloads = [link.payload.base() for link in c.model.links if link.payload]
+    speeds = [
+        j.limits.velocity
+        for j in moving
+        if j.type != "prismatic" and j.limits and j.limits.velocity
+    ]
+    derived = {
+        "mass_total": (
+            sum(link.mass.base() for link in c.model.links if link.mass),
+            0.05,
+            "sum of link masses",
+        ),
+        "dof": (len(moving), 0.0, "moving joints, fixed and mimic not counted"),
+        "reach_m": (
+            max((math.dist(pose(j.child)[1], (0.0, 0.0, 0.0)) for j in moving), default=None),
+            0.03,
+            "straight-line base to last joint at zero pose; vendor reach may include the flange",
+        ),
+        "payload_kg": (sum(payloads) if payloads else None, 0.0, "payload carried on links"),
+        "joint_speed_max": (max(speeds, default=None), 0.05, "fastest joint velocity limit, rad/s"),
+    }
+    rows, who = dict(robot.numbers), {}
+    declared = next((b for b in c.budgets if b.kind == "mass_total"), None)
+    if declared is not None:  # a declared mass (--mass) beats the row
+        sum_kg, nominal = derived["mass_total"][0], declared.nominal
+        if nominal is None or all(link.mass for link in c.model.links) or sum_kg > nominal.base():
+            del derived["mass_total"]  # check_budgets judges it
+        else:  # check_budgets can't call a partial sum too light; to a simulator a gap is 0 kg
+            source = declared.provenance.source if declared.provenance else "--mass"
+            update = {"value": nominal.base(), "unit": "kg", "source": source, "scope": None}
+            rows["mass_total"] = rows["mass_total"].model_copy(update=update)
+            derived["mass_total"] = (
+                sum_kg,
+                (declared.tolerance_pct or 0) / 100,
+                "sum of link masses",
+            )
+            who["mass_total"] = "declared mass"
+    named = _urdf_path_candidate(c.model)
+    path = named and ((contract_path and resolve_source(contract_path, named)) or Path(named))
+    if path and path.resolve().is_relative_to(Path.cwd()):
+        path = path.resolve().relative_to(Path.cwd())  # the spelling the user typed, usually
+    mass = robot.numbers["mass_total"]
+    rerun = cli_line(
+        "lockwire",
+        "check",
+        path or "<model>",
+        "--mass",
+        f"{mass.value:g} {mass.unit}",
+        "--source",
+        mass.url,
+    )
+    suppressed = dict(d.split(":", 1) for d in robot.known_urdf_deviations if ":" in d)
+    ranked: list[tuple[tuple[int, float], Finding]] = []
+    for key, (urdf, tolerance, how) in derived.items():
+        row = rows.get(key)
+        if row is None or urdf is None or row.unit not in _SHEET_UNITS:
+            continue
+        quantity = f"datasheet/{robot.id}/{key}"
+        sheet = row.value * _SHEET_UNITS[row.unit]
+        scope = f"; the sheet's figure {_SCOPE_WORDS[row.scope]}" if row.scope else ""
+        expected = f"{who.get(key, robot.name + ' datasheet')}: {row.value:g} {row.unit}{scope}"
+        observed = f"URDF {how}: {urdf:.4g}"
+        if key in suppressed:
+            note = f"not compared: known URDF deviation —{suppressed[key]}"
+            finding = Finding(
+                severity="not_scored",
+                quantity=quantity,
+                observed=note,
+                expected=expected,
+                source=row.url,
+                action="none; the catalog row names why",
+                next_command=rerun,
+            )
+            ranked.append(((2, 0.0), finding))
+            continue
+        delta = (urdf - sheet) / sheet
+        one_sided = key in ("payload_kg", "joint_speed_max")
+        inside = (delta if one_sided else abs(delta)) <= tolerance + 1e-9
+        if key == "reach_m" and not inside:
+            # Vendors measure reach differently (flange, tool); a miss is a note, never a warning.
+            finding = Finding(
+                severity="not_scored",
+                quantity=quantity,
+                observed=f"not compared: {observed} ({delta:+.1%} vs the sheet)",
+                expected=expected,
+                source=row.url,
+                action="none; vendor reach is measured differently, so this is only a note",
+                next_command=rerun,
+            )
+            ranked.append(((2, 0.0), finding))
+            continue
+        if scores is not None:
+            scores.record(quantity)
+        if inside:
+            if scores is not None:
+                scores.passed(quantity, observed, expected, f"{delta:+.1%}", provenance=None)
+            continue
+        severity = "violation" if key in ("mass_total", "dof") else "warning"
+        finding = Finding(
+            severity=severity,
+            quantity=quantity,
+            observed=observed,
+            expected=expected,
+            delta=f"{delta:+.1%}",
+            source=row.url,
+            action=(
+                f"check the URDF counts what the sheet counts ({row.scope or key}); if the sheet "
+                "is right, fix the URDF; to compare with another figure, re-run with --mass"
+            ),
+            next_command=rerun,
+        )
+        ranked.append(((0 if severity == "violation" else 1, -abs(delta)), finding))
+    return [finding for _, finding in sorted(ranked, key=lambda pair: pair[0])[:3]]
 
 
 # ---------------------------------------------------------------- envelopes
@@ -3364,7 +4035,7 @@ def check_envelopes_vs_hard_limits(
                     expected="two timed samples of this signal, which a contract check never has",
                     owner=d.owner,
                     action=(
-                        "score this bound with `lockwire plan`, which compares consecutive "
+                        f"score this bound with `{cli_line('lockwire', 'plan')}`, which compares consecutive "
                         "published values; `check` compares declarations, not trajectories"
                     ),
                 )
@@ -3563,7 +4234,7 @@ def check_thermal_budget(c: Contract, *, scores: _ScoreBook | None = None) -> li
         estimated_c = ambient_c + power_w * r_th
         limit_c = limit.temperature.base()
 
-        if estimated_c < limit_c:
+        if estimated_c <= limit_c:  # at the limit passes, as `expected` says
             if scores is not None:
                 headroom_c = limit_c - estimated_c
                 scores.passed(
@@ -3903,3 +4574,956 @@ def check_scene_placement(
             )
         )
     return out
+
+
+# ---------------------------------------------------------------- check pack 1
+# Zero-setup checks: they read only what the lock, the on-disk URDF and the
+# contract already hold. A heuristic without a published threshold is a
+# `not_scored` disclosure, never a warning.
+
+
+def _urdf_root(c: Contract, contract_path: Path | None) -> tuple[Path, ET.Element] | None:
+    """The on-disk URDF the lock names, re-read the way check_urdf_drift does."""
+    names = (c.model.provenance.source, c.model.source) if c.model else ()
+    named = next((n for n in names if n.lower().endswith((".urdf", ".xacro", ".sdf"))), None)
+    if named is None:
+        return None
+    path = (contract_path and resolve_source(contract_path, named)) or Path(named)
+    if path.suffix.lower() == ".sdf":
+        try:
+            return path, urdf_view(path)
+        except (OSError, ET.ParseError, ValueError):
+            return None
+    try:
+        raw = read_model_bytes(path)  # a .xacro is expanded here
+        if _has_doctype_entity(raw):
+            return None
+        root = ET.fromstring(raw)
+    except (OSError, ET.ParseError, ValueError):
+        return None
+    return (path, root) if root.tag == "robot" else None
+
+
+def _floats(raw: str | None) -> list[float]:
+    try:
+        return [float(x) for x in (raw or "").split()]
+    except ValueError:
+        return []
+
+
+def check_model_checks_skipped(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """One line, not silence, when the URDF-reading checks cannot run on this lock."""
+    names = (c.model.provenance.source, c.model.source) if c.model else ()
+    if c.model is None or any(n.lower().endswith((".urdf", ".xacro", ".sdf")) for n in names):
+        return []
+    return [
+        Finding(
+            severity="not_scored",
+            quantity="model/sanity",
+            observed="model sanity checks not run: the lock names no .urdf, .xacro or .sdf file",
+            expected="a .urdf the checks can read",
+            action=f"run {cli_line('lockwire', 'start')} on the expanded model to check them",
+            next_command=cli_line("lockwire", "start") + " <expanded.urdf>",
+        )
+    ]
+
+
+def check_urdf_sanity(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Structural mistakes a tolerant lock accepted: inverted or missing limits,
+    non-unit axes, loops, mimic ranges past the follower's limits, mesh name clashes."""
+    found = _urdf_root(c, contract_path)
+    if found is None:
+        return []
+    path, root = found
+    fix = _relock_command(path, contract_path)
+    out: list[Finding] = []
+
+    def warn(quantity: str, observed: str, expected: str, action: str, severity="warning"):
+        out.append(
+            Finding(
+                severity=severity,
+                quantity=f"model/sanity/{quantity}",
+                observed=observed,
+                expected=expected,
+                source=str(path),
+                action=action + ", then re-lock",
+                next_command=fix,
+            )
+        )
+
+    limits: dict[str, tuple[float, float]] = {}
+    parents: dict[str, list[str]] = {}
+    joints = root.findall("joint")
+    for el in joints:
+        name, jtype, lim = el.get("name", "?"), el.get("type", "fixed"), el.find("limit")
+        child = el.find("child")
+        parents.setdefault(child.get("link", "?") if child is not None else "?", []).append(name)
+        if jtype in ("revolute", "prismatic"):
+            lo, hi = (_floats(lim.get(k)) if lim is not None else [] for k in ("lower", "upper"))
+            if lo and hi and lo[0] >= hi[0] and el.find("mimic") is None:
+                # Joint._ordered rejects this; urdf.py drops the limit and locks it unlimited.
+                warn(
+                    f"{name}/limits",
+                    f"joint {name} has lower {lo[0]:g} >= upper {hi[0]:g}; locked as unlimited",
+                    "lower < upper",
+                    f"swap or fix {name}'s limits",
+                )
+            elif lo and hi:
+                limits[name] = (lo[0], hi[0])
+            # urdfdom joint.cpp: revolute/prismatic need <limit>, and a <limit> needs velocity
+            # (https://raw.githubusercontent.com/ros/urdfdom/master/urdf_parser/src/joint.cpp).
+            if lim is None or lim.get("velocity") is None:
+                warn(
+                    f"{name}/velocity",
+                    f"moving joint {name} has no velocity limit",
+                    "a <limit velocity=...> (ROS urdfdom refuses the file without it)",
+                    f"add {name}'s velocity limit from its datasheet",
+                )
+        axis = _floats(el.find("axis").get("xyz")) if el.find("axis") is not None else []
+        norm = math.sqrt(sum(v * v for v in axis)) if len(axis) == 3 else 1.0
+        # ponytail: no fetched spec says unit axis (urdfdom does not normalize), so a
+        # disclosure; 1e-3 is rounding slack for hand-typed axes.
+        if jtype in ("revolute", "continuous", "prismatic") and abs(norm - 1.0) > 1e-3:
+            warn(
+                f"{name}/axis",
+                f"joint {name} axis has length {norm:.4g}",
+                "a unit axis",
+                f"make {name}'s axis length 1",
+                severity="not_scored",
+            )
+    two_parents = sorted(link for link, js in parents.items() if len(js) > 1)
+    # urdfdom initTree writes parent_link_tree[child] with no check for an existing parent,
+    # so ROS silently keeps one of two parent joints
+    # (https://raw.githubusercontent.com/ros/urdfdom_headers/master/include/urdf_model/model.h).
+    if two_parents:
+        warn(
+            "loops",
+            "links with more than one parent joint (a kinematic loop): " + ", ".join(two_parents),
+            "a tree: one parent joint per link",
+            "give each link one parent joint",
+        )
+    for el in joints:
+        mimic, name = el.find("mimic"), el.get("name", "?")
+        lim = el.find("limit")
+        lead = limits.get(mimic.get("joint", "")) if mimic is not None else None
+        own = (
+            (_floats(lim.get("lower")), _floats(lim.get("upper"))) if lim is not None else ([], [])
+        )
+        if lead is None or not own[0] or not own[1] or own[0][0] >= own[1][0]:
+            continue
+        m, o = (
+            (_floats(mimic.get("multiplier")) or [1.0])[0],
+            (_floats(mimic.get("offset")) or [0.0])[0],
+        )
+        # follower = multiplier * leader + offset; urdfdom defaults 1 and 0 (joint.cpp above).
+        reach = sorted((m * lead[0] + o, m * lead[1] + o))
+        tol = 1e-6 * max(1.0, abs(own[0][0]), abs(own[1][0]))
+        if reach[0] < own[0][0] - tol or reach[1] > own[1][0] + tol:
+            warn(
+                f"{name}/mimic",
+                f"{name} follows {mimic.get('joint')} over {reach[0]:.4g}..{reach[1]:.4g}",
+                f"inside {name}'s own limits {own[0][0]:.4g}..{own[1][0]:.4g}",
+                f"fix {name}'s mimic multiplier, offset or limits",
+            )
+    meshes: dict[str, set[str]] = {}
+    for mesh in root.iter("mesh"):
+        fname = mesh.get("filename", "")
+        meshes.setdefault(fname.replace("\\", "/").rsplit("/", 1)[-1].lower(), set()).add(fname)
+    clash = sorted(base for base, names in meshes.items() if len(names) > 1)
+    if clash:  # no published rule: a disclosure, since tools that flatten mesh folders collide
+        warn(
+            "meshes",
+            "different mesh files share a file name: " + ", ".join(clash),
+            "one file per mesh name",
+            "rename one file of each pair",
+            severity="not_scored",
+        )
+    return out
+
+
+def check_inertia_valid(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Principal moments must be non-negative and obey a <= b + c."""
+    # Drake RotationalInertia::CouldBePhysicallyValid: principal moments non-negative and
+    # satisfying the triangle inequality
+    # (https://drake.mit.edu/doxygen_cxx/classdrake_1_1multibody_1_1_rotational_inertia.html).
+    out = []
+    for link in c.model.links if c.model else []:
+        if link.inertia is None:
+            continue
+        a, b, big = sorted(link.inertia.moments_kgm2)
+        # ponytail: the slacks absorb the eigen-solve's float noise only. Zero is allowed
+        # (a point mass, e.g. SO-101's 1e-9 kg gripper frame).
+        bad = (
+            "a principal moment is negative"
+            if a < -1e-12
+            else "the largest moment exceeds the sum of the other two"
+            if big > (a + b) * (1 + 1e-6)
+            else None
+        )
+        if bad:
+            out.append(
+                Finding(
+                    severity="warning",
+                    quantity=f"model/links/{link.name}/inertia",
+                    observed=f"principal moments {a:.4g}, {b:.4g}, {big:.4g} kg*m^2: {bad}",
+                    expected="non-negative moments with the largest <= the sum of the other two",
+                    action=(f"no real body has this inertia; recompute {link.name}'s from CAD"),
+                    next_command=_relock_command(
+                        Path(_urdf_path_candidate(c.model) or c.model.source), contract_path
+                    ),
+                )
+            )
+    return out
+
+
+def _link_primitives(
+    root: ET.Element,
+) -> dict[str, list[list[tuple[tuple[float, ...], float, float]]]]:
+    """Per link, one list per collision/visual set: (origin xyz, bounding radius, volume,
+    axis radius). The axis radius is the shape's farthest point from its own thinnest axis
+    through its centre (a cylinder's radius, a box's half cross-section diagonal).
+
+    A link with a mesh anywhere (a primitive may only simplify it) is left out:
+    no mesh dependency.
+    """
+    out = {}
+    for link in root.findall("link"):
+        if link.find(".//mesh") is not None:
+            continue
+        sets = []
+        for kind in ("collision", "visual"):
+            shapes = []
+            for el in link.findall(kind):
+                geometry = el.find("geometry")
+                shape = geometry[0] if geometry is not None and len(geometry) else None
+                if shape is None:
+                    continue
+                xyz = _floats(el.find("origin").get("xyz")) if el.find("origin") is not None else []
+                size = _floats(shape.get("size"))
+                r, length = ((_floats(shape.get(k)) or [0.0])[0] for k in ("radius", "length"))
+                if shape.tag == "box" and len(size) == 3:
+                    radius, volume = 0.5 * math.hypot(*size), size[0] * size[1] * size[2]
+                    axis_r = 0.5 * math.hypot(*sorted(size)[:2])
+                elif shape.tag == "cylinder":
+                    radius, volume, axis_r = math.hypot(r, length / 2), math.pi * r**2 * length, r
+                elif shape.tag == "sphere":
+                    radius, volume, axis_r = r, 4 / 3 * math.pi * r**3, r
+                else:
+                    continue
+                origin = tuple(xyz) if len(xyz) == 3 else (0.0, 0.0, 0.0)
+                shapes.append((origin, radius, volume, axis_r))
+            if shapes:
+                sets.append(shapes)
+        if sets:
+            out[link.get("name", "?")] = sets
+    return out
+
+
+def check_mass_vs_size(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Density, CoM and radius of gyration against the link's primitive shapes."""
+    found = _urdf_root(c, contract_path)
+    if found is None or c.model is None:
+        return []
+    path, root = found
+    fix = _relock_command(path, contract_path)
+    shapes = _link_primitives(root)
+    out = []
+    for link in c.model.links:
+        sets = shapes.get(link.name)
+        if not sets or link.mass is None or link.mass.base() <= 0:
+            continue
+        mass, com = link.mass.base(), link.com or (0.0, 0.0, 0.0)
+        prims = [p for shapes_ in sets for p in shapes_]  # collision and visual together
+        volumes = [sum(p[2] for p in shapes_) for shapes_ in sets]
+        problems = []
+        # Fetched https://en.wikipedia.org/wiki/Density 2026-11-04: osmium, "the densest known
+        # element", 22,570 kg/m^3; aerographite, the lightest solid in its table, 0.2 kg/m^3.
+        # Outside that, units slipped. The roomier set judges "too dense", the tighter "too light".
+        if min(volumes) > 0 and not (mass / max(volumes) <= 22570 and mass / min(volumes) >= 0.2):
+            density = mass / max(volumes) if mass / max(volumes) > 22570 else mass / min(volumes)
+            problems.append(f"density {density:.4g} kg/m^3 from {mass:g} kg (g vs kg or mm vs m?)")
+        # The CoM is a mass-weighted average, a convex combination of the body's points, so it
+        # lies in their convex hull (https://en.wikipedia.org/wiki/Convex_combination), which
+        # the box around the shapes' bounding spheres contains.
+        box = [
+            (min(o[i] - r for o, r, *_ in prims), max(o[i] + r for o, r, *_ in prims))
+            for i in range(3)
+        ]
+        if any(not lo - 1e-6 <= x <= hi + 1e-6 for x, (lo, hi) in zip(com, box)):
+            problems.append(f"CoM {_fmt_point(com)} m lies outside the link's shapes")
+        # I = sum(r^2 dm) <= m R^2: the radius of gyration cannot exceed the body's extent
+        # from the CoM (https://en.wikipedia.org/wiki/Radius_of_gyration).
+        extent = max(math.dist(com, o) + r for o, r, *_ in prims)
+        if link.inertia and math.sqrt(max(link.inertia.moments_kgm2) / mass) > extent * (1 + 1e-6):
+            problems.append(
+                f"radius of gyration {math.sqrt(max(link.inertia.moments_kgm2) / mass):.4g} m "
+                f"exceeds the shapes' extent {extent:.4g} m from the CoM"
+            )
+        # About the shape's own thinnest axis, every point lies within axis_r of it, so no body
+        # inside can exceed m (axis_r + CoM offset)^2 there; the smallest principal moment is the
+        # minimum over all axes, so it is bounded too. ponytail: single-shape sets only; a
+        # multi-shape link has no one axis, so it keeps the looser extent bound above.
+        if link.inertia and not problems and all(len(shapes_) == 1 for shapes_ in sets):
+            cap = max(mass * (a_r + math.dist(com, o)) ** 2 for ((o, _, _, a_r),) in sets)
+            low = min(link.inertia.moments_kgm2)
+            # ponytail: 2x slack, since a collision primitive often simplifies the part a little.
+            if cap > 0 and low > 2 * cap:
+                problems.append(
+                    f"smallest moment {low:.4g} kg*m^2 is {low / cap:.0f}x the most a "
+                    f"{mass:g} kg body inside its shape can have ({cap:.3g}): placeholder inertia?"
+                )
+        for problem in problems:
+            out.append(
+                Finding(
+                    severity="warning",
+                    quantity=f"model/links/{link.name}/mass_vs_size",
+                    observed=problem,
+                    expected="mass, CoM and inertia a solid of this link's shapes can have",
+                    source=str(path),
+                    action=(
+                        f"compute {link.name}'s inertia from its mass and shape, then re-lock"
+                        if problem.endswith("placeholder inertia?")
+                        else f"check the units of {link.name}'s mass and shape, then re-lock"
+                    ),
+                    next_command=fix,
+                )
+            )
+    return out
+
+
+def check_inertia_scale(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Exactly equal round-number principal moments (1, 1e-4 ...): a placeholder?"""
+    # ponytail: no published rule names placeholder inertia, so this is a disclosure.
+    flat = []
+    for link in c.model.links if c.model else []:
+        m = link.inertia.moments_kgm2 if link.inertia else ()
+        if m and m[0] > 0 and all(math.isclose(v, m[0], rel_tol=1e-9) for v in m):
+            exponent = math.log10(m[0])
+            if math.isclose(exponent, round(exponent), abs_tol=1e-9):
+                flat.append(f"{link.name} ({m[0]:g})")
+    if not flat:
+        return []
+    return [
+        Finding(
+            severity="not_scored",
+            quantity="model/links/placeholder_inertia",
+            observed=f"{len(flat)} link(s) with three equal round-number moments: "
+            + ", ".join(flat[:3])
+            + (", ..." if len(flat) > 3 else ""),
+            expected="inertia computed from each part (placeholder inertia?)",
+            action="if placeholders, compute the inertia from CAD, then re-lock",
+            next_command=_relock_command(
+                Path(_urdf_path_candidate(c.model) or c.model.source), contract_path
+            ),
+        )
+    ]
+
+
+def check_limit_unit_traps(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Degrees typed as radians, and joint numbers too large for a robot (mm typed as m)."""
+    if c.model is None:
+        return []
+    fix = _relock_command(Path(_urdf_path_candidate(c.model) or c.model.source), contract_path)
+    out = []
+    for j in c.model.joints:
+        lim = j.limits
+        bounds = [abs(v) for v in (lim.lower, lim.upper) if v is not None] if lim else []
+        # ponytail: no fetched source states the URDF unit (wiki.ros.org/urdf/XML/joint was
+        # access-denied 2026-11-04; urdfdom joint.cpp and urdf.xsd say nothing on units), so
+        # "past three turns is degrees" is our own heuristic and only discloses. ANYmal D ships
+        # +/-3*pi (tests/fixtures/anymal_d.urdf); huge values are "unbounded" sentinels.
+        if j.type == "revolute" and bounds and 6 * math.pi * (1 + 1e-3) < max(bounds) <= 720:
+            out.append(
+                Finding(
+                    severity="not_scored",
+                    quantity=f"model/joints/{j.name}/limits",
+                    observed=f"revolute limit {max(bounds):g} rad is more than three full turns",
+                    expected="radians within one turn (degrees typed as radians?)",
+                    action=f"convert {j.name}'s limits to radians, then re-lock",
+                    next_command=fix,
+                )
+            )
+        # ponytail: 100 rad/s and 5 m are unsourced sanity bounds, so they only disclose.
+        if j.type == "revolute" and lim and lim.velocity and lim.velocity > 100:
+            out.append(
+                Finding(
+                    severity="not_scored",
+                    quantity=f"model/joints/{j.name}/limits/velocity",
+                    observed=f"velocity limit {lim.velocity:g} rad/s",
+                    expected="a joint speed in rad/s (degrees/s typed as rad/s?)",
+                    action=f"confirm {j.name}'s velocity limit is in rad/s",
+                    next_command=fix,
+                )
+            )
+        if math.hypot(*j.origin.xyz) > 5.0:
+            out.append(
+                Finding(
+                    severity="not_scored",
+                    quantity=f"model/joints/{j.name}/origin",
+                    observed=f"joint origin {math.hypot(*j.origin.xyz):.4g} m from its parent",
+                    expected="metres (millimetres typed as metres?)",
+                    action=f"confirm {j.name}'s origin is in metres",
+                    next_command=fix,
+                )
+            )
+    return out
+
+
+def check_battery_shipping_class(
+    c: Contract, *, contract_path: Path | None = None
+) -> list[Finding]:
+    """Pack energy against the IATA lithium-ion watt-hour lines."""
+    battery = c.topology.battery if c.topology else None
+    if battery is None:
+        return []
+    wh = battery.capacity.base()  # energy base unit is Wh
+    # IATA "Passengers travelling with lithium batteries": >100 to <=160 Wh needs operator
+    # approval; >160 Wh must be carried as cargo under the DGR
+    # (https://www.iata.org/contentassets/6fea26dd84d24b26a7a1fd5788561d6e/passenger-lithium-battery.pdf).
+    # Cargo over 100 Wh is fully regulated, UN 38.3 tested (IATA Lithium Battery Guidance,
+    # https://www.iata.org/contentassets/05e6d8742b0047259bf3a700bc9d42b9/lithium-battery-guidance-document.pdf).
+    if wh <= 100:
+        return []
+    over = wh > 160
+    return [
+        Finding(
+            severity="warning" if over else "not_scored",
+            quantity="topology/battery/capacity",
+            observed=f"{wh:g} Wh lithium pack",
+            expected="<= 160 Wh to fly with a passenger" if over else "<= 100 Wh to fly freely",
+            observed_quantity=Quantity(value=wh, unit="Wh"),
+            expected_quantity=Quantity(value=160.0 if over else 100.0, unit="Wh"),
+            action=(
+                "too big to fly with a passenger; ship it as dangerous-goods cargo"
+                if over
+                else "needs airline approval to fly; ships as regulated cargo (UN 38.3)"
+            ),
+            next_command=_describe_hint(contract_path),
+        )
+    ]
+
+
+def _declared_ambients(c: Contract) -> list[float]:
+    """Every declared ambient in C: device thermal ambients and C/degC envelope bounds."""
+    return [
+        d.thermal.ambient.base() for d in c.devices if d.thermal and d.thermal.ambient is not None
+    ] + [
+        bound
+        for d in c.devices
+        for env in d.envelopes
+        for band in env.conditions.values()
+        if band.unit in ("C", "degC")
+        for bound in (band.lo, band.hi)
+    ]
+
+
+def check_cold_derating_coverage(
+    c: Contract, *, contract_path: Path | None = None
+) -> list[Finding]:
+    """A below-freezing declared ambient, an endurance budget, and no derating row for it."""
+    battery = c.topology.battery if c.topology else None
+    if battery is None or not any(b.kind == "endurance" for b in c.budgets):
+        return []
+    coldest = min(_declared_ambients(c), default=None)
+    # Battery University BU-502: a battery giving 100% at 27 C typically gives only 50% at
+    # -18 C (https://batteryuniversity.com/article/bu-502-discharging-at-high-and-low-temperatures).
+    if coldest is None or coldest >= 0 or any(row.below_c >= coldest for row in battery.derating):
+        return []
+    return [
+        Finding(
+            severity="warning",
+            quantity="topology/battery/derating",
+            observed=f"declared ambient down to {coldest:g} C, no capacity derating covers it",
+            expected=f"a derating row with below_c >= {coldest:g} (endurance assumes room temperature)",
+            action=("cold halves capacity by -18 C; declare a derating row from the datasheet"),
+            next_command=_describe_hint(contract_path),
+        )
+    ]
+
+
+def check_i2c_reserved_address(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """A 7-bit I2C address in a reserved group (0x00-0x07, 0x78-0x7F)."""
+    i2c = {b.id for b in c.topology.buses if b.kind == "i2c"} if c.topology else set()
+    out = []
+    for d in c.devices:
+        ident = d.identity
+        if ident is None or ident.bus_ref not in i2c or ident.address is None:
+            continue
+        try:
+            address = int(ident.address, 0)
+        except ValueError:
+            continue
+        # NXP UM10204 section 3.1.12, Table 4: addresses 0000 XXX and 1111 XXX are reserved
+        # (https://www.nxp.com/docs/en/user-guide/UM10204.pdf).
+        if address <= 0x07 or 0x78 <= address <= 0x7F:
+            out.append(
+                Finding(
+                    severity="warning",
+                    quantity=f"devices/{d.id}/identity/address",
+                    observed=f"I2C address {address:#04x}",
+                    expected="0x08..0x77 (0x00-0x07 and 0x78-0x7F are reserved, UM10204 Table 4)",
+                    action=f"check {d.id}'s address straps: this address is reserved",
+                    next_command=_describe_hint(contract_path),
+                )
+            )
+    return out
+
+
+def check_controller_limits(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """A ros2_control/MoveIt joint_limits.yaml wider than the URDF limits.
+
+    Found by one rule: ``joint_limits.yaml`` beside the URDF, else in a ``config/``
+    folder beside the URDF's folder (the ROS package layout). Otherwise silent.
+    """
+    found = _urdf_root(c, contract_path)
+    if found is None or c.model is None:
+        return []
+    path = found[0]
+    yaml_path = next(
+        (
+            p
+            for p in (
+                path.parent / "joint_limits.yaml",
+                path.parent.parent / "config" / "joint_limits.yaml",
+            )
+            if p.is_file()
+        ),
+        None,
+    )
+    if yaml_path is None:
+        return []
+    from ruamel.yaml import YAML, YAMLError
+
+    try:
+        data = YAML(typ="safe").load(yaml_path.read_text())
+    except (OSError, YAMLError):
+        return []
+    rows = data.get("joint_limits", data) if isinstance(data, dict) else {}
+    # ros2_control joint_limits_rosparam.hpp: "Limits specified in the parameter server will
+    # overwrite existing values" (https://raw.githubusercontent.com/ros-controls/ros2_control/
+    # master/joint_limits/include/joint_limits/joint_limits_rosparam.hpp), so a wider yaml
+    # limit silently widens what the URDF promised.
+    out = []
+    for j in c.model.joints:
+        row, lim = rows.get(j.name) if isinstance(rows, dict) else None, j.limits
+        if not isinstance(row, dict) or lim is None:
+            continue
+        pairs = []
+        if row.get("has_position_limits"):
+            pairs += [
+                ("min_position", row.get("min_position"), lim.lower, -1),
+                ("max_position", row.get("max_position"), lim.upper, 1),
+            ]
+        if row.get("has_velocity_limits"):
+            pairs.append(("max_velocity", row.get("max_velocity"), lim.velocity, 1))
+        if row.get("has_effort_limits"):
+            pairs.append(("max_effort", row.get("max_effort"), lim.effort_limit, 1))
+        for key, yaml_value, urdf_value, sign in pairs:
+            if (
+                isinstance(yaml_value, (int, float))
+                and urdf_value is not None
+                and sign * (yaml_value - urdf_value) > 1e-9 * max(1.0, abs(urdf_value))
+            ):
+                out.append(
+                    Finding(
+                        severity="violation",
+                        quantity=f"model/joints/{j.name}/limits/{key}",
+                        observed=f"{yaml_path.name} {key} {yaml_value:g}",
+                        expected=f"within the URDF limit {urdf_value:g}",
+                        source=str(yaml_path),
+                        action=(
+                            f"the controller lets {j.name} pass its model limit; tighten {key}"
+                        ),
+                        next_command=cli_line("lockwire", "check", contract_path or path),
+                    )
+                )
+    return out
+
+
+def check_driver_watchdog_marker(
+    c: Contract, *, contract_path: Path | None = None
+) -> list[Finding]:
+    """Actuators with no observed reset/watchdog marker: a disclosure, never a pass or fail.
+
+    Only drivers that map signals: a procedure marker names a declared signal, so a
+    driver without signals could not declare one and saying so would be noise.
+    """
+    bare = sorted(
+        d.id
+        for d in c.devices
+        if d.drives_joint is not None
+        and d.driver is not None
+        and d.driver.signals
+        and not any(p.kind in ("reset", "watchdog") for p in d.driver.procedures)
+    )
+    if not bare:
+        return []
+    return [
+        Finding(
+            severity="not_scored",
+            quantity="devices/watchdog",
+            observed=(
+                f"no watchdog marker found for {len(bare)} actuator(s): "
+                + ", ".join(bare[:3])
+                + (", ..." if len(bare) > 3 else "")
+                + "; absence proves nothing"
+            ),
+            expected="a reset/watchdog procedure marker on each actuator's driver",
+            action="declare the driver's reset or watchdog marker, if it has one",
+            next_command=_describe_hint(contract_path),
+        )
+    ]
+
+
+# Per-cell volts (nominal, full charge, end of discharge) and default (charge, discharge)
+# windows in C. Every number fetched 2026-11-05; None = no source found, so not scored.
+# Li-ion: 3.6 V nominal, 4.2 V max (BU-303 https://batteryuniversity.com/article/bu-303-confusion-with-voltages);
+#   3.0 V end of discharge, "most Li-ion to 3.0V/cell" (BU-501 https://batteryuniversity.com/article/bu-501-basics-about-discharging).
+# LiPo: "Charge and discharge characteristics of Li-polymer are identical to other Li-ion
+#   systems" (BU-206 https://batteryuniversity.com/article/bu-206-lithium-polymer-substance-or-hype).
+# LiFePO4: 3.2 V nominal, charges to 3.65 V, 2.50 V cut-off (BU-205
+#   https://batteryuniversity.com/article/bu-205-types-of-lithium-ion); no temperature source found.
+# NiMH: 1.20 V nominal (BU-303), 1.00 V end of discharge (BU-501); no max-voltage source found
+#   (BU-408 gives only the -dV full-charge signal).
+# Lead acid: 2.00 V nominal, 1.75 V end of discharge (BU-501); 2.45 V/cell, the top of the
+#   2.30-2.45 V charge-voltage limit (BU-403 https://batteryuniversity.com/article/bu-403-charging-lead-acid).
+# Temperatures: BU-410 Table 1 (https://batteryuniversity.com/article/bu-410-charging-at-high-and-low-temperatures):
+#   Li-ion charge 0..45, discharge -20..60; NiMH 0..45, -20..65; lead acid -20..50 both.
+_CHEMISTRY: dict[
+    str, tuple[float, float | None, float, tuple[float, float] | None, tuple[float, float] | None]
+] = {
+    "li-ion": (3.6, 4.2, 3.0, (0.0, 45.0), (-20.0, 60.0)),
+    "lipo": (3.6, 4.2, 3.0, (0.0, 45.0), (-20.0, 60.0)),
+    "lifepo4": (3.2, 3.65, 2.5, None, None),
+    "nimh": (1.2, None, 1.0, (0.0, 45.0), (-20.0, 65.0)),
+    "lead-acid": (2.0, 2.45, 1.75, (-20.0, 50.0), (-20.0, 50.0)),
+}
+
+
+def _declare(contract_path: Path | None, field: str, example: str) -> str:
+    return cli_line(
+        "lockwire",
+        "declare",
+        contract_path or "lockwire.yaml",
+        f"topology/battery/{field}",
+        example,
+        "--source",
+        "<pack datasheet>",
+    )
+
+
+def _pack(c: Contract) -> tuple[Any, tuple, float | None] | None:
+    """(battery, chemistry row, pack nominal V) when a chemistry is declared, else None."""
+    battery = c.topology.battery if c.topology else None
+    if battery is None or battery.chemistry is None:
+        return None
+    row = _CHEMISTRY[battery.chemistry]
+    if battery.voltage is not None:
+        nominal = battery.voltage.base()
+    else:
+        nominal = battery.cells_series * row[0] if battery.cells_series else None
+    return battery, row, nominal
+
+
+def _bus_rails(c: Contract, nominal_v: float | None) -> list[Any]:
+    """Rails fed straight from the pack: upstream battery, a voltage_range holding pack nominal.
+
+    ponytail: a converter rail's voltage_range is its output, so a range that does not hold
+    the pack's nominal voltage is read as converted and skipped; a converter input field
+    would let those be compared too.
+    """
+    if nominal_v is None or c.topology is None:
+        return []
+    return [
+        r
+        for r in c.topology.rails
+        if r.upstream == "battery"
+        and r.voltage_range is not None
+        and r.voltage_range.min.base() <= nominal_v <= r.voltage_range.max.base()
+    ]
+
+
+def _not_scored(quantity: str, observed: str, expected: str, cmd: str) -> Finding:
+    return Finding(
+        severity="not_scored",
+        quantity=quantity,
+        observed=observed,
+        expected=expected,
+        action="declare it from the pack datasheet",
+        next_command=cmd,
+    )
+
+
+def check_battery_cell_window(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """The pack's cell window (cells x cell min/max for its chemistry) against each pack-fed rail's range.
+
+    Also the group's door: a battery with no chemistry gets one "Not compared yet" line.
+    """
+    battery = c.topology.battery if c.topology else None
+    if battery is None:
+        return []
+    if battery.chemistry is None:
+        cmd = _declare(contract_path, "chemistry", "li-ion")
+        return [
+            _not_scored(
+                "topology/battery/chemistry",
+                "battery chemistry not declared",
+                "one of li-ion, lipo, lifepo4, nimh, lead-acid",
+                cmd,
+            )
+        ]
+    _, (_, cell_max, cell_min, _, _), nominal = _pack(c)
+    out = []
+    if battery.chemistry == "lead-acid":
+        out.append(
+            _not_scored(
+                "topology/battery/enclosure",
+                "lead-acid charging in a sealed box not compared (no enclosure field)",
+                "a vented enclosure while charging (hydrogen)",
+                _describe_hint(contract_path),
+            )
+        )
+    if battery.cells_series is None:
+        return out + [
+            _not_scored(
+                "topology/battery/cells_series",
+                "cells in series not declared; pack voltage window unknown",
+                "the pack's series cell count",
+                _declare(contract_path, "cells_series", "4"),
+            )
+        ]
+    n = battery.cells_series
+    if cell_max is None:
+        out.append(
+            _not_scored(
+                "topology/battery/chemistry",
+                f"no sourced full-charge cell voltage for {battery.chemistry}; pack max not compared",
+                "a sourced full-charge cell voltage",
+                _describe_hint(contract_path),
+            )
+        )
+    for rail in _bus_rails(c, nominal):
+        lo, hi = rail.voltage_range.min.base(), rail.voltage_range.max.base()
+        for side, pack_v, bad in (
+            ("min", n * cell_min, n * cell_min < lo),
+            ("max", n * cell_max if cell_max else None, cell_max is not None and n * cell_max > hi),
+        ):
+            if bad:
+                out.append(
+                    Finding(
+                        severity="violation",
+                        quantity=f"topology/rails/{rail.id}/voltage_range/{side}",
+                        observed=f"{n}S {battery.chemistry} pack reaches {pack_v:.3g} V",
+                        expected=f"within {rail.id}'s {lo:g}-{hi:g} V",
+                        observed_quantity=Quantity(value=pack_v, unit="V"),
+                        expected_quantity=Quantity(value=lo if side == "min" else hi, unit="V"),
+                        action=(
+                            f"{rail.id} browns out before the pack is empty"
+                            if side == "min"
+                            else f"a full pack is above what {rail.id} accepts"
+                        ),
+                        next_command=_describe_hint(contract_path),
+                    )
+                )
+    return out
+
+
+def _pack_amps(c: Contract, nominal_v: float) -> tuple[float, str, set[str]]:
+    """Worst pack current over nominal and every declared power mode, its mode, unknown draws."""
+    worst, worst_mode, unknown = -1.0, "nominal", set()
+    for mode in _ampacity_draw_modes(c):
+        _, _, watts, _, _, gaps = _power_rollup(c, mode)
+        unknown |= gaps
+        if watts > worst:
+            worst, worst_mode = watts, mode
+    return max(worst, 0.0) / nominal_v, worst_mode, unknown
+
+
+def check_battery_c_rate(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Peak pack current (power rollup, worst mode) against capacity x continuous and burst C-rate."""
+    pack = _pack(c)
+    if pack is None or pack[2] is None:
+        return []
+    battery, _, nominal = pack
+    if battery.c_rate_continuous is None and battery.c_rate_burst is None:
+        return [
+            _not_scored(
+                "topology/battery/c_rate_continuous",
+                "pack C-rate not declared; peak draw not compared",
+                "the datasheet's continuous and burst C",
+                _declare(contract_path, "c_rate_continuous", "20"),
+            )
+        ]
+    amps, mode, unknown = _pack_amps(c, nominal)
+    if unknown:
+        return [
+            _not_scored(
+                "topology/battery/c_rate_continuous",
+                f"draw unknown for {', '.join(sorted(unknown)[:3])}; peak current not summed",
+                "every device reaching the battery to declare a draw",
+                _describe_hint(contract_path),
+            )
+        ]
+    amp_hours = battery.capacity.base() / nominal
+    # Burst past its rating is a violation; past continuous but inside burst is a warning,
+    # since a mode may or may not be short enough to count as a burst.
+    for field, rate, severity in (
+        ("c_rate_burst", battery.c_rate_burst, "violation"),
+        ("c_rate_continuous", battery.c_rate_continuous, "warning"),
+    ):
+        if rate is not None and amps > amp_hours * rate:
+            return [
+                Finding(
+                    severity=severity,
+                    quantity=f"topology/battery/{field}",
+                    observed=f"{amps:.3g} A peak ({mode})",
+                    expected=f"<= {amp_hours * rate:.3g} A ({amp_hours:.3g} Ah x {rate:g}C)",
+                    observed_quantity=Quantity(value=amps, unit="A"),
+                    expected_quantity=Quantity(value=amp_hours * rate, unit="A"),
+                    action="the pack cannot deliver this peak; grow the pack or a higher-C cell",
+                    next_command=_describe_hint(contract_path),
+                )
+            ]
+    return []
+
+
+def check_battery_sag(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Pack nominal minus peak current x pack internal resistance, against the lowest pack-fed rail minimum."""
+    pack = _pack(c)
+    if pack is None or pack[2] is None:
+        return []
+    battery, _, nominal = pack
+    rails = _bus_rails(c, nominal)
+    if not rails:
+        return []
+    if battery.internal_resistance_mohm is None:
+        return [
+            _not_scored(
+                "topology/battery/internal_resistance_mohm",
+                "pack internal resistance not declared; sag under peak not compared",
+                "the pack's DC internal resistance in mOhm",
+                _declare(contract_path, "internal_resistance_mohm", "30"),
+            )
+        ]
+    amps, mode, unknown = _pack_amps(c, nominal)
+    if unknown:
+        return []  # check_battery_c_rate already names the unknown draws
+    sagged = nominal - amps * battery.internal_resistance_mohm / 1000.0
+    rail = max(rails, key=lambda r: r.voltage_range.min.base())
+    floor = rail.voltage_range.min.base()
+    if sagged >= floor:
+        return []
+    return [
+        Finding(
+            severity="warning",
+            quantity="topology/battery/internal_resistance_mohm",
+            observed=f"pack sags to {sagged:.3g} V at {amps:.3g} A ({mode})",
+            expected=f">= {floor:g} V, {rail.id}'s minimum",
+            observed_quantity=Quantity(value=sagged, unit="V"),
+            expected_quantity=Quantity(value=floor, unit="V"),
+            action=f"{rail.id} may brown out under peak load; lower the peak or the pack resistance",
+            next_command=_describe_hint(contract_path),
+        )
+    ]
+
+
+def check_battery_temperature(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """The declared ambient range against the pack's charge and discharge temperature windows."""
+    pack = _pack(c)
+    if pack is None:
+        return []
+    battery, (_, _, _, charge, discharge), _ = pack
+    ambients = _declared_ambients(c)
+    if not ambients:
+        return [
+            _not_scored(
+                "topology/battery/discharge_temp_c",
+                "no declared ambient; pack temperature window not compared",
+                "a device thermal ambient or a C envelope",
+                _describe_hint(contract_path),
+            )
+        ]
+    cold, hot = min(ambients), max(ambients)
+    out = []
+    for field, declared, default, verb in (
+        ("charge_temp_c", battery.charge_temp_c, charge, "charge"),
+        ("discharge_temp_c", battery.discharge_temp_c, discharge, "run"),
+    ):
+        if declared is not None:
+            window = (
+                units.to_base(declared.lo, declared.unit),
+                units.to_base(declared.hi, declared.unit),
+            )
+        elif default is not None:
+            window = default
+        else:
+            out.append(
+                _not_scored(
+                    f"topology/battery/{field}",
+                    f"no sourced {verb} window for {battery.chemistry}; not compared",
+                    "the datasheet's temperature window",
+                    _describe_hint(contract_path),
+                )
+            )
+            continue
+        if cold < window[0] or hot > window[1]:
+            out.append(
+                Finding(
+                    severity="warning",
+                    quantity=f"topology/battery/{field}",
+                    observed=f"declared ambient {cold:g}..{hot:g} C",
+                    expected=f"inside the pack's {verb} window {window[0]:g}..{window[1]:g} C",
+                    action=f"the pack is outside its {verb} window at the declared ambient",
+                    next_command=_describe_hint(contract_path),
+                )
+            )
+    return out
+
+
+def check_battery_energy_density(
+    c: Contract, *, contract_path: Path | None = None
+) -> list[Finding]:
+    """Pack Wh per kg above 300, more than any shipping cell: the capacity or mass is wrong."""
+    pack = _pack(c)
+    if pack is None or pack[0].mass is None:
+        return []
+    battery = pack[0]
+    density = battery.capacity.base() / battery.mass.base()
+    # BU-205 (fetched 2026-11-05): the densest family, NCA, is "200-260Wh/kg; 300Wh/kg
+    # predictable" at cell level (https://batteryuniversity.com/article/bu-205-types-of-lithium-ion);
+    # a whole pack carries casing and wiring on top.
+    if density <= 300:
+        return []
+    return [
+        Finding(
+            severity="warning",
+            quantity="topology/battery/mass",
+            observed=f"{density:.0f} Wh/kg",
+            expected="<= 300 Wh/kg (denser than any shipping cell)",
+            action="check the pack's capacity and mass against its datasheet",
+            next_command=_describe_hint(contract_path),
+        )
+    ]
+
+
+CHECK_PACK_1 = (
+    check_model_checks_skipped,
+    check_urdf_sanity,
+    check_inertia_valid,
+    check_inertia_scale,
+    check_mass_vs_size,
+    check_limit_unit_traps,
+    check_battery_shipping_class,
+    check_cold_derating_coverage,
+    check_i2c_reserved_address,
+    check_controller_limits,
+    check_driver_watchdog_marker,
+)
+
+CHECK_PACK_2 = (
+    check_battery_cell_window,
+    check_battery_c_rate,
+    check_battery_sag,
+    check_battery_temperature,
+    check_battery_energy_density,
+)

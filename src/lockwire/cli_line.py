@@ -9,20 +9,38 @@ not hand-rolled or Python (``repr``/``!r``) quoting.
 
 from __future__ import annotations
 
+import importlib.util
 import shlex
+import shutil
+import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import typer
 
 
+def program() -> list[str]:
+    """How the user's shell reaches lockwire: ``uvx lockwire`` when ``lockwire`` is not on
+    PATH or this process runs from uvx's throwaway env (uvx puts that env's bin on PATH, so
+    ``which`` alone finds a copy the user's own shell will not have). A uvx env holding the
+    robots extra (a by-name check) was made by ``uvx --from "lockwire[robots]"``: say so."""
+    uvx = shutil.which("lockwire") is None or Path(sys.prefix).parent.name.startswith("archive-v")
+    if not uvx:
+        return ["lockwire"]
+    robots = importlib.util.find_spec("robot_descriptions") is not None
+    return ["uvx", "--from", "lockwire[robots]", "lockwire"] if robots else ["uvx", "lockwire"]
+
+
 def cli_line(*parts: object) -> str:
     """Shell-quote every part and join with spaces.
 
     Callers that want a literal ``lockwire ...`` line to paste back in pass
-    ``"lockwire"`` as the first part themselves; this function only quotes
-    and joins.
+    ``"lockwire"`` as the first part themselves; it becomes ``program()``, so every
+    hint is one the user's own shell can run.
     """
+    if parts and parts[0] == "lockwire":
+        parts = (*program(), *parts[1:])
     return " ".join(shlex.quote(str(part)) for part in parts)
 
 
@@ -43,9 +61,10 @@ def argv_from_context(ctx: "typer.Context", exclude: "set[str] | None" = None) -
     line that grew a ``--dry-run`` nobody typed describes a run that wrote
     nothing when the real one wrote.
 
-    ``exclude`` names parameters the caller renders itself; the only one in
-    the tree is ``gui``'s ``--out``, deliberately printed as ``<this file>``
-    so the page's bytes do not depend on its own filename.
+    ``exclude`` names parameters the caller renders itself: ``gui``'s and
+    ``report``'s ``--out``, deliberately printed as ``<this file>`` so the
+    page's bytes do not depend on its own filename, and ``check``'s pointer,
+    which renders ``show_all`` as ``--all``.
     """
     argv: list[str] = []
     skip = exclude or set()

@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<!-- Hand-written, shaped like Universal Robots' ur.urdf.xacro: args used before they are declared. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="$(arg name)">
+  <link name="base"/>
+  <link name="$(arg arm_type)_arm"/>
+  <joint name="j1" type="fixed"><parent link="base"/><child link="$(arg arm_type)_arm"/></joint>
+  <xacro:arg name="name" default="ur"/>
+  <xacro:arg name="arm_type" default="ur5e"/>
+</robot>

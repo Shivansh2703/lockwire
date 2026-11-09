@@ -17,6 +17,7 @@ enumerates each emitting command's parameters from the command object itself.
 from __future__ import annotations
 import ast
 import json
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -35,6 +36,19 @@ def test_line_splits_back_into_the_arguments_that_ran():
     parts = ["lockwire", "add", "device", "/tmp/a.yaml", "--model", "oak-d lite"]
     line = cli_line(*parts)
     assert shlex.split(line) == parts
+
+
+def test_the_program_is_uvx_lockwire_when_the_users_shell_cannot_reach_lockwire(
+    monkeypatch, tmp_path
+):
+    (tmp_path / "lockwire").touch(mode=0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert cli_line("lockwire", "check") == "lockwire check"
+    monkeypatch.setattr("sys.prefix", "/home/u/.cache/uv/archive-v0/abc")  # uvx's throwaway env
+    monkeypatch.setattr("importlib.util.find_spec", lambda name: None)
+    assert cli_line("lockwire", "check") == "uvx lockwire check"
+    monkeypatch.setattr("importlib.util.find_spec", lambda name: name == "robot_descriptions")
+    assert cli_line("lockwire", "check") == "uvx --from 'lockwire[robots]' lockwire check"
 
 
 def test_values_with_spaces_and_quotes_round_trip():
@@ -307,14 +321,18 @@ def test_no_emitted_line_in_the_cli_is_composed_without_the_shared_rebuild():
             bad.append(f"{source}: no argv_from_context(...) unpack found (hand-listed flags)")
             continue
 
-        if len(after) % 2 != 0:
-            bad.append(
-                f"{source}: trailing literal with no placeholder value: {ast.unparse(after[-1])}"
-            )
+        params = typer.main.get_command(app).commands[call.args[1].value].params if after else []
+        name_of = {opt: p.name for p in params for opt in p.opts}
+        bools = {o for p in params if getattr(p, "is_flag", False) for o in p.opts}
+        bare = [after.pop()] if len(after) % 2 else []
+        if bare and getattr(bare[0], "value", None) not in bools:  # only a bool stands bare
+            bad.append(f"{source}: trailing literal, no placeholder value: {ast.unparse(bare[0])}")
             continue
-
+        for f, v in zip(after[0::2], after[1::2]):  # a pair: no bool flag, no option as value
+            if getattr(f, "value", None) in bools or str(getattr(v, "value", ""))[:1] == "-":
+                bad.append(f"{source}: pair {ast.unparse(f)}, {ast.unparse(v)} hides a flag")
         trailing_flags = set()
-        for flag_node, _value_node in zip(after[0::2], after[1::2]):
+        for flag_node in after[0::2] + bare:
             if not (
                 isinstance(flag_node, ast.Constant)
                 and isinstance(flag_node.value, str)
@@ -322,7 +340,7 @@ def test_no_emitted_line_in_the_cli_is_composed_without_the_shared_rebuild():
             ):
                 bad.append(f"{source}: trailing literal {ast.unparse(flag_node)} is not a --flag")
                 continue
-            trailing_flags.add(flag_node.value[2:].replace("-", "_"))
+            trailing_flags.add(name_of.get(flag_node.value, flag_node.value))
 
         unexcluded = trailing_flags - excluded
         if unexcluded:
@@ -332,3 +350,22 @@ def test_no_emitted_line_in_the_cli_is_composed_without_the_shared_rebuild():
                 "this box guards against"
             )
     assert not bad, bad
+
+
+def test_no_hint_in_checks_page_or_agent_rules_names_a_bare_lockwire():
+    """A hint a uvx user sees must say `uvx lockwire`, so every `lockwire <verb>` string
+    in these files is built by `cli_line`. GUARD is shell text run by the hook, not a hint."""
+    verbs = sorted(typer.main.get_command(app).commands.keys() - {"hook-check"}, key=len)[::-1]
+    bare = re.compile(rf"(?<![\w/.-])lockwire (?:{'|'.join(map(re.escape, verbs))})\b")
+    for name in ("checks.py", "page.py", "agent_setup.py"):
+        tree = ast.parse((Path(__file__).parents[1] / "src" / "lockwire" / name).read_text())
+        scopes = [
+            n for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef))
+        ]
+        docs = {id(n.body[0].value) for n in scopes if ast.get_docstring(n, clean=False)}
+        hits = [
+            n.lineno for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs
+            and bare.search(n.value) and "re-run lockwire agent-setup" not in n.value  # GUARD
+        ]  # fmt: skip
+        assert not hits, f"{name} lines {hits}: build the hint with cli_line('lockwire', ...)"

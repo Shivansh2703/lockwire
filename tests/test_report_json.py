@@ -91,3 +91,22 @@ def test_limit_raised_mark_survives_a_return_to_breach_in_json(
     document = preflight_document(limit_raised_then_reraised_contract, findings, "test")
     assert document["verdict"] == "NO-GO"
     assert document["limits_raised"] == [{"budget": "bud.power.5v", "mark": LIMIT_RAISED_MARK_TEXT}]
+
+
+def test_datasheet_badge_maps_matches_differs_and_not_compared():
+    from lockwire.catalog import recognise
+    from lockwire.report import Finding
+    from lockwire.report_json import datasheet_badge
+
+    ur = recognise("ur5e", [])
+    both = frozenset({"datasheet/ur5e/mass_total", "datasheet/ur5e/dof"})
+    heavy = Finding.model_construct(severity="violation", quantity="datasheet/ur5e/mass_total")
+    assert datasheet_badge(ur, [], both)["message"].startswith("matches (mass, dof) · ur5e")
+    assert (
+        f"{ur.numbers['mass_total'].retrieved}, mass with cable"
+        in datasheet_badge(ur, [], both)["message"]
+    )
+    assert datasheet_badge(ur, [heavy], both)["message"].startswith("differs (mass)")
+    assert datasheet_badge(ur, [heavy], both)["color"] == "red"
+    assert datasheet_badge(None, [heavy], both)["message"] == "not compared"
+    assert datasheet_badge(ur, [], frozenset())["message"] == "not compared"

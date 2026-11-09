@@ -640,7 +640,7 @@ def test_parsed_scene_cached_by_path_and_content_digest(client: TestClient, tmp_
 
 
 def test_selected_mesh_reparses_after_an_unselected_cache_entry(tmp_path: Path):
-    """A root-only cache entry cannot bypass a later selected-model binding."""
+    """A root-only cache entry cannot bypass a later selected-model binding (`${` probes xacro)."""
     import hashlib
 
     from lockwire.scene import SceneRefusal
@@ -653,7 +653,7 @@ def test_selected_mesh_reparses_after_an_unselected_cache_entry(tmp_path: Path):
     )
     scene = tmp_path / "lockwire.urdf"
     scene.write_text(
-        '<robot name="mesh"><link name="base"><visual><geometry>'
+        '<robot name="mesh"><!-- ${x} --><link name="base"><visual><geometry>'
         '<mesh filename="mesh.stl"/></geometry></visual></link></robot>'
     )
     contract = load_contract(X500)

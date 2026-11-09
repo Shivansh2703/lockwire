@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!-- Synthetic: shaped like a Gazebo model folder whose parts come in by <include>.
+     The inertia numbers are the two impossible ones found in a public SDF on 2026-11-07
+     (izz > ixx + iyy); geometry and names are made up. -->
+<sdf version="1.6">
+  <model name="porter">
+    <link name="body">
+      <inertial>
+        <mass>59</mass>
+        <inertia><ixx>0.7</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.7</iyy><iyz>0</iyz><izz>2</izz></inertia>
+      </inertial>
+    </link>
+    <include>
+      <uri>model://suspension</uri>
+      <name>Suspension</name>
+      <pose>0 0.158 0.09 0 0 0</pose>
+    </include>
+    <joint name="body_to_suspension" type="prismatic">
+      <parent>body</parent>
+      <child>Suspension::link</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>0</lower><upper>0.04</upper><effort>300</effort></limit></axis>
+    </joint>
+  </model>
+</sdf>

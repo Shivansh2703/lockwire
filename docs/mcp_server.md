@@ -1,57 +1,64 @@
-# `lockwire mcp`
+---
+title: The MCP server
+description: Give an AI agent Lockwire's checks over MCP, so it can check a robot and its plan before anything moves.
+---
 
-An MCP server that lets an agent ask lockwire whether a contract is consistent, what a
-device is, and whether its plan is safe — before it touches hardware. Every tool runs
-lockwire's existing checks and returns their findings as structured JSON; nothing here
-recomputes a verdict or infers anything new.
+# The MCP server
 
-## Run it
+`lockwire mcp` serves Lockwire's checks to an AI agent over MCP (stdio). Every tool runs
+Lockwire's own checks and returns their findings as JSON; nothing here makes up a verdict.
+
+## Add it
+
+Claude Code, one line, nothing to install first:
 
 ```bash
-uv sync --extra mcp   # the mcp SDK is optional; a plain install doesn't carry it
-lockwire mcp           # speaks MCP over stdio
+claude mcp add lockwire -- uvx --from "lockwire[mcp]" lockwire mcp
 ```
 
-Without the extra, `lockwire mcp` exits 2 and prints `install the mcp extra: uv sync --extra mcp`.
-
-## Claude Desktop / Claude Code config
+Claude Desktop (`claude_desktop_config.json`) and Cursor (`.cursor/mcp.json` in the repo, or
+`~/.cursor/mcp.json`) take the same JSON:
 
 ```json
 {
   "mcpServers": {
-    "lockwire": {
-      "command": "/absolute/path/to/lockwire",
-      "args": ["mcp"]
-    }
+    "lockwire": { "command": "uvx", "args": ["--from", "lockwire[mcp]", "lockwire", "mcp"] }
   }
 }
 ```
 
-Use an absolute path to the `lockwire` entry point (`which lockwire` after `uv sync`) — MCP
-clients launch this command without your shell's `PATH` or virtualenv activated.
+Already installed with `pipx install "lockwire[mcp]"`? Use command `lockwire`, args `["mcp"]`.
+If the app cannot find `uvx` or `lockwire`, give the full path from `which uvx`. Without the
+`mcp` extra, `lockwire mcp` exits 2 and says which extra to add.
+
+Then ask the agent: "Check my robot's lockwire.yaml and explain the NO-GO."
 
 ## Tools
 
-- **`check_contract(contract)`** — record-level checks: do the records in the contract agree?
-- **`describe_device(contract, device_id)`** — one device's Markdown reference (role, measures,
-  adjusts, limits, provenance). Unknown device id → an error result.
-- **`describe_system(contract)`** — the system-level Markdown reference: rails, buses, budgets,
-  joints.
-- **`validate_plan(contract, plan)`** — an agent's intended plan, in the same shape as
-  `plan.yaml`, scored against the contract before anything executes. A malformed plan → an
-  error result.
-- **`preflight(contract, recording)`** (Lockwire Pro) — the same go/no-go run `lockwire preflight --json`
-  writes, against a recorded source.
-- **`list_devices(contract)`** — every device's id, model, and derived role.
+- **`check_contract`**: run every check on a lockfile; returns the verdict, exit code and findings, each with a `next_command` where one applies.
+- **`check_model`**: check a URDF, xacro or SDF on its own, no lockfile needed, optionally against a datasheet mass. Writes nothing. `path` (required) is the model file; `model` is an optional `list_robots` id to compare with, recognised from the file when left out.
+- **`check_sim_config`**: compare a MuJoCo (MJCF) or SDF sim file with the lock, value by value. Never runs a simulation.
+- **`list_robots`**: the catalog robots whose vendor datasheet the checks compare with.
+- **`upgrade_contract`**: write a current-format lockfile from an older one, leaving the old file unchanged.
+- **`compare_proposal`**: what a proposed change would do to the checks, without writing the lockfile.
+- **`describe_device`**: one device's reference: role, measures, limits, where each value came from.
+- **`describe_system`**: the whole robot's reference: rails, buses, budgets, joints.
+- **`validate_plan`**: score an intended plan (same shape as `plan.yaml`) before it runs.
+- **`list_devices`**: every device's id, model and role.
+- **`review_value`**: approve or question one declared value, with a note and a human witness.
+- **`match_parts_list`**: match a pasted parts list to the catalog. Writes nothing.
 
-All six take `contract` as a path resolved against the server's working directory, and refuse
-one that doesn't exist. `check_contract`, `validate_plan`, and `preflight` return
-`{"verdict", "exit_code", "findings"}`; a bad input (unknown device, malformed plan, missing
-recording) comes back as an MCP error result with a plain-text message, never a stack trace.
+Three more come from the recording plugin installed with lockwire: **`preflight`** (the go/no-go gate against
+a recording), **`health`** and **`prepare_actuator_review_draft`**.
+
+Paths are resolved against the server's working directory, and a path that does not exist
+is refused. Every parameter carries a description in `tools/list`. Findings come worst first
+(violation, warning, not scored), and a finding leaves out the fields it has no value for. A bad input (unknown device, malformed plan) comes back as an MCP error with a
+plain message, never a stack trace.
 
 ## Example: `validate_plan`
 
-Call:
+Two loads planned on the servo rail of the x500 drone example (in Lockwire's test fixtures):
 
 ```json
 {
@@ -65,8 +72,8 @@ Call:
 }
 ```
 
-Response (each rail load fits alone but not together — the two do not just sum, they roll up
-through the rail's efficiency, which is why 950 W of draw reads back as 888 W of capacity):
+The planned draw rolls up with what the rail already carries, through the rail's
+efficiency, and lands over its capacity. The answer, shortened to one finding:
 
 ```json
 {
@@ -76,7 +83,7 @@ through the rail's efficiency, which is why 950 W of draw reads back as 888 W of
     {
       "severity": "violation",
       "quantity": "plan/steps/0/rail_load/draw",
-      "observed": "950.00 W rolled-up draw on rail.servo-motor",
+      "observed": "1196.68 W rolled-up draw on rail.servo-motor",
       "expected": "<= 888.00 W capacity",
       "action": "shed load on rail 'rail.servo-motor' or raise its capacity"
     }
@@ -84,5 +91,15 @@ through the rail's efficiency, which is why 950 W of draw reads back as 888 W of
 }
 ```
 
-The reference file and the plan check are the two things an agent-hardware layer needs from
-the physical side; both are generated from the same verified contract.
+## Rules, edit hook and plugin
+
+- `lockwire agent-setup` writes the three Lockwire rules into `AGENTS.md` and `CLAUDE.md`,
+  plus a pre-commit hook and a CI workflow. Running it again changes nothing.
+- `lockwire agent-setup --claude` also adds an edit hook to `.claude/settings.json`: before
+  Claude Code edits a URDF, SDF or `lockwire.yaml`, `lockwire hook-check` checks the new
+  content and blocks an edit that breaks the locked physics.
+- The `plugin/` folder in the Lockwire repo is a Claude Code plugin: the same MCP server, the
+  edit hook, a `/lockwire` skill and a read-only robot reviewer. Load it with
+  `claude --plugin-dir path/to/lockwire/plugin` (that session only; no marketplace entry yet).
+
+More in [the agents guide](guides/agents.md).

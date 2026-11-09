@@ -286,7 +286,7 @@ describe("DesignPanel", () => {
   it("switches the lens from the payload's own words, caption as tooltip", () => {
     act(() => root.render(<Page payload={payload} />));
     const tabs = [...container.querySelectorAll<HTMLElement>('[role="tab"]')];
-    expect(tabs.map((t) => t.textContent).slice(0, 4)).toEqual(["All", "Power", "Data", "Mechanical"]); // Health: a tab in Pro, a greyed label in free
+    expect(tabs.map((t) => t.textContent).slice(0, 4)).toEqual(["All", "Power", "Data", "Mechanical"]); // Health: a tab when the pro folder is loaded, absent otherwise
     act(() => tabs[1]!.click());
     expect(getDesignView().lens).toBe("power");
     expect(tabs[1]!.parentElement!.parentElement!.getAttribute("title")).toBe("What feeds what");

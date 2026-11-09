@@ -1,0 +1,36 @@
+/* Styles of the paid actuator review draft; loaded only by pro/. */
+.actuator-review-draft,
+.actuator-review-draft-result {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The review form receives absolute evidence paths and hashes. Keep each native
+   control in its own bounded row so its intrinsic width cannot widen the Check
+   pane at the supported packaged viewport. */
+.actuator-review-draft form,
+.actuator-review-draft label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.actuator-review-draft form {
+  gap: 8px;
+}
+
+.actuator-review-draft :is(input, textarea, select) {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.actuator-review-draft {
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.run-choose-recording .kit-cli-text { font-family: var(--sans); }

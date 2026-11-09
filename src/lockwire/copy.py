@@ -287,6 +287,7 @@ def fix_text(action: str) -> str:
     if action.startswith("remove mass or re-lock"):
         return "Remove weight, or raise the weight limit"
     text = _QUOTED.sub(lambda q: human_name(q[1]), action.replace(" with provenance", ""))
+    text = re.sub(r"\bre-lock(?: the model)?\b", "lock it again", text)
     return text[:1].upper() + text[1:]
 
 

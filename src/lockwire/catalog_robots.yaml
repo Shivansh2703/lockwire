@@ -1,0 +1,136 @@
+# Whole robots with vendor-published numbers, for `check_datasheet_agreement`. NOT the contract
+# schema — see catalog.py. Rules (enforced by catalog.Robot and tests/test_catalog.py):
+#   - every number is kind: datasheet; `assumed` is refused for robot rows;
+#   - `source` starts with the URL that was opened, then the sheet's own words;
+#   - `retrieved` is the day it was opened; mass_total says what the sheet's figure includes
+#     (`scope`: with_battery | dry | with_gripper | with_cable | arm_only).
+# `aliases` are exact URDF <robot name> values; `fingerprint` is the description package's link
+# names (>= 80 % Jaccard overlap recognises; a tie recognises nothing).
+# `known_urdf_deviations` entries are "<quantity>: <why>" and suppress that quantity.
+
+robots:
+- id: ur3e
+  name: Universal Robots UR3e
+  aliases: [ur3e]
+  fingerprint: &ur_links [base, base_link, base_link_inertia, shoulder_link, upper_arm_link,
+    forearm_link, wrist_1_link, wrist_2_link, wrist_3_link, flange, tool0, ft_frame]
+  numbers:
+    mass_total: {value: 11.2, unit: kg, kind: datasheet, scope: with_cable, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807464/ur3e_e-series_datasheets_web.pdf — Weight including cable 11,2 kg"}
+    dof: {value: 6, unit: count, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807464/ur3e_e-series_datasheets_web.pdf — Degrees of freedom 6 rotating joints"}
+    reach_m: {value: 0.5, unit: m, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807464/ur3e_e-series_datasheets_web.pdf — Reach 500 mm"}
+    payload_kg: {value: 3, unit: kg, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807464/ur3e_e-series_datasheets_web.pdf — Payload 3 kg"}
+    joint_speed_max: {value: 360, unit: deg/s, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807464/ur3e_e-series_datasheets_web.pdf — Wrist 1-3 maximum speed ± 360°/s"}
+  known_urdf_deviations: []
+- id: ur5e
+  name: Universal Robots UR5e
+  aliases: [ur5e]
+  fingerprint: *ur_links
+  numbers:
+    mass_total: {value: 20.6, unit: kg, kind: datasheet, scope: with_cable, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807465/ur5e_e-series_datasheets_web.pdf — Weight including cable 20,6 kg"}
+    dof: {value: 6, unit: count, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807465/ur5e_e-series_datasheets_web.pdf — Degrees of freedom 6 rotating joints"}
+    reach_m: {value: 0.85, unit: m, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807465/ur5e_e-series_datasheets_web.pdf — Reach 850 mm"}
+    payload_kg: {value: 5, unit: kg, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807465/ur5e_e-series_datasheets_web.pdf — Payload 5 kg"}
+    joint_speed_max: {value: 180, unit: deg/s, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807465/ur5e_e-series_datasheets_web.pdf — every axis maximum speed ± 180°/s"}
+  known_urdf_deviations: []
+- id: ur10e
+  name: Universal Robots UR10e
+  aliases: [ur10e]
+  fingerprint: *ur_links
+  numbers:
+    mass_total: {value: 33.5, unit: kg, kind: datasheet, scope: with_cable, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807466/ur10e_e-series_datasheets_web.pdf — Weight including cable 33,5 kg"}
+    dof: {value: 6, unit: count, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807466/ur10e_e-series_datasheets_web.pdf — Degrees of freedom 6 rotating joints"}
+    reach_m: {value: 1.3, unit: m, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807466/ur10e_e-series_datasheets_web.pdf — Reach 1300 mm"}
+    payload_kg: {value: 12.5, unit: kg, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807466/ur10e_e-series_datasheets_web.pdf — Payload 12.5 kg"}
+    joint_speed_max: {value: 180, unit: deg/s, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.universal-robots.com/media/1807466/ur10e_e-series_datasheets_web.pdf — Elbow, Wrist 1-3 maximum speed ± 180°/s"}
+  known_urdf_deviations: []
+- id: turtlebot3-burger
+  name: ROBOTIS TurtleBot3 Burger
+  aliases: [turtlebot3_burger]
+  fingerprint: [base_footprint, base_link, wheel_left_link, wheel_right_link, caster_back_link,
+    imu_link, base_scan]
+  numbers:
+    mass_total: {value: 1.0, unit: kg, kind: datasheet, scope: with_battery, retrieved: 2026-11-04,
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/features/ — Weight (+ SBC + Battery + Sensors) 1kg"}
+    dof: {value: 2, unit: count, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/features/ — parts list: DYNAMIXEL (XL430-W250-T) x 2, the two wheel actuators"}
+    payload_kg: {value: 15, unit: kg, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/features/ — Maximum payload 15kg"}
+  known_urdf_deviations: []
+- id: turtlebot3-waffle-pi
+  name: ROBOTIS TurtleBot3 Waffle Pi
+  aliases: [turtlebot3_waffle_pi]
+  fingerprint: [base_footprint, base_link, wheel_left_link, wheel_right_link, caster_back_right_link,
+    caster_back_left_link, imu_link, base_scan, camera_link, camera_rgb_frame, camera_rgb_optical_frame]
+  numbers:
+    mass_total: {value: 1.8, unit: kg, kind: datasheet, scope: with_battery, retrieved: 2026-11-04,
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/features/ — Weight (+ SBC + Battery + Sensors) 1.8kg"}
+    dof: {value: 2, unit: count, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/features/ — parts list: DYNAMIXEL (XM430-W210-T) x 2, the two wheel actuators"}
+    payload_kg: {value: 30, unit: kg, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://emanual.robotis.com/docs/en/platform/turtlebot3/features/ — Maximum payload 30kg"}
+  known_urdf_deviations: []
+- id: openmanipulator-x
+  name: ROBOTIS OpenMANIPULATOR-X
+  aliases: [open_manipulator_x]
+  fingerprint: [world, link1, link2, link3, link4, link5, gripper_left_link, gripper_right_link,
+    end_effector_link]
+  numbers:
+    mass_total: {value: 0.70, unit: kg, kind: datasheet, scope: with_gripper, retrieved: 2026-11-04,
+      source: "https://docs.robotis.com/docs/systems/openmanipulator_x/specification/ — Weight 0.70 kg (the same page also says Total Mass : 711.37 gram)"}
+    dof: {value: 5, unit: count, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://docs.robotis.com/docs/systems/openmanipulator_x/specification/ — DOF 5 (4 DOF + 1 DOF Gripper)"}
+    reach_m: {value: 0.38, unit: m, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://docs.robotis.com/docs/systems/openmanipulator_x/specification/ — Reach 380 mm"}
+    payload_kg: {value: 0.5, unit: kg, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://docs.robotis.com/docs/systems/openmanipulator_x/specification/ — Payload 500 g"}
+    joint_speed_max: {value: 46, unit: rpm, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://docs.robotis.com/docs/systems/openmanipulator_x/specification/ — Speed(Joint) 46 RPM"}
+  known_urdf_deviations: []
+- id: unitree-go2
+  name: Unitree Go2
+  variant: Air / Pro / X / EDU (the sheet gives the same weight for all four)
+  aliases: [go2_description, go2]
+  fingerprint: [base, Head_upper, Head_lower, FL_hip, FL_thigh, FL_calf, FL_foot, FR_hip, FR_thigh,
+    FR_calf, FR_foot, RL_hip, RL_thigh, RL_calf, RL_foot, RR_hip, RR_thigh, RR_calf, RR_foot,
+    FL_hip_rotor, FL_thigh_rotor, FL_calf_rotor, FL_calflower, FL_calflower1, FR_hip_rotor,
+    FR_thigh_rotor, FR_calf_rotor, FR_calflower, FR_calflower1, RL_hip_rotor, RL_thigh_rotor,
+    RL_calf_rotor, RL_calflower, RL_calflower1, RR_hip_rotor, RR_thigh_rotor, RR_calf_rotor,
+    RR_calflower, RR_calflower1, imu, radar, front_camera]
+  numbers:
+    mass_total: {value: 15, unit: kg, kind: datasheet, scope: with_battery, retrieved: 2026-11-04,
+      source: "https://www.unitree.com/go2/ — Weight (with battery) About 15kg"}
+    dof: {value: 12, unit: count, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://www.unitree.com/go2/ — Aluminum knee joint motor 12 set"}
+  known_urdf_deviations: []
+- id: franka-fr3
+  name: Franka Research 3
+  aliases: [fr3]
+  fingerprint: [fr3_link0, fr3_link1, fr3_link2, fr3_link3, fr3_link4, fr3_link5, fr3_link6,
+    fr3_link7, fr3_link8]
+  numbers:
+    mass_total: {value: 17.8, unit: kg, kind: datasheet, scope: arm_only, retrieved: 2026-11-04,
+      source: "https://download.franka.de/Franka-Research-3_Datasheet_v1.1_August2022.pdf — Arm Weight ~ 17.8 kg (controller ~7 kg and hand are separate)"}
+    dof: {value: 7, unit: count, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://download.franka.de/Franka-Research-3_Datasheet_v1.1_August2022.pdf — Degrees of freedom 7"}
+    reach_m: {value: 0.855, unit: m, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://download.franka.de/Franka-Research-3_Datasheet_v1.1_August2022.pdf — Maximum reach 855 mm"}
+    payload_kg: {value: 3, unit: kg, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://download.franka.de/Franka-Research-3_Datasheet_v1.1_August2022.pdf — Payload 3 kg"}
+    joint_speed_max: {value: 301, unit: deg/s, kind: datasheet, retrieved: 2026-11-04,
+      source: "https://download.franka.de/Franka-Research-3_Datasheet_v1.1_August2022.pdf — Joint velocity limits A5-A7: 301 °/s"}
+  known_urdf_deviations: []

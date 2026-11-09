@@ -13,7 +13,7 @@
 // Anything the optional pro/ folder shows on the Check page reads the page payload itself.
 
 export type { Card } from "../shared/api.gen";
-import type { Card, Finding } from "../shared/api.gen";
+import type { AcceptedRow, Card, Finding } from "../shared/api.gen";
 
 /** Also `CheckPayload["verdict"]` in `../shared/api.gen` -- spelled out again here
  * so this file does not have to import `CheckPayload`'s whole wrapped-document
@@ -31,5 +31,7 @@ export interface CheckFacePayload {
   unchecked: number;
   findings: Finding[];
   cards: Card[];
+  /** Findings the lockfile accepted on record (page payload); shown muted, never hidden. */
+  accepted?: AcceptedRow[];
   cli_line: string | null;
 }

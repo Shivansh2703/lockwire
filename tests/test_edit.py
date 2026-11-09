@@ -547,28 +547,20 @@ def test_pre_replace_failure_preserves_the_original_bytes(tmp_path, monkeypatch)
     "writer",
     ("changes", "review", "add_rail", "add_model", "add_battery"),
 )
-@pytest.mark.parametrize("failed_destination", ("backup", "contract"))
 def test_distinct_edit_writers_preserve_original_bytes_when_replace_fails(
-    tmp_path, monkeypatch, writer, failed_destination
+    tmp_path, monkeypatch, writer
 ):
-    """Each writer reaches both replace stages without losing contract or undo bytes."""
+    """Each writer reaches the one replace without losing the contract's bytes."""
     path = _copy(tmp_path)
     before = path.read_bytes()
-    backup = path.with_name(path.name + ".bak")
-    prior_undo = b"# distinct prior undo bytes\n"
-    backup.write_bytes(prior_undo)
-    real_replace = edit.os.replace
     destinations = []
 
     def fail_replace(source, target):
-        destination = Path(target)
-        destinations.append(destination)
-        if destination == (backup if failed_destination == "backup" else path):
-            raise OSError(f"injected {failed_destination} replace failure")
-        return real_replace(source, target)
+        destinations.append(Path(target))
+        raise OSError("injected contract replace failure")
 
     monkeypatch.setattr(edit.os, "replace", fail_replace)
-    with pytest.raises(OSError, match=f"injected {failed_destination} replace failure"):
+    with pytest.raises(OSError, match="injected contract replace failure"):
         if writer == "changes":
             apply_changes(
                 path,
@@ -612,8 +604,7 @@ def test_distinct_edit_writers_preserve_original_bytes_when_replace_fails(
             )
 
     assert path.read_bytes() == before
-    assert backup.read_bytes() == prior_undo
-    assert destinations == ([backup] if failed_destination == "backup" else [backup, path, backup])
+    assert destinations == [path]
     assert not list(path.parent.glob(f".{path.name}.*.tmp"))
 
 
@@ -2085,13 +2076,9 @@ def test_declare_model_link_mass_records_comment_provenance(tmp_path):
 # ---------------------------------------------------------------- non-git backup
 
 
-def test_edit_backup_outside_git_repo(tmp_path):
-    """The non-git half: no `.git` anywhere above the contract, so the
-    pre-edit bytes must survive in a sibling `.bak` — git isn't there to
-    fall back on.
-    """
+def test_edit_outside_git_repo_leaves_only_the_contract(tmp_path):
+    """The non-git half: a successful write leaves no `.bak` and no `.lock` beside it."""
     contract_path = _copy(tmp_path)
-    before_text = contract_path.read_text()
 
     result = apply_changes(
         contract_path,
@@ -2107,8 +2094,34 @@ def test_edit_backup_outside_git_repo(tmp_path):
     )
     assert result.written
 
-    backup_path = contract_path.with_name(contract_path.name + ".bak")
-    assert backup_path.read_text() == before_text
+    assert list(tmp_path.iterdir()) == [contract_path]
+
+
+def test_writer_locks_do_not_pile_up_and_a_waiter_retries_on_the_live_file(tmp_path, monkeypatch):
+    """Each lock is removed on release; a waiter that opened the released file must retry,
+    else it holds an unlinked inode while a newcomer locks a fresh one."""
+    import threading
+
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    mount = Change(
+        "devices/dev.flight-controller.pixhawk-6c/physical/mount_xyz", "1 0 0 m", "t", "w"
+    )
+    for n in range(5):  # five contracts
+        (tmp_path / str(n)).mkdir()
+        assert apply_changes(_copy(tmp_path / str(n)), [mount]).written
+    folder, seen = tmp_path / "lockwire-locks", []
+
+    def waiter():
+        with edit._contract_lock(tmp_path / "c.yaml"):
+            seen.append(len(list(folder.iterdir())))
+
+    with edit._contract_lock(tmp_path / "c.yaml"):
+        assert len(list(folder.iterdir())) == 1  # the five writers left nothing
+        thread = threading.Thread(target=waiter)
+        thread.start()
+        time.sleep(0.3)  # the waiter has opened the held file and blocks on it
+    thread.join(10)
+    assert seen == [1]  # it holds the file the path names, not the unlinked one
 
 
 def test_edit_no_backup_inside_git_repo(tmp_path):

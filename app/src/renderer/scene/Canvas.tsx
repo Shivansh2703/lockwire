@@ -26,6 +26,7 @@ import {
   disposeScene,
   applyViewInset,
   attachWasd,
+  attachWheel,
   handleResize,
   refit,
   pickHit,
@@ -112,6 +113,7 @@ export function Canvas({
     // Render on demand: orbiting ('change'), or anything that sets needsRender, draws one frame.
     sceneCtx.controls.addEventListener("change", () => { sceneCtx.needsRender = true; });
     const wasd = attachWasd(sceneCtx);
+    const unwheel = attachWheel(sceneCtx);
     let last = performance.now();
     const tick = (now = performance.now()) => {
       wasd.step(Math.min((now - last) / 1000, 0.1));
@@ -177,6 +179,7 @@ export function Canvas({
     return () => {
       cancelAnimationFrame(raf);
       wasd.dispose();
+      unwheel();
       themeObserver.disconnect();
       observer.disconnect();
       mql?.removeEventListener("change", onRatioChange);

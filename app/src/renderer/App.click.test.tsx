@@ -49,10 +49,10 @@ let root: Root;
 beforeEach(() => { mockMatchMedia(); setSelectedPartId(null); container = document.createElement("div"); document.body.appendChild(container); });
 afterEach(() => { act(() => root.unmount()); container.remove(); Reflect.deleteProperty(window, "lockwire"); });
 
-async function open(plan: PlanPayload = PLAN) {
+async function open(plan: PlanPayload = PLAN, page: PagePayload = PAGE) {
   (window as unknown as { lockwire: object }).lockwire = {
     startFromUrdf: vi.fn().mockResolvedValue(picked({ opened: true, path: "/tmp/r.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD })),
-    getContractPage: vi.fn().mockResolvedValue(PAGE), getDeclareForm: vi.fn().mockResolvedValue(FORM), getHistory: vi.fn().mockResolvedValue([]),
+    getContractPage: vi.fn().mockResolvedValue(page), getDeclareForm: vi.fn().mockResolvedValue(FORM), getHistory: vi.fn().mockResolvedValue([]),
     choosePlan: vi.fn().mockResolvedValue("/tmp/plan.yaml"), checkPlan: vi.fn().mockResolvedValue(plan),
   };
   root = createRoot(container);
@@ -63,7 +63,7 @@ async function open(plan: PlanPayload = PLAN) {
 const click = (el: Element | null | undefined) => act(() => (el as HTMLElement).click());
 const byLabel = (label: string) => container.querySelector(`[aria-label="${label}"]`);
 const byTitle = (title: string) => container.querySelector(`.kit-link[title="${title}"]`);
-const tab = (name: string) => click([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === name));
+const tab = (name: string) => { act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click()); click([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === name)); };
 const activeTab = () => container.querySelector('[role="tab"][aria-selected="true"]')?.textContent;
 const declared = () => container.querySelector(".declare-values .kit-tree-row.is-selected")?.getAttribute("data-part-id");
 
@@ -79,16 +79,38 @@ describe("click-through", () => {
   });
 
   it("Check: the observed number opens its quantity's Declare row", async () => {
-    await open();
-    click(container.querySelector(".kit-finding"));
+    await open(); // the first problem is already open
     click(byTitle("Go to budgets/bud.power.5v"));
     expect(activeTab()).toBe("Declare");
     expect(declared()).toBe("budgets/bud.power.5v/limit");
   });
 
+  it("Check: a not-compared row's Declare it opens Declare even with no Declare row for its quantity", async () => {
+    await open(PLAN, { ...PAGE, cards: [CARD, { ...CARD, severity: "not_scored", shape: "bus", title: "Bus", quantity: "topology/buses/b/bandwidth", targets: [CARD.targets[1]] }] } as unknown as PagePayload);
+    click([...container.querySelectorAll(".finding-card > .kit-btn")].find((b) => b.textContent === "Declare it"));
+    expect(activeTab()).toBe("Declare");
+  });
+
+  it("Check: Compare with datasheet writes the CLI's mass budget; the result shows in the panel and as a finding (3B)", async () => {
+    await open();
+    const kg = (value: number) => ({ value, unit: "kg", kind: "declared" as const, by: "x" });
+    const mass = { ...CARD, shape: "budget", quantity: "budgets/bud.mass/nominal", observed: kg(1.5), expected: kg(1.63), instead: [], alternatives: [] };
+    const writeContract = vi.fn().mockResolvedValue({ payload: { written: true, revision: "r2" } });
+    Object.assign(window.lockwire, { writeContract, openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/tmp/r.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, cards: [mass] }) });
+    click([...container.querySelectorAll(".kit-btn")].find((b) => b.textContent === "Compare with datasheet"));
+    const input = byLabel("datasheet weight") as HTMLInputElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "1.63"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => [...container.querySelectorAll(".datasheet-compare .kit-btn")].find((b) => b.textContent === "Compare")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const fields = { budget_kind: "mass_total", sources: "links", nominal: "1.63 kg", tolerance_pct: 5, limit: "1.7115 kg", owner: "you" };
+    expect(writeContract).toHaveBeenCalledWith({ command: "add", args: { contract: "/tmp/r.yaml", expected_revision: expect.any(String), source: "datasheet", witness: "Maya", kind: "budget", id: "bud.mass", fields } });
+    const line = "Model 1.5 kg vs datasheet 1.63 kg (\u22128 %)";
+    expect(container.querySelector(".datasheet-compare-result")?.textContent).toBe(line);
+    expect(container.querySelector(".finding-card")?.textContent).toContain(line);
+    expect([...container.querySelectorAll(".finding-card .kit-btn")].map((b) => b.textContent)).toContain("Declare it");
+  });
+
   it("Check: an Instead move selects the rail it names, not the device it moves", async () => {
     await open();
-    click(container.querySelector(".kit-finding"));
     click([...container.querySelectorAll(".check-detail .kit-link")].find((b) => b.textContent?.startsWith("Move Camera")));
     expect(getSelectedPartId()).toBe("rail.telem");
   });

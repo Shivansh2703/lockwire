@@ -11,7 +11,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
-from lockwire import units
+from lockwire import fieldpath, units
 from lockwire.advice import Alternative
 from lockwire.copy import human_name
 from lockwire.checks import (
@@ -200,12 +200,11 @@ def _with_enforcement_provenance(expected: str, *limits: tuple[str, str | None])
 
 
 def _resolve_field(msg: dict[str, Any], field: str) -> tuple[float | None, str | None]:
-    """Resolve a dotted path, distinguishing an absent value from a non-number."""
-    node: Any = msg
-    for part in field.split("."):
-        if not isinstance(node, dict) or part not in node:
-            return None, "missing"
-        node = node[part]
+    """Resolve a field path (arrays included), distinguishing an absent value from a non-number."""
+    try:
+        node = fieldpath.resolve(msg, field)
+    except fieldpath.FieldPathError:
+        return None, "missing"
     if isinstance(node, bool) or not isinstance(node, int | float):
         return None, "nonnumeric"
     return float(node), None

@@ -4,6 +4,14 @@
 // a stale committed file fails the build (packaging/generate-types.md).
 
 
+export interface AcceptedRow {
+  title: string;
+  observed: string;
+  reason: string;
+  witness: string;
+  date: string;
+}
+
 export interface AddPartNumber {
   key: string;
   value: number;
@@ -100,6 +108,7 @@ export interface Card {
   consumer?: (string)[] | null;
   quantity?: string | null;
   owner?: string | null;
+  cluster_root?: string | null;
 }
 
 export interface CheckPayload {
@@ -112,6 +121,7 @@ export interface CheckPayload {
   counts: Counts;
   scored: number | null;
   findings: (Finding)[];
+  not_compared?: (NotCompared)[];
   artifact_type: "lockwire-check-report";
   scene?: ScenePayload | SceneUnchanged | null;
   headline: string;
@@ -255,6 +265,8 @@ export interface Finding {
   witness?: string | null;
   locked_at?: string | null;
   action: string;
+  next_command?: string | null;
+  next_tool?: string | null;
   cluster_root?: string | null;
   cluster_members?: (string)[];
   stage?: number | null;
@@ -356,6 +368,18 @@ export interface LogEntry {
 
 export type LogPayload = (LogEntry)[];
 
+export interface MeshGap {
+  missing: number;
+  total: number;
+  example: string;
+}
+
+export interface NotCompared {
+  quantity: string;
+  reason: string;
+  next_command: string | null;
+}
+
 export interface PackedIndices {
   type: "u16" | "u32";
   data: string;
@@ -381,6 +405,8 @@ export interface PagePayload {
   unchecked: number;
   adds_up: (AddsUpRow)[];
   cards: (Card)[];
+  accepted?: (AcceptedRow)[];
+  model_changed?: boolean;
   joints: (RobotJoint)[];
   links: (RobotLink)[];
   graph: Graph;
@@ -412,6 +438,7 @@ export interface PlanPayload {
   counts: Counts;
   scored: number | null;
   findings: (Finding)[];
+  not_compared?: (NotCompared)[];
   artifact_type: "lockwire-plan-report";
   outcomes?: (AssertionOutcome)[] | null;
   steps?: (PlanStepPayload)[];
@@ -452,6 +479,7 @@ export interface RecordComparison {
   counts: Counts;
   scored: number | null;
   findings: (Finding)[];
+  not_compared?: (NotCompared)[];
   artifact_type: "lockwire-record-comparison";
   facts: (WhatIfFact)[];
   comparisons: (ScoredRecord)[];
@@ -486,7 +514,7 @@ export interface ReviewNote {
 
 export interface RobotJoint {
   name: string;
-  type: "fixed" | "revolute" | "continuous" | "prismatic" | "floating" | "planar";
+  type: "fixed" | "revolute" | "continuous" | "prismatic" | "floating" | "planar" | "ball";
   parent: string;
   child: string;
   parent_name: string;
@@ -580,6 +608,7 @@ export interface StartPayload {
   revision: string;
   written: boolean;
   note?: string | null;
+  mesh_gap?: MeshGap | null;
 }
 
 export interface Starter {

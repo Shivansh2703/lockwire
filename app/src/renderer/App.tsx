@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { pushRecent, readRecents } from "./recents";
+import { pushRecent, readRecents, removeRecent } from "./recents";
 import type { CheckFacePayload } from "./checkFacePayload";
 import { DesignLens, DesignPanel, jointsOf, DesignParts, DesignSceneExtras, DesignTools } from "./DesignPanel";
 import type { DesignEditReply, DesignEditRequest } from "./DesignControls";
@@ -9,6 +9,7 @@ import { AddPartForm } from "./AddPartForm";
 import { DeclareFace, DeclareValues, type DeclareSubmitResult, type ReviewSubmission } from "./DeclareFace";
 import { FailureBanner } from "./FailureBanner";
 import { CheckPanel } from "./CheckPanel";
+import { CompareWithDatasheet, MASS_NOMINAL, massLine } from "./MeasureCompareDeclare";
 import { Button, EmptyState, Notice, Panel } from "./kit";
 import { useDesignView } from "./scene/designView";
 import { setSelectedGroup, setSelectedPartId, setSelectionSceneKey, useSelectedGroup, useSelectedPartId } from "./scene/selectionStore";
@@ -18,7 +19,7 @@ import { dropEdit, placeRequest, type Prov } from "./scene/placeOnBody";
 import type { SceneHit } from "./scene/buildScene";
 import type { ContractWriteRequest } from "../shared/ipc-contract";
 import { flagSummary } from "./FindingList";
-import { declarePart, highlightsFromCards, highlightsFromFindings, partsOfPath, targetIds, topHighlight, wholeHighlight, type Highlight } from "./scene/robotScene";
+import { declarePart, highlightsFromCards, highlightsFromFindings, partsOfPath, targetIds, checkHighlight, wholeHighlight, type Highlight } from "./scene/robotScene";
 import { Shell } from "./Shell";
 import { toScenePart } from "./DesignPanel";
 import type { Mode } from "./Frame";
@@ -26,11 +27,12 @@ import { SideDrawer } from "./SideDrawer";
 import { AssistantPanel, EMPTY_CHAT, type Chat } from "./AssistantPanel";
 import { DocsPanel } from "./DocsPanel";
 import { OpenFace } from "./OpenFace";
+import { EmptyGeometryPanel } from "./EmptyGeometryPanel";
 import type { FileOpenResult, StartUrdfResult } from "../main/ipc";
 import { PlanInput, planName } from "./PlanInput";
 import { pro, type ProResult } from "./proRegistry";
 import { useSidecarState } from "./useSidecarState";
-import type { CheckPayload, DeclareFormPayload, DiffPayload, Finding, LogPayload, PagePayload, PlanPayload, Starter } from "../shared/api.gen";
+import type { CheckPayload, DeclareFormPayload, DiffPayload, Finding, LogPayload, MeshGap, PagePayload, PlanPayload, Starter } from "../shared/api.gen";
 
 // The composition root (E2-j2, rebased onto e2-app-r2). Owns the mode Frame renders AND the
 // one payload BOTH the Check and Design tabs read (one source, never two).
@@ -75,6 +77,10 @@ export function App() {
   const [recents, setRecents] = useState(readRecents);
   const [openError, setOpenError] = useState<string | null>(null);
   const [startNote, setStartNote] = useState<string | null>(null);
+  const [savedBeside, setSavedBeside] = useState<string | null>(null); // the lockfile just written next to its model: a line in the verdict card
+  const [meshGap, setMeshGap] = useState<MeshGap | null>(null);
+  // The example just opened from the app's own folder: where it lives, and "Save a copy…".
+  const [example, setExample] = useState<{ starter: string | null; dir: string } | null>(null);
   const [retryOpen, setRetryOpen] = useState<(() => Promise<void>) | null>(null);
   const [existingStart, setExistingStart] = useState<{ urdf: string; path: string; revision: string } | null>(null);
   const [designPreview, setDesignPreview] = useState<CheckPayload | null>(null);
@@ -90,6 +96,8 @@ export function App() {
   const [declareReview, setDeclareReview] = useState(false);
   const [findingSel, setFindingSel] = useState<number | null>(null);
   const [fitIds, setFitIds] = useState<string[]>([]);
+  const [seen, setSeen] = useState<Mode[]>([]); // tabs this robot has been to: they stay in the nav
+  const [comparing, setComparing] = useState(false); // the Compare with datasheet panel (mockup 3B)
   const documentGeneration = useRef(0);
   const documentLoad = useRef(0);
   const openedPathRef = useRef<string | undefined>(undefined);
@@ -108,7 +116,15 @@ export function App() {
     setStartNote(null);
     setRetryOpen(() => () => onOpenLockfile(contract));
     try {
-      await loadOpened(await window.lockwire.openLockfile({ contract }), load);
+      const result = await window.lockwire.openLockfile({ contract });
+      if (result.opened && "error" in result && result.error.startsWith("no contract at ")) {
+        // A recent whose file is gone: drop it with one line, not an error whose Retry fails again.
+        setRetryOpen(null);
+        setStartNote(`${recents.find((r) => r.path === contract)?.name ?? "That robot"} is no longer there, so it was removed from Recent.`);
+        setRecents(removeRecent(contract));
+        return;
+      }
+      await loadOpened(result, load);
     } catch (error) {
       ++errorGeneration.current;
       setOpenError(errorMessage(error));
@@ -119,7 +135,8 @@ export function App() {
   function resetPerRobot(path: string | undefined): void {
     if (path === openedPathRef.current) return; // a re-check of the same robot keeps its place
     openedPathRef.current = path;
-    setHistoryDiff(null); setFindingSel(null); setPickedPath(null); setDeclareReview(false); setProHighlight([]);
+    setExample(null);
+    setHistoryDiff(null); setFindingSel(null); setPickedPath(null); setDeclareReview(false); setProHighlight([]); setComparing(false); setSeen([]);
   }
 
   async function loadOpened(result: FileOpenResult, token?: number): Promise<void> {
@@ -149,7 +166,8 @@ export function App() {
       resetPerRobot(result.path);
       setOpened({ path: result.path, revision, page: pagePayload, declareForm });
       setRecents(pushRecent({ path: result.path, name: pagePayload.robot }));
-      setExistingStart((current) => current?.path === result.path ? { ...current, revision } : current);
+      setExistingStart((current) => current?.path === result.path ? { ...current, revision }
+        : result.model ? { urdf: result.model, path: result.path, revision } : null); // opened from Recent: its model, from the lockfile
       void window.lockwire.getHistory({ contract: result.path }).then(
         (entries) => setHistory({ available: true, entries }),
         () => setHistory({ available: false, entries: [] }),
@@ -161,6 +179,7 @@ export function App() {
           ...result.payload,
           qualifier: pagePayload.qualifier,
           cards: pagePayload.cards,
+          accepted: pagePayload.accepted,
           cli_line: pagePayload.cli_line,
         },
       });
@@ -183,10 +202,18 @@ export function App() {
   // One door for every way a robot gets opened (button, File > Open Robot, drop).
   async function applyStart(result: StartUrdfResult, token?: number): Promise<void> {
     if (!result.started) {
-      if (result.opened) { setExistingStart(null); setMode("Check"); await loadOpened(result.opened, token); }
+      if (result.opened) { setExistingStart(null); setMeshGap(null); setMode("Check"); await loadOpened(result.opened, token); }
       return;
     }
-    setStartNote(result.start.note ?? null);
+    if (result.removed) setRecents(removeRecent(result.removed)); // the lockfile moved: one robot, one row
+    const gap = result.start.mesh_gap ?? null;
+    setMeshGap(gap); // the panel says it instead of the note's mesh line
+    const note = result.start.note?.split("\n").filter((line) => !gap || !line.includes(gap.example)).join("\n");
+    const folder = (path: string) => path.replace(/[\\/][^\\/]*$/, "");
+    const beside = folder(result.start.path) === folder(result.urdf);
+    if (result.start.written && beside) setSavedBeside(result.start.path);
+    const saved = result.start.written && !beside && `Saved lockwire.yaml in the robot's package folder, ${folder(result.start.path)}.`;
+    setStartNote([saved, note].filter(Boolean).join(" ") || null);
     setExistingStart(result.start.written ? null : {
       urdf: result.urdf, path: result.start.path, revision: result.start.revision,
     });
@@ -212,26 +239,39 @@ export function App() {
     }
   }
 
-  async function onNewRobot(starter: string | null): Promise<void> {
+  async function onChoosePackageFolder(): Promise<void> {
     setOpenError(null);
-    setStartNote(null);
-    setRetryOpen(() => () => onNewRobot(starter));
     try {
-      const load = ++documentLoad.current;
-      await applyStart(await window.lockwire.newRobot(starter), load);
+      await applyStart(await window.lockwire.choosePackageFolder(), ++documentLoad.current);
     } catch (error) {
       ++errorGeneration.current;
       setOpenError(errorMessage(error));
     }
   }
 
-  // The plan beside the lockfile loads itself, once per opened document, if none was chosen (main resolves the path).
+  async function onNewRobot(starter: string | null, copy?: boolean): Promise<void> {
+    setOpenError(null);
+    setStartNote(null);
+    setRetryOpen(() => () => onNewRobot(starter, copy));
+    try {
+      const load = ++documentLoad.current;
+      const result = await window.lockwire.newRobot(starter, copy);
+      await applyStart(result, load);
+      if (!result.started && result.opened) setExample(result.example ? { starter, dir: result.example } : null);
+    } catch (error) {
+      ++errorGeneration.current;
+      setOpenError(errorMessage(error));
+    }
+  }
+
+  // The plan beside the lockfile loads itself, once per opened document, if none was chosen (main resolves the path,
+  // and answers null with no sidecar run when there is none). A plan found is what puts Plan in the nav.
   const planTried = useRef(-1);
   const [autoPlanError, setAutoPlanError] = useState<string | null>(null);
   const [autoPlanLoaded, setAutoPlanLoaded] = useState(false);
   const openedPath = opened?.path;
   useEffect(() => {
-    if (mode !== "Plan" || !openedPath || planPayload || planTried.current === documentGeneration.current) return;
+    if (!openedPath || planPayload || planTried.current === documentGeneration.current) return;
     planTried.current = documentGeneration.current;
     const generation = documentGeneration.current;
     setAutoPlanError(null);
@@ -239,7 +279,8 @@ export function App() {
       (payload) => { if (payload && documentGeneration.current === generation) { setPlanPayload(payload); setAutoPlanLoaded(true); } },
       (error) => { if (documentGeneration.current === generation) setAutoPlanError(errorMessage(error)); },
     );
-  }, [mode, openedPath, planPayload]);
+  }, [openedPath, planPayload]);
+  useEffect(() => setSeen((s) => s.includes(mode) ? s : [...s, mode]), [mode]);
 
   useEffect(() => {
     window.__lockwireLoadCheckPayload = (payloadJson: string) => {
@@ -342,6 +383,31 @@ export function App() {
     return { written, refusal: typeof refusal === "string" ? refusal : null };
   }
 
+  // The robot's datasheet mass, written as the same `mass_total` budget `lockwire check --mass X
+  // --source S --tolerance-pct 5` writes (start_operation.add_mass_check), then re-checked.
+  async function compareMass(kg: string, source: string): Promise<string | null> {
+    const witness = opened?.declareForm.witness.prefill;
+    if (!opened?.revision) return "Open a lockfile first.";
+    if (!witness) return "Set your witness name in Declare first.";
+    const nominal = `${kg} kg`, limit = `${Number((Number(kg) * 1.05).toPrecision(6))} kg`;
+    const send = async (request: ContractWriteRequest) => {
+      const reply = await window.lockwire.writeContract(request);
+      const payload = Reflect.get(reply ?? {}, "payload"), refusal = Reflect.get(reply ?? {}, "refusal");
+      const done = !!payload && typeof payload === "object" && Reflect.get(payload, "written") === true;
+      return { done, revision: done ? String(Reflect.get(payload, "revision")) : "", refusal: typeof refusal === "string" ? refusal : "The comparison was refused." };
+    };
+    const prov = { contract: opened.path, source, witness };
+    let sent = await send({ command: "add", args: { ...prov, expected_revision: opened.revision, kind: "budget", id: "bud.mass", fields: { budget_kind: "mass_total", sources: "links", nominal, tolerance_pct: 5, limit, owner: "you" } } });
+    // A second compare re-declares the budget's two numbers (add refuses an existing id).
+    if (!sent.done && sent.refusal.includes("already exists")) {
+      sent = await send({ command: "declare", args: { ...prov, expected_revision: opened.revision, path: MASS_NOMINAL, value: nominal } });
+      if (sent.done) sent = await send({ command: "declare", args: { ...prov, expected_revision: sent.revision, path: "budgets/bud.mass/limit", value: limit } });
+    }
+    if (!sent.done) return sent.refusal;
+    await onOpenLockfile(opened.path);
+    return null;
+  }
+
   async function chooseAndCheckPlan() {
     if (!opened) return null;
     setSelectedPlanFinding(null);
@@ -419,6 +485,7 @@ export function App() {
         warnings: nextPage.warnings,
         unchecked: nextPage.unchecked,
         cards: nextPage.cards,
+        accepted: nextPage.accepted,
         cli_line: nextPage.cli_line,
       },
     } : current);
@@ -444,12 +511,12 @@ export function App() {
     () => mode === "Check" && payload ? highlightsFromCards(payload.cards, joints) : resultFindings ? highlightsFromFindings(resultFindings, joints, resultLabels) : [],
     [mode, payload, joints, resultFindings, resultLabels],
   );
-  // One row or card selected: only it stays lit (the rest of the robot dims), instead of every finding at once.
+  // Check lights every flagged part; elsewhere one picked row stays lit (the rest dims).
   const highlight = useMemo(() => {
     const all = sceneIds.length ? sceneIds : joints.map((j) => j.name);
     if (mode === "Check" && payload) {
       const card = selectedFinding !== null ? payload.cards[selectedFinding] : undefined;
-      return card ? (card.whole ? wholeHighlight(card.severity, all) : highlightsFromCards([card], joints)) : topHighlight(payload.cards, joints);
+      return checkHighlight(payload.cards, card, all, joints);
     }
     const sel = resultFindings && findingSel !== null ? resultFindings[findingSel] : undefined;
     const lit = sel
@@ -533,9 +600,12 @@ export function App() {
                 selected={selectedFinding}
                 onSelect={selectFinding}
                 onJump={onJump}
+                onCompare={opened ? () => setComparing(true) : undefined}
                 onRecheck={opened ? () => void onOpenLockfile(opened.path) : undefined}
+                saved={opened && savedBeside === opened.path ? "saved beside your model" : undefined}
                 pills={pro?.checkPills?.(page)}
                 more={pro?.CheckMore ? <pro.CheckMore contract={opened?.path} expectedRevision={opened?.revision} check={checkDoc} /> : null}
+                notice={meshGap && <EmptyGeometryPanel gap={meshGap} onChooseFolder={() => void onChoosePackageFolder()} onSkip={() => setMeshGap(null)} />}
               />
             ) : null
           ) : mode === "Design" ? (
@@ -598,14 +668,19 @@ export function App() {
           : <UnavailableFace>No document was returned for this mode.</UnavailableFace>
 
   const label = mode === "Reference" ? "Docs" : mode;
+  // The mass budget's result: the datasheet comparison, else why the sum was not scored (massless links).
+  const massCard = payload?.cards.find((c) => c.quantity === MASS_NOMINAL) ?? payload?.cards.find((c) => c.quantity === "budgets/bud.mass" && c.severity === "not_scored");
   return (
     <Shell
       robotName={page?.robot ?? payload?.robot}
       onRobot={payload && (mode !== "Design" || selectedIds.length) ? () => { showWhole(); setMode("Design"); } : undefined}
       mode={mode}
+      tabs={["Check", "Reference", ...(planPayload || autoPlanError ? ["Plan"] : []), ...seen]}
       wide={mode === "Reference" && !(assistantOpen && opened)}
       assistant={{ open: assistantOpen && !!opened, onToggle: opened ? () => setAssistantOpen((o) => !o) : undefined }}
-      drawer={<SideDrawer open={assistantOpen && !!opened} onClose={() => setAssistantOpen(false)} cwd={assistantOpen ? opened?.path.replace(/[\\/][^\\/]*$/, "") : undefined} assistant={assistantOpen && opened && (
+      drawer={<SideDrawer open={assistantOpen && !!opened} onClose={() => setAssistantOpen(false)} cwd={assistantOpen ? opened?.path.replace(/[\\/][^\\/]*$/, "") : undefined} contract={opened?.path} revision={opened?.revision}
+        onReview={(p) => opened && setChats((m) => { const c = m[opened.path] ?? EMPTY_CHAT; return c.cards.some((x) => x.id === p.id) ? m : { ...m, [opened.path]: { ...c, cards: [...c.cards, p] } }; })}
+        assistant={assistantOpen && opened && (
         <AssistantPanel contract={opened.path} revision={opened.revision} mode={mode} witness={opened.declareForm.witness.prefill} chat={chats[opened.path] ?? EMPTY_CHAT} onChat={(f) => setChats((m) => ({ ...m, [opened.path]: f(m[opened.path] ?? EMPTY_CHAT) }))} onApplied={onOpenLockfile} />
       )} />}
       onModeChange={(next) => {
@@ -618,7 +693,7 @@ export function App() {
       connected={connected}
       sceneSummary={sceneSummary}
       locked={!payload && !designPreview}
-      onOverwrite={existingStart && mode === "Check" ? () => void onStartFromUrdf(true) : undefined}
+      onOverwrite={existingStart && mode === "Check" && page?.model_changed ? () => void onStartFromUrdf(true) : undefined}
       onFit={page && joints.length ? showWhole : undefined}
       scene={(viewInset) => (
         <RobotView
@@ -656,9 +731,11 @@ export function App() {
             <Notice kind="error" action={retryOpen ? { label: "Retry opening", onClick: () => void retryOpen() } : undefined}>{openError}</Notice>
           </div>}
           {startNote && <div className="start-note"><Notice kind="info">{startNote}</Notice></div>}
+          {example && <div className="start-note"><Notice kind="info" action={{ label: "Save a copy…", onClick: () => void onNewRobot(example.starter, true) }}>{example.starter ? "Example opened" : "Opened"} from {example.dir}</Notice></div>}
         </>
       }
       left={mode === "Design" ? <DesignParts payload={designPayload} />
+        : mode === "Check" && comparing && opened ? <CompareWithDatasheet result={massCard ? massLine(massCard) ?? massCard.title : null} onCompare={compareMass} />
         : mode === "Declare" && opened ? <DeclareValues payload={opened.declareForm} selectedPath={declareSel} onSelect={(path) => pickDeclare(path)} onAddPart={() => setAddingPart(true)} /> : undefined}
       above={mode === "Design" ? <DesignLens payload={designPayload} /> : undefined}
       tools={mode === "Design" ? <DesignTools payload={designPayload} canAnalyse={!!(opened?.path && opened.revision)} /> : undefined}

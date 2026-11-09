@@ -37,10 +37,10 @@ devices:
         accel_z: {field: linear_acceleration.z, unit: m/s^2}
     # load_ros2_bag defaults to context "nominal-op" (source.py never
     # passes one), and without a declared rate_hz band here stage 2's rate_hz
-    # leg is not_scored regardless of the disclosures above it — a
-    # wide, generous band (imu_driver publishes at 5 Hz; a real 5s docker
-    # capture has real jitter) so this fixture's own point (real capture ->
-    # real score) isn't itself hostage to timing noise.
+    # leg is not_scored. imu_driver publishes at 5 Hz; the band is the honest
+    # 3-8 Hz. Stage 2 scores the mean rate over sliding windows, not each
+    # interval, so a loaded host stamping a backlog microseconds apart (seen:
+    # 20 to 22000 Hz) does not fail it; recv_gap allows two missed periods.
     envelopes:
       - context: nominal-op
         rate_hz: {lo: 3.0, hi: 8.0, unit: Hz}

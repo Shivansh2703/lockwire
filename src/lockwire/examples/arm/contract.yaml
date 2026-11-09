@@ -2,11 +2,10 @@
 # on a Waveshare bus servo adapter, powered from one 12 V 5 A wall supply.
 # Based on SO-101 by TheRobotStudio (Apache-2.0, https://github.com/TheRobotStudio/SO-ARM100).
 #
-# `lockwire check` ends NO-GO: the 60 W supply (12 V x 5 A) fails the stall-mode budget. The
-# real scenario is several joints holding or accelerating against load, not literally all six
-# stalled (issue #132). Derived: 3 of the 6 servos at stall (97.2 W) already exceed the 60 W
-# supply (3 x 2.7 A x 12 V); all six at stall is 194.4 W. The no-load budget (6 x 2.4 = 14.4 W)
-# passes. This is the failure real builders report:
+# `lockwire check` is GO. One real gap of the stock build is accepted on record, not hidden (see
+# `accepted:` at the end): the README's 12 V 5 A (60 W) supply cannot hold several servos at stall
+# at once. Derived: 3 of the 6 servos at stall (3 x 2.7 A x 12 V = 97.2 W) already exceed it; all
+# six is 194.4 W. The no-load budget (6 x 2.4 = 14.4 W) passes. Builders report exactly this:
 #   https://github.com/TheRobotStudio/SO-ARM100/issues/132
 #   "Daisy chaining power and using a 5A 12V power supply seems insufficient for full
 #    utilization" (voltage sag / brown-outs, servo resets, hot jumpers). The project's own
@@ -309,3 +308,28 @@ budgets:
       source: "https://www.waveshare.com/st3215-servo.htm; github.com/TheRobotStudio/SO-ARM100 README.md (Bill of Materials, follower-arm note)"
       locked_at: 2026-10-15
       note: "Same 60 W supply (12 V x 5 A), servos in no-load mode: 6 x 0.2 A x 12 V = 14.4 W (Waveshare no-load figure), passes."
+# Known gap on the real SO-101, accepted on record rather than hidden: the README's 12 V 5 A supply
+# cannot feed several servos at stall at once. Ordinary moves fit (the no-load budget passes);
+# a changed value fires again.
+accepted:
+  - id: budgets/bud.supply-12v-stall
+    observed: "194.40 W (draw mode: stall)"
+    reason: "Known gap of the stock SO-101 power supply: the README's 12 V 5 A supply (60 W) cannot hold all six STS3215 servos at stall (6 x 2.7 A x 12 V). Builders report brown-outs and servo resets under heavy load (issue #132); ordinary moves fit (no-load budget 14.4 W). For heavy work, use a bigger supply (README: '12V 5A+')."
+    provenance:
+      witness: w0
+      source: "https://github.com/TheRobotStudio/SO-ARM100/issues/132; github.com/TheRobotStudio/SO-ARM100 README.md (Bill of Materials, follower-arm note); https://www.waveshare.com/st3215-servo.htm"
+      locked_at: 2026-11-06
+  - id: topology/rails/rail.supply-12v/current_limit
+    observed: "16.20 A computed draw on rail 'rail.supply-12v' (mode: stall)"
+    reason: "Same known gap as the stall budget, in amps: six servos at the retailer-listed 2.7 A stall current ask 16.2 A of a 5 A supply. It only happens with several joints stalled against load at once (issue #132); a bigger supply removes it."
+    provenance:
+      witness: w0
+      source: "https://github.com/TheRobotStudio/SO-ARM100/issues/132; https://www.waveshare.com/st3215-servo.htm"
+      locked_at: 2026-11-06
+  - id: model/links/gripper_frame_link/mass
+    observed: "zero or missing mass on a tool-like leaf link (the frame fold would hide it)"
+    reason: "gripper_frame_link is the gripper's tool-centre frame, not a body: no mesh, and the URDF gives it a 1e-9 kg placeholder mass. The gripper's real mass is on gripper_link (0.087 kg) and moving_jaw_so101_v1_link (0.012 kg)."
+    provenance:
+      witness: w0
+      source: "https://raw.githubusercontent.com/TheRobotStudio/SO-ARM100/a758567c3978dfeefe282ede0500085a48fe8f78/Simulation/SO101/so101_new_calib.urdf (link gripper_frame_link)"
+      locked_at: 2026-11-06

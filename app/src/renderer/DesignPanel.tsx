@@ -27,7 +27,6 @@ import type { OnJump } from "./jump";
 import { highlightsFromCards } from "./scene/robotScene";
 import { LENS_IDS, type LensedPart } from "./scene/lenses";
 import { pro } from "./proRegistry";
-import { PRODUCT_NAME } from "../shared/branding";
 import { ConnectionLines, ConnectionsPanel } from "./Connections";
 import { CONN_LENSES, type ConnLens } from "./scene/connections";
 import { resetDesignView, setDesignView, useDesignView } from "./scene/designView";
@@ -248,7 +247,6 @@ export function DesignLens({ payload }: { payload: Payload }) {
             onChange={(id) => setDesignView({ lens: id, hover: null })}
             tabs={LENS_IDS.filter((id) => pro || id !== "health").map((id) => ({ id, label: id === "off" ? "All" : graph[id].label }))}
           />
-          {!pro && <span className="shell-pro-tab" aria-disabled="true" title={`Health is in ${PRODUCT_NAME} Pro`}>{graph.health.label}<span className="shell-pro-badge">Pro</span></span>}
         </div>
       )}
     </>

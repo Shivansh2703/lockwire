@@ -86,13 +86,13 @@ not scored preflight/commands/record — observed no command record beside this 
 expected a commands.jsonl written by the watched write layer
   action: run the write layer alongside the capture to score commands
 not scored preflight/coverage/comm_links_under_representative_load — observed comm links under representative load: permanently out of scope offline 
-(requires live hardware); deferred to M1b, expected comm links under 
-representative load scored against live hardware (M1b)
+(requires live hardware), expected comm links under representative load scored 
+against live hardware
   action: a GO here does not mean comm links under representative load was 
 checked; that needs the powered-on robot
 not scored preflight/coverage/live_hardware_software_reconciliation — observed live hardware↔software reconciliation: permanently out of scope offline
-(requires live hardware); deferred to M1b, expected live hardware↔software 
-reconciliation scored against live hardware (M1b)
+(requires live hardware), expected live hardware↔software reconciliation scored 
+against live hardware
   action: a GO here does not mean live hardware↔software reconciliation was 
 checked; that needs the powered-on robot
 not scored preflight/cross_signal/camera_histogram — observed recording format carries no image data or histogram summary channel; 
@@ -111,3 +111,54 @@ platform, expected context bench-idle or armed-idle (stationary platform) before
 scored while the platform may be moving
 
 GO — records agree (28 scored); 21 check(s) not scored
+Not compared yet (21):
+  devices/dev.radio.rfd900/enumeration: not observed by preflight source
+  preflight/stage/2/timestamps/monotonicity/live_path: through a RecordedSource 
+loading the native recording format, recv-time monotonicity is enforced upstream
+by load_recording, which rejects non-monotonic recv-times, so the property 
+cannot fail here; a LiveSource or a RecordedSource wrapping a rosbag2 .mcap bag 
+(E3-DC/E3-FL) instead scores this quantity directly from the bag's own receipt 
+order — this disclosure fires only when no such capture was loaded
+  preflight/stage/2/timestamps/wall_clock_currency: wall-clock currency is a 
+live-path property; not scored against a recording
+  devices/dev.imu/signals/accel_x/variance: oneshot_variance_min undeclared; 
+SignalEnvelope.variance_floor is the CUSUM reference value 
+(docs/stats_design.md), not a one-shot preflight threshold
+  devices/dev.imu/signals/accel_y/variance: oneshot_variance_min undeclared; 
+SignalEnvelope.variance_floor is the CUSUM reference value 
+(docs/stats_design.md), not a one-shot preflight threshold
+  devices/dev.imu/signals/gyro_x/variance: oneshot_variance_min undeclared; 
+SignalEnvelope.variance_floor is the CUSUM reference value 
+(docs/stats_design.md), not a one-shot preflight threshold
+  devices/dev.imu/signals/gyro_y/variance: oneshot_variance_min undeclared; 
+SignalEnvelope.variance_floor is the CUSUM reference value 
+(docs/stats_design.md), not a one-shot preflight threshold
+  devices/dev.imu/signals/gyro_z/variance: oneshot_variance_min undeclared; 
+SignalEnvelope.variance_floor is the CUSUM reference value 
+(docs/stats_design.md), not a one-shot preflight threshold
+  devices/dev.barometer/signals/pressure_pa/variance: oneshot_variance_min 
+undeclared
+  devices/dev.barometer/physical/mass: mass not declared
+  devices/dev.gnss/physical/mass: mass not declared
+  devices/dev.esc.busless/physical/mass: mass not declared
+  budgets/bud.mass.devices: mass unknown for dev.barometer, dev.gnss, 
+dev.esc.busless; total not scored
+  devices/dev.imu/envelopes/nominal-op/conditions: axes temp_c, 
+condition_altitude_m verified independently; interaction between them unverified
+  preflight/cross_signal/stationary_|g|: recording context 'nominal-op': context
+does not assert a stationary platform
+  preflight/cross_signal/redundant_sensors: lockfile schema has no redundancy 
+declaration naming which sensors are peers; redundant-sensor agreement not 
+scored
+  preflight/cross_signal/camera_histogram: recording format carries no image 
+data or histogram summary channel; camera histogram not scored
+  preflight/coverage/live_hardware_software_reconciliation: live 
+hardware↔software reconciliation: permanently out of scope offline (requires 
+live hardware)
+  preflight/coverage/comm_links_under_representative_load: comm links under 
+representative load: permanently out of scope offline (requires live hardware)
+  preflight/commands/record: no command record beside this recording 
+(commands.jsonl not present)
+  preflight/commands/in_recording: commands inside the recording itself are not 
+scored: bag readers have no command decoder or mapping, so numeric samples 
+cannot be told from a write

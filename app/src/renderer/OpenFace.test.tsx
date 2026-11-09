@@ -33,24 +33,12 @@ describe("OpenFace", () => {
   it("a non-empty recent list renders real rows, not the empty message", () => {
     renderFace({ recent: [{ path: "/robots/arm/lockwire.yaml", name: "arm" }] });
     expect(container.querySelectorAll(".open-face-recents li").length).toBe(1);
-    expect(container.querySelector(".open-face-recents li")!.textContent).toBe("armarm");
+    expect(container.querySelector(".open-face-recents li")!.textContent).toBe("arm");
   });
 
-  it("every row shows its folder as a grey line", () => {
-    renderFace({ recent: [{ path: "/a/qarm1/lockwire.yaml", name: "QARM" }, { path: "/a/qarm2/lockwire.yaml", name: "QARM" }, { path: "/a/x/l.yaml", name: "arm" }] });
-    expect([...container.querySelectorAll(".open-face-recents li")].map((l) => l.textContent)).toEqual(["QARMqarm1", "QARMqarm2", "armx"]);
-  });
-
-  it("a recent with an opened-at time says how long ago; one without shows only the folder", () => {
+  it("a recent row is its name and how long ago it was opened", () => {
     renderFace({ recent: [{ path: "/a/x/l.yaml", name: "arm", at: Date.now() }, { path: "/a/y/l.yaml", name: "arm", at: Date.now() - 2 * 864e5 }, { path: "/a/z/l.yaml", name: "arm" }] });
-    expect([...container.querySelectorAll(".open-face-recents li")].map((l) => l.textContent)).toEqual(["armx · today", "army · 2 days ago", "armz"]);
-  });
-
-  it("test_the_rest_of_the_app_still_works_with_no_geometry", () => {
-    renderFace({ emptyGeometry: { reason: "package:// not resolved" } });
-    // The actions and recents still render alongside the empty-geometry panel.
-    expect(container.querySelector(".open-face-actions")).not.toBeNull();
-    expect(container.querySelector(".empty-geometry-panel")).not.toBeNull();
+    expect([...container.querySelectorAll(".open-face-recents li")].map((l) => l.textContent)).toEqual(["armtoday", "arm2 days ago", "arm"]);
   });
 
   it("one Open robot button calls its handler", () => {
@@ -62,7 +50,7 @@ describe("OpenFace", () => {
     expect(onOpenRobot).toHaveBeenCalledTimes(1);
   });
 
-  it("lists the starters it is given plus Blank, and reports the clicked name", () => {
+  it("lists the starters as example chips plus Blank, and reports the clicked name", () => {
     const onNewRobot = vi.fn();
     const starters = [
       { name: "drone", title: "Drone", based_on: "Holybro X500 V2 PX4 reference quadrotor" },
@@ -70,8 +58,9 @@ describe("OpenFace", () => {
     ];
     renderFace({ starters, onNewRobot });
     const buttons = Array.from(container.querySelectorAll(".open-face-new button"));
-    expect(buttons.map((b) => b.textContent)).toEqual(["DroneHolybro X500", "RoverTurtleBot3", "BlankStart empty"]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["Drone · Holybro X500", "Rover · TurtleBot3", "Blank"]);
     for (const b of [buttons[1]!, buttons[2]!]) act(() => b.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(onNewRobot.mock.calls).toEqual([["rover"], [null]]);
+    expect(container.textContent).not.toContain("Drag to turn"); // no robot here: the gesture hint waits for one
   });
 });

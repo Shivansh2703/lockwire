@@ -1,4 +1,5 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +17,7 @@ vi.mock("electron", () => ({
     get isPackaged() {
       return mockIsPackaged;
     },
+    getPath: () => "/userdata",
   },
   dialog: { showOpenDialog },
   ipcMain: {
@@ -670,6 +672,93 @@ describe("dispatch: file:open asks the sidecar for a real check, never a fixture
     expect(await dispatch(TRUSTED_EVENT, "file:open-dropped", { path: real })).toMatchObject({ started: true });
     expect(callSidecarMock.mock.calls[0]?.[1].body).toBe(JSON.stringify({ command: "start", args: { urdf: real } }));
   });
+  it("Choose folder re-starts the mesh-less robot into the picked folder, and refuses one not holding the model", async () => {
+    const pkg = mkdtempSync(join(tmpdir(), "lw-pkg-"));
+    const urdf = join(pkg, "urdf.urdf");
+    const first = join(pkg, "urdf-lock.yaml");
+    writeFileSync(first, "robot: {}\n");
+    writeFileSync(join(pkg, ".urdf-lock.yaml.lock"), "");
+    pickRobotMock.mockResolvedValueOnce(urdf);
+    callSidecarMock.mockResolvedValueOnce({ json: async () => runReply({ path: first, written: true, revision: createHash("sha256").update("robot: {}\n").digest("hex"), mesh_gap: { missing: 1, total: 1, example: "package://p/m.stl" } }) })
+      .mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    await dispatch(TRUSTED_EVENT, "file:start-urdf", undefined);
+    showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [mkdtempSync(join(tmpdir(), "lw-other-"))] }).mockResolvedValueOnce({ canceled: false, filePaths: [pkg] });
+    await expect(dispatch(TRUSTED_EVENT, "file:choose-package-folder", undefined)).rejects.toThrow("holds the robot's model");
+    callSidecarMock.mockResolvedValueOnce({ json: async () => runReply({ path: join(pkg, "lockwire.yaml"), written: true, revision: "b".repeat(64) }) })
+      .mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    expect(await dispatch(TRUSTED_EVENT, "file:choose-package-folder", undefined)).toMatchObject({ started: true, opened: { opened: true }, removed: first });
+    expect([existsSync(first), existsSync(join(pkg, ".urdf-lock.yaml.lock"))]).toEqual([false, false]); // moved, write lock too: one robot, one lockfile
+    expect(callSidecarMock.mock.calls[2]?.[1].body).toBe(JSON.stringify({ command: "start", args: { urdf, out: join(pkg, "lockwire.yaml") } }));
+    await expect(dispatch(TRUSTED_EVENT, "file:choose-package-folder", undefined)).rejects.toThrow("no robot is missing meshes");
+  });
+  it("finds the package:// folder up the tree and starts there; a lockfile changed since is never deleted", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "lw-ws-"));
+    mkdirSync(join(ws, "tb3_description", "meshes"), { recursive: true });
+    writeFileSync(join(ws, "tb3_description", "meshes", "b.stl"), "");
+    const beside = join(ws, "robot", "lockwire.yaml");
+    mkdirSync(join(ws, "robot"));
+    writeFileSync(beside, "edited by the user\n");
+    pickRobotMock.mockResolvedValueOnce(join(ws, "robot", "x.urdf"));
+    callSidecarMock.mockResolvedValueOnce({ json: async () => runReply({ path: beside, written: true, revision: "a".repeat(64), mesh_gap: { missing: 1, total: 1, example: "package://tb3_description/meshes/b.stl" } }) })
+      .mockResolvedValueOnce({ json: async () => runReply({ path: join(ws, "lockwire.yaml"), written: true, revision: "b".repeat(64) }) })
+      .mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    expect(await dispatch(TRUSTED_EVENT, "file:start-urdf", undefined)).not.toHaveProperty("removed");
+    expect(JSON.parse(callSidecarMock.mock.calls[1]?.[1].body).args.out).toBe(join(ws, "lockwire.yaml"));
+    expect(showOpenDialog).not.toHaveBeenCalled();
+    expect(existsSync(beside)).toBe(true);
+    pickRobotMock.mockResolvedValueOnce(join(ws, "robot", "x.urdf")); // now ws/lockwire.yaml exists: no move into it
+    callSidecarMock.mockClear().mockResolvedValueOnce({ json: async () => runReply({ path: beside, written: false, revision: "a".repeat(64), mesh_gap: { missing: 1, total: 1, example: "package://tb3_description/meshes/b.stl" } }) })
+      .mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    writeFileSync(join(ws, "lockwire.yaml"), "robot: {}\n");
+    await dispatch(TRUSTED_EVENT, "file:start-urdf", undefined);
+    expect(JSON.parse(callSidecarMock.mock.calls[1]?.[1].body).command).toBe("check");
+  });
+  it("reopening a robot whose lockfile moved up opens that one: one lockfile, no mesh row; one already there is never deleted", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "lw-re-"));
+    mkdirSync(join(ws, "tb3_description", "meshes"), { recursive: true });
+    mkdirSync(join(ws, "robot"));
+    writeFileSync(join(ws, "tb3_description", "meshes", "b.stl"), "");
+    const [urdf, beside, home] = [join(ws, "robot", "x.urdf"), join(ws, "robot", "lockwire.yaml"), join(ws, "lockwire.yaml")];
+    const gap = { missing: 1, total: 1, example: "package://tb3_description/meshes/b.stl" };
+    const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+    writeFileSync(beside, "mine\n"); // already there, unchanged: written:false must never make it the app's to delete
+    pickRobotMock.mockResolvedValueOnce(urdf);
+    callSidecarMock.mockResolvedValueOnce({ json: async () => runReply({ path: beside, written: false, revision: sha("mine\n"), mesh_gap: gap }) })
+      .mockResolvedValueOnce({ json: async () => runReply({ path: home, written: true, revision: "b".repeat(64) }) })
+      .mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    await dispatch(TRUSTED_EVENT, "file:start-urdf", undefined);
+    expect(existsSync(beside)).toBe(true);
+    writeFileSync(beside, "robot: {}\n");
+    pickRobotMock.mockResolvedValueOnce(urdf);
+    callSidecarMock.mockClear().mockResolvedValueOnce({ json: async () => runReply({ path: beside, written: true, revision: sha("robot: {}\n"), mesh_gap: gap }) })
+      .mockImplementationOnce(async () => (writeFileSync(home, "model:\n  source: robot/x.urdf\n"), { json: async () => runReply({ path: home, written: true, revision: "c".repeat(64) }) }))
+      .mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    expect(await dispatch(TRUSTED_EVENT, "file:start-urdf", undefined)).toMatchObject({ removed: beside });
+    pickRobotMock.mockResolvedValueOnce(urdf);
+    callSidecarMock.mockClear().mockResolvedValueOnce({ json: async () => runReply({ path: home, written: false, revision: "c".repeat(64) }) })
+      .mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    expect(await dispatch(TRUSTED_EVENT, "file:start-urdf", undefined)).toMatchObject({ opened: { path: home } });
+    expect(callSidecarMock.mock.calls[0]?.[1].body).toBe(JSON.stringify({ command: "start", args: { urdf, out: home } }));
+    expect([existsSync(beside), existsSync(home)]).toEqual([false, true]);
+  });
+  it("a lockfile opened from Recent names its model, and that model may be re-locked into it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lw-recent-"));
+    const [urdf, lock] = [join(dir, "arm.urdf"), join(dir, "lockwire.yaml")];
+    [writeFileSync(urdf, "<robot/>"), writeFileSync(lock, "model:\n  source: arm.urdf\n")];
+    callSidecarMock.mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) })
+      .mockResolvedValueOnce({ json: async () => runReply({ path: lock, written: true, revision: "b".repeat(64) }) })
+      .mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    expect(await dispatch(TRUSTED_EVENT, "file:open", { contract: lock })).toMatchObject({ model: urdf });
+    await dispatch(TRUSTED_EVENT, "file:start-urdf", { urdf, expected_revision: "a".repeat(64) });
+    expect(callSidecarMock.mock.calls[1]?.[1].body).toBe(JSON.stringify({ command: "start", args: { urdf, overwrite: true, expected_revision: "a".repeat(64) } }));
+  });
+  it("a lockfile naming a model that would start into a different lockfile offers no model", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lw-recent-"));
+    const [urdf, lock] = [join(dir, "arm.urdf"), join(dir, "copy.yaml")]; // arm.urdf starts into lockwire.yaml, not copy.yaml
+    [writeFileSync(urdf, "<robot/>"), writeFileSync(lock, "model:\n  source: arm.urdf\n")];
+    callSidecarMock.mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    expect(await dispatch(TRUSTED_EVENT, "file:open", { contract: lock })).not.toHaveProperty("model");
+  });
   it("refuses a relative path before any sidecar call", async () => {
     await expect(dispatch(TRUSTED_EVENT, "file:open-dropped", { path: "../x.urdf" })).rejects.toThrow("full path");
     expect(callSidecarMock).not.toHaveBeenCalled();
@@ -904,8 +993,13 @@ describe("dispatch: file:new-robot starter check", () => {
     expect(sentCommands()).not.toContain("start");
   });
 
-  it("lets a listed starter through to start with that example", async () => {
-    await dispatch(TRUSTED_EVENT, "file:new-robot", { starter: "drone" });
+  it("opens a listed starter from the app's data folder with no Save dialog; a copy asks where", async () => {
+    expect(await dispatch(TRUSTED_EVENT, "file:new-robot", { starter: "drone" })).toMatchObject({ example: "/tmp/out" });
+    expect(pickNewRobotLocationMock).not.toHaveBeenCalled();
+    expect(callSidecarMock).toHaveBeenCalledWith("/v1/run", expect.objectContaining({
+      body: JSON.stringify({ command: "start", args: { example: "drone", out: join("/userdata", "examples", "drone", "lockwire.yaml") } }),
+    }));
+    expect(await dispatch(TRUSTED_EVENT, "file:new-robot", { starter: "drone", copy: true })).not.toHaveProperty("example");
     expect(callSidecarMock).toHaveBeenCalledWith("/v1/run", expect.objectContaining({
       body: JSON.stringify({ command: "start", args: { example: "drone", out: "/tmp/out" } }),
     }));

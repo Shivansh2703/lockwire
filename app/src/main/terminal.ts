@@ -1,17 +1,34 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 import type { IPty } from "node-pty";
 
 import { TERMINAL_EVENT_CHANNEL } from "../shared/ipc-contract";
 import { hasOnlyKeys, isRecord } from "./ipcKit";
+import { resolveSidecarCommand, scrubChildEnv } from "./sidecar";
 
-// The drawer's Terminal: a real login shell in the user's own environment (deliberately not the
-// sidecar's allowlisted env). One pty for the app; a second start replaces the first.
+// The drawer's Terminal: a real login shell, with the sidecar's allowlisted env so the
+// Assistant's key and other app secrets stay behind, and the app's own engine first on PATH so
+// `lockwire` works in it. One pty for the app; a second start replaces the first.
 let pty: IPty | null = null;
 const MAX_WRITE = 64 * 1024;
+// The shell (not the sidecar or the agent's MCP child) also gets the desktop session, so
+// browser-opening commands work on Linux; it already runs as the user.
+const DESKTOP_ENV = /^(DISPLAY|WAYLAND_DISPLAY|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR)$/;
+
+// Packaged, the engine is staged as `lockwire-sidecar`; a private bin dir gives it its CLI name.
+// Rewritten each start so a moved or updated app never leaves a stale link.
+function engineBinDir(engine: string): string {
+  const dir = join(app.getPath("userData"), "bin");
+  mkdirSync(dir, { recursive: true });
+  const link = join(dir, process.platform === "win32" ? "lockwire.cmd" : "lockwire");
+  rmSync(link, { force: true });
+  if (process.platform === "win32") writeFileSync(link, `@"${engine}" %*\r\n`);
+  else symlinkSync(engine, link);
+  return dir;
+}
 
 function push(event: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -39,7 +56,15 @@ export async function handleTerminalStart(args: unknown): Promise<{ ok: true }> 
   killTerminal();
   const { spawn } = await import("node-pty"); // lazy: a build where the native module is missing loses the Terminal, not the app
   const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
-  const mine = spawn(shell, ["-l"], { name: "xterm-256color", cols, rows, cwd, env: { ...process.env, TERM: "xterm-256color" } as Record<string, string> });
+  const desktop = Object.entries(process.env).filter(([k]) => DESKTOP_ENV.test(k));
+  const env = { ...scrubChildEnv(process.env), ...Object.fromEntries(desktop), TERM: "xterm-256color" } as Record<string, string>;
+  const engine = resolveSidecarCommand().command; // a bare dev override (`uv`) must not put "." on PATH
+  if (isAbsolute(engine)) {
+    let bin = dirname(engine);
+    try { bin = engineBinDir(engine); } catch { /* userData unwritable: the engine's own dir still works */ }
+    env.PATH = [bin, env.PATH].filter(Boolean).join(delimiter);
+  }
+  const mine = spawn(shell, ["-l"], { name: "xterm-256color", cols, rows, cwd, env });
   pty = mine;
   mine.onData((data) => { if (pty === mine) push({ type: "data", data }); });
   mine.onExit(({ exitCode }) => { if (pty === mine) { pty = null; push({ type: "exit", code: exitCode }); } });

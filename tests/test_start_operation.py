@@ -104,6 +104,30 @@ def test_start_with_a_missing_mesh_says_so_and_still_writes(tmp_path: Path):
     result = api.start(tmp_path / "anymal_d.urdf")
     assert result["written"] and "mesh files not found" in result["note"]
     assert load_contract(Path(result["path"])).model.external_assets == []
+    gap = result["mesh_gap"]
+    assert gap["missing"] == gap["total"] > 0 and gap["example"].startswith("package://")
+
+
+def test_start_into_the_chosen_package_folder_pins_meshes_and_check_finds_them(tmp_path: Path):
+    # The app's "Choose folder" fixer: a repo laid out as pkg/urdf + pkg/meshes, no package.xml.
+    (tmp_path / "arm_pkg/urdf").mkdir(parents=True)
+    (tmp_path / "arm_pkg/meshes").mkdir()
+    (tmp_path / "arm_pkg/meshes/m.stl").write_text(_STL)
+    urdf = tmp_path / "arm_pkg/urdf/arm.urdf"
+    urdf.write_text(
+        _ROS_URDF.format(a="package://arm_pkg/meshes/m.stl", b="package://arm_pkg/meshes/m.stl")
+    )
+    assert api.start(urdf)["mesh_gap"]["missing"] == 1
+    body = {
+        "command": "start",
+        "args": {"urdf": str(urdf), "out": str(tmp_path / "arm_pkg/lockwire.yaml")},
+    }
+    with TestClient(create_app("token"), base_url="http://127.0.0.1") as client:
+        run = lambda b: client.post("/v1/run", headers={"X-Lockwire-Token": "token"}, json=b).json()  # noqa: E731
+        start = run(body)["payload"]
+        assert start["written"] and "mesh_gap" not in start
+        checked = run({"command": "check", "args": {"contract": start["path"]}})
+    assert checked["refusal"] is None and checked["payload"]["scene"]["parts"]
 
 
 _STL = "solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid t\n"

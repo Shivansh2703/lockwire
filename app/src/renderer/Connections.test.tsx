@@ -32,10 +32,10 @@ it("X500 Power: the tree replaces Parts, the overloaded rail reads red, hover li
   expect(getSelectedGroup()!.members).toEqual(expect.arrayContaining(["rail.pm02-5v", "dev.companion.jetson-orin-nano", "dev.camera.oak-d-lite"]));
 });
 
-it("Health is a greyed Pro label, not a tab, in the free app", () => {
+it("without the pro folder, Health is simply absent: no greyed Pro label", () => {
   show(SCENE_DOC);
   expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).not.toContain("Health");
-  expect(container.querySelector(".shell-pro-tab")!.textContent).toBe("HealthPro");
+  expect(container.querySelector(".design-lens")!.textContent).not.toContain("Pro");
 });
 
 it("ANYmal Power: one empty-state line, not a broken panel", () => {

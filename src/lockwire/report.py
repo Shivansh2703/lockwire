@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import os
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -163,6 +165,9 @@ class Finding(BaseModel):
     witness: str | None = None
     locked_at: dt.date | None = None
     action: str
+    # The exact CLI line / MCP tool that acts on this finding, when one exists.
+    next_command: str | None = None
+    next_tool: str | None = None
     cluster_root: str | None = None
     cluster_members: tuple[str, ...] = ()
     # Preflight stage identity (contract §3.2). Record-check findings leave this
@@ -291,6 +296,7 @@ class RecordReport(list[Finding]):
     actuator_case_reports: list[
         Any
     ]  # items are actuator_case.ActuatorCaseReport; untyped so this module stays free of it
+    accepted: list[Finding]
 
     def __init__(
         self,
@@ -300,8 +306,11 @@ class RecordReport(list[Finding]):
         scored_keys: frozenset[str] | None = None,
         scored_records: list[ScoredRecord] | None = None,
         actuator_case_reports: list[Any] | None = None,
+        accepted: list[Finding] | None = None,
     ) -> None:
         super().__init__(findings or [])
+        # Findings the lockfile accepted on record (`Contract.accepted`): shown, never failing.
+        self.accepted = list(accepted or [])
         self.information = information or []
         self.scored = scored
         self.scored_keys = scored_keys
@@ -421,13 +430,15 @@ def _cluster_root_finding(group: tuple[Finding, ...]) -> Finding | None:
     cluster_root = group[0].cluster_root
     if cluster_root is None:
         return None
+    # No member names the root (one rail's budget overloads): the first
+    # member that cites a source speaks for the row, so the citation survives.
     return next(
         (
             finding
             for finding in group
             if finding.dependent == cluster_root or cluster_root in finding.cluster_members
         ),
-        None,
+        next((finding for finding in group if finding.source is not None), None),
     )
 
 
@@ -449,6 +460,14 @@ def _render_finding_detail(
     if finding.source:
         console.print(f"{metadata_indent}source: {finding.source}")
     console.print(f"{metadata_indent}action: {finding.action}")
+    if finding.next_command:
+        # soft_wrap: a command stays one pasteable line at any width
+        console.print(
+            f"{metadata_indent}run: {finding.next_command}",
+            highlight=False,
+            markup=False,
+            soft_wrap=True,
+        )
 
 
 def _render_finding_groups(groups: list[tuple[Finding, ...]], console: Console) -> None:
@@ -714,16 +733,27 @@ def exit_code_help(command: str) -> str:
     return f"Exit codes: {parts}."
 
 
-def render(findings: list[Finding], console: Console | None = None) -> int:
-    """Print information and findings; only violation/warning affect the exit path."""
+def render(
+    findings: list[Finding],
+    console: Console | None = None,
+    *,
+    unlocked: bool = False,
+    more: str | None = None,
+) -> int:
+    """Print information and findings; only violation/warning affect the exit path.
+
+    ``unlocked``: the lock was built from the model just now, so nothing is "since lock".
+    ``more``: print only violations and the counts, and name this command for the rest.
+    Display only: the verdict and exit code still read every finding."""
     console = console or _console()
+    shown = [f for f in findings if f.severity == "violation"] if more else findings
 
     # stage=None findings (record checks) keep the historical unlabelled grammar.
     # Staged preflight findings are grouped and labelled by stage identity.
     # Findings lead (violations/warnings/not-scored — what someone came to see),
     # then the information lane, then the verdict — never buried under INFO noise.
-    unstaged = [f for f in findings if f.stage is None]
-    staged = [f for f in findings if f.stage is not None]
+    unstaged = [f for f in shown if f.stage is None]
+    staged = [f for f in shown if f.stage is not None]
     _render_finding_groups(_presentation_groups(unstaged), console)
     for stage_id in sorted({f.stage for f in staged if f.stage is not None}):
         console.print(f"[bold]stage {stage_id}[/]")
@@ -732,7 +762,7 @@ def render(findings: list[Finding], console: Console | None = None) -> int:
             console,
         )
 
-    if isinstance(findings, RecordReport):
+    if isinstance(findings, RecordReport) and not more:
         for information in sorted(findings.information, key=lambda item: item.quantity):
             _render_cg(information, console)
 
@@ -758,6 +788,7 @@ def render(findings: list[Finding], console: Console | None = None) -> int:
             for finding in findings
             if finding.severity == "warning" and finding.quantity in scored_keys
         )
+        accepted = len(findings.accepted)
         if findings.scored == 0:
             # A warning (an empty budget, say) is not a failed comparison — with
             # a zero denominator there is nothing to have agreed or disagreed,
@@ -773,23 +804,87 @@ def render(findings: list[Finding], console: Console | None = None) -> int:
             # compares no physics: its own bucket, so the line never claims it added up.
             model_checks = int(
                 "model/structure_hash" in scored_keys
-                and not any(f.quantity == "model/structure_hash" for f in findings)
+                and not any(
+                    f.severity == "violation"
+                    and (
+                        f.quantity == "model/structure_hash"
+                        or f.quantity.startswith(("model/links/", "model/external_assets/"))
+                    )
+                    for f in findings
+                )
             )
             parts = []
             if adds_up or comparison_violations or comparison_warnings:
                 parts += [f"{adds_up} add up", f"{comparison_violations} do not"]
             if comparison_warnings:
                 parts.append(f"{comparison_warnings} warn")
+            if accepted:
+                parts.append(f"{accepted} accepted")
             if model_checks:
-                parts.append("1 model check (URDF unchanged since lock)")
+                since = "no lockfile yet" if unlocked else "structure unchanged since lock"
+                parts.append(f"1 model check ({since})")
             console.print(
                 f"scored {findings.scored}: {', '.join(parts)} · {decision.not_scored} not scored"
             )
         if reference_violations:
             noun = "reference" if reference_violations == 1 else "references"
             console.print(f"{noun}: {reference_violations} broken")
+    for finding in getattr(findings, "accepted", []):
+        console.print(
+            f"accepted: {finding.quantity}: {finding.observed}; {finding.action}",
+            highlight=False,
+            markup=False,
+        )
     console.print(decision.summary)
+    gaps = not_compared(findings)
+    if gaps:
+        console.print(f"Not compared yet ({len(gaps)}):", highlight=False)
+    for gap in gaps:
+        line = f"  {gap['quantity']}: {gap['reason']}"
+        if gap["next_command"] and not more:
+            line += f" -> {gap['next_command']}"
+        console.print(line, highlight=False, markup=False, soft_wrap=" -> " in line)
+    if more and decision.warnings:
+        noun = "warning" if decision.warnings == 1 else "warnings"
+        console.print(
+            f"{decision.warnings} {noun} not shown: {more}",
+            highlight=False,
+            markup=False,
+            soft_wrap=True,
+        )
     return decision.exit_code
+
+
+def not_compared(findings: list[Finding]) -> list[dict[str, str | None]]:
+    """What the run could not judge: one row per `not_scored` finding."""
+    return [
+        {"quantity": f.quantity, "reason": f.observed, "next_command": f.next_command}
+        for f in findings
+        if f.severity == "not_scored"
+    ]
+
+
+def strict_exit(
+    findings: list[Finding],
+    exit_code: int,
+    console: Console,
+    *,
+    strict: bool,
+    max_not_scored: int | None,
+) -> int:
+    """`--strict` / `--max-not-scored`: notes become exit 1; too many unjudged checks, exit 3."""
+    decision = verdict(findings)
+    if strict and decision.code == "GO_WITH_NOTES":
+        console.print(
+            f"strict mode turned {decision.warnings} "
+            f"{'note' if decision.warnings == 1 else 'notes'} into a failure"
+        )
+        return VERDICT_EXIT_CODES["NO_GO"]
+    limit = max_not_scored if max_not_scored is not None else (0 if strict else None)
+    if exit_code == 0 and limit is not None and decision.not_scored > limit:
+        console.print(f"{decision.not_scored} check(s) not scored, more than the {limit} allowed")
+        return VERDICT_EXIT_CODES["NOT_SCORED"]
+    return exit_code
 
 
 #: The graph-layout JS shared by this page and the HTML report (report_html.py) —
@@ -912,3 +1007,83 @@ function edgePath(a,b,nodes){
     d+=" C "+p0.x+" "+midY+", "+p1.x+" "+midY+", "+p1.x+" "+p1.y}
   return d;
 }"""
+
+
+def _gh(text: str, prop: bool = False) -> str:
+    """Escape for a GitHub workflow command (properties also escape `:` and `,`)."""
+    text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return text.replace(":", "%3A").replace(",", "%2C") if prop else text
+
+
+def _lockfile_line(contract: Path, quantity: str) -> int | None:
+    """Line of a finding's quantity in the lockfile, walking its path keys in order."""
+    # ponytail: substring walk, not a YAML-node resolve; good enough to land the annotation
+    lines, at, found = contract.read_text().splitlines(), 0, None
+    for key in quantity.split("/"):
+        hit = next((n for n in range(at, len(lines)) if key in lines[n]), None)
+        if hit is None:
+            break
+        at = found = hit
+    return None if found is None else found + 1
+
+
+def github_output(findings: list[Finding], contract: Path) -> list[str]:
+    """`::error`/`::warning` per finding and a `::notice` for the not-compared count."""
+    out = []
+    for f in findings:
+        if f.severity not in ("violation", "warning"):
+            continue
+        source = Path(f.source) if f.source and os.path.isfile(f.source) else None
+        path = (source or contract).resolve()
+        rel = path.relative_to(Path.cwd()) if path.is_relative_to(Path.cwd()) else path
+        line = None if source else _lockfile_line(contract, f.quantity)
+        where = f"file={_gh(str(rel), True)}" + (f",line={line}" if line else "")
+        message = f"{f.quantity}: {f.observed} — expected {f.expected}"
+        if f.next_command:
+            message += f"; run: {f.next_command}"
+        level = "error" if f.severity == "violation" else "warning"
+        out.append(f"::{level} {where}::{_gh(message)}")
+    not_scored = verdict(findings).not_scored
+    if not_scored:
+        out.append(f"::notice::{not_scored} check(s) not compared — see the job summary")
+    return out
+
+
+def github_summary(findings: list[Finding], exit_code: int | None = None) -> str:
+    """The Markdown step summary: verdict, counts, findings with next commands, not-compared list."""
+    decision = verdict(findings)
+
+    def cell(text: str | None) -> str:
+        return (text or "").replace("|", "\\|").replace("\n", " ")
+
+    rows = [
+        f"| {f.severity} | {cell(f.quantity)} | {cell(f.observed)} | {cell(f.expected)} | "
+        f"{'`' + cell(f.next_command) + '`' if f.next_command else ''} |"
+        for f in findings
+        if f.severity in ("violation", "warning")
+    ]
+    parts = [
+        f"## Lockwire: {verdict_word(decision.code)}",
+        f"scored {decision.scored if decision.scored is not None else '-'}"
+        f" · not compared {decision.not_scored}",
+    ]
+    if exit_code and decision.code in ("GO", "GO_WITH_NOTES"):
+        parts.append(
+            f"**Exit {exit_code}: `--strict` / `--max-not-scored` turned this into a failure.**"
+        )
+    if rows:
+        parts += [
+            "",
+            "| severity | quantity | observed | expected | run |",
+            "|---|---|---|---|---|",
+        ]
+        parts += rows
+    accepted = getattr(findings, "accepted", [])
+    if accepted:
+        parts += ["", "### Accepted"] + [
+            f"- {f.quantity}: {f.observed}; {f.action}" for f in accepted
+        ]
+    not_scored = [f for f in findings if f.severity == "not_scored"]
+    if not_scored:
+        parts += ["", "### Not compared"] + [f"- {f.quantity}: {f.observed}" for f in not_scored]
+    return "\n".join(parts) + "\n"

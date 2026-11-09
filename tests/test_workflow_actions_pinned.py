@@ -48,3 +48,13 @@ def test_all_workflow_actions_pinned_by_sha() -> None:
 
     # Guard on the guard: ensure we actually found and checked actions
     assert total_actions > 0, "No workflow actions found — did the glob pattern work?"
+
+
+def test_badge_json_input_is_off_by_default_and_only_passed_when_set() -> None:
+    from ruamel.yaml import YAML
+
+    action = YAML(typ="safe").load((Path(__file__).parent.parent / "action.yml").read_text())
+    assert action["inputs"]["badge-json"]["default"] == ""
+    run = next(s["run"] for s in action["runs"]["steps"] if s.get("name") == "lockwire check")
+    guard = 'if [ -n "$LW_BADGE_JSON" ]; then mkdir -p'
+    assert run.count("--badge-json") == 1 and guard in run.split("--badge-json")[0].splitlines()[-1]

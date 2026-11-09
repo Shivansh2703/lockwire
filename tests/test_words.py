@@ -156,19 +156,10 @@ def test_mcp_check_contract_payload_verdict_is_an_exact_ruled_word(tmp_path):
 
 # --- ONE FACT, SIX PLACES — `start`'s exit behaviour --------------
 
-README_PATH = Path(__file__).resolve().parent.parent / "README.md"
 CLI_PATH = Path(__file__).resolve().parent.parent / "src" / "lockwire" / "cli.py"
 
 #: the hardcoded finding string `start` prints when a scene mesh cannot be
 #: resolved (cli.py, surface #5 of the six the TODO row names).
-
-
-def _readme_start_row() -> str:
-    """README.md's exit-map row for `start` (hand-copied, README.md:159-171)."""
-    for line in README_PATH.read_text().splitlines():
-        if line.strip().startswith("| `start` |"):
-            return line
-    raise AssertionError("README.md has no `start` exit-map row")
 
 
 def _words_md_start_section() -> str:

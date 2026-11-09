@@ -10,7 +10,8 @@ walk SDF `<joint>` chains or honour `relative_to`; a link's own `<pose>` is take
 final pose under the (identity) model frame.
 
 `package://pkg/rel` and `model://name/rel` resolve, in order: `AMENT_PREFIX_PATH`
-(`<dir>/share/pkg/rel`) and `ROS_PACKAGE_PATH` (`<dir>/pkg/rel`); each `package_roots` entry,
+(`<dir>/share/pkg/rel`), `ROS_PACKAGE_PATH` and the Gazebo model path (`GZ_SIM_RESOURCE_PATH`,
+`IGN_GAZEBO_RESOURCE_PATH`, `GAZEBO_MODEL_PATH`, `SDF_PATH`; `<dir>/pkg/rel`); each `package_roots` entry,
 walking up to 3 levels for a `package.xml` naming `pkg` or a directory named `pkg`; then the
 URDF/SDF's own directory. Anything else is a `SceneRefusal` naming the remedy.
 """
@@ -207,6 +208,14 @@ def _load_mesh_file(resolved: Path, source: Path) -> list[tuple]:
     )
 
 
+def _is_file(p: Path) -> bool:
+    """`Path.is_file`, but an unreadable folder (PermissionError) reads as "no file here"."""
+    try:
+        return p.is_file()
+    except OSError:
+        return False
+
+
 def _find_package_dir(root: Path, pkg: str, max_depth: int) -> Path | None:
     def walk(d: Path, depth: int) -> Path | None:
         if depth > max_depth or not d.is_dir():
@@ -214,12 +223,12 @@ def _find_package_dir(root: Path, pkg: str, max_depth: int) -> Path | None:
         if d.name == pkg:
             return d
         pkg_xml = d / "package.xml"
-        if pkg_xml.is_file():
+        if _is_file(pkg_xml):
             try:
                 raw = pkg_xml.read_bytes()
                 _refuse_doctype_entity(raw, pkg_xml)
                 xml_root = ET.fromstring(raw)
-            except (ET.ParseError, ValueError):
+            except (ET.ParseError, ValueError, OSError):
                 xml_root = None
             if xml_root is not None:
                 name_el = xml_root.find("name")
@@ -247,7 +256,7 @@ def _find_package_dir(root: Path, pkg: str, max_depth: int) -> Path | None:
 def package_root(source: Path) -> Path | None:
     """The robot's package folder: the nearest ancestor of the model file holding package.xml."""
     source = source.resolve()
-    return next((d for d in source.parents if (d / "package.xml").is_file()), None)
+    return next((d for d in source.parents if _is_file(d / "package.xml")), None)
 
 
 def mesh_root(source: Path, contract_dir: Path) -> Path:
@@ -259,6 +268,23 @@ def mesh_root(source: Path, contract_dir: Path) -> Path:
 def _resolve_package(
     pkg: str, rel: str, base_dir: Path, package_roots: tuple[Path, ...]
 ) -> Path | None:
+    found = env_package_file(pkg, rel)
+    if found is not None:
+        return found
+    for root in package_roots:
+        found = _find_package_dir(Path(root), pkg, max_depth=3)
+        if found is not None:
+            candidate = found / rel
+            if candidate.is_file():
+                return candidate
+    for candidate in (base_dir / pkg / rel, base_dir / rel):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def env_package_file(pkg: str, rel: str) -> Path | None:
+    """`pkg/rel` on the ROS or Gazebo search paths the environment names, else None."""
     ament = os.environ.get("AMENT_PREFIX_PATH")
     if ament:
         for d in ament.split(os.pathsep):
@@ -275,15 +301,16 @@ def _resolve_package(
             candidate = Path(d) / pkg / rel
             if candidate.is_file():
                 return candidate
-    for root in package_roots:
-        found = _find_package_dir(Path(root), pkg, max_depth=3)
-        if found is not None:
-            candidate = found / rel
-            if candidate.is_file():
+    # Gazebo's model path: Sim, its Ignition-era name, Classic, and libsdformat's own.
+    for var in (
+        "GZ_SIM_RESOURCE_PATH",
+        "IGN_GAZEBO_RESOURCE_PATH",
+        "GAZEBO_MODEL_PATH",
+        "SDF_PATH",
+    ):
+        for d in os.environ.get(var, "").split(os.pathsep):
+            if d and (candidate := Path(d) / pkg / rel).is_file():
                 return candidate
-    for candidate in (base_dir / pkg / rel, base_dir / rel):
-        if candidate.is_file():
-            return candidate
     return None
 
 
@@ -603,7 +630,9 @@ def _scene_from_sdf(
         link_name = link.get("name", "?")
         link_xyz, link_rpy = _sdf_pose(link.find("pose"))
         link_pose = _compose(_IDENTITY_POSE, link_xyz, link_rpy)
-        for vis in link.findall("visual"):
+        # A link drawn only by a primitive collision (a caster) still shows, so it can be flagged.
+        primitive = [c for c in link.findall("collision") if c.find("geometry/mesh") is None]
+        for vis in link.findall("visual") or primitive:
             vis_xyz, vis_rpy = _sdf_pose(vis.find("pose"))
             visual_pose = _compose(link_pose, vis_xyz, vis_rpy)
             geom = vis.find("geometry")
@@ -731,11 +760,15 @@ def load_robot_scene(
         )
 
     if suffix == ".sdf":
+        from lockwire.sdf import read_sdf_root  # sdf imports this module's pose helpers
+
         _refuse_doctype(raw, path)
         try:
-            root = ET.fromstring(raw)
+            root = read_sdf_root(path)[0]  # <include>d parts spliced in, placed at their pose
         except ET.ParseError as exc:
             raise SceneRefusal(f"{path}: not valid XML ({exc}).") from exc
+        except ValueError as exc:
+            raise SceneRefusal(str(exc)) from exc
         return replace(
             _scene_from_sdf(root, path, package_roots, external_assets),
             asset_path=str(path.resolve()),

@@ -29,7 +29,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lockwire.report import Finding, RecordReport, limit_raised_mark, verdict, verdict_word
+from lockwire.catalog import Robot
+from lockwire.report import (
+    Finding,
+    RecordReport,
+    limit_raised_mark,
+    not_compared,
+    verdict,
+    verdict_word,
+)
 from lockwire.schema import SCHEMA_VERSION, Contract
 
 ARTIFACT_TYPE = "lockwire-preflight-report"
@@ -109,6 +117,7 @@ def preflight_document(
                 "not_scored": decision.not_scored,
             },
             "scored": decision.scored,
+            "not_compared": not_compared(findings),
             "profile": getattr(findings, "profile", "analysis"),
             "required_evidence": getattr(findings, "required_evidence", []),
             "missing_required_evidence": getattr(findings, "missing_required_evidence", []),
@@ -166,3 +175,21 @@ def write_preflight_json(
     # sort_keys is off on purpose: the top-level order above reads verdict-first,
     # which is what a human debugging a node's input wants to see.
     out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+
+def datasheet_badge(robot: Robot | None, findings: list[Finding], scored: frozenset[str]) -> dict:
+    """A shields.io endpoint document for the datasheet check's mass and dof verdict only."""
+    keys = {f"datasheet/{robot.id}/{k}": k for k in ("mass_total", "dof")} if robot else {}
+    off = {keys[f.quantity] for f in findings if f.quantity in keys and f.severity == "violation"}
+    compared = [k for q, k in keys.items() if q in scored]
+    badge = {"schemaVersion": 1, "label": "datasheet", "message": "not compared"}
+    if robot is None or not compared:
+        return badge | {"color": "lightgrey"}
+    names = ", ".join("mass" if k == "mass_total" else k for k in compared if k in off or not off)
+    mass = robot.numbers["mass_total"]
+    scope = f", mass {mass.scope.replace('_', ' ')}" if mass.scope else ""
+    word, color = ("differs", "red") if off else ("matches", "brightgreen")
+    return badge | {
+        "message": f"{word} ({names}) · {robot.id} sheet {mass.retrieved}{scope}",
+        "color": color,
+    }

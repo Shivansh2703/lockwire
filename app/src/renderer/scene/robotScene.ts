@@ -133,8 +133,10 @@ export function highlightsFromCards(cards: Card[], joints: RobotJoint[]): Highli
   return [...byId].map(([id, level]) => ({ id, level }));
 }
 
-/** Check before anything is picked: only the top finding's parts are lit, so the overview is not a spray of red. */
-export const topHighlight = (cards: Card[], joints: RobotJoint[]): Highlight[] => highlightsFromCards(cards.filter((c) => c.severity === "violation" || c.severity === "warning").slice(0, 1), joints);
+/** Check lights every flagged part at once, at its own level; a picked whole-robot card tints the robot instead.
+ * The picked card's parts are the selection (selectedIds), so focus isn't lost. */
+export const checkHighlight = (cards: Card[], picked: Card | undefined, all: string[], joints: RobotJoint[]): Highlight[] =>
+  picked?.whole ? wholeHighlight(picked.severity, all) : highlightsFromCards(cards, joints);
 
 /** A whole-robot finding (no targets, a bad/warn severity) tints every part faintly in its status colour. */
 export function wholeHighlight(severity: string, ids: string[]): Highlight[] {
@@ -234,6 +236,40 @@ export function paint(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolea
     if (m.userData.ring) m.visible = !!m.userData.level || !!m.userData.selected;
   }
   setOutlines(ctx.meshes, colors);
+  setHalos(ctx.meshes, colors);
+}
+
+const HALO_SMALL = 0.04; // a flagged part under this share of the robot's radius gets a halo
+// ponytail: 4% keeps a 5 mm caster on a ~0.16 m robot (~3%) and drops arm servo bodies (5-7%); tune here.
+const HALO_MIN = 0.06; // halo radius floor, as a share of the robot's radius
+/** A flagged part too small to show its glow (a caster under a big body) gets a see-through,
+ * always-on-top sphere in its status colour. Non-pickable child, created and disposed with the flag. */
+function setHalos(meshes: THREE.Mesh[], colors: ThemeColors): void {
+  const ball = (m: THREE.Mesh) => { m.updateWorldMatrix(true, false); return m.geometry.boundingSphere ?? (m.geometry.computeBoundingSphere(), m.geometry.boundingSphere!); };
+  const world = (m: THREE.Mesh) => ball(m).clone().applyMatrix4(m.matrixWorld);
+  const flagged = (m: THREE.Mesh) => !m.userData.ring && !m.userData.bone && !m.userData.faint && (m.userData.level === "warn" || m.userData.level === "bad");
+  const box = new THREE.Box3();
+  if (meshes.some(flagged)) for (const m of meshes) if (!m.userData.ring) box.union(world(m).getBoundingBox(new THREE.Box3()));
+  const robotR = box.getBoundingSphere(new THREE.Sphere()).radius;
+  for (const m of meshes) {
+    const old = m.userData.halo as THREE.Mesh | undefined;
+    const s = flagged(m) ? world(m) : null;
+    if (!s || s.radius >= robotR * HALO_SMALL) {
+      if (old) { m.remove(old); (old.material as THREE.Material).dispose(); old.geometry.dispose(); delete m.userData.halo; }
+      continue;
+    }
+    const halo = old ?? new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.3, depthTest: false }));
+    if (!old) {
+      halo.raycast = () => {};
+      halo.renderOrder = 999;
+      halo.userData.outlineHull = true; // not the robot: kept out of the camera fit
+      m.userData.halo = halo;
+      m.add(halo);
+    }
+    (halo.material as THREE.MeshBasicMaterial).color.copy(colors[m.userData.level as "warn" | "bad"]);
+    halo.position.copy(ball(m).center);
+    halo.scale.setScalar(Math.max(s.radius * 1.5, robotR * HALO_MIN) / Math.max(m.getWorldScale(new THREE.Vector3()).x, 1e-6));
+  }
 }
 
 const OUTLINE_FRACTION = 0.003; // hull thickness as a share of the robot's longest side

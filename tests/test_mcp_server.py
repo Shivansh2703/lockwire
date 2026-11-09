@@ -5,11 +5,13 @@ stack trace. Also mutation-bites ``check_contract`` and ``validate_plan``, and
 covers the `lockwire mcp` CLI command including the missing-extra path."""
 
 import asyncio
+import json
 import sys
 
 from conftest import FIXTURES
 from typer.testing import CliRunner
 
+from lockwire import __version__
 from lockwire.cli import app
 from lockwire.mcp_server import build_server
 
@@ -77,8 +79,9 @@ def test_upgrade_contract_calls_library_and_refuses_stale_or_occupied_target(tmp
 
     assert not result.is_error
     assert result.structured_content["legacy_revision"] == arguments["expected_revision"]
+    assert result.structured_content["notices"] == ""
     assert source.read_bytes() == original
-    assert load_contract(output).schema_version == "0.4"
+    assert load_contract(output).schema_version == "0.5"
 
     occupied = _call("upgrade_contract", arguments)
     assert occupied.is_error
@@ -461,3 +464,39 @@ def test_m21_review_value_with_a_stale_expected_revision_is_refused(tmp_path):
     assert contract.read_bytes() == before
     fresh = _call("review_value", {**args, "expected_revision": contract_revision(contract)})
     assert not fresh.is_error
+
+
+def test_check_model_reports_the_datasheet_mismatch_and_writes_nothing(tmp_path):
+    import shutil
+
+    model = tmp_path / "so101.urdf"
+    shutil.copy(FIXTURES / "so101" / "so101.urdf", model)
+    sc = _call("check_model", {"path": str(model), "datasheet_mass": "0.7 kg"}).structured_content
+    assert sc["verdict"] == "NO-GO" and sc["exit_code"] == 1
+    assert "--mass" not in json.dumps(sc["findings"])  # no re-run of the comparison just made
+    assert "not_compared" in sc and list(tmp_path.iterdir()) == [model]
+    assert "/lockwire-" not in json.dumps(sc["findings"])  # no throwaway lock in a hint
+
+
+def test_check_model_takes_a_catalog_robot_id():
+    args = {"path": str(FIXTURES / "so101" / "so101.urdf"), "model": "openmanipulator-x"}
+    sc = _call("check_model", args).structured_content
+    assert any("openmanipulator-x" in f["quantity"] for f in sc["findings"])
+    assert "--model openmanipulator-x" in sc["cli_line"]
+    assert "ur5e" in str(_call("list_robots", {}).structured_content)
+
+
+def test_tools_describe_every_parameter_and_check_model_lists_worst_first_without_nulls():
+    async def run():
+        async with await build_server_client() as client:
+            return client.server_info, (await client.list_tools()).tools
+
+    info, tools = asyncio.run(run())
+    assert info.version == __version__
+    assert [(t.name, k) for t in tools for k, v in t.input_schema["properties"].items()
+            if not v.get("description")] == []  # fmt: skip
+    model = str(FIXTURES / "turtlebot3" / "turtlebot3_waffle_pi.urdf")
+    findings = _call("check_model", {"path": model}).structured_content["findings"]
+    order = [f["severity"] for f in findings]
+    assert order == sorted(order, key=["violation", "warning", "not_scored"].index)
+    assert None not in [v for f in findings for v in f.values()] and order[0] == "violation"

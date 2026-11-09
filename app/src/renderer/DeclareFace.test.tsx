@@ -113,6 +113,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  localStorage.clear();
 });
 
 describe("DeclareFace", () => {
@@ -259,7 +260,7 @@ describe("DeclareFace", () => {
     expect(record().disabled).toBe(true);
     act(() => {
       setInput(container.querySelector('textarea[aria-label="Review note"]')!, "verify the mass source");
-      setInput(container.querySelector('input[aria-label="Review witness"]')!, "Casey");
+      setInput(container.querySelector('input[aria-label="witness"]')!, "Casey");
     });
     expect(record().disabled).toBe(false);
     await act(async () => record().click());
@@ -275,6 +276,18 @@ describe("DeclareFace", () => {
     expect(record().disabled).toBe(true);
     expect(container.querySelector(".declare-review")?.textContent).toContain("nothing to review");
     expect(onReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks Checked by once, filled from the last name used", async () => {
+    render(PAYLOAD, vi.fn(async () => ({ written: true })));
+    expect(container.querySelectorAll('input[aria-label*="itness"]')).toHaveLength(1);
+    expect(container.querySelector('input[aria-label="witness"]')!.closest("label")?.textContent).toContain("Checked by");
+    act(() => setInput(container.querySelector('input[aria-label="witness"]')!, "Casey"));
+    await act(async () => declareButton().click());
+    act(() => root.unmount());
+    root = createRoot(container);
+    render(PAYLOAD, vi.fn());
+    expect((container.querySelector('input[aria-label="witness"]') as HTMLInputElement).value).toBe("Casey");
   });
 
   it("test_approval_records_the_selected_value_without_inventing_a_note", async () => {

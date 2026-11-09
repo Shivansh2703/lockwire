@@ -1,5 +1,5 @@
 // README screenshots from the FREE app: node scripts/readme-shots.mjs <built-free-app-dir> <out-dir>
-// Drives Open -> the Drone starter -> Check (NO-GO), light theme, 1280x800. Frames land in <out-dir>.
+// Drives Open -> Or try an example -> Rover -> Check (GO with notes), light theme, 1280x800. Frames land in <out-dir>.
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,12 +32,10 @@ const shot = async (name) => {
 };
 await settle(800);
 await shot("f0-open");
-await page.evaluate(`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.startsWith("Drone"))?.click();`);
+await page.evaluate(`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.startsWith("Rover"))?.click();`);
 await page.waitForSelector(".check-headline", { timeout: 30000 });
+await page.evaluate(`document.querySelector(".check-list > .kit-disclosure summary")?.click()`);
 await settle(1500);
 await shot("f1-check");
-await page.evaluate(`Array.from(document.querySelectorAll(".check-list *")).find((e) => e.children.length === 0 && /rail overloaded/.test(e.textContent))?.click()`);
-await settle(1000);
-await shot("f2-detail");
 console.log(await page.evaluate(`document.querySelector(".check-headline").textContent`));
 await app.close();

@@ -51,8 +51,9 @@ describe("Check panel", () => {
     expect([...rows[0]!.parentElement!.querySelectorAll(".kit-chip")].map((c) => c.textContent)).toEqual(["Elbow joint"]); // chips are buttons beside the row
     expect(rows[0]!.parentElement!.querySelector(".kit-chip")!.getAttribute("title")).toBe("elbow"); // the full id is the tooltip
     let props = robotView.mock.lastCall![0];
-    expect(props.highlight).toEqual([{ id: "elbow", level: "bad" }]); // nothing picked: only the top finding lights (r9 scene)
-    expect(props.selected).toBeNull();
+    expect(props.selected).toBe("elbow"); // the first problem is open on landing: 0 taps to see it
+    expect(container.querySelector(".check-verdict")!.textContent).toBe("VerdictNO-GO2 problemsCompare with datasheetRe-check"); // the verdict card leads the panel
+    expect(container.querySelector(".check-verdict-actions")!.textContent).toBe("Compare with datasheetRe-check"); // one wrapping group: never clipped at 1280x800
 
     act(() => rows[1]!.click());
     props = robotView.mock.lastCall![0];
@@ -135,12 +136,15 @@ describe("Check panel", () => {
   });
 
   it("folds not-checked cards into one disclosure and counts only problems", () => {
-    const mk = (severity: "violation" | "not_scored", n: number) => ({ ...first!, severity, shape: `s${n}`, title: `t${n}`, label: `l${n}`, targets: [] });
+    const mk = (severity: "violation" | "not_scored", n: number) => ({ ...first!, severity, shape: `s${n}`, title: `t${n}`, label: `l${n}`, targets: [], quantity: n === 2 ? "devices/d/physical/mass" : "topology/x" });
     const page = { ...PAGE, cards: [mk("violation", 0), mk("violation", 1), mk("not_scored", 2), mk("not_scored", 3), mk("not_scored", 4)] };
+    const onJump = Object.assign(vi.fn(), { can: () => true });
     root = createRoot(container);
-    act(() => root.render(<CheckPanel payload={page as never} selected={null} onSelect={() => {}} />));
-    expect([...container.querySelectorAll(".check-count")].map((c) => c.textContent).join("")).toBe("2 problems \u00b7 3 not checked");
-    expect(container.querySelector(".check-list > .kit-disclosure summary")!.textContent).toBe("3 not checked");
+    act(() => root.render(<CheckPanel payload={page as never} selected={null} onSelect={() => {}} onJump={onJump} onCompare={() => {}} />));
+    expect(container.querySelector(".check-count")!.textContent).toBe("2 problems \u00b7 3 not compared yet");
+    expect(container.querySelector(".check-verdict")!.textContent).toContain("Compare with datasheet"); // whole-robot compare stays on the verdict card
+    expect(container.querySelector(".check-list > .kit-disclosure summary")!.textContent).toBe("Not compared yet (3)");
+    expect([...container.querySelectorAll(".finding-card > .kit-btn")].map((b) => b.textContent)).toEqual(["Declare it", "Declare it", "Declare it"]); // a part row says Declare it
     expect(container.querySelectorAll(".check-list > .kit-disclosure .kit-finding")).toHaveLength(3);
     expect(container.querySelectorAll(".check-list > div > .kit-finding")).toHaveLength(2);
   });
@@ -154,16 +158,31 @@ describe("Check panel", () => {
     expect(container.querySelectorAll(".kit-finding")).toHaveLength(1);
     expect(container.querySelector(".check-note")!.textContent).toBe("3 frames without mass — normal for sensor and mount frames");
   });
+
+  it("accepted findings show as a muted Accepted section, counted, never red", () => {
+    const accepted = [{ title: "Total mass off", observed: "1.554", reason: "battery not modelled", witness: "sam", date: "2026-11-06" }];
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, cards: [cards[0]!], accepted } as never} selected={null} onSelect={() => {}} />));
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 problem · 1 accepted");
+    expect(container.querySelector(".kit-disclosure summary")!.textContent).toBe("Accepted (1)");
+    expect(container.querySelector(".kit-disclosure .check-note")!.textContent).toBe("Total mass off: battery not modelled. Signed by sam, 2026-11-06");
+  });
 });
 
 describe("Check mode header", () => {
+  it("a rail's budget card and its current-limit card are one row, both findings open", () => {
+    const [b] = X500_CHECK_PAYLOAD.cards, amps = { title: "Over its current limit", raw: "7.04 A (mode: nominal)", observed: { ...b!.observed!, value: 7.04, unit: "A" } };
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, cards: [{ ...b!, cluster_root: "r" }, { ...b!, ...amps, cluster_root: "r" }] } as never} selected={0} onSelect={() => {}} />));
+    expect([container.querySelector(".check-count")!.textContent, container.querySelectorAll(".check-detail").length]).toEqual(["1 problem", 2]); // bites two red rows for one rail
+  });
   it("one rail's per-mode findings are one row; its mode blocks lead with the typed numbers, the figures behind the exact finding", () => {
     root = createRoot(container);
     act(() => root.render(<CheckPanel payload={X500_CHECK_PAYLOAD} selected={0} onSelect={() => {}} />));
     const rows = [...container.querySelectorAll(".kit-finding")].map((r) => r.textContent);
     expect(rows.filter((t) => /rail overloaded/.test(t!))).toHaveLength(1);
     expect(rows.join("|")).not.toMatch(/ mode/);
-    expect(container.querySelector(".check-count")!.textContent).toBe("1 problem · 2 modes"); // one row, two engine findings (the verdict says 2)
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 problem · 4 not compared yet"); // plain words, no engine arithmetic ("2 modes")
     expect(container.querySelectorAll(".check-detail .finding-alt").length).toBeGreaterThan(0);
     expect([...container.querySelectorAll(".check-detail .finding-alt")].every((a) => a.closest(".check-detail > .kit-disclosure") === null)).toBe(true); // Instead sits under Fix, not inside the exact-finding disclosure
     const heads = [...container.querySelectorAll(".check-detail")].map((d) => d.closest("details")!.querySelector("summary")!.textContent);

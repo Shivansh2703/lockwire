@@ -86,7 +86,7 @@ def test_unresolved_xacro_prop_in_link_name_refused():
     with pytest.raises(UnresolvedXacroError, match=r"unresolved xacro") as caught:
         parse_urdf(path)
     message = str(caught.value)
-    assert "${" in message or "${…}" in message or "substitutions" in message
+    assert "namespace" in message  # xacro now expands it; its own reason names the property
     assert "xacro model.urdf.xacro > model.urdf" in message
     # Must not silently produce template-named links.
     with pytest.raises(UnresolvedXacroError):
@@ -333,12 +333,13 @@ def test_utf16_without_doctype_still_loads(tmp_path):
     assert read_urdf_topology(path).link_names == {"base_x"}
 
 
-def test_joint_without_axis_defaults_to_x(tmp_path):
-    """The URDF default axis is (1, 0, 0)."""
+@pytest.mark.parametrize("axis", ["", "<axis/>"])
+def test_joint_without_axis_defaults_to_x(tmp_path, axis):
+    """The URDF default axis is (1, 0, 0), also for an <axis/> with no xyz."""
     p = tmp_path / "r.urdf"
     p.write_text(
         '<robot name="r"><link name="a"/><link name="b"/>'
-        '<joint name="j" type="revolute"><parent link="a"/><child link="b"/>'
+        f'<joint name="j" type="revolute"><parent link="a"/><child link="b"/>{axis}'
         '<limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>'
     )
     assert parse_urdf(p).joints[0].axis == (1.0, 0.0, 0.0)

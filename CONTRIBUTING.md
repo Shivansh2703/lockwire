@@ -47,3 +47,44 @@ Build `scene.glb` with a small script; see `scripts/starters/rover_scene.py` and
 licence is permissive (Apache-2.0, BSD, MIT) and they fit in 2 MB. Otherwise draw
 simple boxes and cylinders from its URDF. Never invent a number: if you cannot
 find it at its source, leave it out.
+
+## Add a robot row
+
+A robot row is one whole robot and the numbers its vendor publishes, in
+`src/lockwire/catalog_robots.yaml`. When `lockwire check` recognises the robot in a URDF, it
+compares the URDF's total mass and joint count with the row. Add a row by pull request, or
+open a "Add a robot row" issue with the numbers and we will add it.
+
+What a row needs:
+
+- `id`, `name`, `aliases` (the exact `<robot name>` values its URDFs use) and `fingerprint`
+  (the description package's link names).
+- `mass_total` and `dof`, both required. `reach_m`, `payload_kg` and `joint_speed_max` are optional.
+- Every number has `kind: datasheet`, a `source` that starts with the `https://` URL you
+  opened followed by the sheet's own words (`"https://... — Weight including cable 20,6 kg"`),
+  and `retrieved`: the day you opened it.
+- `mass_total` has a `scope` saying what the sheet's weight includes: `with_battery`, `dry`,
+  `with_gripper`, `with_cable` or `arm_only`.
+- If a URDF is known to model something differently on purpose, add a
+  `known_urdf_deviations` entry, `"<quantity>: <why>"`, and that number is not compared.
+
+Run it locally:
+
+```bash
+uv run lockwire catalog robots        # your row is listed
+uv run lockwire check path/to/robot.urdf   # compares the URDF with your row
+uv run pytest tests/test_catalog.py
+```
+
+`tests/test_catalog.py` counts the rows; raise its count by one.
+
+What gets refused:
+
+- an `assumed` number, or any `kind` other than `datasheet`;
+- a `source` that does not start with `https://`, or is blank;
+- a missing `retrieved` date, a `mass_total` without a `scope`, or a row without `dof`;
+- unknown fields, and an `id` that is already in the file.
+
+Never estimate a number. A sheet that does not say it means the row leaves it out. To say a
+row is wrong, open a "Dispute a robot row" issue: which number, and which published source
+says otherwise.

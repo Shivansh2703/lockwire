@@ -23,6 +23,7 @@ from lockwire.schema import (
     JointLimits,
     JointOrigin,
     Link,
+    MeshRef,
     ModelRecord,
     PrincipalInertia,
     Provenance,
@@ -42,27 +43,53 @@ class UnresolvedXacroError(ValueError):
     """Input still contains xacro/ROS substitutions; refuse rather than invent names."""
 
 
-def read_model_bytes(path: Path) -> bytes:
-    """The model's URDF/SDF bytes; a ``.xacro`` file is expanded in memory (no ROS needed).
+def read_model_bytes(path: Path, xacro_args: dict[str, str] | None = None) -> bytes:
+    """The model's URDF/SDF bytes; xacro (a ``.xacro`` file, or any file with ``${``,
+    ``$(`` or ``<xacro:``) is expanded in memory (no ROS needed).
 
     A failed expansion (including ``$(find pkg)``, which needs ROS) raises
     ``UnresolvedXacroError`` carrying xacro's own message plus the manual remedy.
+    ``xacro_args`` are the ``name:=value`` arguments.
     """
     raw = path.read_bytes()
-    if path.suffix.lower() != ".xacro":
+    if path.suffix.lower() != ".xacro" and not any(t in raw for t in (b"${", b"$(", b"<xacro:")):
         return raw
     _refuse_doctype_entity(raw, path)
     import xacro
 
-    try:
-        return xacro.process_file(str(path)).toxml().encode()
-    except Exception as exc:  # xacro raises XacroException, ParseError, even SystemExit-ish
-        if "ament_index_python" in str(exc):
-            raise UnresolvedXacroError(
-                f"{path}: xacro expansion failed — $(find …) needs a ROS environment. Expand it "
-                f"there (xacro model.urdf.xacro > model.urdf), then re-run. ({exc})"
-            ) from exc
-        raise UnresolvedXacroError(f"{path}: xacro expansion failed — {exc}. {_REMEDY}") from exc
+    mappings, wanted = dict(xacro_args or {}), {}
+    while True:
+        try:
+            out = xacro.process_file(str(path), mappings=mappings).toxml().encode()
+            failure = None
+        except Exception as exc:  # xacro raises XacroException, ParseError, even SystemExit-ish
+            out, failure = b"", exc
+        undefined = re.fullmatch(r"Undefined substitution argument (\S+)", str(failure))
+        if undefined and undefined[1] not in mappings:
+            # ponytail: declarations in this file only; an <xacro:include>d file's defaults are not read
+            decl = re.search(
+                rf"""<xacro:arg\s+name=["']{re.escape(undefined[1])}["']\s+default=["']([^"']*)""",
+                raw.decode(errors="replace"),
+            )
+            wanted[undefined[1]] = mappings[undefined[1]] = decl[1] if decl else ""
+            continue
+        break
+    if wanted:  # the file works only with arguments the user never gave
+        args = " ".join(f"--xacro-arg {k}={v or '<value>'}" for k, v in wanted.items())
+        raise UnresolvedXacroError(
+            f"{path}: this xacro file needs arguments you did not give. Run: "
+            f"lockwire start {path.name} {args}"
+        )
+    if failure is None:
+        return out
+    if "ament_index_python" in str(failure):
+        raise UnresolvedXacroError(
+            f"{path}: xacro expansion failed — $(find …) needs a ROS environment. Expand it "
+            f"there (xacro model.urdf.xacro > model.urdf), then re-run. ({failure})"
+        ) from failure
+    raise UnresolvedXacroError(
+        f"{path}: unresolved xacro — xacro expansion failed: {failure}. {_REMEDY}"
+    ) from failure
 
 
 def _local_tag(tag: str) -> str:
@@ -148,8 +175,8 @@ def _principal(
     )
 
 
-def _parse_link(el: ET.Element) -> tuple[Link, bool]:
-    """Returns (link, is_zero_mass)."""
+def _parse_link(el: ET.Element, notes: list[str] | None = None) -> tuple[Link, bool]:
+    """Returns (link, is_zero_mass). A NaN or negative mass counts as zero, with a note."""
     name = el.get("name", "?")
     inertial = el.find("inertial")
     if inertial is None:
@@ -157,7 +184,9 @@ def _parse_link(el: ET.Element) -> tuple[Link, bool]:
 
     mass_el = inertial.find("mass")
     mass_val = float(mass_el.get("value", "0")) if mass_el is not None else 0.0
-    if mass_val == 0.0:
+    if not mass_val > 0.0:
+        if mass_val != 0.0 and notes is not None:
+            notes.append(f"link {name!r} has mass {mass_el.get('value')}; treated as zero mass.")
         return Link(name=name), True
 
     origin = inertial.find("origin")
@@ -231,31 +260,47 @@ def _same_axis(locked: Joint, disk: Joint) -> bool:
     return disk.axis == locked.axis
 
 
-def locked_record_hash(model: ModelRecord, topology: "UrdfTopology") -> str:
-    """The on-disk record hash, reading axes the way the lock was written."""
+def legacy_axis_joints(model: ModelRecord, topology: "UrdfTopology") -> list[str]:
+    """Joints a pre-0.5 lock recorded as (0, 0, 1) from an ``<axis/>`` with no xyz."""
+    locked = {j.name: j.axis for j in model.joints}
+    return sorted(n for n in topology.empty_axis if locked.get(n) == (0.0, 0.0, 1.0))
+
+
+def locked_record_hash(model: ModelRecord, topology: "UrdfTopology", legacy: bool = False) -> str:
+    """The on-disk record hash, reading axes the way the lock was written.
+
+    ``legacy``: the lock predates schema 0.5, which read an ``<axis/>`` with no xyz as (0, 0, 1).
+    """
     locked = {j.name: j for j in model.joints}
+    old = set(legacy_axis_joints(model, topology)) if legacy else set()
     joints = [
         j.model_copy(update={"axis": None})
         if j.name in locked and locked[j.name].axis is None and _same_axis(locked[j.name], j)
+        else j.model_copy(update={"axis": (0.0, 0.0, 1.0)})
+        if j.name in old
         else j
         for j in topology.joints
     ]
     return _model_structure_hash([Link(name=n) for n in topology.link_names], joints)
 
 
-def _parse_joint(el: ET.Element) -> Joint:
+def _f(raw: str | None) -> float | None:
+    return float(raw) if raw is not None else None
+
+
+def _parse_joint(el: ET.Element, notes: list[str] | None = None) -> Joint:
     """URDF joint -> schema Joint; consumed by URDF drift."""
     parent = el.find("parent")
     child = el.find("child")
     xyz, rpy = _xyz_rpy(el.find("origin"))
     axis_el = el.find("axis")
     jtype = el.get("type", "fixed")
-    # URDF spec: absent <axis> means (1, 0, 0), but only joints that have an axis
+    # URDF spec: absent <axis> or <axis/> without xyz means (1, 0, 0), only on joints with an axis
     axis = None
     if axis_el is not None or jtype in _AXIS_TYPES:
         axis = tuple(
             float(x)
-            for x in (axis_el.get("xyz", "0 0 1") if axis_el is not None else "1 0 0").split()
+            for x in ((axis_el.get("xyz") if axis_el is not None else None) or "1 0 0").split()
         )
     limit_el = el.find("limit")
     limits = None
@@ -263,12 +308,15 @@ def _parse_joint(el: ET.Element) -> Joint:
     if limit_el is not None and el.find("mimic") is None:
         lower_raw, upper_raw = limit_el.get("lower"), limit_el.get("upper")
         effort_raw, velocity_raw = limit_el.get("effort"), limit_el.get("velocity")
-        limits = JointLimits(
-            lower=float(lower_raw) if lower_raw is not None else None,
-            upper=float(upper_raw) if upper_raw is not None else None,
-            effort=float(effort_raw) if effort_raw is not None else None,
-            velocity=float(velocity_raw) if velocity_raw is not None else None,
-        )
+        lo, hi = (float(v) if v is not None else None for v in (lower_raw, upper_raw))
+        if jtype in ("revolute", "prismatic") and None not in (lo, hi) and lo >= hi:
+            # A reversed range would abort the whole lock: treat as unlimited and say so.
+            if notes is not None:
+                notes.append(f"joint {el.get('name')!r} has lower {lo} >= upper {hi}; unlimited.")
+        else:
+            limits = JointLimits(
+                lower=lo, upper=hi, effort=_f(effort_raw), velocity=_f(velocity_raw)
+            )
     return Joint(
         name=el.get("name", "?"),
         type=jtype,  # type: ignore[arg-type]
@@ -288,6 +336,7 @@ class UrdfTopology:
     joints: tuple[Joint, ...]
     topology_hash: str  # v0.1 URDF kinematic hash (links + joint poses)
     record_hash: str  # v0.2 hash over Link/Joint records (axis + limits load-bearing)
+    empty_axis: frozenset[str] = frozenset()  # joints whose <axis> has no xyz
 
 
 _DOCTYPE_ENTITY_FORBIDDEN = (
@@ -350,6 +399,11 @@ def read_urdf_topology(path: Path) -> UrdfTopology:
         joints=joints,
         topology_hash=_structure_hash(root),
         record_hash=_model_structure_hash(links, list(joints)),
+        empty_axis=frozenset(
+            el.get("name", "?")
+            for el in root.findall("joint")
+            if el.find("axis") is not None and el.find("axis").get("xyz") is None
+        ),
     )
 
 
@@ -406,8 +460,28 @@ def describe_structure_drift(model: ModelRecord, topology: UrdfTopology) -> str:
     return "; ".join(parts)
 
 
-def parse_urdf(path: Path) -> ModelRecord:
-    raw = read_model_bytes(path)  # for .xacro: the expanded bytes, so an include edit is drift
+def mesh_refs(root: ET.Element) -> list[MeshRef]:
+    """Each link's mesh file and scale (URDF attributes or SDF children), sorted."""
+    rows = {
+        (
+            link.get("name", ""),
+            uri,
+            " ".join((m.get("scale") or m.findtext("scale") or "1 1 1").split()),
+        )
+        for link in root.iter("link")
+        for m in link.iter("mesh")
+        if (uri := m.get("filename") or m.findtext("uri"))
+    }
+    return [MeshRef(link=name, uri=uri, scale=scale) for name, uri, scale in sorted(rows)]
+
+
+def parse_urdf(
+    path: Path, xacro_args: dict[str, str] | None = None, notes: list[str] | None = None
+) -> ModelRecord:
+    """``notes`` collects plain-words lines about tolerated oddities."""
+    raw = read_model_bytes(
+        path, xacro_args
+    )  # for .xacro: the expanded bytes, so an include edit is drift
     _refuse_doctype_entity(raw, path)
     root = ET.fromstring(raw)
     if root.tag != "robot":
@@ -417,18 +491,19 @@ def parse_urdf(path: Path) -> ModelRecord:
     links: list[Link] = []
     zero_mass: list[str] = []
     for el in root.findall("link"):
-        link, is_zero = _parse_link(el)
+        link, is_zero = _parse_link(el, notes)
         links.append(link)
         if is_zero:
             zero_mass.append(link.name)
 
-    joints = [_parse_joint(el) for el in root.findall("joint")]
+    joints = [_parse_joint(el, notes) for el in root.findall("joint")]
 
     return ModelRecord(
         source=str(path),
         source_sha256=hashlib.sha256(raw).hexdigest(),
         # v0.1 hash; overridden by the schema validator once joints (below) are non-empty.
         structure_hash=_structure_hash(root),
+        mesh_refs=mesh_refs(root),
         links=links,
         joints=joints,
         zero_mass_links=sorted(zero_mass),

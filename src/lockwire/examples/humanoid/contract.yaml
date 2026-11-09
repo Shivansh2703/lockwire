@@ -4,22 +4,22 @@
 #
 # What it is: the 24 Dynamixel servos of the 2xm build, the Jetson Orin NX computer, one 4S
 # battery pack, and the two 12 V step-down converters of the power distribution board.
-# What `lockwire check` finds: NO-GO, in the servos' stall mode, a worst case and not a nominal
-# load. The paper states the pack's peak output (14.8 V x 25 A = 370 W) is "sufficient to power
-# all the joints", but the motors sit behind two 12 V 4.5 A converters (2 x 54 W = 108 W). The
-# 24 servos' e-Manual stall draw at 12 V adds up to 452 W; their standby (idle) draw is about 10 W.
-# Every servo stalled at once never happens in practice. The NO-GO does not depend on how the
-# servos are split between the converters (that split is author-chosen, see below): the 12
-# lowest-stall servos alone (6 XC330-T288 at 10.56 W + 6 servos at 16.8 W = 63.36 + 100.8 =
-# 164.16 W) already exceed one 54 W converter, so some converter is over whichever way they are
-# split. The 54 W is itself an optimistic ceiling: Pololu's 4.5 A is at 36 V input and limited
-# by heat, and this pack is 14.8 V (converter minimum input 13.3 V).
-# This is an inference from the sourced numbers, not an incident reported by ToddlerBot users
-# (the repo's issue tracker holds none about power).
+# What `lockwire check` finds: GO. The two motor budgets are scored in a walking mode from the
+# paper (appendix 8.7): "total motor power consumption is estimated at 50 W" while walking, with
+# the upper body needing "minimal power". 50 W split evenly over the 12 leg servos (4.1667 W each,
+# the split is author-chosen) fits the legs converter's 54 W; the upper body draws its e-Manual
+# standby current. The servos' e-Manual stall draw stays declared (452 W for all 24 at 12 V), so
+# the converters' current limits are scored in it, and those two findings are accepted on record
+# (see `accepted:` at the end): every servo stalled at once never happens in walking, but some
+# converter is over in stall whichever way the servos are split (the 12 lowest-stall servos alone,
+# 6 XC330-T288 at 10.56 W + 6 at 16.8 W = 164.16 W, exceed one 54 W converter). The 54 W is itself
+# an optimistic ceiling: Pololu's 4.5 A is at 36 V input and limited by heat, and this pack is
+# 14.8 V (converter minimum input 13.3 V). This is an inference from the sourced numbers, not an
+# incident reported by ToddlerBot users (the repo's issue tracker holds none about power).
 # Not published, so author-chosen and marked human: which servo hangs on which converter.
 # Legs on the legs converter and arms, neck and waist on the upper-body converter is an assumption.
-# Note for a later version: the converters output 12 V +/- 4% (up to 12.48 V), above the
-# XC330-T288's 12.0 V maximum input.
+# Also accepted on record: the converters output 12 V +/- 4% (up to 12.48 V), above the
+# XC330-T288's 12.0 V maximum input; ToddlerBot runs its six XC330s that way.
 schema_version: "0.2"
 robot:
   name: Humanoid
@@ -1185,6 +1185,8 @@ devices:
           draw: {value: 0.48, unit: W}
         - name: "stall"
           draw: {value: 27.6, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: left_hip_pitch_link
     owner: locomotion
@@ -1192,7 +1194,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XM430-W350 on the left hip pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XM430-W350 on the left hip pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.left-hip-roll
     model: mdl.servo.xm430-w350
     power:
@@ -1203,6 +1205,8 @@ devices:
           draw: {value: 0.48, unit: W}
         - name: "stall"
           draw: {value: 27.6, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: left_hip_pitch_link
     owner: locomotion
@@ -1210,7 +1214,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XM430-W350 on the left hip roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XM430-W350 on the left hip roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.left-hip-yaw
     model: mdl.servo.xc330-t288
     power:
@@ -1221,6 +1225,8 @@ devices:
           draw: {value: 0.204, unit: W}
         - name: "stall"
           draw: {value: 10.56, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: left_hip_yaw_link
     owner: locomotion
@@ -1228,7 +1234,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XC330-T288 on the left hip yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XC330-T288 on the left hip yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.left-knee
     model: mdl.servo.xm430-w210
     power:
@@ -1239,6 +1245,8 @@ devices:
           draw: {value: 0.48, unit: W}
         - name: "stall"
           draw: {value: 27.6, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: left_knee_link
     owner: locomotion
@@ -1246,7 +1254,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XM430-W210 on the left knee: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XM430-W210 on the left knee: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.left-ankle-pitch
     model: mdl.servo.xm430-w210
     power:
@@ -1257,6 +1265,8 @@ devices:
           draw: {value: 0.48, unit: W}
         - name: "stall"
           draw: {value: 27.6, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: left_ankle_pitch_link
     owner: locomotion
@@ -1264,7 +1274,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XM430-W210 on the left ankle pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XM430-W210 on the left ankle pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.left-ankle-roll
     model: mdl.servo.xc430-t240bb
     power:
@@ -1275,6 +1285,8 @@ devices:
           draw: {value: 0.552, unit: W}
         - name: "stall"
           draw: {value: 16.8, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: left_ankle_roll_link
     owner: locomotion
@@ -1282,7 +1294,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XC430-T240BB on the left ankle roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 46 mA x 12 V = 0.552 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XC430-T240BB on the left ankle roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 46 mA x 12 V = 0.552 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.left-shoulder-pitch
     model: mdl.servo.xc430-t240bb
     power:
@@ -1365,6 +1377,8 @@ devices:
           draw: {value: 0.48, unit: W}
         - name: "stall"
           draw: {value: 27.6, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: right_hip_pitch_link
     owner: locomotion
@@ -1372,7 +1386,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XM430-W350 on the right hip pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XM430-W350 on the right hip pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.right-hip-roll
     model: mdl.servo.xm430-w350
     power:
@@ -1383,6 +1397,8 @@ devices:
           draw: {value: 0.48, unit: W}
         - name: "stall"
           draw: {value: 27.6, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: right_hip_pitch_link
     owner: locomotion
@@ -1390,7 +1406,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XM430-W350 on the right hip roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XM430-W350 on the right hip roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.right-hip-yaw
     model: mdl.servo.xc330-t288
     power:
@@ -1401,6 +1417,8 @@ devices:
           draw: {value: 0.204, unit: W}
         - name: "stall"
           draw: {value: 10.56, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: right_hip_yaw_link
     owner: locomotion
@@ -1408,7 +1426,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XC330-T288 on the right hip yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XC330-T288 on the right hip yaw: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 0.88 A = 10.56 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 17 mA x 12 V = 0.204 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.right-knee
     model: mdl.servo.xm430-w210
     power:
@@ -1419,6 +1437,8 @@ devices:
           draw: {value: 0.48, unit: W}
         - name: "stall"
           draw: {value: 27.6, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: right_knee_link
     owner: locomotion
@@ -1426,7 +1446,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XM430-W210 on the right knee: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XM430-W210 on the right knee: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.right-ankle-pitch
     model: mdl.servo.xm430-w210
     power:
@@ -1437,6 +1457,8 @@ devices:
           draw: {value: 0.48, unit: W}
         - name: "stall"
           draw: {value: 27.6, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: right_ankle_pitch_link
     owner: locomotion
@@ -1444,7 +1466,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XM430-W210 on the right ankle pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XM430-W210 on the right ankle pitch: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 2.3 A = 27.6 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 40 mA x 12 V = 0.48 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.right-ankle-roll
     model: mdl.servo.xc430-t240bb
     power:
@@ -1455,6 +1477,8 @@ devices:
           draw: {value: 0.552, unit: W}
         - name: "stall"
           draw: {value: 16.8, unit: W}
+        - name: "walk"
+          draw: {value: 4.1667, unit: W}
     physical:
       mount_frame: right_ankle_roll_link
     owner: locomotion
@@ -1462,7 +1486,7 @@ devices:
       witness: w0
       source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-t240bb/; https://docs.google.com/spreadsheets/d/e/2PACX-1vQmoxJnTnUaQ_-WAAjnchBhaX5HZ4ElUV5pXksEV6GEbeEjiie1E_BdN9XCMt6FtfBaopXoaeSOeMDg/pubhtml; https://arxiv.org/abs/2502.00893 Table 2"
       locked_at: 2026-10-15
-      note: "XC430-T240BB on the right ankle roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 46 mA x 12 V = 0.552 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published)."
+      note: "XC430-T240BB on the right ankle roll: ToddlerBot paper Table 2 assigns this model to that joint. Stall draw 12 V x 1.4 A = 16.8 W (e-Manual), the named mode `stall`. Nominal is the e-Manual standby (idle) current 46 mA x 12 V = 0.552 W; the budgets select stall via draw_mode. Which converter feeds it is author-chosen (not published). Walk mode 4.1667 W: the paper's walking estimate, 50 W for all motors (appendix 8.7), split evenly over the 12 leg servos (the split is author-chosen; the paper says the upper body needs minimal power while walking)."
   - id: dev.servo.right-shoulder-pitch
     model: mdl.servo.xc430-t240bb
     power:
@@ -1660,29 +1684,31 @@ topology:
   battery:
     capacity: {value: 74.0, unit: Wh}
     voltage: {value: 14.8, unit: V}
+    chemistry: li-ion  # 21700 is a lithium-ion cell size (paper: "4-cell 21700 battery")
+    cells_series: 4  # DIY pack guide: "Connect the battery holders to create a 4S configuration"
 budgets:
   - id: bud.legs-12v-power
     kind: rail_power
     rail: rail.legs-12v
     limit: {value: 54, unit: W}
-    draw_mode: "stall"
+    draw_mode: "walk"
     owner: locomotion
     provenance:
       witness: w0
-      source: "https://www.pololu.com/product/4095"
+      source: "https://www.pololu.com/product/4095; https://arxiv.org/abs/2502.00893 appendix 8.7"
       locked_at: 2026-10-15
-      note: "Budget equals the converter rating: 12 V x 4.5 A = 54 W (an optimistic ceiling: 4.5 A is Pololu's 36 V-input, heat-limited figure; this pack is 14.8 V). Scored in the servos' stall mode, a worst case."
+      note: "Budget equals the converter rating: 12 V x 4.5 A = 54 W (an optimistic ceiling: 4.5 A is Pololu's 36 V-input, heat-limited figure; this pack is 14.8 V). Scored in walking (mode `walk`): the paper estimates 50 W for all motors while walking, upper body minimal; leg servos carry 4.1667 W each, upper-body servos have no walk mode and fall back to their e-Manual standby draw. The stall worst case is scored by the rail current limit (accepted on record)."
   - id: bud.upper-body-12v-power
     kind: rail_power
     rail: rail.upper-body-12v
     limit: {value: 54, unit: W}
-    draw_mode: "stall"
+    draw_mode: "walk"
     owner: upper-body
     provenance:
       witness: w0
-      source: "https://www.pololu.com/product/4095"
+      source: "https://www.pololu.com/product/4095; https://arxiv.org/abs/2502.00893 appendix 8.7"
       locked_at: 2026-10-15
-      note: "Budget equals the converter rating: 12 V x 4.5 A = 54 W (an optimistic ceiling: 4.5 A is Pololu's 36 V-input, heat-limited figure; this pack is 14.8 V). Scored in the servos' stall mode, a worst case."
+      note: "Budget equals the converter rating: 12 V x 4.5 A = 54 W (an optimistic ceiling: 4.5 A is Pololu's 36 V-input, heat-limited figure; this pack is 14.8 V). Scored in walking (mode `walk`): the paper estimates 50 W for all motors while walking, upper body minimal; leg servos carry 4.1667 W each, upper-body servos have no walk mode and fall back to their e-Manual standby draw. The stall worst case is scored by the rail current limit (accepted on record)."
   - id: bud.battery-pack-power
     kind: rail_power
     rail: rail.battery-pack
@@ -1693,3 +1719,62 @@ budgets:
       source: "https://arxiv.org/abs/2502.00893 appendix 8.7"
       locked_at: 2026-10-15
       note: "Budget equals the paper's stated peak pack output: 14.8 V x 25 A = 370 W."
+# Known gaps of the real ToddlerBot 2xm, accepted on record rather than hidden; a changed value
+# fires again.
+accepted:
+  - id: topology/rails/rail.legs-12v/current_limit
+    observed: "22.96 A computed draw on rail 'rail.legs-12v' (mode: stall)"
+    reason: "Worst case only: the 12 leg servos all at their e-Manual stall current at once, against one 12 V 4.5 A Pololu converter. It does not happen in walking (the paper estimates 50 W for all motors) and the ToddlerBot team ships this power board; if several servos stall together, the converter would be expected to current-limit and the servos to brown out (inferred, not reported by users)."
+    provenance:
+      witness: w0
+      source: "https://arxiv.org/abs/2502.00893 appendix 8.7; https://www.pololu.com/product/4095; https://emanual.robotis.com/docs/en/dxl/x/"
+      locked_at: 2026-11-06
+  - id: topology/rails/rail.upper-body-12v/current_limit
+    observed: "14.72 A computed draw on rail 'rail.upper-body-12v' (mode: stall)"
+    reason: "Worst case only: the 12 arm, neck and waist servos all at their e-Manual stall current at once, against one 12 V 4.5 A Pololu converter. It does not happen in walking (the paper estimates 50 W for all motors) and the ToddlerBot team ships this power board; if several servos stall together, the converter would be expected to current-limit and the servos to brown out (inferred, not reported by users)."
+    provenance:
+      witness: w0
+      source: "https://arxiv.org/abs/2502.00893 appendix 8.7; https://www.pololu.com/product/4095; https://emanual.robotis.com/docs/en/dxl/x/"
+      locked_at: 2026-11-06
+  - id: devices/dev.servo.left-hip-yaw/power/rail
+    observed: "12.00 V nominal, +/-4% -> 12.48 V"
+    reason: "Spec-sheet gap the real robot ships with: Pololu rates the D36V50F12 output at 12 V with 4% accuracy, and the XC330-T288 e-Manual lists 12.0 V as its maximum input. ToddlerBot runs its XC330s on these converters (paper Table 2, bill of materials). Measure your converter's output; if it reads above 12.0 V, feed the XC330s from a lower rail."
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095; https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-11-06
+  - id: devices/dev.servo.right-hip-yaw/power/rail
+    observed: "12.00 V nominal, +/-4% -> 12.48 V"
+    reason: "Spec-sheet gap the real robot ships with: Pololu rates the D36V50F12 output at 12 V with 4% accuracy, and the XC330-T288 e-Manual lists 12.0 V as its maximum input. ToddlerBot runs its XC330s on these converters (paper Table 2, bill of materials). Measure your converter's output; if it reads above 12.0 V, feed the XC330s from a lower rail."
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095; https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-11-06
+  - id: devices/dev.servo.neck-yaw/power/rail
+    observed: "12.00 V nominal, +/-4% -> 12.48 V"
+    reason: "Spec-sheet gap the real robot ships with: Pololu rates the D36V50F12 output at 12 V with 4% accuracy, and the XC330-T288 e-Manual lists 12.0 V as its maximum input. ToddlerBot runs its XC330s on these converters (paper Table 2, bill of materials). Measure your converter's output; if it reads above 12.0 V, feed the XC330s from a lower rail."
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095; https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-11-06
+  - id: devices/dev.servo.neck-pitch/power/rail
+    observed: "12.00 V nominal, +/-4% -> 12.48 V"
+    reason: "Spec-sheet gap the real robot ships with: Pololu rates the D36V50F12 output at 12 V with 4% accuracy, and the XC330-T288 e-Manual lists 12.0 V as its maximum input. ToddlerBot runs its XC330s on these converters (paper Table 2, bill of materials). Measure your converter's output; if it reads above 12.0 V, feed the XC330s from a lower rail."
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095; https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-11-06
+  - id: devices/dev.servo.waist-yaw/power/rail
+    observed: "12.00 V nominal, +/-4% -> 12.48 V"
+    reason: "Spec-sheet gap the real robot ships with: Pololu rates the D36V50F12 output at 12 V with 4% accuracy, and the XC330-T288 e-Manual lists 12.0 V as its maximum input. ToddlerBot runs its XC330s on these converters (paper Table 2, bill of materials). Measure your converter's output; if it reads above 12.0 V, feed the XC330s from a lower rail."
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095; https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-11-06
+  - id: devices/dev.servo.waist-roll/power/rail
+    observed: "12.00 V nominal, +/-4% -> 12.48 V"
+    reason: "Spec-sheet gap the real robot ships with: Pololu rates the D36V50F12 output at 12 V with 4% accuracy, and the XC330-T288 e-Manual lists 12.0 V as its maximum input. ToddlerBot runs its XC330s on these converters (paper Table 2, bill of materials). Measure your converter's output; if it reads above 12.0 V, feed the XC330s from a lower rail."
+    provenance:
+      witness: w0
+      source: "https://www.pololu.com/product/4095; https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/; https://arxiv.org/abs/2502.00893 Table 2"
+      locked_at: 2026-11-06

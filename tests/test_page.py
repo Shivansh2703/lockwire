@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from lockwire.cli import app
-from lockwire.page import _targets, build_declare_form, build_payload, short_name
+from lockwire.page import _sentence, _targets, build_declare_form, build_payload, short_name
 from lockwire.report import Finding
 from lockwire.schema import (
     Bus,
@@ -134,7 +134,7 @@ def test_empty_state_after_start_names_the_next_step(tmp_path, monkeypatch):
         "or declare from the model: lockwire scene import"
     )
     assert payload["qualifier"] == next_step
-    assert len(payload["cards"]) == 1
+    assert all(c["severity"] == "not_scored" for c in payload["cards"][1:])  # SDF note after
     card = payload["cards"][0]
     assert card["title"] == "Nothing to check yet"
     assert card["body"] == next_step
@@ -260,6 +260,22 @@ def test_blind_spots_never_use_a_measurement_sentence():
     for card in blind:
         assert not card["body"].startswith("Measured ")
         assert "Needs " not in card["body"], "a blind spot has no measured-vs-needed pair"
+
+
+def test_a_measured_warning_is_never_titled_as_a_check_that_could_not_run(clean_contract):
+    obs, exp = "12.00 V nominal, +/-4% -> 12.48 V", "at most 12.00 V max input"
+    q = "devices/d.s/power/rail"
+    f = Finding(severity="warning", quantity=q, observed=obs, expected=exp, action="")
+    title = _sentence(clean_contract, [f])[0]
+    assert title == "1 part above its max input voltage (12.48 V vs 12.00 V)"
+
+
+def test_a_pure_world_frame_is_neither_a_finding_nor_a_missing_weight(clean_contract):
+    m, w = clean_contract.model, {"name": "w", "type": "fixed", "parent": "world"}
+    m.links.append(m.links[0].model_copy(update={"name": "world", "mass": None}))
+    m.joints.append(m.joints[0].model_copy(update=w))
+    m.zero_mass_links = ["world"]
+    assert "world" not in str((page := build_payload(clean_contract))["cards"] + page["setup"])
 
 
 # ---------------------------------------------------------------------- the grouping
@@ -928,6 +944,8 @@ def _walk_cli_commands(command, prefix=()):
 # unlisted top-level command.
 _KNOWN_SUBCOMMANDS = {
     "scene": {"import"},
+    "catalog": {"robots"},
+    "bag": {"inspect", "check"},
 }
 
 
@@ -1058,9 +1076,9 @@ def test_qarm_findings_target_the_joints_and_link_they_are_about(tmp_path):
         "WRIST",
         "YAW",
     ]
-    # world is a massless fixed root: folded into the frames line, not its own mass warning
+    # world is a massless fixed root: no body at all, so neither a mass warning nor a frames line
     assert not [t for t in targets if t["kind"] == "link" and t["id"] == "world"]
-    assert "Frames without mass" in [c.get("title") for c in page["cards"]]
+    assert "Frames without mass" not in [c.get("title") for c in page["cards"]]
 
 
 # ------------------------------------------------------------- constraints
@@ -1159,6 +1177,9 @@ def test_reference_joints_use_plain_words():
 def test_rail_current_limit_violation_is_not_called_a_lockfile_difference(tmp_path):
     out = tmp_path / "x.yaml"
     assert runner.invoke(app, ["start", "--example", "rover", "--out", str(out)]).exit_code == 0
+    out.write_text(
+        out.read_text().replace("{value: 5, unit: A}", "{value: 2.5, unit: A}")
+    )  # one pin
     cards = build_payload(load_contract(out))["cards"]
     card = next(c for c in cards if "rails/rail.jetson-header-5v/current_limit" in c["raw"])
     assert card["title"] == "Jetson Header 5 V over its current limit"
@@ -1196,3 +1217,64 @@ def test_weak_servo_card_names_the_torque_gap_not_an_unmapped_drive():
         action="fix the driven-joint reference",
     )
     assert _cards(load_contract(CLEAN), [bad_ref])[0]["group_title"] == "{n} drives unmapped"
+
+
+def test_page_payload_carries_accepted_findings():
+    """An accepted finding reaches the app: hidden from the report is the failure."""
+    from lockwire.checks import run_record_checks
+    from lockwire.schema import AcceptedFinding, Provenance
+
+    contract = load_contract(X500)
+    f = next(f for f in run_record_checks(contract) if f.severity == "violation")
+    prov = Provenance(witness="sam", source="bench", locked_at="2026-11-06")
+    contract.accepted = [
+        AcceptedFinding(id=f.quantity, observed=f.observed, reason="on purpose", provenance=prov)
+    ]
+    row = build_payload(contract)["accepted"][0]
+    assert (row["reason"], row["witness"], row["date"]) == ("on purpose", "sam", "2026-11-06")
+
+
+def test_accepted_rows_name_their_device_when_titles_collide():
+    """Six humanoid servos share one finding title; each accepted row names its own device."""
+    path = Path(__file__).parents[1] / "src/lockwire/examples/humanoid/contract.yaml"
+    rows = build_payload(load_contract(path), contract_path=path)["accepted"]
+    titles = [r["title"] for r in rows]
+    assert len(set(titles)) == len(titles)
+    assert titles[0].startswith("dev.servo.left-hip-yaw: above its max input voltage")
+
+
+def test_mass_vs_size_card_names_the_part_once_in_plain_words():
+    pack1 = Path(__file__).parent / "fixtures" / "pack1" / "pack1.urdf"
+    cards = build_payload(Contract(robot=RobotInfo(name="p"), model=parse_urdf(pack1)))["cards"]
+    card = next(c for c in cards if c["shape"] == "model/links/*/mass_vs_size")
+    assert (
+        card["title"] == "Mass vs size: Heavy, Offset and Spin"
+    )  # once, not "Mass vs size: Mass Vs Size"
+    assert card["fix"] == "Check the units of Heavy's mass and shape, then lock it again"
+
+
+def test_model_changed_says_whether_the_model_drifted_from_its_lock(tmp_path):
+    # The app shows "Update from model file" only when this is true.
+    urdf = tmp_path / "r.urdf"
+    shutil.copy(Path(__file__).parent / "fixtures" / "pack1" / "pack1.urdf", urdf)
+    contract = tmp_path / "lockwire.yaml"
+    assert CliRunner().invoke(app, ["start", str(urdf), "--out", str(contract)]).exit_code == 0
+    assert build_payload(load_contract(contract), contract_path=contract)["model_changed"] is False
+    urdf.write_text(urdf.read_text().replace('<mass value="', '<mass value="9', 1))
+    assert build_payload(load_contract(contract), contract_path=contract)["model_changed"] is True
+
+
+def test_lockfile_servo_line_flags_the_joint_and_lights_its_link():
+    model = parse_urdf(Path(__file__).parent / "fixtures" / "servo_arm.urdf")
+    contract = Contract(robot=RobotInfo(name="arm"), model=model, servo="feetech.sts3215")
+    cards = build_payload(contract)["cards"]
+    card = next(c for c in cards if c["shape"] == "model/joints/*/limits/effort")
+    assert card["severity"] == "violation" and "upper" in card["targets"][0]["parts"]
+    assert card["title"] == "Shoulder above the servo's stall torque"  # not "differs from lockfile"
+
+
+def test_lockfile_servo_per_joint_pattern_compares_only_matching_joints():
+    model = parse_urdf(Path(__file__).parent / "fixtures" / "servo_arm.urdf")
+    contract = Contract(robot=RobotInfo(name="arm"), model=model, servo={"wr*": "feetech.sts3215"})
+    shapes = [c["shape"] for c in build_payload(contract)["cards"]]
+    assert "model/joints/*/limits/effort" not in shapes  # shoulder (10 N*m) is not an STS3215

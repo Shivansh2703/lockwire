@@ -589,6 +589,11 @@ parts:
       unit: W
       kind: datasheet
       source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Standby Current 52 mA); 52 mA x 11.1 V = 0.577 W, read 2026-10-15"
+    stall_torque:
+      value: 1.5
+      unit: N*m
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Specifications, Stall Torque row: 1.5 N.m at 12.0 V, 1.4 A), read 2026-11-07"
   note: "draw_max is stall (wheel blocked) at the recommended 11.1 V; draw_typical is the standby current, not a running draw. Same numbers as the rover starter."
 - id: dynamixel.xm430-w350
   family: fam.servo.smart
@@ -769,4 +774,19 @@ parts:
       unit: A
       kind: datasheet
       source: "Waveshare ST3215 servo wiki, Specification (Locked-rotor Current 2.7 A), https://www.waveshare.com/wiki/ST3215_Servo, read 2026-10-15"
+    stall_torque:
+      value: 2.942
+      unit: N*m
+      kind: datasheet
+      source: "Waveshare ST3215 servo wiki, Features (High torque, up to 30kg.cm@12V), https://www.waveshare.com/wiki/ST3215_Servo, read 2026-11-07; 30 kg*cm x 0.0980665 = 2.942 N*m. The page does not say 'stall'; taken as the stall figure, the most the servo can hold"
   note: "Distributor page, not Feetech's own. The page does not say at what voltage the 2.7 A locked-rotor current is measured, so no draw_max (watts) is carried and the picker does not offer this part."
+- id: feetech.sts3215
+  family: fam.servo.smart
+  name: Feetech STS3215 smart servo (7.4 V class)
+  numbers:
+    stall_torque:
+      value: 1.912
+      unit: N*m
+      kind: datasheet
+      source: "Feetech 'STS3215 Magnetic Encoder 360 Serial bus Servo Evaluation' sheet, page 1 (Stall Torque: 19.5kg.cm@7.4V), https://www.mantech.co.za/datasheets/products/sts3215-200620a-1.pdf, read 2026-11-07; 19.5 kg*cm x 0.0980665 = 1.912 N*m"
+  note: "The 7.4 V STS3215 (SO-100/SO-101 arms). The 12 V, 30 kg*cm part is feetech.st3215."

@@ -105,6 +105,8 @@ def test_render_wraps_at_the_default_80_column_width():
         owner="power",
         source="rail.5v",
         action="inspect pm02-5v-regulator-bank-primary wiring and connector seating",
+        next_command="lockwire check robots/pm02-5v-regulator-bank-primary.urdf --mass '1.8 kg' "
+        "--source https://example.com/pm02.pdf",
     )
     narrow = Console(record=True, width=80, color_system=None)
     render([finding], narrow)
@@ -118,6 +120,7 @@ def test_render_wraps_at_the_default_80_column_width():
     )
     # Same content either way — width changes layout, not what is said.
     assert " ".join(narrow_text.split()) == " ".join(wide_text.split())
+    assert f"  run: {finding.next_command}\n" in narrow_text  # a command never wraps
 
 
 def _html_data(html: str) -> dict:
@@ -482,6 +485,7 @@ def test_clean_contract_report_is_go_without_findings():
         # not_scored when no current reading is supplied (nothing here supplies one).
         "devices/dev.imu/physical/mass",
         "model/joints/imu_mount/limits/effort",
+        "topology/battery/chemistry",  # W2-8: one line asks for the pack chemistry
         # the mass budget is not scored while device masses are unknown.
         "budgets/bud.mass.devices",
     }
@@ -585,7 +589,7 @@ def test_staged_findings_are_grouped_and_labelled_by_stage():
         Finding(
             severity="not_scored",
             quantity="preflight/stage/2/flow",
-            observed="stage not yet implemented (M1a in progress)",
+            observed="stage not yet implemented",
             expected="stage 2",
             action="await",
             stage=2,
@@ -774,6 +778,8 @@ def test_terminal_order_puts_the_violation_before_any_info_line():
     _, text = _plain_render(report)
 
     lines = [line for line in text.splitlines() if line.strip()]
+    # the "Not compared yet" list follows the verdict by design
+    lines = lines[: next((i for i, x in enumerate(lines) if x.startswith("Not compared")), None)]
     violation_index = next(i for i, line in enumerate(lines) if line.startswith("VIOLATION"))
     info_index = next(i for i, line in enumerate(lines) if line.startswith("INFO"))
     verdict_index = next(i for i, line in enumerate(lines) if "NO-GO" in line or "GO" in line)
@@ -825,7 +831,9 @@ def test_scored_line_reports_adds_up_do_not_and_not_scored():
     # from scored to not scored (the budget total is not scored, not a partial sum), and
     # the per-device rows stay: scored 10 -> 9 (one add-up row gone), not scored 9 -> 10.
     # The starters' six bench-idle IMU bands sit inside the hard limits: 9 -> 15, 7 -> 13 add up.
-    assert lines[scored_index] == "scored 15: 13 add up, 2 do not · 10 not scored"
+    assert (
+        lines[scored_index] == "scored 15: 13 add up, 2 do not · 12 not scored"
+    )  # PR-8: +model/sanity
     assert scored_index == verdict_index - 1  # directly before the verdict line
 
 
@@ -893,7 +901,7 @@ def test_scored_line_counts_comparison_violations_only(clean_contract):
     # when no current reading is supplied — 5 -> 7; the three
     # device-mass disclosures are gone now the test declares those masses — 7 -> 4.
     # gravity reach is tallied (the mount joint holds) — 9 -> 10.
-    assert lines[scored_index] == "scored 10: 9 add up, 1 do not · 4 not scored"
+    assert lines[scored_index] == "scored 10: 9 add up, 1 do not · 5 not scored"
     assert lines[references_index] == "reference: 1 broken"
     assert references_index == scored_index + 1
 

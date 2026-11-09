@@ -1,0 +1,49 @@
+name: Add a robot row
+description: Add a robot's published numbers so `lockwire check` compares its URDF with them.
+title: "Robot row: "
+body:
+  - type: input
+    id: robot
+    attributes:
+      label: Robot
+      description: Vendor and model, e.g. "Universal Robots UR5e".
+    validations:
+      required: true
+  - type: input
+    id: urdf-name
+    attributes:
+      label: URDF robot name
+      description: The exact `<robot name="...">` value its URDF uses, and where that URDF is published.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Vendor source URL
+      description: The datasheet or spec page you opened (https://).
+    validations:
+      required: true
+  - type: input
+    id: retrieved
+    attributes:
+      label: Retrieved
+      description: The day you opened it, YYYY-MM-DD.
+    validations:
+      required: true
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Numbers, each with the sheet's own words
+      description: Total mass and degrees of freedom are required; reach, payload and top joint speed are optional.
+      placeholder: |
+        mass: 20.6 kg, "Weight including cable 20,6 kg"
+        dof: 6, "Degrees of freedom 6 rotating joints"
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: What the sheet's weight includes
+      options: [with_battery, dry, with_gripper, with_cable, arm_only]
+    validations:
+      required: true

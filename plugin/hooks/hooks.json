@@ -1,0 +1,11 @@
+{
+  "description": "Check a robot-model or lockwire.yaml edit before it lands; exit 2 blocks it.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-check.sh\"" }]
+      }
+    ]
+  }
+}

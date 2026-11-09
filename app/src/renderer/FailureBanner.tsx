@@ -4,6 +4,8 @@
 // restart entry point are the sidecar-lifecycle box's own exported surface.
 import { useEffect, useState } from "react";
 
+import { PRODUCT_NAME } from "../shared/branding";
+
 import { Notice } from "./kit";
 import { useSidecarState } from "./useSidecarState";
 
@@ -28,8 +30,6 @@ export function FailureBanner() {
 
   if (state.phase !== "stopped" && state.phase !== "error") return null;
 
-  const reason = state.phase === "error" ? state.message : `the sidecar exited (${state.code ?? state.signal})`;
-
   function restart() {
     setRestartOffered(false);
     void window.lockwire?.restartSidecar();
@@ -38,8 +38,7 @@ export function FailureBanner() {
   return (
     <div className="failure-banner">
       <Notice kind="error" action={restartOffered ? { label: "Restart", onClick: restart } : undefined}>
-        <span>the lockwire engine stopped</span>
-        <span className="failure-reason"> {reason}</span>
+        <span title={state.phase === "error" ? state.message : `exit ${state.code ?? state.signal}`}>{PRODUCT_NAME} stopped working.</span>
       </Notice>
     </div>
   );

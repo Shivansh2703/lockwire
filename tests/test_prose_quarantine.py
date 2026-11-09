@@ -56,6 +56,7 @@ SEMANTIC_FIELDS = {
     "Budget.rail",  # -> Rail.id, the rail a rail_power budget scores
     "Budget.draw_mode",  # names the device power mode a budget sums
     "Provenance.compared_from",  # -> a seeded catalog part id (check_compared_from, )
+    "Contract.servo",  # -> a catalog servo id whose stall torque check_servo_stall compares
 }
 
 

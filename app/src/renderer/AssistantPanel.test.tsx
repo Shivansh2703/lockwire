@@ -24,6 +24,7 @@ function bridge(over: Record<string, unknown> = {}) {
     applyAssistant: vi.fn().mockResolvedValue({ ok: true }),
     cancelAssistant: vi.fn(),
     onAssistantEvent: vi.fn(() => () => {}),
+    onAgentEvent: vi.fn(() => () => {}),
     ...over,
   };
   Object.defineProperty(window, "lockwire", { configurable: true, value: api });
@@ -96,47 +97,26 @@ describe("AssistantPanel", () => {
     expect(container.textContent).toContain("Ask the Assistant");
   });
 
-  it("asks for the key on first open and saves it with the model", async () => {
-    const api = bridge({ getAssistantSettings: vi.fn().mockResolvedValue({ ...settings, hasKey: false }) });
+  it("first use is one screen: the key, one tap that saves it and allows this robot, then the question", async () => {
+    const api = bridge({ getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }) });
     await mount(panel());
-    expect(container.textContent).toContain("console.anthropic.com");
+    expect(container.textContent).toContain("Your robot's contract is sent to Anthropic with your key.");
     await type("Paste your Anthropic key", "sk-x");
-    await tap("Save");
-    expect(api.setAssistantSettings).toHaveBeenCalledWith({ key: "sk-x" });
-  });
-
-  it("the model starts empty and Send is off until it is filled", async () => {
-    const api = bridge({ getAssistantSettings: vi.fn().mockResolvedValue({ ...settings, model: "" }) });
-    await mount(panel());
-    await type("Ask the Assistant", "hi");
-    const sendBtn = () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Send")!;
-    expect(sendBtn().disabled).toBe(true);
-    await type("Model", "m-9");
-    expect(sendBtn().disabled).toBe(false);
-    await tap("Send");
-    expect(api.setAssistantSettings).toHaveBeenCalledWith({ model: "m-9" });
-  });
-
-  it("sends on a robot that is not enabled only after the consent tap", async () => {
-    const api = bridge({ getAssistantSettings: vi.fn().mockResolvedValue({ ...settings, enabledRobots: [] }) });
-    await mount(panel());
+    await tap("Save key and allow for this robot");
+    expect(api.setAssistantSettings).toHaveBeenCalledWith({ key: "sk-x", enableRobot: "/r.yaml" });
+    expect(container.querySelector("details:not([open]) input")).not.toBeNull(); // Model: behind Advanced, on its default
     await type("Ask the Assistant", "hi");
     await tap("Send");
-    expect(container.textContent).toContain("Send this robot's contract to Anthropic with your key?");
-    expect(api.sendAssistant).not.toHaveBeenCalled();
-    await tap("Turn on for this robot");
-    expect(api.setAssistantSettings).toHaveBeenCalledWith({ enableRobot: "/r.yaml" });
     expect(api.sendAssistant).toHaveBeenCalledWith({ contract: "/r.yaml", revision: "r", mode: "Check", text: "hi" });
+    expect(container.textContent).not.toContain("Turn on for this robot");
   });
 
-  it("Not now drops the pending send", async () => {
+  it("a second robot, key already saved: one tap allows it, no key field", async () => {
     const api = bridge({ getAssistantSettings: vi.fn().mockResolvedValue({ ...settings, enabledRobots: [] }) });
     await mount(panel());
-    await type("Ask the Assistant", "hi");
-    await tap("Send");
-    await tap("Not now");
-    expect(container.textContent).not.toContain("Send this robot's contract");
-    expect(api.sendAssistant).not.toHaveBeenCalled();
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    await tap("Allow for this robot");
+    expect(api.setAssistantSettings).toHaveBeenCalledWith({ enableRobot: "/r.yaml" });
   });
 
   it("renders a proposal, applies it with the witness and shows a refusal as one line", async () => {
@@ -171,10 +151,10 @@ describe("AssistantPanel", () => {
 
   it("with the Assistant open in Check mode the findings stay in the DOM", async () => {
     await openApp();
-    expect(container.textContent).toContain("Findings");
+    expect(container.textContent).toContain("Verdict");
     await tap("Assistant");
     expect(container.textContent).toContain("Ask the Assistant");
-    expect(container.textContent).toContain("Findings");
+    expect(container.textContent).toContain("Verdict");
     expect(container.textContent).toContain("Pm02 5 V rail overloaded");
   });
 });

@@ -7,6 +7,8 @@ SOURCES: PX4-gazebo-models, BSD-3, https://github.com/PX4/PX4-gazebo-models
 """
 
 import math
+import os
+import shutil
 
 import pytest
 from typer.testing import CliRunner
@@ -217,3 +219,36 @@ def test_cli_start_from_sdf(tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert contract_path.exists()
+
+
+def test_include_is_spliced_in_as_name_colon_link_at_its_pose():
+    model = parse_sdf(FIXTURES / "sdf_include" / "porter" / "model.sdf")
+    assert {link.name for link in model.links} == {"body", "Suspension::link"}
+    (joint,) = model.joints
+    assert joint.child == "Suspension::link"
+    assert joint.origin.xyz == pytest.approx((0, 0.158, 0.09))
+
+
+def test_include_not_found_names_the_uri_and_folder(tmp_path):
+    path = tmp_path / "m" / "model.sdf"
+    path.parent.mkdir()
+    path.write_text(
+        '<sdf version="1.6"><model name="m"><link name="a"/>'
+        "<include><uri>model://gone</uri></include></model></sdf>"
+    )
+    with pytest.raises(ValueError, match="could not find model://gone"):
+        parse_sdf(path)
+
+
+def test_ball_joint_loads():
+    (joint,) = parse_sdf(FIXTURES / "sdf_ball.sdf").joints
+    assert joint.type == "ball" and joint.axis is None
+
+
+def test_include_found_on_the_gazebo_model_path(tmp_path, monkeypatch):
+    elsewhere = tmp_path / "gz_models"
+    shutil.copytree(FIXTURES / "sdf_include" / "suspension", elsewhere / "suspension")
+    shutil.copytree(FIXTURES / "sdf_include" / "porter", tmp_path / "robot" / "porter")
+    monkeypatch.setenv("GZ_SIM_RESOURCE_PATH", f"/nonexistent{os.pathsep}{elsewhere}")
+    model = parse_sdf(tmp_path / "robot" / "porter" / "model.sdf")
+    assert "Suspension::link" in {link.name for link in model.links}

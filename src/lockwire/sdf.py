@@ -45,8 +45,16 @@ from lockwire.schema import (
     Quantity,
     _model_structure_hash,
 )
-from lockwire.scene_urdf import _apply_r, _compose, _first_model, _IDENTITY_POSE, _mat3_mul, _Pose
-from lockwire.urdf import UrdfTopology, _principal, _refuse_doctype_entity
+from lockwire.scene_urdf import (
+    _IDENTITY_POSE,
+    _apply_r,
+    _compose,
+    _first_model,
+    _mat3_mul,
+    _Pose,
+    env_package_file,
+)
+from lockwire.urdf import UrdfTopology, _principal, _refuse_doctype_entity, mesh_refs
 
 
 def _sdf_pose(
@@ -188,11 +196,125 @@ def _model_element(root: ET.Element, path: Path) -> ET.Element:
     return model_el
 
 
-def _parse(path: Path) -> tuple[ET.Element, list[Link], list[str], list[Joint]]:
+def _flatten_includes(model_el: ET.Element, model_dir: Path, seen: tuple[Path, ...]) -> None:
+    """Splice each `<include><uri>model://X</uri>` into `model_el` as `Name::link`.
+
+    X is looked up as the sibling folder `model_dir/../X/model.sdf` (Gazebo's model-folder
+    layout), then on the Gazebo model path the scene uses (`scene_urdf.env_package_file`). The include's `<pose>` (else the included model's own) places its links.
+    """
+    for inc in model_el.findall("include"):
+        uri = (inc.findtext("uri") or "").strip()
+        name = uri.removeprefix("model://")
+        sub_path = model_dir.parent / name / "model.sdf"
+        if uri.startswith("model://") and not sub_path.is_file():
+            sub_path = env_package_file(name, "model.sdf") or sub_path
+        if not uri.startswith("model://") or not sub_path.is_file():
+            raise ValueError(
+                f"could not find {uri or '<include> uri'}, looked in {model_dir.parent} and "
+                "the Gazebo model path (GZ_SIM_RESOURCE_PATH, GAZEBO_MODEL_PATH)"
+            )
+        sub_dir = sub_path.resolve().parent
+        if sub_dir in seen:
+            raise ValueError(f"{sub_path}: <include> loop through {uri}")
+        raw = sub_path.read_bytes()
+        _refuse_doctype_entity(raw, sub_path)
+        sub = _model_element(ET.fromstring(raw), sub_path)
+        _flatten_includes(sub, sub_dir, (*seen, sub_dir))
+        prefix = (inc.findtext("name") or sub.get("name", "?")) + "::"
+        inc_pose = inc.find("pose")
+        place = _compose(
+            _IDENTITY_POSE, *_sdf_pose(sub.find("pose") if inc_pose is None else inc_pose)
+        )
+        for link in sub.findall("link"):
+            link.set("name", prefix + link.get("name", "?"))
+            r_mat, t = _compose(place, *_sdf_pose(link.find("pose")))
+            pose_el = link.find("pose")
+            if pose_el is None:
+                pose_el = ET.SubElement(link, "pose")
+            pose_el.text = " ".join(str(v) for v in (*t, *_matrix_to_rpy(r_mat)))
+            model_el.append(link)
+        for joint in sub.findall("joint"):
+            joint.set("name", prefix + joint.get("name", "?"))
+            for end in (joint.find("parent"), joint.find("child")):
+                if end is not None and end.text and end.text.strip() != "world":
+                    end.text = prefix + end.text.strip()
+            model_el.append(joint)
+        model_el.remove(inc)
+
+
+def read_sdf_root(path: Path) -> tuple[ET.Element, ET.Element]:
+    """(root, model) of `path` with every `<include>` spliced in."""
     raw = path.read_bytes()
     _refuse_doctype_entity(raw, path)
     root = ET.fromstring(raw)
     model_el = _model_element(root, path)
+    model_dir = path.resolve().parent
+    _flatten_includes(model_el, model_dir, (model_dir,))
+    return root, model_el
+
+
+def _urdf_geometry(geometry: ET.Element | None) -> ET.Element | None:
+    shape = geometry[0] if geometry is not None and len(geometry) else None
+    if shape is None:
+        return None
+    out = ET.Element("geometry")
+    if shape.tag == "box":
+        ET.SubElement(out, "box", size=shape.findtext("size") or "0 0 0")
+    elif shape.tag in ("cylinder", "sphere"):
+        attrs = {k: shape.findtext(k) for k in ("radius", "length") if shape.findtext(k)}
+        ET.SubElement(out, shape.tag, attrs)
+    elif shape.tag == "mesh":
+        ET.SubElement(
+            out,
+            "mesh",
+            filename=shape.findtext("uri") or "",
+            scale=shape.findtext("scale") or "1 1 1",
+        )
+    else:
+        return None
+    return out
+
+
+def urdf_view(path: Path) -> ET.Element:
+    """The SDF (includes spliced in) as a URDF-shaped `<robot>`, for the checks that read URDF XML.
+
+    Links keep their collision/visual shapes with each one's link-relative `<pose>` as `<origin>`;
+    joints keep type, parent, child, axis and limits. A missing SDF `<velocity>` means unlimited,
+    so it is written as SDF's own default -1, never as URDF's required-but-missing attribute.
+    """
+    _root, model_el = read_sdf_root(path)
+    robot = ET.Element("robot", name=model_el.get("name", "?"))
+    for link in model_el.findall("link"):
+        out = ET.SubElement(robot, "link", name=link.get("name", "?"))
+        for kind in ("collision", "visual"):
+            for el in link.findall(kind):
+                geometry = _urdf_geometry(el.find("geometry"))
+                if geometry is None:
+                    continue
+                part = ET.SubElement(out, kind)
+                xyz, rpy = _sdf_pose(el.find("pose"))
+                ET.SubElement(
+                    part, "origin", xyz=" ".join(map(str, xyz)), rpy=" ".join(map(str, rpy))
+                )
+                part.append(geometry)
+    for joint in model_el.findall("joint"):
+        out = ET.SubElement(
+            robot, "joint", name=joint.get("name", "?"), type=joint.get("type", "fixed")
+        )
+        ET.SubElement(out, "parent", link=joint.findtext("parent") or "?")
+        ET.SubElement(out, "child", link=joint.findtext("child") or "?")
+        axis = joint.find("axis")
+        if axis is not None and axis.findtext("xyz"):
+            ET.SubElement(out, "axis", xyz=axis.findtext("xyz"))
+        limit = axis.find("limit") if axis is not None else None
+        limit = ET.Element("limit") if limit is None else limit  # SDF: no <limit> = unlimited
+        attrs = {k: limit.findtext(k) for k in ("lower", "upper", "effort") if limit.findtext(k)}
+        ET.SubElement(out, "limit", attrs, velocity=limit.findtext("velocity") or "-1")
+    return robot
+
+
+def _parse(path: Path) -> tuple[ET.Element, list[Link], list[str], list[Joint]]:
+    root, model_el = read_sdf_root(path)
 
     link_els = model_el.findall("link")
     if not link_els:
@@ -221,6 +343,7 @@ def parse_sdf(path: Path) -> ModelRecord:
         structure_hash=_model_structure_hash(links, joints),  # re-derived by the
         # schema validator when joints is non-empty; kept here for the (rare)
         # zero-joint single-link model where the validator leaves it as-is.
+        mesh_refs=mesh_refs(root),
         links=links,
         joints=joints,
         zero_mass_links=zero_mass,

@@ -498,7 +498,8 @@ def _cached_scene(contract_path: Path) -> tuple[Any, str | None]:
     cached = None if external_assets is not None else _SCENE_CACHE.get(key)
     if cached is None:
         cached = load_scene_any(scene_path, external_assets=external_assets)
-        if cached.asset_sha256 != digest:
+        # Raw bytes on both sides: `asset_sha256` hashes the xacro-expanded bytes.
+        if sha256(scene_path.read_bytes()).hexdigest() != digest:
             raise SceneRefusal(f"{scene_path}: selected asset changed while loading.")
         if external_assets is None:
             _SCENE_CACHE[key] = cached
@@ -973,12 +974,11 @@ def _handle_start(args: StartArgs) -> RunReply:
             return _refusal(cli_line, 2, str(error))
     if args.urdf is None:
         return _refusal("lockwire start", 2, "give a model (urdf) or an example")
-    cli_line = (
-        f"lockwire start {args.urdf} --out {Path(args.urdf).resolve().parent / 'lockwire.yaml'}"
-    )
+    out = args.out or Path(args.urdf).resolve().parent / "lockwire.yaml"
+    cli_line = f"lockwire start {args.urdf} --out {out}"
     try:
         result = api.start(
-            args.urdf, overwrite=args.overwrite, expected_revision=args.expected_revision
+            args.urdf, overwrite=args.overwrite, expected_revision=args.expected_revision, out=out
         )
     except _LOAD_ERRORS as error:
         return _refusal(cli_line, 2, str(error))

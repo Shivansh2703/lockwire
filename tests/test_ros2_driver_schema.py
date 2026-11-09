@@ -36,6 +36,17 @@ def test_a_signal_source_carries_its_unit():
     assert source.unit == "m/s^2"
 
 
+@pytest.mark.parametrize("field", ["effort[0]", "position[name=knee_joint]", "a.b[2].c"])
+def test_array_field_paths_are_declarable(field):
+    assert SignalSource(field=field, unit="rad").field == field
+
+
+@pytest.mark.parametrize("field", ["position[", "a..b", "effort[-1]", "position[name=]"])
+def test_a_malformed_field_path_fails_at_load(field):
+    with pytest.raises(ValidationError, match="bad segment"):
+        SignalSource(field=field, unit="rad")
+
+
 def test_a_signal_without_a_unit_is_a_validation_error():
     """If this ever passes, a unit is being inferred somewhere."""
     with pytest.raises(ValidationError):
@@ -123,8 +134,8 @@ def test_a_message_type_alone_is_allowed():
 
 def test_schema_version_did_not_move():
     """Typed units remain additive: legacy documents stay supported at schema v0.4."""
-    assert SCHEMA_VERSION == "0.4"
-    assert {"0.2", "0.3", "0.4"} <= SUPPORTED_SCHEMA_VERSIONS
+    assert SCHEMA_VERSION == "0.5"
+    assert {"0.2", "0.3", "0.4", "0.5"} <= SUPPORTED_SCHEMA_VERSIONS
 
 
 @pytest.mark.parametrize("contract_name", sorted(p.name for p in FIXTURES.glob("contract_*.yaml")))

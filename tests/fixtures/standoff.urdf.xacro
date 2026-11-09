@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!-- Synthetic, shaped like a public chassis seen 2026-11-07: a 16 cm aluminium hex standoff
+     modelled as a 7 mm-radius cylinder, 40 g, with a 1e-4 placeholder inertia. About its own
+     long axis no 40 g body inside that cylinder can exceed m r^2 = 1.96e-6 kg*m^2 (51x less). -->
+<robot name="standoff_bot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="r" value="0.007"/>
+  <link name="base"/>
+  <link name="standoff">
+    <inertial><mass value="0.04"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
+    <collision><geometry><cylinder radius="${r}" length="0.16"/></geometry></collision>
+  </link>
+  <joint name="j" type="fixed"><parent link="base"/><child link="standoff"/></joint>
+</robot>

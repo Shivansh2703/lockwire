@@ -1,9 +1,11 @@
-# Example plan for the Arm starter: hold the gripper closed on a part (gripper servo at stall),
-# then lift with the shoulder (shoulder-lift servo at stall). Modes are the starter's own.
+# Example plan for the Arm starter: raise the shoulder and bend the elbow, both inside their URDF
+# joint limits (+/-1.745 rad and +/-1.69 rad). Try elbow_flex at 2.0 to see the plan refused.
+# (A power step is scored against every other servo at its worst declared mode, stall, so on this
+# 60 W supply any power step is refused: the accepted stall gap in contract.yaml.)
 steps:
-  - kind: set_power_mode
-    device: dev.gripper-servo
-    mode: stall
-  - kind: set_power_mode
-    device: dev.shoulder-lift-servo
-    mode: stall
+  - kind: joint_target
+    joint: shoulder_lift
+    position: 1.0
+  - kind: joint_target
+    joint: elbow_flex
+    position: -1.0

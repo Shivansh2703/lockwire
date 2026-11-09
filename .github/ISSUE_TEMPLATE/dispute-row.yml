@@ -1,0 +1,32 @@
+name: Dispute a robot row
+description: A number in the robot catalog is wrong or out of date.
+title: "Dispute: "
+body:
+  - type: input
+    id: row
+    attributes:
+      label: Row id
+      description: As listed by `lockwire catalog robots`, e.g. ur5e.
+    validations:
+      required: true
+  - type: input
+    id: number
+    attributes:
+      label: Which number
+      description: mass_total, dof, reach_m, payload_kg or joint_speed_max, and the value in the row.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Which source says otherwise
+      description: The https:// URL of the vendor's published figure.
+    validations:
+      required: true
+  - type: textarea
+    id: quote
+    attributes:
+      label: What it says
+      description: The figure in the source's own words, the day you read it, and what it includes (battery, gripper, cable...).
+    validations:
+      required: true

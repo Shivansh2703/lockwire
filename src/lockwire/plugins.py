@@ -46,6 +46,7 @@ def pick(name: str, default: Callable[..., Any]) -> Callable[..., Any]:
 
 
 _ready = False
+FAILED: list[ImportError] = []  # plugins that could not import; `check` refuses if it needs one
 
 
 def ensure() -> None:
@@ -65,6 +66,7 @@ def load(app: Any = None, mcp: Any = None) -> None:
         try:
             ep.load()(app=app, mcp=mcp)
         except ImportError as error:
+            FAILED.append(error)
             from rich.console import Console
 
             Console(stderr=True).print(f"[dim]plugin {ep.name} not loaded: {error}[/]")

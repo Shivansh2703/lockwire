@@ -1,8 +1,8 @@
 - id: lockwire-check
   name: lockwire check
-  description: Check the robot's physics lockfile (lockwire.yaml) still adds up.
+  description: Check the robot's physics lockfile (lockwire.yaml) still adds up when it or a model file changes.
   entry: lockwire check
   language: python
-  files: (^|/)lockwire\.ya?ml$
+  files: (?i)(\.(urdf|xacro|sdf)|(^|/)lockwire\.ya?ml)$
   # `lockwire check` takes exactly one contract (default lockwire.yaml), so file names are not passed.
   pass_filenames: false

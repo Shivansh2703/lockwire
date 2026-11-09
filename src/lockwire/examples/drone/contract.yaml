@@ -2,9 +2,10 @@
 # X500 V2 reference contract. Numbers are limited to the published figures
 # collected in docs/reference_robot_specs.md; unresolved values are omitted.
 #
-# Deliberate real-world finding: PM02 provides 5.2 V at 3 A (15.6 W),
-# while a bare Jetson Orin Nano module on a custom carrier draws up to 25 W
-# from its 5 V VDD_IN rail (5 A derived) and has UNKNOWN module-only mass.
+# The flight stack as Holybro specifies it, with no companion computer: `lockwire check` is GO.
+# Adding one? Give it its own regulator: the PM02's 5 V output is 5.2 V at 3 A (15.6 W), and a
+# Jetson Orin Nano alone can draw 25 W from 5 V. That overload is the repo's X500 demo
+# (tests/fixtures/x500); this starter is the clean starting point.
 schema_version: "0.2"
 robot:
   name: Drone
@@ -29,14 +30,10 @@ families:
     name: Multirotor airframe
   - id: fam.flight-controller.autopilot
     name: Autopilot flight controller
-  - id: fam.companion.sbc
-    name: Companion computer
   - id: fam.gnss.dronecan
     name: DroneCAN GNSS
   - id: fam.radio.telemetry
     name: Telemetry radio
-  - id: fam.camera.stereo
-    name: Stereo depth camera
   - id: fam.imu.mems
     name: MEMS IMU
   - id: fam.magnetometer.mems
@@ -72,16 +69,6 @@ device_models:
       gyro_x: {lo: -34.9066, hi: 34.9066, unit: "rad/s"}
       gyro_y: {lo: -34.9066, hi: 34.9066, unit: "rad/s"}
       gyro_z: {lo: -34.9066, hi: 34.9066, unit: "rad/s"}
-  - id: mdl.companion.jetson-orin-nano
-    family: fam.companion.sbc
-    provenance:
-      witness: w0
-      source: "https://developer.nvidia.com/downloads/assets/embedded/secure/jetson/orin_nano/docs/jetson_orin_nano_devkit_carrier_board_specification_sp.pdf; https://developer.nvidia.com/downloads/jetson-orin-nx-module-series-data-sheet; NVIDIA power-mode docs; NVIDIA staff forum reply"
-      locked_at: 2026-07-26
-      note: "Bare module on a custom carrier: 5 V module VDD_IN; published power modes 7 W / 15 W / 25 W (docs/reference_robot_specs.md); 25 W mode implies 5 A peak. Module-only mass is UNKNOWN; the published 176 g dev-kit figure is the wrong product. input_voltage_range 4.75-5.25 V: the Orin Nano dev-kit carrier board spec (SP-11324-001 v1.3) says VDD_IN will be 5V only; the tolerance is NVIDIA's legacy-module figure from the Orin NX datasheet DS-10712-001 Table 5-1 (MODULE_ID low). Earlier 5-20 V was the wrong pin rating."
-    input_voltage_range:
-      min: {value: 4.75, unit: V}
-      max: {value: 5.25, unit: V}
   - id: mdl.gnss.here3-plus
     family: fam.gnss.dronecan
     provenance:
@@ -103,13 +90,6 @@ device_models:
       tx_power: {value: 30, unit: dBm}
       rx_sensitivity: {value: -105, unit: dBm}
       air_rate: {value: 64, unit: kbit/s}
-  - id: mdl.camera.oak-d-lite
-    family: fam.camera.stereo
-    provenance:
-      witness: w0
-      source: Luxonis docs
-      locked_at: 2026-07-25
-      note: "USB-C; published power components total 2.5-5 W. Published mass is unresolved."
   - id: mdl.imu.icm-42688-p
     family: fam.imu.mems
     provenance:
@@ -165,32 +145,6 @@ device_models:
       note: "2S-12S input; 60 A continuous/120 A burst PCB rating; regulated output 5.2 V at 3 A max; mass 20 g."
 
 devices:
-  # MAVLink path: Jetson sits on the FC TELEM/UART serial bus. Power draw does
-  # not require identity; the companion-computer host remains for the USB camera bus.
-  - id: dev.onboard-computer
-    model: mdl.companion.jetson-orin-nano
-    identity:
-      bus_ref: bus.uart.companion
-      host: flight-controller
-      strength: positional
-    power:
-      rail: rail.supply-5v
-      draw: {value: 25, unit: W}
-      modes:
-        - name: "7W"
-          draw: {value: 7, unit: W}
-        - name: "15W"
-          draw: {value: 15, unit: W}
-        - name: "25W"
-          draw: {value: 25, unit: W}
-    physical:
-      mount_frame: x500_frame
-    owner: companion-compute
-    provenance:
-      witness: w0
-      source: "NVIDIA module datasheet; NVIDIA power-mode docs; NVIDIA staff forum reply; docs/reference_robot_specs.md"
-      locked_at: 2026-07-26
-      note: "Bare module on a custom carrier. Nominal draw remains 25 W (fallback). Published Orin Nano power modes 7 W / 15 W / 25 W from docs/reference_robot_specs.md (table line citing NVIDIA docs; companion section). 5 A is derived from 25 W / 5 V module VDD_IN. Module-only mass is UNKNOWN: dev-kit 176 g is the kit, not the module. Identity is on bus.uart.companion (Pixhawk TELEM/UART); baud UNKNOWN."
   - id: dev.gnss-receiver
     model: mdl.gnss.here3-plus
     identity:
@@ -269,23 +223,6 @@ devices:
           source: "https://store.rfdesign.com.au/rfd900x-modem-bundle-usb-c-hs-8517-62-00-90/"
           locked_at: 2026-09-06
           note: "Same bundle page and figure as tx_antenna, assumed for the ground-station end (a labelled assumption)."
-  - id: dev.depth-camera
-    model: mdl.camera.oak-d-lite
-    identity:
-      bus_ref: bus.usb.companion
-      host: companion-computer
-      strength: positional
-    power:
-      rail: rail.supply-5v
-      draw: {value: 5, unit: W}
-    physical:
-      mount_frame: x500_frame
-    owner: perception
-    provenance:
-      witness: w0
-      source: Luxonis docs
-      locked_at: 2026-07-25
-      note: "5 W is the published maximum component sum: 3 W base + 1 W AI + 0.5 W depth + 0.5 W encode; mass is unresolved."
   - id: dev.flight-controller.pixhawk-6c
     model: mdl.flight-controller.pixhawk-6c
     physical:
@@ -477,8 +414,6 @@ topology:
   hosts:
     - id: flight-controller
       notes: Pixhawk 6C
-    - id: companion-computer
-      notes: Jetson Orin Nano
   buses:
     - id: bus.can.dronecan
       kind: can
@@ -498,24 +433,6 @@ topology:
         source: "https://files.rfdesign.com.au/Files/documents/RFD900x%20DataSheet%20V1.2.pdf"
         locked_at: 2026-09-06
         note: "57600 bps is the RFD900x's own published default UART baud (user-selectable: 9600/19200/38400/57600/115200/400k/921k). This is the radio's own default, not a Holybro-Pixhawk-6C-specific figure (the board's own spec sheet states no default for this port) — declared per B1b (2026-09-06) since the radio, not the FC, sets the operating baud on this link."
-    - id: bus.uart.companion
-      kind: serial
-      host: flight-controller
-      bitrate: 921600
-      provenance:
-        witness: w0
-        source: "https://docs.px4.io/main/en/peripherals/mavlink_peripherals.html"
-        locked_at: 2026-09-06
-        note: "FC↔companion MAVLink path on published Pixhawk 6C UART/Telem ports (3× UART; Telem1 named). 921600 bps is PX4's own documented default TELEM2 companion-link baud (SER_TEL2_BAUD=921600) — a PX4-project default, not a Holybro-Pixhawk-6C-board-specific figure (the board's own spec sheet publishes no default for this port), declared per B1b (2026-09-06) as the best available published figure for this link."
-    - id: bus.usb.companion
-      kind: usb
-      host: companion-computer
-      bitrate: 5000000000
-      provenance:
-        witness: w0
-        source: "https://github.com/luxonis/oak-hardware/blob/master/DM9095_OAK-D-LITE_DepthAI_USB3C/Datasheet/OAK-D-Lite_Datasheet.pdf"
-        locked_at: 2026-09-06
-        note: "OAK-D Lite's own datasheet (fetched first-hand 2026-09-06) lists the on-die USB3.1 Gen2 PHY as a 10 Gbps capability, but states in prose that 'data is then output to a host via USB 3.1 Gen1' — the actual operating link. 5 Gbit/s (USB 3.1 Gen1) is declared as the conservative, correctly-cited figure rather than the 10 Gbps controller-capability number."
     - id: bus.i2c.external
       kind: i2c
       host: flight-controller
@@ -585,24 +502,6 @@ budgets:
       source: "PX4 hardware docs; Holybro; docs/reference_robot_specs.md"
       locked_at: 2026-07-26
       note: "Budget limit equals the PM02 published regulated-rail capacity: 5.2 V x 3 A = 15.6 W."
-  # Mode-aware companion: same rail/limit as bud.power.supply-5v, selecting the
-  # Jetson's published 7 W mode. radio has no "7W" named
-  # mode, so it falls back to its declared draw (5.2 W transmit peak, the
-  # radio's own worst mode) same as OAK-D Lite falls back to its single 5 W.
-  # Arithmetic: 7 W (Jetson) + 5 W (OAK-D Lite) + 5.2 W (radio, peak fallback)
-  # = 17.2 W > 15.6 W — REAL violation, not tuned away (radio is physically
-  # fed through the FC from this rail).
-  - id: bud.power.supply-5v.7w-mode
-    kind: rail_power
-    rail: rail.supply-5v
-    limit: {value: 15.6, unit: W}
-    draw_mode: "7W"
-    owner: power-integration
-    provenance:
-      witness: w0
-      source: "PX4 hardware docs; Holybro; docs/reference_robot_specs.md"
-      locked_at: 2026-07-26
-      note: "Duplicates the PM02 rail budget to exercise draw_mode selection against the Jetson's published 7 W mode (docs/reference_robot_specs.md). Nominal bud.power.supply-5v is left untouched as the 1/0 regression anchor. B10 (2026-09-06): now also carries the radio's peak-fallback draw (5.2 W) rolled up through rail.telemetry-port-5v, which flips this budget to a violation (7 + 5 + 5.2 = 17.2 W > 15.6 W) — real, since the radio is physically fed through the FC from the PM02 rail."
   - id: bud.power.telemetry-port
     kind: rail_power
     rail: rail.telemetry-port-5v
@@ -632,7 +531,7 @@ budgets:
       witness: w0
       source: holybro.com/products/x500-v2-kits
       locked_at: 2026-09-06
-      note: "1500 g is Holybro's published payload capacity 'without battery, at 70% throttle'. sources: devices sums only instantiated device masses: dev.gnss-receiver 51.8 g + dev.telemetry-radio 14.5 g + dev.flight-controller.pixhawk-6c 59.3 g + dev.power-module.pm02-v3 20 g + 4x dev.motor.* 80 g (320 g) + 4x dev.esc.* 50 g (200 g) = 665.6 g; the frame link mass is not summed (sources=devices, not links). This total is now closer to the real installed mass than the earlier 145.1 g floor (motor/ESC masses are no longer excluded — see mdl.motor.holybro-2216-920kv / mdl.esc.holybro-20a provenance), but Jetson module mass and OAK-D Lite mass remain UNKNOWN and stay excluded rather than guessed."
+      note: "1500 g is Holybro's published payload capacity 'without battery, at 70% throttle'. sources: devices sums only instantiated device masses: dev.gnss-receiver 51.8 g + dev.telemetry-radio 14.5 g + dev.flight-controller.pixhawk-6c 59.3 g + dev.power-module.pm02-v3 20 g + 4x dev.motor.* 80 g (320 g) + 4x dev.esc.* 50 g (200 g) = 665.6 g; the frame link mass is not summed (sources=devices, not links). The external IST8310 magnetometer's mass is not published, so the total stays not scored rather than guessed."
   - id: bud.endurance.mission
     kind: endurance
     limit: {value: 15, unit: min}
@@ -641,4 +540,4 @@ budgets:
       witness: w0
       source: "requirement, not a datasheet — owner: flight-ops"
       locked_at: 2026-09-06
-      note: "15 min is a stated flight-ops mission requirement, not a vendor figure. B1b (2026-09-06) makes this a REAL endurance figure: topology.battery is now 74.0 Wh (the 5000 mAh pack Holybro's own kit page cites for its published ~18 min hover flight-time figure -- see dev.motor.* provenance for the full derivation), and total declared draw now includes propulsion: Jetson 25 W + OAK-D Lite 5 W + 4x motor 61.67 W (246.68 W) + radio 5.2 W transmit-peak (B10 2026-09-06, rolled up through rail.telemetry-port-5v) = 281.88 W nominal. Computed endurance = 74.0 / 281.88 = 0.2625 h (~15.75 min), which still clears the 15-min requirement, though by a thinner real margin than before the radio joined the power tree -- consistent with Holybro's own ~18-min hover figure being reduced by the added companion/camera/radio payload. This still covers hover-only draw (no climb/cruise/wind margin) and the per-motor draw is a derived approximation (see dev.motor.* provenance caveat), not an exact motor-only datasheet figure."
+      note: "15 min is a stated flight-ops mission requirement, not a vendor figure. topology.battery is 74.0 Wh (the 5000 mAh pack Holybro's kit page cites for its published ~18 min hover flight time; see dev.motor.* provenance for the derivation). Declared draw: 4x motor 61.67 W hover (246.68 W) + radio 5.2 W transmit peak (rolled up through rail.telemetry-port-5v) = 251.88 W. Computed endurance = 74.0 / 251.88 = 0.2938 h (~17.6 min), consistent with Holybro's ~18 min hover figure. Hover only (no climb/cruise/wind margin); the per-motor draw is a derived approximation (see dev.motor.* provenance), not a motor-only datasheet figure."

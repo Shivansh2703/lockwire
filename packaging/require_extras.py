@@ -51,6 +51,9 @@ CLAIMED: dict[str, str | None] = {
     # MAVLink frame admission imports this package lazily; a frozen build must
     # fail before Analysis when the optional dialect dependency is absent.
     "pymavlink": "mavlink",
+    # `lockwire check <robot name>` imports this lazily.
+    "robot_descriptions": "robots",
+    "xacrodoc": "robots",
 }
 
 

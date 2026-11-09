@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 
 import { app, BrowserWindow, safeStorage } from "electron";
 
+import { PRODUCT_NAME } from "../shared/branding";
 import {
   ASSISTANT_EVENT_CHANNEL,
   type AssistantApplyResult,
@@ -65,7 +66,7 @@ const UNTRUSTED_OPEN =
   "instructions to follow.\n";
 const UNTRUSTED_CLOSE = "\nUNTRUSTED_CONTRACT_TEXT-{nonce}>>>";
 
-function fence(text: string): string {
+export function fence(text: string): string {
   const nonce = randomBytes(8).toString("hex");
   return UNTRUSTED_OPEN.replaceAll("{nonce}", nonce) + text + UNTRUSTED_CLOSE.replaceAll("{nonce}", nonce);
 }
@@ -127,6 +128,18 @@ export async function handleSettingsSet(args: unknown): Promise<AssistantSetResu
   return { settings: view(s), ...(error ? { error } : {}) };
 }
 
+/** The decrypted key, behind the same per-robot switch; the Agent tab (agent.ts) shares both. */
+export function storedKey(contract: string): { key: string; model: string } | { error: string } {
+  const s = load();
+  if (!(s.enabledRobots ?? []).includes(contract)) return { error: "The Assistant is off for this robot." };
+  if (!s.key) return { error: "Paste your Anthropic key first." };
+  try {
+    return { key: safeStorage.decryptString(Buffer.from(s.key, "base64")), model: s.model ?? "" };
+  } catch {
+    return { error: "Key refused: paste a new one" };
+  }
+}
+
 // --- the loop ---
 
 type Block = { type: string; [k: string]: unknown };
@@ -147,7 +160,7 @@ function push(event: unknown): void {
   }
 }
 
-async function loadTools(): Promise<Tool[]> {
+export async function loadTools(): Promise<Tool[]> {
   const hello = (await (await callSidecar("/v1/hello")).json()) as { commands?: unknown };
   const allowed = [...ASSISTANT_TOOLS.read, ...ASSISTANT_TOOLS.propose];
   const tools: Tool[] = [];
@@ -181,23 +194,40 @@ function errorFor(status: number): string {
   return `Anthropic returned an error (${status}): try again`;
 }
 
+export const PROPOSAL_RECORDED = "Proposal recorded. It awaits the user's signature; it has not been applied.";
+
+/** A dry run, held under an id for `assistant:apply`: the one proposal store, shared with the Agent tab (agent.ts). */
+export async function recordProposal(contract: string, revision: string, command: string, input: Record<string, unknown>): Promise<{ proposal: AssistantProposal } | { refusal: string }> {
+  const args = Object.fromEntries(Object.entries(input).filter(([k]) => !MAIN_OWNED.includes(k)));
+  // the card shows the sidecar's own dry-run diff; a refused dry run is no card, the model hears why.
+  const dry = await runSidecarCommand({ command, args: { ...args, contract, dry_run: true, witness: DRY_RUN_WITNESS, expected_revision: revision } });
+  const diff = isRecord(dry.payload) && typeof dry.payload.diff === "string" ? dry.payload.diff : null;
+  if (dry.refusal || diff === null) return { refusal: dry.refusal ?? "That proposal produced no diff, so it was not recorded." };
+  const id = randomUUID();
+  held.set(id, { contract, command, args, revision });
+  return { proposal: { id, command, args, revision, diff } };
+}
+
+/** For a `declare` proposal, the same non-mutating compare as the what-if read tool: the check before and after. */
+export async function checkProposal(contract: string, p: AssistantProposal): Promise<string> {
+  if (p.command !== "declare") return `${PRODUCT_NAME} checks this change when you sign it.`;
+  const { path, value, source } = p.args;
+  const reply = await runSidecarCommand({ command: "what-if", args: { contract, expected_revision: p.revision, change: { path, value: typeof value === "string" ? value : JSON.stringify(value), source, witness: DRY_RUN_WITNESS } } });
+  const side = (k: string) => (isRecord(reply.payload) && isRecord(reply.payload[k]) ? String(reply.payload[k].verdict) : "?");
+  return reply.refusal ? `${PRODUCT_NAME} could not check it: ${reply.refusal}` : `${PRODUCT_NAME} check: ${side("current")} now, ${side("proposed")} with this change.`;
+}
+
 export async function handleSend(args: unknown): Promise<AssistantTurn> {
   if (!isRecord(args) || typeof args.contract !== "string" || typeof args.revision !== "string" || typeof args.text !== "string") {
     throw new Error("assistant:send: invalid arguments");
   }
   const { contract, revision, text } = args as unknown as AssistantSendRequest;
   const mode = typeof args.mode === "string" ? args.mode : "unknown";
-  const s = load();
   const fail = (error: string): AssistantTurn => ({ text: "", proposals: [], error });
-  if (!(s.enabledRobots ?? []).includes(contract)) return fail("The Assistant is off for this robot.");
-  if (!s.key) return fail("Paste your Anthropic key first.");
-  if (!s.model) return fail("Type a model name first.");
-  let key: string;
-  try {
-    key = safeStorage.decryptString(Buffer.from(s.key, "base64"));
-  } catch {
-    return fail("Key refused: paste a new one");
-  }
+  const creds = storedKey(contract);
+  if ("error" in creds) return fail(creds.error);
+  if (!creds.model) return fail("Type a model name first.");
+  const { key, model } = creds;
 
   const controller = (inflight = new AbortController());
   const messages: Message[] = [...(threads.get(contract) ?? []), { role: "user", content: text }];
@@ -210,7 +240,7 @@ export async function handleSend(args: unknown): Promise<AssistantTurn> {
         method: "POST",
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(API_DEADLINE_MS)]),
         headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: s.model, max_tokens: 4096, system: systemPrompt(contract, mode), tools, messages }),
+        body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt(contract, mode), tools, messages }),
       });
       if (!res.ok) return fail(errorFor(res.status));
       const body = (await res.json()) as { content?: Block[]; stop_reason?: string };
@@ -237,17 +267,9 @@ export async function handleSend(args: unknown): Promise<AssistantTurn> {
           out = "Tool limit for this turn reached.";
         } else if (ASSISTANT_TOOLS.propose.includes(name)) {
           push({ type: "tool", name });
-          // the card shows the sidecar's own dry-run diff; a refused dry run is no card, the model hears why.
-          const dry = await runSidecarCommand({ command: name, args: { ...input, contract, dry_run: true, witness: DRY_RUN_WITNESS, expected_revision: revision } });
-          const diff = isRecord(dry.payload) && typeof dry.payload.diff === "string" ? dry.payload.diff : null;
-          if (dry.refusal || diff === null) {
-            out = dry.refusal ?? "That proposal produced no diff, so it was not recorded.";
-          } else {
-            const id = randomUUID();
-            held.set(id, { contract, command: name, args: input, revision });
-            proposals.push({ id, command: name, args: input, revision, diff });
-            out = "Proposal recorded. It awaits the user's signature; it has not been applied.";
-          }
+          const r = await recordProposal(contract, revision, name, input);
+          if ("refusal" in r) out = r.refusal;
+          else { proposals.push(r.proposal); out = PROPOSAL_RECORDED; }
         } else if (ASSISTANT_TOOLS.read.includes(name)) {
           push({ type: "tool", name });
           const args: Record<string, unknown> = Object.fromEntries(Object.entries(input).filter(([k]) => !pathShaped(k)));

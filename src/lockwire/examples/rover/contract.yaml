@@ -2,18 +2,15 @@
 # Based on ROBOTIS TurtleBot3 Burger (Apache-2.0, https://github.com/ROBOTIS-GIT/turtlebot3).
 #
 # The stock Burger fits its power budget. This starter carries the common upgrade: the
-# Jetson Nano takes over the Pi's slot and is powered the way the Pi was, from the OpenCR's
-# 5 V output through the Pi power cable on ONE 40-pin header pin (pin 4). NVIDIA rates one
-# 5 V pin of that header at 2.5 A (12.5 W); the Nano plus a USB peripheral can ask for
-# 16.25 W. `lockwire check` on this file ends NO-GO: the header pin is over its rating (one finding: the
-# rail's current limit, 3.25 A against 2.5 A, which is also 16.25 W against 12.5 W).
-# Builders asking about or attempting exactly this swap on the OpenCR 5 V output:
+# Jetson Nano takes over the Pi's slot and is powered from the OpenCR's 5 V output into its
+# 40-pin J41 header. The Nano plus a USB peripheral can ask for 16.25 W (3.25 A). One 5 V header
+# pin is rated 2.5 A, so the Pi power cable on pin 4 alone would be over (builders who tried it:
 #   https://forums.developer.nvidia.com/t/opencr-nvidia-jetson-nano-developer-kit-b01/119562
-#   https://forums.developer.nvidia.com/t/jetson-nano-2gb-turns-off-every-20-mins/211036
-# (the second: a Nano 2GB on the OpenCR GPIO power dies exactly 20 minutes after boot; on
-# wall power it runs indefinitely). Whether that thread's cause was this limit is not
-# established there; the contract only encodes the published pin rating.
-# Put the Raspberry Pi 4 back, or feed the Nano's barrel jack (5 V / 4 A), and the check passes.
+#   https://forums.developer.nvidia.com/t/jetson-nano-2gb-turns-off-every-20-mins/211036 ).
+# This starter wires it the way NVIDIA's guide allows: both 5 V pins (2 and 4), "5V 5A via the J41
+# expansion header (2.5A per pin)" (Jetson Nano Developer Kit User Guide, page 9). `lockwire check`
+# is GO (with notes): 3.25 A within the header's 5 A, and the OpenCR 5 V output (4 A) still has headroom.
+# Try your own robot for the catch.
 #
 # Labels: every number is "read" from the page named in its provenance on 2026-10-15, except those
 # whose note says "assumed" or whose witness is human.
@@ -178,7 +175,7 @@ devices:
       witness: w0
       source: "developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf"
       locked_at: 2026-10-15
-      note: "10 W default module budget + 1.25 W carrier board at 4 A = 11.25 W. Replaces the stock Raspberry Pi 4; powered from the OpenCR 5 V through the Pi power cable on header pin 4 (assumed wiring: the builder reuses the Pi cable, as in the forum thread above)."
+      note: "10 W default module budget + 1.25 W carrier board at 4 A = 11.25 W. Replaces the stock Raspberry Pi 4; powered from the OpenCR 5 V into both J41 5 V pins, 2 and 4 (assumed wiring, the one NVIDIA's guide page 9 allows; the stock Pi cable lands on pin 4 only)."
   - id: dev.usb-peripheral
     model: mdl.usb.nano-stack
     power:
@@ -191,7 +188,7 @@ devices:
       witness: w0
       source: "developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf"
       locked_at: 2026-10-15
-      note: "One USB stack at its 1 A limit: 1 A x 5 V = 5 W. Worst case, not a measured device. Even a 0.5 A camera (2.5 W, 13.75 W total) exceeds the 12.5 W pin; 0.25 A of USB load is enough for NO-GO; the 5 V is the header rail, assumed (the guide does not state the USB stack supply voltage)."
+      note: "One USB stack at its 1 A limit: 1 A x 5 V = 5 W. Worst case, not a measured device. On one header pin (12.5 W) even a 0.5 A camera would be over; on both pins (25 W) it fits; the 5 V is the header rail, assumed (the guide does not state the USB stack supply voltage)."
   - id: dev.2d-lidar
     model: mdl.lidar.lds-02
     power:
@@ -277,18 +274,21 @@ topology:
         note: "5 V output max 4 A: 4 A x 5 V = 20 W; supplied from the regulated 12 V output (hence upstream)."
     - id: rail.jetson-header-5v
       voltage: {value: 5, unit: V}
-      capacity: {value: 12.5, unit: W}
-      current_limit: {value: 2.5, unit: A}
+      capacity: {value: 25, unit: W}
+      current_limit: {value: 5, unit: A}
       upstream: rail.controller-5v
       provenance:
         witness: w0
         source: "developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf"
         locked_at: 2026-10-15
-        note: "J41 expansion header: the two 5 V pins can each power the kit at 2.5 A. The TurtleBot3 Pi power cable lands on one pin (pin 4), so the feed is 2.5 A x 5 V = 12.5 W. Draw: 11.25 W Nano + 5 W USB stack = 16.25 W, i.e. 3.25 A, over by 3.75 W (0.75 A). Declared once, as the rail's current_limit: a separate 12.5 W budget on the same rail would report the same fault a second time."
+        note: "Jetson Nano Developer Kit User Guide DA_09402_003, page 7 (J41: 'Two 5V pins can be used to power the developer kit at 2.5A each') and page 9 ('Another option is to supply 5V 5A via the J41 expansion header (2.5A per pin)'). The feed lands on both 5 V pins (2 and 4): 2 x 2.5 A = 5 A, 5 A x 5 V = 25 W. On pin 4 alone (how the stock Pi cable lands) the limit would be 2.5 A and the 3.25 A draw below would be over. Draw: 11.25 W Nano + 5 W USB stack = 16.25 W, i.e. 3.25 A. Declared once, as the rail's current_limit: a separate budget on the same rail would report the same limit a second time."
   battery:
     # Burger spec table, emanual.robotis.com/docs/en/platform/turtlebot3/features/: "Lithium polymer 11.1V 1800mAh / 19.98Wh 5C".
     capacity: {value: 19.98, unit: Wh}
     voltage: {value: 11.1, unit: V}
+    chemistry: lipo  # same spec table row: "Lithium polymer"
+    cells_series: 3  # 11.1 V lithium polymer = 3 cells of 3.7 V
+    c_rate_continuous: 5  # same row: "5C"
 budgets:
   - id: bud.power.battery-input
     kind: rail_power

@@ -1,5 +1,5 @@
-"""README claims checked against live CLI behaviour, not against the
-README itself.
+"""README and users-guide claims checked against live CLI behaviour, not against the
+docs themselves.
 
 Each test here runs the real command, captures what it actually printed or
 did, and only then checks the README's sentence against that captured
@@ -17,6 +17,7 @@ from lockwire.cli import app
 
 ROOT = Path(__file__).parents[1]
 README = ROOT / "README.md"
+USERS = ROOT / "docs/guides/users.md"  # the README links here for everything past the quick start
 FIXTURES = ROOT / "tests" / "fixtures"
 
 runner = CliRunner()
@@ -46,9 +47,9 @@ def test_readme_matches_the_live_unsupported_schema_version_refusal(tmp_path):
     assert match, f"no refusal message in live `check` output: {result.output!r}"
     supported = match.group(1)
 
-    readme_text = README.read_text(encoding="utf-8")
+    readme_text = USERS.read_text(encoding="utf-8")
     assert f"supports {supported}" in readme_text, (
-        "README's supported-schema-version sentence does not match what `check` "
+        "users.md's supported-schema-version sentence does not match what `check` "
         f"actually printed just now ({supported!r})"
     )
 
@@ -75,10 +76,10 @@ def test_readme_matches_the_live_start_force_field_revert(tmp_path):
     after = contract.read_text(encoding="utf-8")
     assert "HAND_EDITED_NAME" not in after, (
         "start --force no longer silently reverts a hand-edited robot.name — "
-        "update the README, this test documents the current behaviour"
+        "update docs/guides/users.md, this test documents the current behaviour"
     )
 
-    readme_text = README.read_text(encoding="utf-8")
+    readme_text = USERS.read_text(encoding="utf-8")
     assert "re-declare every fact in the lockfile by hand" in readme_text
     assert "silently overwritten back to the URDF-derived value" in readme_text
 
@@ -87,7 +88,26 @@ def test_readme_quick_start_matches_reality():
     """The top-of-README commands must name a shipped example and the real Python floor."""
     text = README.read_text(encoding="utf-8")
     top = text.split("## Download the app")[0]
-    name = re.search(r"lockwire start --example (\S+)", top).group(1)
-    assert (ROOT / "src/lockwire/examples" / f"{name}.yaml").exists(), name
+    names = re.findall(r"lockwire start --example (\S+)", top)
+    examples = ROOT / "src/lockwire/examples"
+    assert names and all(
+        (examples / f"{n}.yaml").exists() or (examples / n / "contract.yaml").exists()
+        for n in names
+    )
     assert "Python 3.12 or newer" in top
     assert 'requires-python = ">=3.12"' in (ROOT / "pyproject.toml").read_text()
+
+
+def test_readme_leads_with_your_robot_then_lock_ci_agents():
+    text = README.read_text(encoding="utf-8")
+    assert "won't work before you buy the parts" not in text
+    order = [
+        "uvx lockwire check robot.urdf",
+        "## Lock it",
+        "## Run it in CI",
+        "## Let your AI agent",
+    ]
+    assert [text.index(s) for s in order] == sorted(text.index(s) for s in order)
+    assert text.index(order[0]) < text.index("--example")
+    features = text.split("### Features")[1].split("\n\n")[1]
+    assert features.count("- **") == 4  # check, lock, CI, agents; the rest lives in docs/guides

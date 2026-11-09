@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { PRODUCT_NAME } from "../shared/branding";
 import { MODES, type Mode } from "./Frame";
 import { pro } from "./proRegistry";
 import { Button, CommandLine, IconButton, PillTabs, StatusPill, ToolPill, Workspace } from "./kit";
 import { FRAME_INSET, type ViewInset } from "./scene/buildScene";
 import { currentTheme, initTheme } from "./theme";
 import { ThemeToggle } from "./ThemeToggle";
+import { VIEW_HINT } from "./OpenFace";
 import "./theme.css";
 
 // The app shell: the robot fills the window; the pages float over it.
@@ -40,13 +40,15 @@ export function measureInset(root: HTMLElement): ViewInset {
 }
 
 export function Shell({
-  robotName, onRobot, mode, onModeChange, scene, sceneSummary, locked, connected, cliLine, onFit, onOverwrite, notices, wide, center, left, above, tools, assistant, drawer, children,
+  robotName, onRobot, mode, onModeChange, tabs, scene, sceneSummary, locked, connected, cliLine, onFit, onOverwrite, notices, wide, center, left, above, tools, assistant, drawer, children,
 }: {
   robotName?: string;
   /** The robot's name chip opens Design on the whole robot. */
   onRobot?: () => void;
   mode: Mode;
   onModeChange: (mode: Mode) => void;
+  /** The tabs that are relevant now (the current one always shows); "More" reveals the rest. Unset: all. */
+  tabs?: readonly Mode[];
   /** The RobotView, behind everything; a function gets the px the floating UI covers. */
   scene?: ReactNode | ((inset: ViewInset) => ReactNode);
   /** Text twin of the 3D view, announced politely when it changes (from the same labels as the rows). */
@@ -80,6 +82,11 @@ export function Shell({
   const [pageCommand, setPageCommand] = useState<string | null>(null);
   const command = pageCommand ?? cliLine ?? null;
   const [inset, setInset] = useState(FRAME_INSET);
+  const [hide, setHide] = useState(false); // "Hide panels": only the robot, theme, Connected, fit
+  const bare = hide && !center; // never on the open screen (no robot to show)
+  const [more, setMore] = useState(false); // "More": every tab, for the rest of the run
+  const shown = more || !tabs ? TABS : TABS.filter((t) => t.id === mode || tabs.includes(t.id));
+  const [hinted, setHinted] = useState(false); // the gesture hint goes at the first touch of the view
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -92,39 +99,42 @@ export function Shell({
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     el.querySelectorAll(".kit-slot-top, .kit-slot-right, .kit-slot-bottom, .kit-slot-left").forEach((n) => ro?.observe(n));
     return () => { window.removeEventListener("resize", update); ro?.disconnect(); };
-  }, [mode, wide, !!children, !!left, !!above, !!assistant?.open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, wide, bare, !!children, !!left, !!above, !!assistant?.open]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <CommandCtx.Provider value={setPageCommand}>
     <div className="shell" ref={ref} data-wide={wide || undefined}>
       <div className="app-drag shell-drag" />
       <Workspace
-        topLeft={robotName ? onRobot
+        topLeft={robotName && !bare ? onRobot
           ? <button type="button" className="shell-chip shell-chip-btn app-no-drag" title={`Show all of ${robotName}`} onClick={onRobot}>{robotName}</button>
           : <span className="shell-chip app-no-drag" title={robotName}>{robotName}</span> : undefined}
-        top={locked ? undefined : <div className="app-no-drag shell-tabs"><PillTabs tabs={TABS} value={mode} onChange={onModeChange} label="Mode" />{!pro && ["Test", "Run"].map((t) => (
-          <span key={t} className="shell-pro-tab" aria-disabled="true" title={`Test and Run are in ${PRODUCT_NAME} Pro`}>{t}<span className="shell-pro-badge">Pro</span></span>
-        ))}</div>}
-        topRight={<div className="app-no-drag"><ToolPill label="App">{assistant && <Button variant="quiet" aria-expanded={assistant.open} aria-controls="side-drawer" disabled={!assistant.onToggle} onClick={assistant.onToggle}>Assistant</Button>}<ThemeToggle /></ToolPill></div>}
-        left={left}
-        right={children}
+        top={locked || bare ? undefined : <div className="app-no-drag shell-tabs"><PillTabs tabs={shown} value={mode} onChange={onModeChange} label="Mode" />
+          {shown.length < TABS.length && <Button variant="quiet" className="shell-more" title="Show every page" onClick={() => setMore(true)}>More ▾</Button>}</div>}
+        topRight={<div className="app-no-drag"><ToolPill label="App">{assistant && !bare && <Button variant="quiet" aria-expanded={assistant.open} aria-controls="side-drawer" disabled={!assistant.onToggle} onClick={assistant.onToggle}>Assistant</Button>}<ThemeToggle /></ToolPill></div>}
+        left={bare ? undefined : left}
+        right={bare ? undefined : children}
         bottomLeft={locked && connected ? undefined : <div className="app-no-drag"><StatusPill status={connected ? "go" : "bad"}>{connected ? "Connected" : "Not connected"}</StatusPill></div>}
         bottom={locked && !onOverwrite ? undefined : (
           <div className="app-no-drag shell-bottom">
-            {above}
+            {!bare && above}
             <ToolPill label="View">
               <IconButton icon="fit" label="Fit view" onClick={onFit} disabled={!onFit} />
-              {tools}
-              {onOverwrite && <Button variant="quiet" className="kit-btn kit-btn-quiet overwrite-from-model" onClick={onOverwrite}>Overwrite from model</Button>}
-              {command ? <CommandLine command={command} /> : <span className="shell-bottom-spacer" />}
+              {!bare && tools}
+              {!bare && onOverwrite && <Button variant="quiet" className="kit-btn kit-btn-quiet overwrite-from-model" title="The model file changed since it was locked. Lock it again from the file (this replaces the locked values)." onClick={onOverwrite}>Update from model file</Button>}
+              {bare ? null : command ? <CommandLine command={command} /> : <span className="shell-bottom-spacer" />}
             </ToolPill>
           </div>
         )}
+        bottomRight={locked || center ? undefined : <div className="app-no-drag"><ToolPill label="Panels"><Button variant="quiet" aria-pressed={bare} onClick={() => setHide(!bare)}>◐ {bare ? "Show" : "Hide"} panels</Button></ToolPill></div>}
       >
         {center && <div className="shell-floor" />}
-        <div className="shell-scene">{typeof scene === "function" ? scene(inset) : scene}</div>
+        <div className="shell-scene" onPointerDown={() => setHinted(true)} onWheel={() => setHinted(true)}>{typeof scene === "function" ? scene(inset) : scene}</div>
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{sceneSummary ?? ""}</div>
+        {/* centred on the uncovered canvas, so a side panel never hides its end */}
+        {!locked && !bare && !hinted && <div className="shell-hint" style={{ left: `calc(50% + ${(inset.left - inset.right) / 2}px)` }}>{VIEW_HINT}</div>}
         {center && <div className="shell-center">{center}</div>}
-        {notices && <div className="shell-notices">{notices}</div>}
+        {/* same uncovered canvas: a notice never sits on the side panel's verdict */}
+        {notices && <div className="shell-notices" style={{ left: `calc(50% + ${(inset.left - inset.right) / 2}px)`, maxWidth: `calc(100% - ${inset.left + inset.right}px)` }}>{notices}</div>}
       </Workspace>
       {drawer}
     </div>

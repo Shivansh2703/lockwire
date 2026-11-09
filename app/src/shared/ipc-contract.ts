@@ -20,6 +20,9 @@ export const ASSISTANT_EVENT_CHANNEL = "lockwire:assistant-event";
 // ({ type: "exit", code }).
 export const TERMINAL_EVENT_CHANNEL = "lockwire:terminal-event";
 
+// main -> renderer push: the Agent tab's stream ({ contract, event: AgentEvent }).
+export const AGENT_EVENT_CHANNEL = "lockwire:agent-event";
+
 export const PERMITTED_COMMAND_CLASSES = [
   "contract:edit",
   "contract:write",
@@ -38,6 +41,7 @@ export const PERMITTED_COMMAND_CLASSES = [
   "file:new-robot",
   "file:starters",
   "file:choose-plan",
+  "file:choose-package-folder",
   "sidecar:state",
   "sidecar:restart",
   "assistant:settings-get",
@@ -49,6 +53,8 @@ export const PERMITTED_COMMAND_CLASSES = [
   "terminal:write",
   "terminal:resize",
   "terminal:kill",
+  "agent:start",
+  "agent:stop",
 ] as const;
 
 export type CommandClass = (typeof PERMITTED_COMMAND_CLASSES)[number];
@@ -159,6 +165,13 @@ export type AssistantProposal = { id: string; command: string; args: Record<stri
 export type AssistantTurn = { text: string; proposals: AssistantProposal[]; error?: string };
 export type AssistantApplyResult = { ok: true } | { ok: false; error: string };
 export type AssistantEvent = { type: "tool"; name: string } | { type: "done"; turn: AssistantTurn };
+
+// The Agent tab (main/agent.ts): reads and proposes, streamed; `tools` is the session's live tool list.
+// `proposal` is held in the Assistant's store: "Review and sign" hands it to the Assistant tab's card. `usage` is the plain cost line.
+export type AgentEvent =
+  | { type: "text"; text: string } | { type: "tool"; name: string } | { type: "tools"; tools: string[] }
+  | { type: "proposal"; proposal: AssistantProposal; check: string } | { type: "done"; error?: string; usage?: string };
+export type AgentPush = { contract: string; event: AgentEvent };
 
 export type TerminalStartRequest = { cols: number; rows: number; /** The open robot's folder; main falls back to home. */ cwd?: string };
 export type TerminalEvent = { type: "data"; data: string } | { type: "exit"; code: number };

@@ -41,6 +41,14 @@ class Counts(_Strict):
 VerdictWord = Literal["REFUSED", "NO-GO", "GO_WITH_NOTES", "GO", "NOT_SCORED"]
 
 
+class NotCompared(_Strict):
+    """One thing the run could not judge (``report.not_compared``)."""
+
+    quantity: str
+    reason: str
+    next_command: str | None
+
+
 class _VerdictDocument(_Document):
     """``api.verdict_document``, field for field — the one function behind
     ``check`` and ``plan``, so one model behind both members."""
@@ -51,6 +59,7 @@ class _VerdictDocument(_Document):
     counts: Counts
     scored: int | None
     findings: list[Finding]
+    not_compared: list[NotCompared] = []
 
 
 class Instead(_Strict):

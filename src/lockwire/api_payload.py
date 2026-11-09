@@ -240,6 +240,8 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "Counts.violation": _build_kind_declaration("derived", "report.verdict"),
     "Counts.warning": _build_kind_declaration("derived", "report.verdict"),
     "Counts.not_scored": _build_kind_declaration("derived", "report.verdict"),
+    "MeshGap.missing": _build_kind_declaration("derived", "start_operation._find_meshes"),
+    "MeshGap.total": _build_kind_declaration("derived", "start_operation._find_meshes"),
     # --- the Add part picker: a catalog number; its own `kind` field says datasheet or assumed
     "AddPartNumber.value": _build_kind_declaration(
         "catalog", "catalog.SourcedNumber", mark="catalog"
@@ -427,7 +429,7 @@ class RobotJoint(_Strict):
     """A model joint with its frame in the single robot frame (parent chain composed)."""
 
     name: str
-    type: Literal["fixed", "revolute", "continuous", "prismatic", "floating", "planar"]
+    type: Literal["fixed", "revolute", "continuous", "prismatic", "floating", "planar", "ball"]
     parent: str
     child: str
     parent_name: str  # copy.human_name of parent / child: what the app calls the two links
@@ -475,6 +477,8 @@ class Card(_Strict):
     quantity: str | None = None
     #: The first finding's owner, so an owner pill can select that owner's card.
     owner: str | None = None
+    #: The physical thing this card shares with others (a rail): the app shows them as one row.
+    cluster_root: str | None = None
 
 
 class AddsUpRow(_Strict):
@@ -838,11 +842,20 @@ class DeclareFormPayload(_Strict):
 # --------------------------------------------------------------------- the page
 
 
+class MeshGap(_Strict):
+    """Mesh files `start` could not find inside the robot's package folder."""
+
+    missing: int
+    total: int
+    example: str
+
+
 class StartPayload(_Strict):
     path: str
     revision: str
     written: bool
     note: str | None = None
+    mesh_gap: MeshGap | None = None
 
 
 class Starter(_Strict):
@@ -855,6 +868,17 @@ class Starter(_Strict):
 
 class StartersPayload(_Strict):
     starters: list[Starter]
+
+
+class AcceptedRow(_Strict):
+    """A finding the lockfile accepted on record: the Check panel's muted Accepted rows."""
+
+    title: str
+    observed: str
+    reason: str
+    #: Who signed the acceptance (its provenance witness).
+    witness: str
+    date: str
 
 
 class PagePayload(_Strict):
@@ -876,6 +900,9 @@ class PagePayload(_Strict):
     unchecked: int
     adds_up: list[AddsUpRow]
     cards: list[Card]
+    accepted: list[AcceptedRow] = []
+    #: The model file no longer matches its lock (`checks.is_lock_drift`): only re-locking clears it.
+    model_changed: bool = False
     joints: list[RobotJoint]
     links: list[RobotLink]
     graph: Graph
