@@ -22,6 +22,11 @@ machine, in CI and inside your AI coding agent.
 - [CI](ci.md): the GitHub Action and every input, adopt mode, pre-commit.
 - [AI coding agents](agents.md): MCP setup for each agent, the edit hook, the plugin, the rules.
 - [Every check](checks.md): what each check compares, generated from the code.
-- [ROS 2](ros2.md): start from a bag: `bag inspect`, three contract lines, `bag check`; then live.
-- [Preflight](preflight.md): the powered-on robot gate: `preflight`, recordings, baselines and drift.
+- [The parts list](parts.md): cited and unverified parts, your own parts, adding one.
+- [Part swap](part-swap.md): which servo can replace the one on a joint, and what it does to the joints above.
+- [Servo recorder](servo-recorder.md): record Feetech and Dynamixel servos, read-only.
 - [The MCP server](../mcp_server.md): the tools an agent can call.
+
+The powered-on preflight gate, recordings, baselines, health, ROS 2 bags, fleet drift and the other Pro
+commands (`lockwire help --all` lists them) are Lockwire Pro, waitlist only:
+https://lockwirerobotics.com.

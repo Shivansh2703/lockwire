@@ -28,7 +28,7 @@ def rules() -> str:
 
 
 PRE_COMMIT = r"""  - repo: https://github.com/Shivansh2703/lockwire
-    rev: v0.2.6
+    rev: v0.2.7
     hooks:
       - id: lockwire-check
         files: (?i)(\.(urdf|xacro|sdf)|(^|/)lockwire\.ya?ml)$
@@ -45,14 +45,26 @@ jobs:
           contract: lockwire.yaml
 """
 # $0 is the interpreter. Same gate as plugin/hooks/hook-check.sh: model files only, any case.
-GUARD = (
+_GATE = (
     'p=$(cat); case $(printf %s "$p" | tr "[:upper:]" "[:lower:]") in'
     ' *.urdf\\"* | *.sdf\\"* | *.xacro\\"* | *lockwire.yaml\\"*) ;; *) exit 0 ;; esac;'
-    ' [ -x "$0" ] || { echo "lockwire: hook interpreter is gone; re-run lockwire agent-setup'
-    ' --claude" >&2; exit 2; };'
-    ' printf %s "$p" | "$0" -m lockwire hook-check && exit 0;'
+)
+_CRASH = (
     ' [ $? = 2 ] || echo "lockwire hook-check crashed (see above); re-run lockwire agent-setup'
     ' --claude" >&2; exit 2'
+)
+GUARD = (
+    _GATE
+    + ' [ -x "$0" ] || { echo "lockwire: hook interpreter is gone; re-run lockwire agent-setup'
+    ' --claude" >&2; exit 2; };'
+    ' printf %s "$p" | "$0" -m lockwire hook-check && exit 0;' + _CRASH
+)
+# An interpreter inside uv's cache (uvx) is gone after a cache clean or on a teammate's machine,
+# so name the command instead: `lockwire` on PATH, else `uvx lockwire`.
+GUARD_PORTABLE = (
+    _GATE + ' if command -v lockwire >/dev/null; then printf %s "$p" | lockwire hook-check;'
+    ' elif command -v uvx >/dev/null; then printf %s "$p" | uvx lockwire hook-check;'
+    ' else echo "lockwire: neither lockwire nor uvx is on PATH" >&2; exit 2; fi && exit 0;' + _CRASH
 )
 
 
@@ -63,12 +75,14 @@ def agent_setup(root: Path, *, ci_only: bool = False) -> list[str]:
     def put(name: str, text: str, *, append: bool = False, head: str = "") -> None:
         # ponytail: fixed names under root, so no `confine` (it refuses .yaml targets by design).
         path = root / name
-        old = path.read_text() if path.exists() else None
+        old = path.read_text(encoding="utf-8") if path.exists() else None
         if old is not None and (not append or text.split("\n")[0] in old):
             lines.append(f"kept {name}")
             return
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(head + text if old is None else old.rstrip("\n") + "\n\n" + text)
+        path.write_text(
+            head + text if old is None else old.rstrip("\n") + "\n\n" + text, encoding="utf-8"
+        )
         lines.append(f"wrote {name}")
 
     for name in () if ci_only else ("CLAUDE.md", "AGENTS.md"):
@@ -87,9 +101,15 @@ def claude_hook(root: Path) -> str:
     install there exits 1, and Claude Code lets an edit through on any exit but 2. GUARD passes
     other files untouched and turns a gone interpreter (a cleaned uvx cache) or a crash into 2.
     """
-    command = cli_line("sh", "-c", GUARD, sys.executable)
+    uvx = any(
+        p.startswith(("archive-v", "environments-v", "builds-v"))
+        for p in Path(sys.executable).parts
+    )
+    command = (
+        cli_line("sh", "-c", GUARD_PORTABLE) if uvx else cli_line("sh", "-c", GUARD, sys.executable)
+    )
     path = root / ".claude" / "settings.json"
-    settings = json.loads(path.read_text()) if path.exists() else {}
+    settings = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     groups = settings.setdefault("hooks", {}).setdefault("PreToolUse", [])
     ours = [
         h
@@ -106,7 +126,7 @@ def claude_hook(root: Path) -> str:
             {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": command}]}
         )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(settings, indent=2) + "\n")
+    path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     return (
         f"wrote .claude/settings.json (edit hook: {command}; to remove it, delete the "
         "PreToolUse entry whose command contains `lockwire hook-check`)"

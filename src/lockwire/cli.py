@@ -12,6 +12,7 @@ optional extra, imported lazily so a plain install never needs it.
 """
 
 import datetime as dt
+import hashlib
 import io
 import json
 import os
@@ -23,6 +24,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from ruamel.yaml import YAML, YAMLError
 from typer.core import TyperArgument, TyperCommand, TyperGroup, TyperOption
@@ -30,8 +32,8 @@ from typer.core import TyperArgument, TyperCommand, TyperGroup, TyperOption
 from lockwire import __version__, export_mhs, gitref
 from lockwire import api, plugins
 from lockwire.bench import DEFAULT_CORPUS_PATH, format_report, load_corpus, run_bench
-from lockwire.catalog import load_robots, recognise
-from lockwire.checks import is_lock_drift, run_record_checks, servo_stall_torque
+from lockwire.catalog import load_catalog, load_robots, recognise
+from lockwire.checks import is_lock_drift, run_record_checks, servo_stall_torque, shown_path
 from lockwire.confine import confine
 from lockwire.cli_line import argv_from_context, cli_line, cli_line as build_cli_line
 from lockwire.describe import describe_all, describe_device, describe_system
@@ -54,7 +56,6 @@ from lockwire.factdiff import fact_diff, load_contract_text, render_lines
 from lockwire.hw import record_hardware_change
 from lockwire.plan import load_plan, validate_plan
 from lockwire.report import (
-    VERDICT_EXIT_CODES,
     RecordReport,
     exit_code_help,
     render,
@@ -78,13 +79,14 @@ from lockwire.scene_import import (
 from lockwire.schema import (
     ArtifactRef,
     Contract,
+    ContractError,
     RobotInfo,
     UnsupportedSchemaVersion,
     save_contract,
 )
 from lockwire.schema import load_contract as _load_contract_lib
 from lockwire.sdf import parse_sdf
-from lockwire.urdf import _refuse_doctype_entity, parse_urdf, robot_name
+from lockwire.urdf import ModelDefect, _refuse_doctype_entity, parse_urdf, robot_name
 
 
 class _TildeGroup(TyperGroup):
@@ -159,9 +161,10 @@ catalog_app = typer.Typer(cls=_TildeGroup, help="The bundled catalog: robots wit
 app.add_typer(catalog_app, name="catalog", hidden=True)
 
 DEFAULT_CONTRACT = Path("lockwire.yaml")
+_UPGRADE_HINT = "`lockwire upgrade` writes a 0.6 copy"
 
 
-def load_contract(path: Path) -> Contract:
+def load_contract(path: Path, out: Console = console) -> Contract:
     """The door onto ``schema.load_contract`` for every command that loads one
     itself.
 
@@ -186,11 +189,31 @@ def load_contract(path: Path) -> Contract:
     try:
         return _load_contract_lib(path)
     except UnsupportedSchemaVersion as error:
-        console.print(f"[bold red]REFUSED[/] — {error}")
+        out.print(f"[bold red]REFUSED[/] — {error}")
+        raise typer.Exit(2) from error
+    except ContractError as error:  # the user's file, not a lockwire bug: plain lines, exit 2
+        for line in error.lines:
+            if _UPGRADE_HINT in line:
+                shown = shown_path(path)
+                copy = str(Path(shown).with_suffix("")) + ".0.6" + Path(shown).suffix
+                sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                line = line.replace(
+                    _UPGRADE_HINT,
+                    "run "
+                    + cli_line(
+                        "lockwire", "upgrade", shown, "--out", copy, "--expected-revision", sha
+                    ),
+                )
+            out.print(escape(line), soft_wrap=True, highlight=False)
         raise typer.Exit(2) from error
 
 
-def _robot_by_name(word: Path, code: int) -> Path | None:
+def _not_found(path: Path) -> str:
+    """Why a model path cannot be opened: a dangling or looping symlink is not "not found"."""
+    return "broken or looping symlink" if path.is_symlink() else "file not found"
+
+
+def _robot_by_name(word: Path, code: int, out: Console = console) -> Path | None:
     """A bare word that is no file is a robot name, e.g. `lockwire check go2`."""
     if word.exists() or str(word) != word.stem:
         return None
@@ -199,20 +222,59 @@ def _robot_by_name(word: Path, code: int) -> Path | None:
     try:
         return robot_by_name(word.name)
     except LookupError as error:
-        console.print(str(error), style="red", markup=False)
+        out.print(str(error), style="red", markup=False)
         raise typer.Exit(code) from error
 
 
-def _refused(command: str, error: Exception) -> None:
+def plain_os_error(error: OSError) -> str:
+    """A file-system failure as one plain line naming the real file (never a temp file)."""
+    where = Path(str(error.filename2 or error.filename or "")).expanduser()
+    if where.name.startswith("."):  # a temp file beside the target: name the folder instead
+        where = where.parent
+    shown = shown_path(where) if str(where) else "the file"
+    if shown == ".":
+        shown = "this folder"
+    if isinstance(error, FileExistsError):
+        return f"{shown} already exists and is never overwritten; pick another name"
+    if isinstance(error, FileNotFoundError):
+        more = ", or make one with lockwire start <robot.urdf>" if shown.endswith(".yaml") else ""
+        return f"{shown} was not found; check the path{more}"
+    if isinstance(error, IsADirectoryError):
+        return f"{shown} is a folder, not a file; give a file inside it"
+    if isinstance(error, PermissionError) or error.errno == 30:  # 30: read-only file system
+        return (
+            f"cannot write to {shown}: it is read-only or not yours; pick a folder you can write to"
+        )
+    return f"{shown}: {error.strerror or error}"
+
+
+def _xacro_args(items: list[str], out: Console) -> dict[str, str]:
+    """`--xacro-arg name=value` as a dict; a bare word is refused in one line, never dropped."""
+    bad = next((a for a in items if "=" not in a), None)
+    if bad is not None:
+        out.print(f"--xacro-arg must look like name=value, not {escape(repr(bad))}")
+        raise typer.Exit(2)
+    return dict(a.split("=", 1) for a in items)
+
+
+def _why(error: Exception) -> str:
+    return plain_os_error(error) if isinstance(error, OSError) else str(error)
+
+
+def _refused(command: str, error: Exception, out: Console = console) -> None:
     """Print one command failure line: REFUSED when the contract declares a
     schema_version this lockwire cannot read, the command's own "<cmd> failed:"
     line otherwise. For the commands that load their contract inside a library
     (`sample`, `declare`, `apply`, `add`) rather than through ``load_contract``.
     """
     if isinstance(error, UnsupportedSchemaVersion):
-        console.print(f"[bold red]REFUSED[/] — {error}")
+        out.print(f"[bold red]REFUSED[/] — {error}")
+    elif isinstance(error, ContractError):
+        for line in error.lines:
+            out.print(escape(line), soft_wrap=True, highlight=False)
     else:
-        console.print(f"[red]{command} failed:[/] {error}")
+        why = plain_os_error(error) if isinstance(error, OSError) else error
+        out.print(f"[red]{command} failed:[/] {escape(str(why))}")
 
 
 # invoke_without_command is what lets `--version` run at all: without it Click fails on
@@ -439,10 +501,18 @@ def start(
             if force or not contract.exists():
                 urdf = copy_beside(named, contract.resolve().parent, name)
         except ValueError as error:
-            console.print(f"[red]start failed:[/] {error}", soft_wrap=True)
+            console.print(f"[red]start failed:[/] {escape(_why(error))}", soft_wrap=True)
             raise typer.Exit(1) from error
         cache_note = " The meshes stay in the robot_descriptions cache."
-    if urdf is None or not urdf.is_file():
+    if urdf is not None and not urdf.is_file():
+        console.print(f"[red]{_not_found(urdf)}: {urdf}[/]", highlight=False)
+        raise typer.Exit(2)
+    if urdf is not None and urdf.suffix.lower() in (".yaml", ".yml"):
+        console.print(
+            f"{urdf} is not a URDF, xacro or SDF file; to check a lockfile: lockwire check {urdf}"
+        )
+        raise typer.Exit(1)
+    if urdf is None:
         console.print(
             "[red]give your robot's URDF/SDF, or --example <name> (try --example servo-bench,"
             " built to fail on purpose to show a catch)[/]"
@@ -450,13 +520,15 @@ def start(
         raise typer.Exit(1)
     from lockwire.start_operation import start_contract
 
+    existed = contract.exists()
+    result: dict = {"written": False}
     try:
         result = start_contract(
             urdf,
             out=contract,
             overwrite=force and contract.exists(),
             expected_revision=contract_revision(contract) if force and contract.exists() else None,
-            xacro_args=dict(a.split("=", 1) for a in xacro_arg if "=" in a),
+            xacro_args=_xacro_args(xacro_arg, console),
         )
         if mass and result["written"]:
             from lockwire.start_operation import add_mass_check
@@ -466,12 +538,16 @@ def start(
             )
     # exit 1 is `start`'s documented code for a URDF/SDF that cannot be parsed (EXIT_CODE_TABLE).
     except (OSError, SyntaxError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]start failed:[/] {error}")
+        if result["written"] and not existed:
+            contract.unlink(missing_ok=True)  # a failed start leaves no new lockfile behind
+        console.print(f"[red]start failed:[/] {escape(_why(error))}")
         raise typer.Exit(1) from error
     try:
         model = load_contract(contract).model
     except (OSError, SyntaxError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]start failed:[/] {error}")
+        if result["written"] and not existed:
+            contract.unlink(missing_ok=True)
+        console.print(f"[red]start failed:[/] {escape(_why(error))}")
         raise typer.Exit(1) from error
     if not result["written"]:
         console.print(
@@ -513,7 +589,7 @@ def init(
     try:
         model = _parse_model_file(urdf, out)
     except (SyntaxError, ValueError) as error:  # SyntaxError: ET.ParseError on malformed XML
-        console.print(f"[red]init failed:[/] {error}")
+        console.print(f"[red]init failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     contract = Contract(robot=RobotInfo(name=robot or robot_name(urdf)), model=model)
     _require_folder(out)
@@ -537,7 +613,7 @@ def init(
 )
 def upgrade_cmd(
     contract: Path = typer.Argument(
-        ..., help="Legacy 0.2, 0.3 or 0.4 contract to retain unchanged."
+        ..., help="Legacy 0.2, 0.3, 0.4 or 0.5 contract to retain unchanged."
     ),
     out: Path = typer.Option(..., "--out", help="New contract path; never overwritten."),
     expected_revision: str = typer.Option(
@@ -636,8 +712,10 @@ def check(
     ),
 ) -> None:
     """Start here: check a robot model (URDF, xacro, SDF) and print a verdict."""
+    # `--json -` makes stdout exactly one JSON document; the human report and errors go to stderr.
+    out = Console(stderr=True) if str(json_out) == "-" else console
     if output_format not in ("text", "github"):
-        console.print(f"[red]unknown --format {output_format}[/] — use text or github")
+        out.print(f"[red]unknown --format {output_format}[/] — use text or github")
         raise typer.Exit(2)
     import tempfile
 
@@ -647,14 +725,37 @@ def check(
         contract if contract.suffix.lower() in MODEL_SUFFIXES and contract.is_file() else None
     )
     shown = None  # the robot name as typed, when the model came from robot_descriptions
-    if model_file is None and (model_file := _robot_by_name(contract, 2)):
+    if model_file is None and (model_file := _robot_by_name(contract, 2, out)):
         shown = contract.name
+    given = [
+        f
+        for f, v in (
+            ("--mass", mass),
+            ("--source", source),
+            ("--witness", witness),
+            ("--xacro-arg", xacro_arg),
+            ("--lock", lock),
+        )
+        if v
+    ]
+    if model_file is None and given:
+        out.print(
+            f"{', '.join(given)} works on a model file only: lockwire check <robot.urdf> "
+            f"{given[0]} ...",
+            highlight=False,
+            markup=False,
+        )
+        raise typer.Exit(2)
+    if contract.is_dir():
+        out.print(f"'{contract}' is a folder; pass the lockfile or model inside it")
+        raise typer.Exit(2)
+    warned: list[str] = []
     if model_file is not None:
         folder = lock.parent if lock else Path(tempfile.mkdtemp(prefix="lockwire-"))
         if not lock:
             ctx.call_on_close(lambda: shutil.rmtree(folder, ignore_errors=True))
         elif lock.exists():
-            console.print(f"[red]{lock} exists[/] — pick a new --lock path")
+            out.print(f"[red]{lock} exists[/] — pick a new --lock path")
             raise typer.Exit(2)
         try:
             contract = model_lock(
@@ -664,21 +765,34 @@ def check(
                 source=source,
                 tolerance_pct=tolerance_pct,
                 witness=witness,
-                xacro_args=dict(a.split("=", 1) for a in xacro_arg if "=" in a),
+                xacro_args=_xacro_args(xacro_arg, out),
+                warnings=warned,
             )
             if lock:
                 contract = contract.rename(lock)
+        except ModelDefect as error:  # a real defect in the model: NO-GO, not a tool failure
+            from lockwire.start_operation import defect_report
+
+            _write_document(json_out, api.defect_document(model_file, error), model_file)
+            raise typer.Exit(render(defect_report(error), out, unlocked=True)) from error
         except (OSError, SyntaxError, TypeError, ValueError, YAMLError) as error:
-            console.print(f"[red]check failed:[/] {error}")
+            out.print(f"[red]check failed:[/] {escape(_why(error))}")
             raise typer.Exit(2) from error
     if not contract.exists():
-        console.print(f"[red]no contract at {contract}[/] — run `lockwire start <urdf>` first")
+        if contract.suffix.lower() in MODEL_SUFFIXES:
+            out.print(f"[red]{_not_found(contract)}: {contract}[/]", highlight=False)
+            raise typer.Exit(2)
+        out.print(
+            f"[red]no contract at {contract}[/] — run `lockwire start <urdf>` first, "
+            "check a model directly: `lockwire check robot.urdf`, "
+            "or try `lockwire start --example`"
+        )
         raise typer.Exit(2)
     try:
-        loaded = load_contract(contract)
+        loaded = load_contract(contract, out)
         if plugins.FAILED and loaded.actuator_cases:
             gone = plugins.FAILED[0]
-            console.print(
+            out.print(
                 f"[red]check refused:[/] this contract needs the recording checks, which did not load "
                 f"({gone.name or gone}) - fix that install and run again"
             )
@@ -689,10 +803,11 @@ def check(
         )
         links = [link.name for link in loaded.model.links] if loaded.model else []
         robot = recognise(loaded.robot.name, links, robot_model)
+        load_catalog()  # a bad ~/.lockwire/parts.yaml stops here as one line, not mid-check
         if servo:
             servo_stall_torque(servo)  # an unknown id stops here, before any verdict
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]check failed:[/] {error}")
+        out.print(f"[red]check failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     findings = run_record_checks(
         loaded,
@@ -704,11 +819,18 @@ def check(
         servo=servo,
     )
     if model_file is not None:
-        from lockwire.start_operation import drop_same_figure, typed_paths
+        from lockwire.start_operation import (
+            drop_same_figure,
+            typed_paths,
+            warning_findings,
+            zero_if_nothing_compared,
+        )
 
+        findings += warning_findings(warned)
         if not lock:
             typed_paths(findings, contract, model_file, shown)
         drop_same_figure(findings, mass)
+        zero_if_nothing_compared(findings)
     else:
         from lockwire.start_operation import accept_hint
 
@@ -734,8 +856,10 @@ def check(
         _require_folder(target)
         badge = datasheet_badge(robot, findings, findings.scored_keys or frozenset())
         target.write_text(json.dumps(badge) + "\n", encoding="utf-8")
-    # `--json -` makes stdout exactly one JSON document; the human report goes to stderr.
-    out = Console(stderr=True) if str(json_out) == "-" else console
+    if servo and model_file is None and loaded.servo is None:
+        out.print(
+            f"to keep this servo, add this line to {contract}: servo: {servo}", highlight=False
+        )
     if write_baseline is not None:
         _require_folder(write_baseline)
         rows = sorted({(f.quantity, f.observed) for f in findings if not is_lock_drift(f)})
@@ -744,12 +868,15 @@ def check(
         out.print(f"wrote {write_baseline} ({len(rows)} findings)", highlight=False, markup=False)
     try:
         known = (
-            {(r["id"], r["observed"]) for r in json.loads(baseline.read_text())["findings"]}
+            {
+                (r["id"], r["observed"])
+                for r in json.loads(baseline.read_text(encoding="utf-8"))["findings"]
+            }
             if baseline
             else set()
         )
     except (OSError, ValueError, KeyError, TypeError) as error:
-        console.print(f"[red]check failed:[/] baseline {baseline}: {error}")
+        out.print(f"[red]check failed:[/] baseline {baseline}: {escape(_why(error))}")
         raise typer.Exit(2) from error
     prefixes = tuple(p.strip() for p in (adopt or "").split(",") if p.strip())
     # Lock drift is always new and never adopted: only a re-lock clears it.
@@ -806,7 +933,7 @@ def check(
 
     passed = [_scored_title(loaded, r) for r in getattr(findings, "scored_records", [])]
     if passed:
-        out.print(f"Passed: {len(passed)} checks", highlight=False)
+        out.print(f"Passed: {len(passed)} check{'s' * (len(passed) != 1)}", highlight=False)
         for title in passed if not more else ():
             out.print(f"  {title}", highlight=False, markup=False)
     if model_file is not None and robot is None:
@@ -817,10 +944,8 @@ def check(
             markup=False,
         )
     if model_file is not None:
-        # a fresh lock agrees with its own file: that hash match compares nothing
-        if code == 0 and not set(findings.scored_keys or ()) - {"model/structure_hash"}:
-            out.print("NOT SCORED — nothing was compared; add --mass '<datasheet mass>' to compare")
-            code = VERDICT_EXIT_CODES["NOT_SCORED"]
+        if findings.scored == 0 and code != 1:
+            out.print("nothing was compared; add --mass '<datasheet mass>' to compare")
         target = DEFAULT_CONTRACT if shown else model_file.parent / DEFAULT_CONTRACT
         beside = cli_line(
             "lockwire",
@@ -839,7 +964,7 @@ def check(
         for line in github_output([*counting, *demoted], model_file or contract):
             typer.echo(line, err=str(json_out) == "-")
         if os.environ.get("GITHUB_STEP_SUMMARY"):
-            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
                 summary.write(github_summary(counting, code))
     raise typer.Exit(code)
 
@@ -872,7 +997,7 @@ def check_sim_cmd(
         loaded = load_contract(contract)
         findings, document = sim_document(sim_file, loaded, contract)
     except (OSError, ET.ParseError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]check-sim failed:[/] {error}")
+        console.print(f"[red]check-sim failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     _write_document(json_out, document, contract)
     out = Console(stderr=True) if str(json_out) == "-" else console
@@ -942,13 +1067,13 @@ def plan_cmd(
         loaded_contract = load_contract(contract)
         loaded_plan = load_plan(plan)
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]plan check failed:[/] {error}")
+        console.print(f"[red]plan check failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     findings = validate_plan(loaded_contract, loaded_plan)
     _write_document(
         json_out, plugins.pick("plan", api.plan)(loaded_contract, loaded_plan), contract
     )
-    raise typer.Exit(render(findings, console))
+    raise typer.Exit(render(findings, Console(stderr=True) if str(json_out) == "-" else console))
 
 
 @app.command(
@@ -968,14 +1093,22 @@ def bench_cmd(
     ),
 ) -> None:
     """Run `tests/fixtures/bench/corpus.yaml` (by default) against `contract`."""
-    if not contract.exists() or not corpus.exists():
-        console.print("[red]contract or corpus file not found[/]")
+    if not corpus.exists():
+        hint = (
+            "the benchmark corpus ships only in the source repo; pass your own with --corpus"
+            if corpus == DEFAULT_CORPUS_PATH
+            else "corpus file not found"
+        )
+        console.print(f"[red]{hint}[/]")
+        raise typer.Exit(2)
+    if not contract.exists():
+        console.print("[red]contract file not found[/]")
         raise typer.Exit(2)
     try:
         loaded_contract = load_contract(contract)
         cases = load_corpus(corpus)
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]bench failed:[/] {error}")
+        console.print(f"[red]bench failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     result, _sink = run_bench(loaded_contract, cases)
     console.print(format_report(result, corpus))
@@ -1023,7 +1156,7 @@ def report(
     try:
         loaded = load_contract(contract)
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]report failed:[/] {error}")
+        console.print(f"[red]report failed:[/] {escape(_why(error))}")
         raise typer.Exit(1) from error
     # Announces/refuses the scene for CLI parity; the printable report
     # does not yet draw it — that is the 3D renderer's ticket, not this one's.
@@ -1039,7 +1172,7 @@ def report(
             loaded, target, contract_path=contract, redact_paths=redact_paths, cli_line=cli_line
         )
     except OSError as error:  # tool failure, one line
-        console.print(f"[red]report failed:[/] could not write {out}: {error.strerror or error}")
+        console.print(f"[red]report failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     console.print(f"[green]wrote {out}[/]")
 
@@ -1061,7 +1194,7 @@ def describe(
     try:
         loaded = load_contract(contract)
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]describe failed:[/] {error}")
+        console.print(f"[red]describe failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
 
     if out is None:
@@ -1080,7 +1213,7 @@ def describe(
         for target, content in targets.items():
             target.write_text(content, encoding="utf-8")
     except OSError as error:
-        console.print(f"[red]describe failed:[/] could not write to {out}: {error}")
+        console.print(f"[red]describe failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
 
     for name in sorted(files):
@@ -1105,7 +1238,7 @@ def export_cmd(
     try:
         loaded = load_contract(contract)
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]export failed:[/] {error}")
+        console.print(f"[red]export failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     console.print_json(data=export_mhs.export_mhs(loaded))
 
@@ -1124,7 +1257,7 @@ def import_cmd(
     """Refused: importing a third-party manifest into a contract is not built."""
     console.print(
         "[bold red]REFUSED[/] — The inbound direction — importing a third-party manifest "
-        "into a contract — is refused until Anthropic publishes the standard; import is "
+        "into a contract — is refused until a standard manifest format exists; import is "
         "where lock-in happens."
     )
     raise typer.Exit(2)
@@ -1140,7 +1273,7 @@ def scan(
     try:
         draft = scan_machine(robot)
     except UnsupportedPlatformError as error:
-        console.print(f"[red]scan failed:[/] {error}")
+        console.print(f"[red]scan failed:[/] {escape(_why(error))}")
         raise typer.Exit(1) from error
 
     yaml = YAML()
@@ -1240,7 +1373,7 @@ def scene_import_cmd(
     try:
         loaded_contract = load_contract(contract)
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]scene import failed:[/] {error}")
+        console.print(f"[red]scene import failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     link_based = scene.suffix.lower() in (".urdf", ".sdf", ".xacro")
     try:
@@ -1261,7 +1394,7 @@ def scene_import_cmd(
             link_based=link_based,
         )
     except SceneImportRefusal as error:
-        console.print(f"[red]scene import failed:[/] {error}")
+        console.print(f"[red]scene import failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
 
     if result.explanation is not None:
@@ -1288,7 +1421,7 @@ def scene_import_cmd(
         else:
             write_change_file(result.entries, out, scene_source=loaded_scene.source)
     except (EditRefusal, SceneImportRefusal, OSError, YAMLError) as error:
-        console.print(f"[red]scene import failed:[/] {error}")
+        console.print(f"[red]scene import failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     console.print(f"wrote {out} ({len(result.entries)} placements, witness {witness})")
 
@@ -1362,7 +1495,7 @@ def hw(
             rail=rail,
         )
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]hw failed:[/] {error}")
+        console.print(f"[red]hw failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
 
     qty = ", ".join(str(q) for q in event.quantities) if event.quantities else "(none parsed)"
@@ -1493,6 +1626,71 @@ def accept_cmd(
         _refused("accept", error)
         raise typer.Exit(2) from error
     _print_edit_result(result)
+
+
+@app.command("swap", hidden=True)
+def swap_cmd(
+    contract: Path = typer.Argument(..., help="Lockfile to read."),
+    joint: str = typer.Argument(..., help="The revolute/continuous joint whose servo to swap."),
+    use: str | None = typer.Option(
+        None, "--use", help="Write this catalog servo for the joint (without it: preview only)."
+    ),
+) -> None:
+    """Rank catalog servos for one joint by its real gravity load, and show the joints above it."""
+    from lockwire.swap import apply_swap, preview, shown_ratio
+
+    if not contract.is_file():
+        console.print(f"no contract at {escape(str(contract))} — run `lockwire start <urdf>` first")
+        raise typer.Exit(2)
+    try:
+        if use is None:
+            pv = preview(load_contract(contract), joint)
+        else:
+            pv, result = apply_swap(
+                contract, joint, use, expected_revision=contract_revision(contract)
+            )
+    except (EditRefusal, UnsupportedSchemaVersion, OSError, YAMLError, ValueError) as error:
+        _refused("swap", error)
+        raise typer.Exit(2) from error
+    console.print(
+        f"{joint}: {pv.current or 'no servo declared'}, gravity load {pv.load:.2f} N*m (fit = stall >= 2x load)"
+    )
+    if not pv.candidates:
+        console.print("no cited alternatives yet")
+        return
+    colour = {"fit": "green", "tight": "yellow", "too weak": "red"}
+
+    def times(r: float) -> str:
+        return f"{shown_ratio(r):.1f}x" if r < 100 else ">100x"
+
+    for x in pv.candidates:
+        flags = f"  [yellow]{', '.join(x.flags)}[/]" if x.flags else ""
+        console.print(
+            f"  [{colour[x.status]}]{x.status:<8}[/] {x.id:<22} {x.label:<10} "
+            f"{x.stall:.2f} N*m  {times(x.ratio)}  {x.mass_g:g} g{flags}"
+        )
+    c = pv.chosen
+    console.print(f"With {c.id} ({pv.delta_g:+g} g on {joint}'s child link), the joints above:")
+    for k in pv.knock_on:
+        if k.before is None or k.after is None:
+            console.print(f"  {k.joint} load not scored")
+            continue
+        line = f"  {k.joint} {k.before:.2f} → {k.after:.2f} N*m"
+        if k.status is not None:
+            line += (
+                f", [bold red]warning: now {k.status}[/] ({times(k.ratio)}), was {k.was}"
+                if k.dropped
+                else f", still {k.status} ({times(k.ratio)})"
+            )
+        console.print(line)
+    if use is None:  # with --use the notes print once, among the edit's lines
+        for note in pv.notes:
+            console.print(f"[yellow]note:[/] {note}")
+        console.print(f"preview only; write it with: lockwire swap {contract} {joint} --use {c.id}")
+    else:
+        _print_edit_result(result)
+        if c.flags:  # the table row above scrolls away; say it again, last
+            console.print(f"[yellow]warning:[/] {escape(c.id)}: {escape(', '.join(c.flags))}")
 
 
 @app.command(
@@ -1906,8 +2104,8 @@ def from_parts_cmd(
         raise typer.Exit(2)
     if out is not None:
         _require_folder(out)
-    document = api.from_parts(parts.read_text(), out=out, catalog=catalog)
-    table = Table("line", "qty", "part", "result", "catalog id", "confidence")
+    document = api.from_parts(parts.read_text(encoding="utf-8"), out=out, catalog=catalog)
+    table = Table("line", "qty", "part", "result", "catalog id", "confidence", "label")
     table.columns[4].overflow = "fold"
     for row in document["lines"]:
         hit = row["status"] == "MATCHED"
@@ -1918,6 +2116,7 @@ def from_parts_cmd(
             "[green]MATCHED[/]" if hit else "[yellow]NO MATCH[/]",
             row["id"] or "",
             f"{row['confidence']:.2f}" if hit else "",
+            row["label"] or "",
         )
     console.print(table)
     for m in document["mismatches"]:
@@ -2137,11 +2336,16 @@ def agent_setup_cmd(
     """Add Lockwire to a repo: agent rules, a pre-commit hook and a CI workflow (--ci: the workflow only)."""
     from lockwire.agent_setup import agent_setup, claude_hook
 
+    if not directory.is_dir():
+        console.print(f"[red]{escape(str(directory))} is not a folder[/]; pass your repo's folder")
+        raise typer.Exit(2)
     for line in agent_setup(directory.resolve(), ci_only=ci):
         console.print(line, highlight=False)
     if claude:
         console.print(claude_hook(directory.resolve()), highlight=False, markup=False)
     hint = cli_line("lockwire", "check") + " <your robot.urdf>"
+    if (directory / DEFAULT_CONTRACT).is_file():
+        hint = "commit lockwire.yaml and the files above"
     console.print(f"next: {hint}", highlight=False, markup=False, soft_wrap=True)
 
 
@@ -2154,9 +2358,15 @@ def help_cmd(
     if not show_all:
         typer.echo(ctx.parent.get_help())
         return
-    for name, command in typer.main.get_command(app).commands.items():
-        if name != "help":
+    cmds = typer.main.get_command(app).commands
+    for name, command in cmds.items():
+        if name != "help" and name not in plugins.PRO_COMMANDS:
             typer.echo(f"{name:24} {command.get_short_help_str(limit=70)}")
+    # Listed even when the Pro package is not installed (the public build): names only, then.
+    typer.echo(f"\nPro\n{plugins.WAITLIST_LINE}")
+    for name in sorted(plugins.PRO_COMMANDS):
+        hint = cmds[name].get_short_help_str(limit=70) if name in cmds else ""
+        typer.echo(f"{name:24} {hint}".rstrip())
 
 
 @app.command("hook-check", hidden=True)
@@ -2175,7 +2385,10 @@ def mcp_cmd() -> None:
     except ImportError:
         import sys
 
-        print("install the mcp extra: uv sync --extra mcp", file=sys.stderr)
+        print(
+            "install the mcp extra: pip install 'lockwire[mcp]' (or: uv add 'lockwire[mcp]')",
+            file=sys.stderr,
+        )
         raise typer.Exit(2) from None
     build_server().run("stdio")
 
@@ -2219,7 +2432,7 @@ def _diff_side(
         console.print(f"[bold red]REFUSED[/] — side {side} ({spec!r}): {error}")
         raise typer.Exit(2) from error
     except (OSError, TypeError, ValueError, YAMLError) as error:
-        console.print(f"[red]diff failed:[/] {error}")
+        console.print(f"[red]diff failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
 
 
@@ -2459,4 +2672,59 @@ def serve_cmd(
     )
 
 
+@app.command("record-servos", hidden=True)
+def record_servos_cmd(
+    port: str = typer.Option(..., "--port", help="Serial port of the servo bus adapter."),
+    ids: str = typer.Option("1-6", "--ids", help="Servo IDs, e.g. 1-6 or 1,3,5."),
+    kind: str = typer.Option(
+        "sts", "--kind", help="Servo family: sts, scs (Feetech) or dxl (Dynamixel X, Protocol 2.0)."
+    ),
+    baud: int | None = typer.Option(
+        None, "--baud", help="Bus baud rate (default 1000000; Dynamixel X factory 57600)."
+    ),
+    rate: float = typer.Option(20.0, "--rate", help="Samples per second."),
+    seconds: float = typer.Option(10.0, "--seconds", help="How long to record."),
+    out: Path = typer.Option(..., "--out", help="Recording directory to write."),
+) -> None:
+    """Record Feetech or Dynamixel servo settings and live readings (read-only; never writes to a servo)."""
+    from lockwire import servo_bus
+
+    try:
+        if kind not in ("sts", "scs", "dxl"):
+            raise ValueError("--kind must be sts, scs or dxl")
+        servo_bus.check_rate(rate)  # before the port opens, so a refused rate leaves none open
+        wanted = servo_bus.parse_ids(ids)
+        manifest = servo_bus.record_servos(
+            servo_bus._port_open(port, baud or (57_600 if kind == "dxl" else 1_000_000)),
+            wanted,
+            out,
+            kind=kind,
+            rate_hz=rate,
+            seconds=seconds,
+            port=port,
+        )
+    except (RuntimeError, OSError, ValueError) as error:
+        console.print(f"[red]record-servos failed:[/] {escape(_why(error))}")
+        raise typer.Exit(2) from error
+    for gap in manifest["generator"]["gaps"]:
+        console.print(f"[yellow]gap:[/] {gap['message']} (from {gap['from_s']} s)")
+    console.print(f"[green]wrote {out}[/]")
+
+
 plugins.load(app=app)  # after every free command is defined, so paid ones append to the same app
+
+
+def _pro_stub(name: str) -> None:
+    @app.command(
+        name,
+        hidden=True,
+        help=f"Part of Lockwire Pro. {plugins.WAITLIST_LINE}",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def _stub() -> None:
+        typer.echo(f"lockwire {name} is part of Lockwire Pro. {plugins.WAITLIST_LINE}")
+        raise typer.Exit(2)
+
+
+for _name in sorted(plugins.PRO_COMMANDS - set(typer.main.get_command(app).commands)):
+    _pro_stub(_name)  # free package: a Pro name answers with the waitlist, not "No such command"

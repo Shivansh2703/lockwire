@@ -2736,3 +2736,25 @@ def test_edit_keeps_file_mode(tmp_path):
     path.chmod(0o644)
     apply_changes(path, [Change("topology/rails/rail.pm02-5v/capacity", "20 W", "spec.pdf", "Pat")])
     assert path.stat().st_mode & 0o777 == 0o644
+
+
+def test_one_field_edit_on_shipped_example_is_a_small_diff():
+    path = Path(edit.__file__).parent / "examples" / "servo-bench.yaml"
+    p = propose_changes(
+        path, [Change("topology/rails/rail.servo-5v/capacity", "20 W", "spec.pdf", "Pat")]
+    )
+    changed = [
+        x
+        for x in difflib.unified_diff(
+            p.original_text.splitlines(), p.text.splitlines(), lineterm=""
+        )
+        if x[:1] in "+-" and x[:3] not in ("+++", "---")
+    ]
+    assert len(changed) <= 10, len(changed)
+
+
+def test_review_refusal_names_the_contract_not_its_temp_file(tmp_path):
+    path = _copy(tmp_path)
+    with pytest.raises(EditRefusal) as refused:
+        edit.apply_review(path, "topology/rails/rail.pm02-5v/capacity", "bogus", witness="Pat")
+    assert f"{path.name}: topology" in str(refused.value) and ".tmp" not in str(refused.value)

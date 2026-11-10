@@ -18,11 +18,21 @@ from pathlib import Path
 import pytest
 
 PACKAGING = Path(__file__).parent.parent / "packaging"
-SPEC = PACKAGING / "pro" / "lockwire.spec"  # the paid spec carries the full gate
+# The paid spec carries the full gate; the public tree has only the free one.
+SPEC = next(
+    p for p in (PACKAGING / "pro" / "lockwire.spec", PACKAGING / "lockwire.spec") if p.exists()
+)
 PYPROJECT = Path(__file__).parent.parent / "pyproject.toml"
 
 sys.path.insert(0, str(PACKAGING))
 import require_extras  # noqa: E402 — loaded from packaging/, which is not a package
+
+PRO: dict[str, str | None] = {}  # the paid build claims the ros2bag and mavlink extras too
+if (PACKAGING / "pro").exists():
+    sys.path.insert(0, str(PACKAGING / "pro"))
+    from pro_extras import PRO_CLAIMED as PRO  # noqa: E402
+
+needs_pro = pytest.mark.skipif(not PRO, reason="the public tree has no paid extras")
 
 
 def test_every_claimed_extra_is_gated_against_pyproject():
@@ -36,18 +46,20 @@ def test_every_claimed_extra_is_gated_against_pyproject():
     declared = set(
         tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["optional-dependencies"]
     )
-    gated = {extra for extra in require_extras.CLAIMED.values() if extra}
+    gated = {extra for extra in (require_extras.CLAIMED | PRO).values() if extra}
     assert gated == declared, (
         f"extras declared in pyproject but not gated in require_extras.CLAIMED: {declared - gated}; "
         f"gated but not declared: {gated - declared}"
     )
 
 
+@needs_pro
 def test_mavlink_extra_is_gated_at_its_actual_import_root():
     """The optional MAVLink protocol package is a claimed frozen-binary input."""
-    assert require_extras.CLAIMED["pymavlink"] == "mavlink"
+    assert PRO["pymavlink"] == "mavlink"
 
 
+@needs_pro
 def test_missing_pymavlink_refuses_the_build_with_the_mavlink_fix(monkeypatch):
     """A missing MAVLink import stops before PyInstaller can freeze it out."""
     original_find_spec = require_extras.importlib.util.find_spec
@@ -57,7 +69,7 @@ def test_missing_pymavlink_refuses_the_build_with_the_mavlink_fix(monkeypatch):
 
     monkeypatch.setattr(require_extras.importlib.util, "find_spec", missing_pymavlink)
     with pytest.raises(SystemExit) as caught:
-        require_extras.check({"pymavlink": require_extras.CLAIMED["pymavlink"]})
+        require_extras.check({"pymavlink": PRO["pymavlink"]})
     message = str(caught.value)
     assert "pymavlink" in message
     assert "uv sync --extra mavlink" in message
@@ -107,8 +119,8 @@ def test_the_gate_runs_in_the_spec_before_analysis():
     """The spec calls the gate, and calls it before Analysis — a gate after the bundle is built
     is a gate that already spent the five minutes it exists to save."""
     spec = SPEC.read_text(encoding="utf-8")
-    assert "require_extras.check()" in spec, "the spec must call the extras gate"
-    assert spec.index("require_extras.check()") < spec.index("a = Analysis(")
+    assert "\nrequire_extras.check(" in spec, "the spec must call the extras gate"
+    assert spec.index("\nrequire_extras.check(") < spec.index("a = Analysis(")
 
 
 def test_the_spec_keeps_no_fail_open_extras_helper():

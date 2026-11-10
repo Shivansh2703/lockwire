@@ -92,7 +92,7 @@ def test_hello_ok(client: TestClient):
 FREE_COMMANDS = {
     "start", "check", "page", "declare-form", "declare", "add", "review", "commit", "undo",
     "place", "move", "rotate", "reparent", "mount-shape", "describe", "what-if", "plan", "diff",
-    "log", "report", "starters",
+    "log", "report", "starters", "swap-preview", "swap-apply",
 }  # fmt: skip
 
 
@@ -224,6 +224,26 @@ def test_what_if_is_api_routed_stale_checked_and_never_writes(tmp_path: Path):
     assert malformed_response.status_code == 422
     assert contract.read_bytes() == before_contract
     assert ledger.read_bytes() == before_ledger
+
+
+def test_swap_preview_reads_and_swap_apply_refuses_a_stale_revision(tmp_path, monkeypatch):
+    from lockwire.api_payload import SwapPreviewPayload
+
+    monkeypatch.setenv("HOME", str(tmp_path))  # no private parts.yaml
+    contract = tmp_path / "lockwire.yaml"
+    shutil.copy(Path(serve.__file__).parent / "examples/servo-bench.yaml", contract)
+    before, client = contract.read_bytes(), _client(create_app(TOKEN))
+    run = lambda command, **a: client.post(  # noqa: E731
+        "/v1/run", headers=_auth(), json={"command": command, "args": {"contract": str(contract), "joint": "wrist", **a}}
+    ).json()  # fmt: skip
+    pv = SwapPreviewPayload.model_validate(run("swap-preview")["payload"])
+    assert pv.candidates and pv.chosen == pv.candidates[0].id and contract.read_bytes() == before
+    stale = run("swap-apply", part_id=pv.chosen, expected_revision="0" * 64)
+    assert stale["payload"] is None and "contract changed" in stale["refusal"]
+    assert contract.read_bytes() == before  # bites a swap-apply that ignores the revision
+    done = run("swap-apply", part_id=pv.chosen, expected_revision=contract_revision(contract))
+    assert EditPayload.model_validate(done["payload"]).written
+    assert f"wrist: {pv.chosen}" in contract.read_text()
 
 
 @pytest.mark.parametrize(

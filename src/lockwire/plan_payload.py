@@ -59,6 +59,8 @@ class _VerdictDocument(_Document):
     counts: Counts
     scored: int | None
     findings: list[Finding]
+    #: Gaps the lockfile accepted on record (`Contract.accepted`); present only when there are some.
+    accepted: list[Finding] | None = None
     not_compared: list[NotCompared] = []
 
 

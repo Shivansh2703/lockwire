@@ -670,6 +670,11 @@ def test_extra_key_on_any_member_is_rejected(tmp_path):
     for door, model in UNENVELOPED.items():
         if door in documents:
             by_model[model.__name__] = documents[door]
+    from lockwire import serve  # the app's swap-preview: a sidecar document, no library door
+
+    bench = shutil.copy(Path(api.__file__).parent / "examples/servo-bench.yaml", tmp_path)
+    swap = serve._handle_swap_preview(serve.SwapPreviewArgs(contract=str(bench), joint="wrist"))
+    by_model["SwapPreviewPayload"] = swap.payload
     permissive = []
     for model in ALL_MEMBERS:
         assert model.__name__ in by_model, f"no document for {model.__name__}"
@@ -1611,3 +1616,8 @@ def test_picker_parts_carry_voltage_and_orin_fits_only_the_5v_rails():
     volts = {r.id: r.voltage.base() for r in api.load(X500).topology.rails if r.voltage}
     orin = next(p for p in form.add_part.parts if p.id == "x500.companion.jetson-orin-nano")
     assert orin.fits and set(orin.fits) == {rid for rid, v in volts.items() if 4.75 <= v <= 5.25}
+
+
+@pytest.mark.parametrize("p", [p for p in (Path(lockwire.__file__).parent / "examples").rglob("*.yaml") if p.name != "plan.yaml"])
+def test_every_shipped_example_check_validates_as_check_payload(p):
+    CheckPayload.model_validate(api.check(p))

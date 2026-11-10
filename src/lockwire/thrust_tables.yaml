@@ -1,0 +1,133 @@
+# Cited motor + prop thrust tables, consumed by `lockwire fly`. Not the contract schema.
+#
+# Each table is the maker's own bench test as printed: rows are [throttle %, thrust g, current A,
+# power W] at the stated test voltage. Read from the raw HTML of each URL on 2026-11-09 (not a
+# summary). motor_mass_g is the maker's weight excluding cables; max_continuous_a is the maker's
+# "Max Continuous Current 180S" (null where the page gives none). The cited/unverified label is
+# worked out by the catalog rule (catalog.is_cited), never typed in.
+#
+# A lockfile names a table from its motor's device model: `thrust_table: <id>`.
+# Left out: Holybro 2216-920KV (the X500 V2 motor). Holybro publishes no thrust table for it.
+
+tables:
+- id: tmotor.mn3508-kv700.12x4cf-4s
+  motor: T-Motor MN3508 KV700
+  prop: T-MOTOR 12*4CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 82
+  max_continuous_a: 23
+  rows: [[50, 460, 3.8, 56.24], [65, 800, 7.4, 109.52], [75, 1000, 10, 148.00], [85, 1200, 13.5, 199.80], [100, 1360, 16.1, 238.28]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn3508-motor-navigator-type.html 14.8 V, T-MOTOR12*4CF block, 100% row: "100% | 16.1 | 238.28 | 1360" (throttle | A | W | g)'
+- id: tmotor.mn3508-kv700.11x3.7cf-4s
+  motor: T-Motor MN3508 KV700
+  prop: T-MOTOR 11*3.7CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 82
+  max_continuous_a: 23
+  rows: [[50, 380, 3.1, 45.88], [65, 630, 5.6, 82.88], [75, 780, 7.9, 116.92], [85, 960, 10.5, 155.40], [100, 1110, 12.7, 187.96]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn3508-motor-navigator-type.html 14.8 V, T-MOTOR11*3.7CF block, 100% row: "100% | 12.7 | 187.96 | 1110" (throttle | A | W | g)'
+- id: tmotor.mn3508-kv580.13x4.4cf-4s
+  motor: T-Motor MN3508 KV580
+  prop: T-MOTOR 13*4.4CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 82
+  max_continuous_a: 18
+  rows: [[50, 450, 2.6, 38.48], [65, 710, 5, 74.00], [75, 900, 7, 103.60], [85, 1120, 9.3, 137.64], [100, 1230, 11.3, 167.24]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn3508-motor-navigator-type.html 14.8 V, T-MOTOR13*4.4CF block, 100% row: "100% | 11.3 | 167.24 | 1230" (throttle | A | W | g)'
+- id: tmotor.mn3508-kv580.14x4.8cf-4s
+  motor: T-Motor MN3508 KV580
+  prop: T-MOTOR 14*4.8CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 82
+  max_continuous_a: 18
+  rows: [[50, 600, 3.7, 54.76], [65, 930, 7, 103.60], [75, 1150, 9.7, 143.56], [85, 1350, 12.9, 190.92], [100, 1520, 15.2, 224.96]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn3508-motor-navigator-type.html 14.8 V, T-MOTOR14*4.8CF block, 100% row: "100% | 15.2 | 224.96 | 1520" (throttle | A | W | g)'
+- id: tmotor.mn3510-kv630.13x4.4cf-4s
+  motor: T-Motor MN3510 KV630
+  prop: T-MOTOR 13*4.4CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 97
+  max_continuous_a: 22
+  rows: [[50, 540, 3.4, 50.32], [65, 860, 6.1, 90.28], [75, 1100, 8.8, 130.24], [85, 1300, 11.8, 174.64], [100, 1500, 14, 207.20]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn3510-motor-navigator-type.html 14.8 V, T-MOTOR13*4.4CF block, 100% row: "100% | 14 | 207.20 | 1500" (throttle | A | W | g)'
+- id: tmotor.mn3510-kv700.12x4cf-4s
+  motor: T-Motor MN3510 KV700
+  prop: T-MOTOR 12*4CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 97
+  max_continuous_a: 25
+  rows: [[50, 580, 3.8, 56.24], [65, 880, 7.4, 109.52], [75, 1100, 10.3, 152.44], [85, 1360, 14, 207.20], [100, 1600, 16.8, 248.64]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn3510-motor-navigator-type.html 14.8 V, T-MOTOR12*4CF block, 100% row: "100% | 16.8 | 248.64 | 1600" (throttle | A | W | g)'
+- id: tmotor.mn3510-kv700.13x4.4cf-4s
+  motor: T-Motor MN3510 KV700
+  prop: T-MOTOR 13*4.4CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 97
+  max_continuous_a: 25
+  rows: [[50, 730, 4.7, 69.56], [65, 1120, 9, 133.20], [75, 1400, 12.3, 182.04], [85, 1600, 16, 236.80], [100, 1800, 19.4, 287.12]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn3510-motor-navigator-type.html 14.8 V, T-MOTOR13*4.4CF block, 100% row: "100% | 19.4 | 287.12 | 1800" (throttle | A | W | g)'
+- id: tmotor.mn4010-kv580.13x4.4cf-4s
+  motor: T-Motor MN4010 KV580
+  prop: T-MOTOR 13*4.4CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 112
+  max_continuous_a: 31
+  rows: [[50, 680, 4.6, 68.08], [65, 820, 6.2, 91.76], [75, 1030, 8.3, 122.84], [85, 1300, 11.1, 164.28], [100, 1420, 13.2, 195.36]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn4010-kv580-motor-navigator-type.html 14.8 V, T-MOTOR13*4.4CF block, 100% row: "100% | 13.2 | 195.36 | 1420" (throttle | A | W | g)'
+- id: tmotor.mn3110-kv700.12x4cf-4s
+  motor: T-Motor MN3110 KV700
+  prop: T-MOTOR 12*4CF
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 80
+  max_continuous_a: 21
+  rows: [[50, 420, 3.2, 47.36], [65, 790, 6.2, 91.76], [75, 930, 8.5, 125.80], [85, 1190, 11.6, 171.68], [100, 1290, 14, 207.20]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn3110-motor-navigator-type.html 14.8 V, T-MOTOR12*4CF block, 100% row: "100% | 14 | 207.20 | 1290" (throttle | A | W | g)'
+- id: tmotor.mn2212v2-kv920.9545b-3s
+  motor: T-Motor MN2212 V2.0 KV920
+  prop: T-MOTOR 9545B
+  cells: 3
+  voltage_v: 11.1
+  motor_mass_g: 54
+  max_continuous_a: 15
+  rows: [[50, 176, 1.6, 17.76], [65, 289, 3, 33.3], [75, 385, 4.3, 47.73], [85, 475, 5.8, 64.38], [100, 617, 8.1, 89.91]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn2212-v2-motor-navigator-type.html 11.1 V, T-MOTOR 9545B block, 100% row: "100% | 8.1 | 89.91 | 617" (throttle | A | W | g)'
+- id: tmotor.mn2212v2-kv780.9545b-4s
+  motor: T-Motor MN2212 V2.0 KV780
+  prop: T-MOTOR 9545B
+  cells: 4
+  voltage_v: 14.8
+  motor_mass_g: 55
+  max_continuous_a: 13
+  rows: [[50, 293, 2.1, 31.08], [65, 476, 4, 59.2], [75, 605, 5.6, 82.88], [85, 742, 7.4, 109.52], [100, 918, 10.3, 152.44]]
+  kind: datasheet
+  source: 'https://store.tmotor.com/product/mn2212-v2-motor-navigator-type.html 14.8 V, T-MOTOR 9545B block, 100% row: "100% | 10.3 | 152.44 | 918" (throttle | A | W | g)'
+- id: tmotor.2810-kv900.c9.5x5x3-6s
+  motor: T-Motor 2810 KV900
+  prop: c9.5*5*3
+  cells: 6
+  voltage_v: 22.2
+  motor_mass_g: 65  # this page gives weight including cable only
+  max_continuous_a: null  # the page gives "Peak Current 38.351A", no continuous figure
+  rows: [[10, 34, 0.17, 1], [20, 159, 0.80, 11], [30, 375, 2.25, 34], [40, 650, 4.76, 74], [50, 955, 8.35, 128], [60, 1269, 12.84, 194], [70, 1590, 18.26, 270], [80, 1888, 24.61, 349], [90, 2138, 31.28, 419], [100, 2345, 38.35, 481]]
+  note: "The power column is mechanical shaft power per motor (torque x rpm), not electrical input; not used by fly. Test voltage fell from 22.27 V at 10% to 21.57 V at 100%."
+  kind: datasheet
+  source: 'https://uav-en.tmotor.com/2026/Specific-purpose-motor_0126/1334.html "2810 KV900 | c9.5*5*3 | 21.57 | 100% | 38.35 | 11576 | 2345 | 481"'

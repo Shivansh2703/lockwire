@@ -77,15 +77,19 @@ Cursor, Claude Desktop and other agents: [docs/guides/agents.md](docs/guides/age
 
 ## No robot file? Try an example
 
-servo-bench is built to fail: a 5 V rail overloaded on purpose, so you can see what a catch looks like.
+servo-bench is built to fail: a 5 V rail overloaded and a wrist servo too weak, on purpose, so you can see what a catch looks like.
 
 ```console
 $ uvx lockwire start --example servo-bench
-wrote lockwire.yaml — example servo-bench (built to fail: a 5 V rail overloaded on purpose, so you can see what a catch looks like). Next: uvx lockwire check lockwire.yaml
+wrote lockwire.yaml — example servo-bench (built to fail: a 5 V rail overloaded and a wrist servo too weak, on purpose, so you can see what a catch looks like). Next: uvx lockwire check lockwire.yaml
 $ uvx lockwire check
+VIOLATION model/joints/wrist/limits/effort — observed 0.40 N*m joint effort limit, expected <= 0.226 N*m, the feetech.scs0009
+stall torque (Δ 1.8x the stall torque)
+  ...
+  action: ... or find a stronger servo: lockwire swap lockwire.yaml wrist
 VIOLATION budgets/bud.power.servo-5v — observed 32.10 W, expected <= 15.00 W (Δ +17.10 W (+114%))
   ...
-NO-GO — 1 violation(s), 0 warning(s)
+NO-GO — 2 violation(s), 0 warning(s)
 ```
 
 The five robots (`--example drone`, `rover`, `arm`, `quadruped`, `humanoid`) are clean
@@ -98,8 +102,9 @@ starting points; try your own robot for the catch.
 - **CI:** the same check on every push, with pull-request annotations and an HTML report.
 - **Agents:** your AI coding agent runs the same check before it changes the robot.
 
-Everything else (datasheet comparisons, power, torque and bus budgets, ROS 2 bags, the
-powered-on preflight gate, the Python library): [the guides](docs/guides/index.md).
+Everything else (datasheet comparisons, power, torque and bus budgets, part swap, the servo
+recorder, drift on a single robot, the Python library): [the guides](docs/guides/index.md). The powered-on
+preflight gate, ROS 2 bags and the drift ledger across units are Lockwire Pro, waitlist only: https://lockwirerobotics.com.
 
 ## Download the app
 

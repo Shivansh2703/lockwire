@@ -2,6 +2,94 @@
 
 ## Unreleased
 
+## 0.2.7 — 2026-11-10
+
+Fixed:
+
+- `pip install lockwire` works again on a clean install: 0.2.6 pulled in typer 0.29, which broke the command line. Lockwire now asks for typer below 0.29, and also below the next major of pydantic, ruamel-yaml and mcp, so a new major cannot break a clean install.
+- `lockwire check` no longer crashes on a Windows console that can't print symbols like Δ; characters the console can't show print as `?`. `python -m lockwire` gets the same fix.
+- A 0.5 lockfile gets the full structure comparison again, so a changed joint axis is NO-GO. Only 0.2 to 0.4 lockfiles skip it.
+- A swap (`lockwire swap --use`) no longer changes the lockfile's version line, so a swapped 0.5 file still opens in 0.2.6.
+- `lockwire upgrade` on a file with Windows (CRLF) line endings changes one line, the version, and keeps the line endings.
+- A private part in `~/.lockwire/parts.yaml` is refused unless its torque is in N*m and its voltage in V, and every private-parts error names the entry and the field. The kg*cm conversion hint appears only for a torque. The same unit check now applies to any parts file you pass with `--catalog`, and a mass must be in kg or g.
+- Part Swap flags a servo whose highest voltage is below your supply, or that is on a different bus, and ranks a servo whose voltage range does not cover your supply below the rest, then a different bus below the same bus. It now uses the supply voltage your lockfile declares (the rail of the device that drives the joint, or the only rail with a voltage) and says which supply it used, instead of always assuming the current servo's maximum.
+- `lockwire record-servos` refuses a rate of 0 or below, keeps the samples it read if the bus drops mid-recording, and defaults Dynamixel to its factory 57600 baud. It also refuses a reversed `--ids` range (such as 6-1) and the broadcast ID 254 before opening the port, and no longer leaves an empty output folder when no servo answers.
+- `lockwire plan --json -` now prints only JSON on stdout.
+- `lockwire bench` without the source repo's corpus says the corpus ships only in the source repo and to pass your own with `--corpus`, instead of a vague "file not found".
+- `check` and `start` say "file not found" with the path when a model path is mistyped or missing.
+- The servo hint no longer points at a lockfile that does not exist.
+- `lockwire check --servo <id>` on a lockfile with no `servo:` line prints the line to add to keep that servo.
+- The model-value checks read the model file next to your lockfile only, never a same-named file in the folder you happen to be in.
+- Lockwire reads and writes its own text files as UTF-8, so the bundled parts data and your lockfiles work on machines whose locale is not UTF-8.
+- `agent-setup` run through `uvx` writes a hook that calls `lockwire` (or `uvx lockwire`) instead of a Python path inside uv's cache that disappears.
+- The datasheet mass row sums the model file as it is now, not the masses that were locked.
+- `lockwire mcp` prints an install command that works outside the repo.
+- The refusal message for importing a manifest no longer says it waits for a vendor to publish a standard.
+- `lockwire start --example` writes format 0.6 lockfiles, and the example file is otherwise copied exactly as shipped: only the version line changes.
+- Typing a Pro command name in the free package prints the waitlist line.
+- `lockwire check` on a lockfile refuses `--mass`, `--source`, `--witness`, `--xacro-arg` and `--lock` in one line instead of silently ignoring them.
+- `lockwire check --json -` sends every error to stderr, so stdout stays pure JSON.
+- The "scored N" line adds up: accepted counts only scored findings that did not pass.
+- A YAML syntax error in a lockfile prints one line naming the file, line and column.
+- `lockwire start` on a missing file exits 2, like `check`. `check .` says it is a folder, `start x.yaml` says it is not a model file, and `swap` on an unknown joint lists the joints.
+- A lock started from a `.xacro` is compared again on `check`: the model is expanded the same way `start` expanded it, so a mass edit is NO-GO instead of passing.
+- `lockwire start --xacro-arg name=value` is recorded in the lockfile (`xacro_args`, optional, so older lockfiles still load) and `check` replays it when it re-expands the model. The re-lock hint in a finding repeats those `--xacro-arg` flags.
+- `check robot.urdf` with no lockfile finds meshes beside the model, not in a temp folder.
+- A broken model gets a NO-GO that names the joint or link instead of a warning or a crash: a NaN or negative mass, a negative inertia, reversed joint limits, a kinematic loop or more than one root link, and a mimic joint that follows a missing joint. A file with no links or a link with an empty name is refused in one line.
+- Odd public URDFs get a verdict, never a crash: a negative velocity limit, or a limit of `inf` or 1.8e308, is read as not stated with one warning per joint.
+- A joint that names a missing link, or a duplicate link or joint name, is a NO-GO in `check` and a one-line refusal in `start`.
+- A comma decimal such as `0,5` in a model prints one line naming the file, link and attribute.
+- Every plain model load error names the file as you typed it, not its resolved absolute path.
+- The MCP `check_model` tool and `lockwire check --json -` now give the same verdict and exit code as the command line, including warnings from the model loader and duplicate or missing links.
+- MCP tools print the CLI's plain line for a file error instead of raw OS error text, and say "is a folder" or "is a robot model, not a lockfile; use `check_model`" when given the wrong path.
+- `compare_proposal` refusals name its own arguments (witness and change), not CLI flags.
+- Edit refusals name your lockfile, never the temporary file used to stage the edit.
+- A looping or dangling symlink as a model path says so instead of "file not found".
+- The refusal for an XML file with a DOCTYPE says XML, not URDF, so an SDF is not called a URDF.
+- A rail `capacity` of 0 or below is refused ("must be greater than 0").
+- A failed `lockwire start` leaves no new lockfile behind, and a failed `start --force` leaves the old lockfile untouched.
+- `--mass` must be a positive mass and `--tolerance-pct` 0 or more. A bare `--xacro-arg word` is refused in one line instead of being dropped.
+- A typed `--mass` that breaks the limit no longer hints a re-run with the catalog figure.
+- `lockwire swap` on a missing path prints one plain line, and `swap --use` repeats the new servo's warnings (such as "different bus") as the last line.
+- Cloning a robot by name no longer fills a pipe with download progress bars.
+- The check hook no longer prints the `--force` re-lock command; it says the model changed and needs a person's review.
+- Gravity reach: a slide joint that no transmission names is treated as passive and not compared.
+- Gravity reach: an over-effort joint behind a transmission with a reduction above 1 warns that its effort limit may be motor-side, instead of failing.
+- Mass budget: a link with no `<inertial>` counts as a 0 kg frame, so the total mass is scored, and the output names those links.
+- A link with mass and an all-zero inertia tensor is a NO-GO that names the link.
+- A link whose inertia is too small for its mass (smaller than a solid ball of the densest metal at that mass) gets a warning.
+- A moving joint with a velocity limit of 0 gets a warning.
+- `--catalog` pointed at a file that is not a parts catalog says so in one line and exits 2, instead of a YAML error.
+- Text and JSON verdicts now agree on a model file with nothing compared: NOT SCORED, exit 3.
+- Unwritable folders, missing files, files that are not lockfiles, `--mass abc` and other non-number values print one plain line instead of a Python error.
+- A zero or negative charger or cutoff value is refused.
+- The app's unreadable-file screen offers "Open a different robot".
+- The datasheet badge says "accepted difference (mass)", in grey, after `lockwire accept` instead of a green "matches".
+
+New:
+
+- Part Swap: `lockwire swap lockwire.yaml wrist` ranks catalog servos for a joint by its gravity load and shows what each swap does to the joints above it. It only shows by default; `--use <servo>` writes the change. The MCP server has a matching `swap` tool, and the desktop app has a Swap panel with the same preview and apply. A servo whose stall torque is rated at a higher voltage than your supply is flagged and ranked after same-supply servos.
+- A cited servo parts list: the catalog gains servo mass, voltage range, bus and stall torque for Part Swap (five new rows, five filled in). Every part is labelled cited (all numbers from the maker's datasheet, each with its URL) or unverified, and the label is worked out from the numbers.
+- Private parts: put your own parts in `~/.lockwire/parts.yaml` and they stay on your machine. A broken parts file stops the command with one plain line naming the file.
+- Servo recorders: `lockwire record-servos` records the stored settings and live readings (position, goal position, speed, load, voltage, temperature, gains) of Feetech STS/SCS or Dynamixel X servos on a serial bus (`pip install 'lockwire[bus]'`, `--kind dxl` for Dynamixel). Read-only: it sends only ping and read packets and never writes a register. Tested on recorded bytes, not yet on a live bus by us.
+- servo-bench, the bundled example, gains a 3-joint arm whose wrist servo is built to fail the servo check.
+- Guides for the parts list, part swap and the servo recorder in `docs/guides/`.
+- Six checks beyond mass and power, each run only when you declare its lines: charger setpoint, float mode and charge current against the pack's chemistry (`charger_voltage`, `charger_current`, `charger_float`); low-voltage cutoff against the chemistry's lowest safe cell voltage (`cutoff_voltage`); rail current against the connector's maker-rated current (`connector: xt60` or `jst-xh`); threadlocker declared on a 3D-printed part (`threadlocker: true`); ArduPilot or PX4 failsafe parameters left off or set below the pack (`autopilot:`); and 2.4 GHz transmit power against the licence-free limit where the robot runs (`region: eu`, `us` or `in`). A lockfile without these lines is checked exactly as before. Listed in `docs/guides/checks.md`.
+- `link_values` check: a NaN or negative mass is a NO-GO; a mass with no inertia and a mesh scale that is NaN, zero or not three numbers are warnings. Listed in `docs/guides/checks.md`.
+- Four checks on the model file's structure, with nothing to declare: a `ros2_control` or `transmission` block that names a joint the model does not have, or commands a fixed or mimic joint; a camera optical frame not rotated to z forward, x right, y down (REP-103); a model with more than one root link, a link named `map` or `odom`, or a floating or planar joint below the root; and a mimic joint that follows a missing joint or another mimic.
+- Three more on the model file, also with nothing to declare: a safety controller whose soft limits sit outside the joint's hard limits or were left at zero; a `<gazebo reference>` block naming a link or joint the model lacks, and two sensors sharing a name; and one mesh used at two different scales for a link's visual and collision.
+
+Changed:
+
+- Lockfile format 0.6. New files are written at 0.6. 0.5 lockfiles still load, and `lockwire upgrade` moves a 0.5 file to 0.6 by changing its version line only. Files written at 0.6 do not open in 0.2.6 or older. A swap leaves the version line alone.
+- The servo check's fix text shows the exact edit to the model (the joint's effort limit, with the real joint name and the lockfile by name) and a runnable `lockwire swap` hint for a better-fitting servo.
+- A mistake in a lockfile prints one plain line per error (file, path, message) and exits 2, instead of a validation dump or "bug in lockwire".
+- A lockfile over 512 KiB is refused up front with exit 2, in under a second. The worst hostile file under the cap parses in about 9 seconds.
+
+Moved:
+
+- These commands were in the public 0.2.6 package and are not in 0.2.7: `preflight`, `baseline`, `baseline-review`, `baseline-check`, `sample`, `health`, `actuator-review-draft` and `bag`. They no longer install with `pip install lockwire`. Running one prints a waitlist line pointing to https://lockwirerobotics.com and exits non-zero. `lockwire help --all` still lists the Pro commands. The MCP tools `preflight`, `health` and `prepare_actuator_review_draft` are no longer in the free package either; they were in public 0.2.6. The ROS 2 package that runs preflight on a live robot is Pro. The check, check-sim, Part Swap, catalog, servo recorder, desktop app and MCP server stay free.
+
 ## 0.2.6 — 2026-11-09
 
 New:

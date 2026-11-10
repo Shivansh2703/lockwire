@@ -72,7 +72,7 @@ def test_no_links_refused(tmp_path):
 def test_doctype_refused(tmp_path):
     path = tmp_path / "bomb.sdf"
     path.write_bytes(b'<?xml version="1.0"?><!DOCTYPE sdf [<!ENTITY x "y">]><sdf/>')
-    with pytest.raises(ValueError, match="DOCTYPE"):
+    with pytest.raises(ValueError, match="XML DOCTYPE"):  # not "URDF" on an SDF
         parse_sdf(path)
 
 

@@ -627,7 +627,7 @@ def render_html(
     cli_line: str | None = None,
 ) -> str:
     """Return a byte-stable report document for ``contract``."""
-    report = run_record_checks(contract)
+    report = run_record_checks(contract, contract_path=contract_path)
     data = _safe_json(_payload(contract, report, redact_paths=redact_paths, cli_line=cli_line))
     return (
         _DOCUMENT.replace("__LOCKWIRE_DATA__", data)

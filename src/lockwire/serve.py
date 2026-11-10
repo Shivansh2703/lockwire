@@ -11,7 +11,7 @@ Two addresses, always: ``GET /v1/hello`` (are you alive, what can you do) and
 command). The free commands are ``start``, ``check``, ``page``, ``declare-form``,
 ``declare``, ``add``, ``review``, ``commit``, ``undo``, ``place``, ``move``,
 ``rotate``, ``reparent``, ``mount-shape``, ``describe``, ``what-if``, ``plan``,
-``diff``, ``log`` and ``report``. A plugin adds its own through
+``diff``, ``log``, ``report``, ``swap-preview`` and ``swap-apply``. A plugin adds its own through
 ``plugins.SERVE_COMMANDS``; this module names none of them, and a command it does
 not know is a 422, refused by the discriminated union before any lockwire code runs.
 Robot mode serves an allowlist of read commands; every other command is refused by name.
@@ -377,6 +377,32 @@ class WhatIfCommand(BaseModel):
     args: WhatIfArgs
 
 
+class SwapPreviewArgs(_StrictArgs):
+    contract: str
+    joint: str
+    part_id: str | None = None
+
+
+class SwapPreviewCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["swap-preview"] = "swap-preview"
+    args: SwapPreviewArgs
+
+
+class SwapApplyArgs(_StrictArgs):
+    contract: str
+    joint: str
+    part_id: str
+    expected_revision: str | None = None
+    dry_run: bool = False
+
+
+class SwapApplyCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["swap-apply"] = "swap-apply"
+    args: SwapApplyArgs
+
+
 class PlanCommand(BaseModel):
     command: Literal["plan"] = "plan"
     args: PlanArgs
@@ -601,6 +627,61 @@ def _handle_what_if(args: WhatIfArgs) -> RunReply:
     return _ok(cli_line, exit_code=0, verdict=None, payload=document)
 
 
+def _handle_swap_preview(args: SwapPreviewArgs) -> RunReply:
+    """``swap.preview`` for one joint: the ranked candidates and the knock-on for ``part_id``
+    (default: the top one). Reads only."""
+    from lockwire.swap import preview, shown_ratio  # noqa: PLC0415
+
+    cli_line = _build_cli_line("lockwire", "swap", args.contract, args.joint)
+    try:
+        pv = preview(load_contract(Path(args.contract)), args.joint, args.part_id)
+    except _LOAD_ERRORS as error:
+        return _refusal(cli_line, 2, _no_contract(Path(args.contract)) or str(error))
+
+    def capped(r: float | None) -> float | None:
+        return None if r is None else shown_ratio(r)  # capped at 100 (ample), rounded down
+
+    def nm(x: float | None) -> float | None:
+        return None if x is None else round(x, 2)  # the CLI prints .2f: one rounding for both
+
+    payload = {
+        "joint": pv.joint,
+        "current": pv.current,
+        "load_nm": round(pv.load, 3),
+        "chosen": pv.chosen.id if pv.chosen else None,
+        "delta_g": round(pv.delta_g, 3),
+        "candidates": [
+            {"id": x.id, "name": x.name, "label": x.label, "status": x.status}
+            | {"stall_nm": x.stall, "ratio": capped(x.ratio), "mass_g": round(x.mass_g, 3)}
+            | {"flags": x.flags}
+            for x in pv.candidates
+        ],
+        "knock_on": [
+            {"joint": k.joint, "before_nm": nm(k.before), "after_nm": nm(k.after)}
+            | {"status": k.status, "was": k.was, "ratio": capped(k.ratio), "dropped": k.dropped}
+            for k in pv.knock_on
+        ],
+        "notes": pv.notes,
+    }
+    return _ok(cli_line, exit_code=0, verdict=None, payload=payload)
+
+
+def _handle_swap_apply(args: SwapApplyArgs) -> RunReply:
+    """Write one swap (``swap.apply_swap``) against the exact bytes the app opened."""
+    from lockwire.swap import apply_swap  # noqa: PLC0415
+
+    contract = Path(args.contract)
+    cli_line = _build_cli_line("lockwire", "swap", args.contract, args.joint, "--use", args.part_id)
+    _pv, result = apply_swap(
+        contract,
+        args.joint,
+        args.part_id,
+        dry_run=args.dry_run,
+        expected_revision=args.expected_revision,
+    )
+    return _ok(cli_line, exit_code=0, verdict=None, payload=api._edit_document(contract, result))
+
+
 def _label_findings(document: dict[str, Any], contract: str) -> None:
     """Sidecar-only: name each finding for the app's rows (the CLI documents stay as they are)."""
     from lockwire import page as gui  # noqa: PLC0415
@@ -677,7 +758,7 @@ def _handle_report(args: ReportArgs) -> RunReply:
     except ValueError as error:
         return _refusal(cli_line, 2, str(error))
     try:
-        write_html_report(loaded, out_path)
+        write_html_report(loaded, out_path, contract_path=contract_path)
     except OSError as error:
         return _refusal(cli_line, 1, f"could not write {out_path}: {error}")
     return _ok(cli_line, exit_code=0, verdict=None, payload=f"wrote {Path(args.out)}")
@@ -1007,6 +1088,8 @@ _FREE_COMMANDS = {
     "rotate": plugins.ServeCommand(_handle_rotate, RotateArgs, RotateCommand),
     "reparent": plugins.ServeCommand(_handle_reparent, ReparentArgs, ReparentCommand),
     "mount-shape": plugins.ServeCommand(_handle_mount_shape, MountShapeArgs, MountShapeCommand),
+    "swap-preview": plugins.ServeCommand(_handle_swap_preview, SwapPreviewArgs, SwapPreviewCommand),
+    "swap-apply": plugins.ServeCommand(_handle_swap_apply, SwapApplyArgs, SwapApplyCommand),
 }
 
 
@@ -1036,6 +1119,7 @@ _REVISION_GUARDED_COMMANDS = frozenset(
         "rotate",
         "reparent",
         "mount-shape",
+        "swap-apply",
     }
 )
 
@@ -1085,7 +1169,9 @@ def dispatch(body: Any, state: Any = None) -> RunReply:
 #: `health`, `run-start` and `preflight --json` write or start jobs there). Every other
 #: command, a plugin's included, stays discoverable but is refused by name. `describe` is a
 #: read only without `out`.
-_ROBOT_READ_COMMANDS = frozenset({"starters", "check", "what-if", "plan", "declare-form", "page"})
+_ROBOT_READ_COMMANDS = frozenset(
+    {"starters", "check", "what-if", "plan", "declare-form", "page", "swap-preview"}
+)
 _HOST_ONLY_COMMANDS = frozenset({"diff", "log"})
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}

@@ -63,7 +63,7 @@ from pathlib import Path
 
 REPO = Path(__file__).parent.parent
 SRC = REPO / "src" / "lockwire"
-SRC_PRO = REPO / "src" / "lockwire_pro"  # absent in the public repo
+ROOTS = sorted(d for d in (REPO / "src").iterdir() if d.is_dir())  # every package under src/
 
 # A path under /dev opened for writing, e.g. open("/dev/i2c-1", "wb").
 _DEV_WRITE_OPEN = re.compile(r"""open\([^)]*/dev/[^)]*,\s*["'](w|wb|r\+)["']""")
@@ -114,9 +114,18 @@ def _relpath(path: Path) -> str:
     return str(path.relative_to(REPO))
 
 
+# Modules that import pyserial and call .write by design, keyed by file. Each is kept
+# honest by test_device_write_exemption_is_only_the_guarded_packet_send below.
+_DEVICE_WRITE_ALLOWLIST = {
+    "src/lockwire/servo_bus.py": "sends only ping/read request packets; _packet refuses every other instruction",
+}
+
+
 def _device_write_offenders(roots):
     offenders = []
     for path in _iter_py_files(*roots):
+        if _relpath(path) in _DEVICE_WRITE_ALLOWLIST:
+            continue
         text = path.read_text()
         hits_dev_write = _DEV_WRITE_OPEN.search(text)
         hits_bus_write = _BUS_IMPORT.search(text) and _WRITE_CALL.search(text)
@@ -189,14 +198,14 @@ def test_publish_method_pattern_catches_the_call():
 
 
 def test_no_module_writes_to_a_device():
-    offenders = _device_write_offenders([r for r in (SRC, SRC_PRO) if r.exists()])
+    offenders = _device_write_offenders(ROOTS)
     assert not offenders, (
         f"never-actuate violation: module(s) with a device-write shape (never actuate): {offenders}"
     )
 
 
 def test_every_ros_publisher_is_named_on_the_allowlist():
-    offenders = _publisher_offenders([r for r in (SRC, SRC_PRO) if r.exists()])
+    offenders = _publisher_offenders(ROOTS)
     assert not offenders, (
         f"never-actuate violation: publisher(s) not covered by a named, reasoned allowlist entry: {offenders}"
     )
@@ -207,3 +216,24 @@ def _is_source_literal(topic_source: str) -> bool:
     text, is a plain quoted string literal rather than an identifier/
     expression whose runtime value this text-level guard cannot see."""
     return bool(re.fullmatch(r"""(["']).*\1""", topic_source))
+
+
+def test_device_write_exemption_is_only_the_guarded_packet_send():
+    """The servo recorder's exemption lives only while `_packet` refuses every
+    instruction but ping/read and the only serial write is that packet."""
+    import pytest
+
+    from lockwire import servo_bus, servo_bus_dxl
+
+    for module in (servo_bus, servo_bus_dxl):
+        assert module._packet(1, module.PING) and module._packet(1, module.READ)
+        for instr in (0x03, 0x04, 0x05, 0x83):  # write, reg-write, action, sync-write
+            with pytest.raises(ValueError):
+                module._packet(1, instr)
+    for rel in _DEVICE_WRITE_ALLOWLIST:
+        text = (REPO / rel).read_text()
+        writes = re.findall(r"\.write\w*\(.*", text)
+        assert all(
+            w.startswith(".write_text(") or w == ".write(_packet(servo_id, instr, params))"
+            for w in writes
+        ), writes

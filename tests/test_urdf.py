@@ -364,3 +364,18 @@ def test_mimic_joint_with_zero_limits_loads(tmp_path):
         "</joint></robot>"
     )
     assert parse_urdf(p).joints[0].limits is None
+
+
+@pytest.mark.parametrize(
+    "name, warned",
+    [
+        ("inf_text", "joint 'j_b' limit lower -inf, upper inf, effort inf, velocity inf"),
+        ("unknown_joint_type", "unsupported joint type 'spherical' on joint 'j_b'"),
+        ("find_include", "skipped <xacro:include filename='$(find realsense2_description)"),
+    ],
+)
+def test_tolerated_oddity_is_read_and_warned(name, warned):
+    warnings: list[str] = []
+    model = parse_urdf(FIXTURES / "fuzz" / f"{name}.urdf", warnings=warnings)
+    assert [link.name for link in model.links] == ["a", "b"]
+    assert len(warnings) == 1 and warnings[0].startswith(warned)

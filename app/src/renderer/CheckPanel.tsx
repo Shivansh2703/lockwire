@@ -6,6 +6,7 @@ import { FindingList, ModeBlocks, VERDICT, WHOLE, capChips, chipJump, linkTo, li
 import { insteadJump, type Jump, type OnJump } from "./jump";
 import { Button, CommandLine, Disclosure, Figure, FindingDetail, FindingRow, Panel, StatusPill } from "./kit";
 import { MASS_NOMINAL, massLine } from "./MeasureCompareDeclare";
+import { SwapPanel } from "./SwapPanel";
 
 // Check: the verdict, one row per finding, the selected one open inline. Every
 // word is the payload's own; the only fixed words are the panel title, the verdict label,
@@ -20,7 +21,7 @@ const fig = (f: ApiFigure) => (
 const ownerWord = (o: string) => { const w = o.replace(/-integration$/, "").replace(/[-_]/g, " "); return w.replace(/^./, (c) => c.toUpperCase()); };
 
 export function CheckPanel({
-  payload, selected, onSelect, onRecheck, pills, more, onJump, onCompare, notice, saved,
+  payload, selected, onSelect, onRecheck, pills, more, onJump, onCompare, notice, saved, contract, expectedRevision, onSwapped,
 }: {
   payload: CheckFacePayload;
   selected: number | null;
@@ -38,7 +39,13 @@ export function CheckPanel({
   notice?: ReactNode;
   /** Where the lockfile was just saved ("saved beside your model"): the count line's last item. */
   saved?: string;
+  /** The open lockfile and its revision: with `onSwapped`, a servo finding offers Part Swap. */
+  contract?: string;
+  expectedRevision?: string;
+  /** A swap was written: re-check. */
+  onSwapped?: (lines: string[]) => void;
 }) {
+  const [swapJoint, setSwapJoint] = useState<string | null>(null);
   const [verdictStatus, verdictLabel] = VERDICT[payload.verdict] ?? ["muted", payload.verdict];
   const owners = [...new Set(payload.findings.map((f) => f.owner).filter((o): o is string => Boolean(o)))];
   // "Frames without mass" is normal on a fresh robot: a quiet note under the rows, not a problem.
@@ -52,6 +59,10 @@ export function CheckPanel({
   const count = [problems, quiet, accepted.length ? `${accepted.length} accepted` : "", saved].filter(Boolean).join(" · ");
   // Check lands on the first problem, already open: nothing to tap to see what is wrong (mockup 2B).
   useEffect(() => { if (selected === null && firstProblem !== undefined) onSelect(firstProblem); }, [payload.cards]);
+  const onSwap = contract && expectedRevision && onSwapped ? setSwapJoint : undefined;
+  if (swapJoint && contract && expectedRevision && onSwapped) {
+    return <SwapPanel contract={contract} revision={expectedRevision} joint={swapJoint} onClose={() => setSwapJoint(null)} onApplied={(lines) => { setSwapJoint(null); onSwapped(lines); }} />;
+  }
   return (
     <Panel>
       <div className={`check-verdict check-verdict-${verdictStatus}`}>
@@ -83,7 +94,7 @@ export function CheckPanel({
         </div>
       )}
       {firstProblem !== undefined && <h3 className="check-section">Problems</h3>}
-      <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={groups.map((g) => groupItem(payload.cards, g, selected, onSelect, onJump, payload.cli_line))} quietSummary={(n) => `Not compared yet (${n})`} />
+      <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={groups.map((g) => groupItem(payload.cards, g, selected, onSelect, onJump, payload.cli_line, onSwap))} quietSummary={(n) => `Not compared yet (${n})`} />
       {accepted.length > 0 && (
         // Accepted on record: muted, never red, never hidden.
         <Disclosure summary={`Accepted (${accepted.length})`}>
@@ -101,7 +112,36 @@ const headOf = (card: Card) => modeHeads([{ observed: card.raw, observed_quantit
 
 /** One card opened: with typed numbers, the mode header, one Fix line, and the figures behind
  * "Show the exact finding"; without, the figures lead as before. */
-function Detail({ card, onJump, cli, bare }: { card: Card; onJump?: OnJump; cli?: string | null; bare?: boolean }) {
+/** A servo-stall card (page.py's own test: the effort shape, a stall torque expected): its joint
+ * and the exact model-file edit from the finding's action line (`fix` is reworded). */
+export function servoStall(card: Card): { joint: string; edit: string } | null {
+  if (card.shape !== "model/joints/*/limits/effort" || !/expected\s.*stall torque/.test(card.raw)) return null;
+  const edit = /action\s.*?; (in .+?), then re-lock/.exec(card.raw)?.[1];
+  const joint = /^model\/joints\/(.+)\/limits\/effort$/.exec(card.quantity ?? "")?.[1]; // a joint name may contain "/"
+  return edit && joint ? { joint, edit } : null;
+}
+
+/** Swap opens the panel; "Set limit" only shows the edit to make in the model file (the app never writes it). */
+function ServoActions({ joint, edit, onSwap }: { joint: string; edit: string; onSwap?: (joint: string) => void }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="check-servo">
+      <div className="check-verdict-actions">
+        {onSwap && <Button variant="primary" onClick={() => onSwap(joint)}>Swap</Button>}
+        <Button variant="quiet" onClick={() => setShown(true)}>{"Set limit to servo's stall"}</Button>
+      </div>
+      {shown && (
+        <p className="check-edit">
+          <code>{edit}</code>
+          <Button variant="quiet" onClick={() => void navigator.clipboard?.writeText(edit)}>Copy</Button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Detail({ card, onJump, cli, bare, onSwap }: { card: Card; onJump?: OnJump; cli?: string | null; bare?: boolean; onSwap?: (joint: string) => void }) {
+  const servo = servoStall(card);
   // The "i" opens the exact finding, where the note is written out.
   const [exact, setExact] = useState(false);
   const info = card.figure_note ? <button type="button" className="finding-info" aria-label={card.figure_note} title={card.figure_note} onClick={() => setExact(true)}>i</button> : null;
@@ -122,6 +162,7 @@ function Detail({ card, onJump, cli, bare }: { card: Card; onJump?: OnJump; cli?
   const body = (
     <div className="check-detail">
       <FindingDetail rows={head ? [fix, ...instead] : [...figures, ...instead, fix]} />
+      {servo && <ServoActions joint={servo.joint} edit={servo.edit} onSwap={onSwap} />}
       <Disclosure summary="Show the exact finding" open={exact || undefined}>
         {head && <FindingDetail rows={figures} />}
         {!card.observed && !card.expected && card.body && <p className="finding-body">{card.body}</p>}
@@ -175,9 +216,9 @@ const countWords = (groups: Group[], cards: Card[]) => {
 const groupOf = (groups: Group[], selected: number | null) =>
   selected === null ? null : groups.findIndex((g) => g.members.includes(selected));
 
-function groupItem(cards: Card[], g: Group, selected: number | null, onSelect: (index: number | null) => void, onJump?: OnJump, cli?: string | null): FindingItem {
+function groupItem(cards: Card[], g: Group, selected: number | null, onSelect: (index: number | null) => void, onJump?: OnJump, cli?: string | null, onSwap?: (joint: string) => void): FindingItem {
   const first = cards[g.members[0]!]!;
-  const item = groupRow(cards, g, selected, onSelect, onJump, cli);
+  const item = groupRow(cards, g, selected, onSelect, onJump, cli, onSwap);
   // A not-compared row offers its next step: Declare it (part rows too).
   const declare: Jump = { path: first.quantity, targets: first.targets, declare: true };
   // The datasheet-mass result reads as the comparison it is, and offers Declare it (mockup 3B).
@@ -186,19 +227,19 @@ function groupItem(cards: Card[], g: Group, selected: number | null, onSelect: (
   return { ...item, title: mass || item.title, action: <Button variant="quiet" onClick={() => onJump(declare)}>Declare it</Button> };
 }
 
-function groupRow(cards: Card[], g: Group, selected: number | null, onSelect: (index: number | null) => void, onJump?: OnJump, cli?: string | null): FindingItem {
+function groupRow(cards: Card[], g: Group, selected: number | null, onSelect: (index: number | null) => void, onJump?: OnJump, cli?: string | null, onSwap?: (joint: string) => void): FindingItem {
   const first = cards[g.members[0]!]!;
   const onChip = onJump && ((c: Chip) => onJump(chipJump(c)));
   const severity = first.severity === "violation" ? "bad" : first.severity === "warning" ? "warn" : "muted";
   const className = `finding-card severity-${first.severity}`;
   if (g.members.length === 1) {
-    return { key: `${first.shape}-${g.members[0]!}`, severity, title: headOf(first) ? noMode(first.title) : first.title, chips: liveChips(first.whole && severity !== "muted" ? WHOLE : capChips(targetChips(first.targets)), onJump), onChip, className, shape: first.shape, detail: <Detail card={first} onJump={onJump} cli={cli} /> };
+    return { key: `${first.shape}-${g.members[0]!}`, severity, title: headOf(first) ? noMode(first.title) : first.title, chips: liveChips(first.whole && severity !== "muted" ? WHOLE : capChips(targetChips(first.targets)), onJump), onChip, className, shape: first.shape, detail: <Detail card={first} onJump={onJump} cli={cli} onSwap={onSwap} /> };
   }
   const heads = modeHeads(g.members.map((i) => ({ observed: cards[i]!.raw, observed_quantity: cards[i]!.observed, expected_quantity: cards[i]!.expected })), g.members.map((i) => cards[i]!.targets.find((t) => t.kind === "rail")?.label));
   const targets = g.members.flatMap((i) => cards[i]!.targets).filter((t, n, all) => all.findIndex((u) => u.id === t.id && u.kind === t.kind) === n);
   const merged = !first.group_title && heads && (!!first.cluster_root || g.members.some((i) => noMode(cards[i]!.title) !== cards[i]!.title));
   if (merged) {
-    return { key: `${first.shape}-${g.members[0]!}`, severity, title: noMode(first.title), chips: liveChips(capChips(targetChips(targets)), onJump), onChip, className, shape: first.shape, detail: <ModeBlocks heads={heads} details={g.members.map((i) => <Detail key={i} card={cards[i]!} onJump={onJump} cli={cli} bare />)} /> };
+    return { key: `${first.shape}-${g.members[0]!}`, severity, title: noMode(first.title), chips: liveChips(capChips(targetChips(targets)), onJump), onChip, className, shape: first.shape, detail: <ModeBlocks heads={heads} details={g.members.map((i) => <Detail key={i} card={cards[i]!} onJump={onJump} cli={cli} onSwap={onSwap} bare />)} /> };
   }
   return {
     key: `${first.shape}-${g.members[0]!}`,
@@ -214,7 +255,7 @@ function groupRow(cards: Card[], g: Group, selected: number | null, onSelect: (i
         {g.members.map((i) => (
           <div key={i}>
             <FindingRow severity={severity} title={rowTitled(cards[i]!) ? cards[i]!.title : cards[i]!.targets[0]?.label ?? cards[i]!.label} chips={liveChips(targetChips(cards[i]!.targets.slice(1)), onJump)} selected={selected === i} onSelect={() => onSelect(selected === i ? g.members[0]! : i)} onChip={onChip && ((c) => onChip(c as Chip))} />
-            {selected === i && <Detail card={cards[i]!} onJump={onJump} cli={cli} />}
+            {selected === i && <Detail card={cards[i]!} onJump={onJump} cli={cli} onSwap={onSwap} />}
           </div>
         ))}
       </div>

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import tempfile
@@ -15,7 +16,14 @@ from typing import Any
 from lockwire.edit import _contract_lock, contract_revision, relative_source
 from lockwire.scene import SceneRefusal
 from lockwire.scene_urdf import _resolve_mesh_path, mesh_root
-from lockwire.schema import ArtifactRef, Contract, RobotInfo, save_contract
+from lockwire.schema import (
+    ArtifactRef,
+    Contract,
+    RobotInfo,
+    SCHEMA_VERSION,
+    load_contract,
+    save_contract,
+)
 from lockwire.sdf import parse_sdf
 from lockwire.urdf import _refuse_doctype_entity, parse_urdf, read_model_bytes
 
@@ -62,8 +70,11 @@ def start_contract(
     overwrite: bool = False,
     expected_revision: str | None = None,
     xacro_args: dict[str, str] | None = None,
+    warnings: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Create once, or replace only the exact bytes the caller observed."""
+    """Create once, or replace only the exact bytes the caller observed.
+
+    ``warnings`` collects the model oddities a check reports (they are in the note too)."""
     source = Path(urdf).resolve()
     target = Path(out).resolve() if out is not None else source.parent / "lockwire.yaml"
     if source == target:
@@ -78,17 +89,30 @@ def start_contract(
             or expected_revision != contract_revision(target)
         ):
             raise ValueError("lockfile changed since it was opened; reload before overwriting")
-        raw = read_model_bytes(source, xacro_args)
-        _refuse_doctype_entity(raw, source)
-        xml = ET.fromstring(raw)
         notes: list[str] = []
-        model = parse_sdf(source) if xml.tag == "sdf" else parse_urdf(source, xacro_args, notes)
+        warned = warnings if warnings is not None else []
+        try:
+            raw = read_model_bytes(source, xacro_args)
+            _refuse_doctype_entity(raw, source)
+            xml = ET.fromstring(raw)
+            model = (
+                parse_sdf(source)
+                if xml.tag == "sdf"
+                else parse_urdf(source, xacro_args, notes, warned)
+            )
+        except ValueError as error:  # name the model as the caller typed it, not resolved
+            message = error.args[0] if len(error.args) == 1 else None
+            if isinstance(message, str) and str(error) == message:  # a plain one-line message
+                error.args = (message.replace(str(source), str(urdf)),)
+            raise
+        notes += warned
         spelling = relative_source(target, source)
         meshes, note, gap = _find_meshes(xml, source, target)
         note = "\n".join([*notes, note] if note else notes)
         model = model.model_copy(
             update={
                 "external_assets": meshes,
+                "xacro_args": xacro_args or None,
                 "source": spelling,
                 "provenance": model.provenance.model_copy(update={"source": spelling}),
             }
@@ -98,6 +122,7 @@ def start_contract(
         os.close(fd)
         try:
             save_contract(contract, Path(temporary))
+            load_contract(Path(temporary))  # an unloadable lock never replaces the old one
             # Refuse even a non-cooperating writer that changed bytes during parsing.
             if exists and contract_revision(target) != expected_revision:
                 raise ValueError("lockfile changed since it was opened; reload before overwriting")
@@ -139,9 +164,18 @@ def add_mass_check(
     import getpass
 
     from lockwire.edit import add_entry, parse_value, resolve_witness
+    from pydantic import ValidationError
+
     from lockwire.schema import Quantity
 
-    nominal = Quantity.model_validate(parse_value(mass, field_name="nominal"))
+    try:
+        nominal = Quantity.model_validate(parse_value(mass, field_name="nominal"))
+    except ValidationError as error:
+        raise ValueError(f"--mass must look like '20.6 kg', not {mass!r}") from error
+    if nominal.dimension() != "mass" or nominal.value <= 0:
+        raise ValueError(f"--mass must be a positive mass like '20.6 kg', not {mass!r}")
+    if tolerance_pct < 0:
+        raise ValueError("--tolerance-pct must be 0 or more")
     fields = {
         "id": "bud.mass",
         "budget_kind": "mass_total",
@@ -159,7 +193,12 @@ def add_mass_check(
 def model_lock(model: Path, folder: Path, *, mass: str | None = None, **options) -> Path:
     """A lock of `model` inside `folder` (a temp dir unless the caller wants it kept)."""
     lock = folder / "lockwire.yaml"
-    start_contract(model, out=lock, xacro_args=options.pop("xacro_args", None))
+    start_contract(
+        model,
+        out=lock,
+        xacro_args=options.pop("xacro_args", None),
+        warnings=options.pop("warnings", None),
+    )
     if mass:
         add_mass_check(lock, mass, **options)
     return lock
@@ -177,6 +216,8 @@ def robot_by_name(name: str) -> Path:
     import importlib
     import sys
 
+    if not sys.stderr.isatty():  # clone progress bars: ~20 KB of noise in a pipe
+        os.environ.setdefault("TQDM_DISABLE", "1")
     try:
         from robot_descriptions import DESCRIPTIONS
         from robot_descriptions._xacro import get_urdf_path  # expands xacro without ROS
@@ -241,6 +282,8 @@ def typed_paths(findings, lock: Path, model: Path, shown: str | None = None) -> 
     """Hints from a throwaway lock name the model as typed (`shown`: a robot name) and a
     lock beside it, or in the working folder for a name; nothing is locked, so no hint
     says "at lock" or re-locks with --force."""
+    from lockwire.cli_line import cli_line
+
     rel = relative_source(lock, model)
     beside = "lockwire.yaml" if shown else str(model.parent / "lockwire.yaml")
     shown = shown or str(model)
@@ -261,6 +304,12 @@ def typed_paths(findings, lock: Path, model: Path, shown: str | None = None) -> 
             for old, new in swaps:
                 text = text.replace(quote(old), quote(new))
             setattr(finding, field, text)
+        if finding.action and not Path(beside).exists():  # swap needs a lockfile; start makes one
+            finding.action = re.sub(
+                r"find a stronger servo: lockwire swap .*$",
+                f"find a stronger servo: lock the model first with `lockwire {cli_line('start', shown)}`",
+                finding.action,
+            )
 
 
 def drop_same_figure(findings, mass: str | None) -> None:
@@ -284,6 +333,45 @@ def drop_same_figure(findings, mass: str | None) -> None:
                 finding.next_command = None
 
 
+def zero_if_nothing_compared(findings) -> None:
+    """A fresh lock agrees with its own file: that hash match compares nothing."""
+    if not set(findings.scored_keys or ()) - {"model/structure_hash"}:
+        findings.scored = 0
+
+
+def warning_findings(warned: list[str]) -> list:
+    """The loader's warnings about a model file, as findings (CLI and MCP alike)."""
+    from lockwire.report import Finding
+
+    return [
+        Finding(
+            severity="warning",
+            quantity="model/source",
+            observed=line,
+            expected="a model lockwire can read as written",
+            action="fix the model file if this was not meant",
+        )
+        for line in warned
+    ]
+
+
+def defect_report(error: Exception):
+    """A dup/missing link or joint in the model file: one NO-GO violation, not a tool failure."""
+    from lockwire.report import Finding, RecordReport
+
+    return RecordReport(
+        [
+            Finding(
+                severity="violation",
+                quantity="model/structure",
+                observed=str(error),
+                expected="every joint names links the model has, and every name is used once",
+                action="fix the model file, then run the check again",
+            )
+        ]
+    )
+
+
 EXAMPLES = Path(__file__).parent / "examples"
 
 
@@ -292,7 +380,7 @@ ALIASES = {"x500": "drone", "pi-servos": "servo-bench"}
 
 
 # The one failing demo is never named without saying it fails on purpose.
-SERVO_BENCH = "servo-bench (built to fail: a 5 V rail overloaded on purpose, so you can see what a catch looks like)"
+SERVO_BENCH = "servo-bench (built to fail: a 5 V rail overloaded and a wrist servo too weak, on purpose, so you can see what a catch looks like)"
 
 
 def example_label(name: str) -> str:
@@ -315,7 +403,15 @@ def write_example(name: str, target: Path) -> str | None:
     name = ALIASES.get(name, name)
     folder = EXAMPLES / name
     source = folder / "contract.yaml" if folder.is_dir() else EXAMPLES / f"{name}.yaml"
-    target.write_bytes(source.read_bytes())
+    # byte-for-byte copy; only the version line moves to the current version
+    text = re.sub(
+        r"^(schema_version:[ \t]*)([\"']?)[^\"'\s#]+\2",
+        lambda m: f"{m[1]}{m[2]}{SCHEMA_VERSION}{m[2]}",
+        source.read_bytes().decode("utf-8"),
+        count=1,
+        flags=re.M,
+    )
+    target.write_bytes(text.encode("utf-8"))
     scene, glb, note = folder / "scene.glb", target.with_suffix(".glb"), None
     if scene.is_file() and glb.exists():  # never overwrite a user's scene
         note = f"kept your existing {glb.name}; the example's scene was not copied"

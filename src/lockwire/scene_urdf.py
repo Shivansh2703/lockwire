@@ -260,9 +260,12 @@ def package_root(source: Path) -> Path | None:
 
 
 def mesh_root(source: Path, contract_dir: Path) -> Path:
-    """The one folder a declared mesh must sit inside: the robot's
-    package, else the lockfile's folder. `external_assets` paths are relative to it."""
-    return package_root(source) or contract_dir.resolve()
+    """The one folder a declared mesh must sit inside: the robot's package, else the
+    lockfile's folder when it holds the model, else the model's own folder (a lock written
+    elsewhere, such as the throwaway one `check robot.urdf` makes). `external_assets` paths
+    are relative to it."""
+    folder, source = contract_dir.resolve(), source.resolve()
+    return package_root(source) or (folder if source.is_relative_to(folder) else source.parent)
 
 
 def _resolve_package(

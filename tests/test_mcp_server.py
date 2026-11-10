@@ -81,7 +81,7 @@ def test_upgrade_contract_calls_library_and_refuses_stale_or_occupied_target(tmp
     assert result.structured_content["legacy_revision"] == arguments["expected_revision"]
     assert result.structured_content["notices"] == ""
     assert source.read_bytes() == original
-    assert load_contract(output).schema_version == "0.5"
+    assert load_contract(output).schema_version == "0.6"
 
     occupied = _call("upgrade_contract", arguments)
     assert occupied.is_error
@@ -344,6 +344,7 @@ def test_every_mcp_tool_refuses_an_unsupported_schema_version(tmp_path):
         "preflight": {"recording": str(CLEAN_BAG)},
         "review_value": {"path": "model", "state": "approved", "witness": "tester"},
         "prepare_actuator_review_draft": {"case_id": "elbow.nominal"},
+        "swap": {"joint": "j"},
     }
     called = 0
     for name in asyncio.run(tool_names()):
@@ -407,6 +408,7 @@ def test_every_mcp_tool_preserves_malformed_contract_operand(tmp_path):
         "preflight": {"recording": str(CLEAN_BAG)},
         "review_value": {"path": "model", "state": "approved", "witness": "tester"},
         "prepare_actuator_review_draft": {"case_id": "elbow.nominal"},
+        "swap": {"joint": "j"},
     }
     called = 0
     for name in asyncio.run(tool_names()):
@@ -415,9 +417,7 @@ def test_every_mcp_tool_preserves_malformed_contract_operand(tmp_path):
         assert result.is_error, f"{name} did not refuse"
         text = result.content[0].text
         assert "future_typo" in text, f"{name} hid the malformed field: {text}"
-        assert "1 validation error for Contract" in text, f"{name} hid the error kind: {text}"
-        assert "Extra inputs are not permitted" in text, f"{name} hid the message: {text}"
-        assert "type=extra_forbidden" in text, f"{name} hid the error type: {text}"
+        assert "unknown key" in text, f"{name} hid the message: {text}"
         assert text.strip() != f"Error executing tool {name}", f"{name} returned only SDK text"
         assert "Traceback" not in text, f"{name}: {text}"
     assert called >= 6, f"only {called} contract-taking tools were exercised — the surface shrank"
@@ -478,6 +478,27 @@ def test_check_model_reports_the_datasheet_mismatch_and_writes_nothing(tmp_path)
     assert "/lockwire-" not in json.dumps(sc["findings"])  # no throwaway lock in a hint
 
 
+def test_check_model_agrees_with_check_json_on_odd_models(monkeypatch):
+    monkeypatch.chdir(FIXTURES / "fuzz")
+    for name in ("inf_text", "dup_joint"):  # a loader warning; a missing-link NO-GO
+        path = f"{name}.urdf"
+        sc = _call("check_model", {"path": path}).structured_content
+        cli = json.loads(runner.invoke(app, ["check", path, "--json", "-"]).stdout)
+        assert (sc["verdict"], sc["counts"]) == (cli["verdict"], cli["counts"])
+        assert {f["observed"] for f in sc["findings"]} == {f["observed"] for f in cli["findings"]}
+
+
+def test_compare_proposal_without_witness_names_the_argument_not_the_cli_flag():
+    args = {"contract": str(X500), "change": ["topology/rails/rail.pm02-5v/capacity=40 W"]}
+    said = _call("compare_proposal", {**args, "source": "s"}).content[0].text
+    assert "witness must name a real person" in said and "--witness" not in said
+
+
+def test_a_missing_file_is_one_plain_line_not_errno(tmp_path):
+    said = _call("check_sim_config", {"path": str(tmp_path / "no.xml"), "lock": str(X500)})
+    assert said.is_error and "was not found" in said.content[0].text
+
+
 def test_check_model_takes_a_catalog_robot_id():
     args = {"path": str(FIXTURES / "so101" / "so101.urdf"), "model": "openmanipulator-x"}
     sc = _call("check_model", args).structured_content
@@ -500,3 +521,10 @@ def test_tools_describe_every_parameter_and_check_model_lists_worst_first_withou
     order = [f["severity"] for f in findings]
     assert order == sorted(order, key=["violation", "warning", "not_scored"].index)
     assert None not in [v for f in findings for v in f.values()] and order[0] == "violation"
+
+
+def test_a_lockfile_mistake_reaches_an_agent_as_one_plain_line(tmp_path):
+    bad = tmp_path / "lock.yaml"
+    bad.write_text(CLEAN_CONTRACT.read_text().replace("\nrobot:", "\nbogus_key: 1\nrobot:", 1))
+    result = _call("describe_device", {"contract": str(bad), "device_id": "x"})
+    assert result.is_error and "lock.yaml: bogus_key: unknown key" in result.content[0].text

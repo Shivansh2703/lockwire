@@ -18,12 +18,23 @@ number is a bug in the seed data, not a permitted state (see `_source_not_blank`
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
+
+from lockwire import units
 
 _SEED_PATH = Path(__file__).parent / "catalog_seed.yaml"
 _ROBOTS_PATH = Path(__file__).parent / "catalog_robots.yaml"
@@ -33,6 +44,15 @@ _ROBOTS_PATH = Path(__file__).parent / "catalog_robots.yaml"
 #   <mass> tag) — real, but the citation is a file, not a published datasheet.
 # "assumed": fabricated for seeding, no real part backs it; the source string must say so.
 NumberKind = Literal["datasheet", "source_file", "assumed"]
+
+
+def is_cited(kind: str, source: str) -> bool:
+    """The cited rule: a datasheet figure whose source names a URL that is not a retail listing."""
+    return (
+        kind == "datasheet"
+        and bool(re.search(r"https?://", source))
+        and "retail" not in source.lower()
+    )
 
 
 class SourcedNumber(BaseModel):
@@ -75,8 +95,16 @@ class CatalogPart(BaseModel):
     id: str
     family: str
     name: str
+    bus: str | None = None  # servo bus word, e.g. feetech-sts, dynamixel-p2
     numbers: dict[str, SourcedNumber] = Field(default_factory=dict)
     note: str | None = None
+
+    @property
+    def label(self) -> Literal["cited", "unverified"]:
+        """Derived, never stored: cited = every number is a datasheet figure with a URL source
+        that is not a retail listing; anything else is unverified."""
+        ok = all(is_cited(n.kind, n.source) for n in self.numbers.values())
+        return "cited" if ok and self.numbers else "unverified"
 
 
 class Catalog(BaseModel):
@@ -95,11 +123,86 @@ class Catalog(BaseModel):
         return v
 
 
+# Units Part Swap and the servo check read without converting: a part must state them so.
+_FIXED_UNITS = {
+    "stall_torque": "N*m",
+    "stall_torque_voltage": "V",
+    "input_voltage_min": "V",
+    "input_voltage_max": "V",
+}
+
+
+class PrivatePartsError(ValueError):
+    """A parts file is broken; the message starts with its path."""
+
+
+def _refuse_bad_units(file: Path, part: dict) -> None:
+    numbers = part.get("numbers")
+    if not isinstance(numbers, dict):
+        return
+    for key, unit in _FIXED_UNITS.items():  # read as-is by Part Swap and the servo check
+        got = numbers.get(key)
+        if isinstance(got, dict) and got.get("unit") != unit:
+            raise PrivatePartsError(
+                f"{file}: part {part.get('id')!r} numbers.{key}.unit is "
+                f"{got.get('unit')!r}; write it in {unit}"
+                + (" (1 kg*cm = 0.0980665 N*m)" if unit == "N*m" else "")
+            )
+    mass = numbers.get("mass")  # Part Swap converts mass to kg
+    if isinstance(mass, dict) and not (
+        units.known(str(mass.get("unit"))) and units.dimension(mass["unit"]) == "mass"
+    ):
+        raise PrivatePartsError(
+            f"{file}: part {part.get('id')!r} numbers.mass.unit is {mass.get('unit')!r}; "
+            "write it in kg or g"
+        )
+
+
 def load_catalog(path: Path | str | None = None) -> Catalog:
-    """Read the catalog from `path` (default: the seeded catalog shipped with lockwire)."""
+    """Read the catalog from `path` (default: the seeded catalog shipped with lockwire).
+
+    The default also merges the user's private parts from ~/.lockwire/parts.yaml when present;
+    an explicit `path` reads only that file.
+    """
     yaml = YAML(typ="safe")
     p = Path(path) if path is not None else _SEED_PATH
-    data = yaml.load(p.read_text())
+    try:
+        data = yaml.load(p.read_text(encoding="utf-8"))
+    except (YAMLError, UnicodeDecodeError):
+        data = None
+    if not isinstance(data, dict):
+        raise PrivatePartsError(
+            f"{path or p} is not a parts catalog; pass a catalog .yaml, or leave it off for the bundled one"
+        )
+    for part in data.get("parts", []):
+        if isinstance(part, dict):
+            _refuse_bad_units(p, part)
+    private = Path.home() / ".lockwire" / "parts.yaml"
+    if path is None and private.is_file():
+        try:
+            mine = yaml.load(private.read_text(encoding="utf-8"))
+        except (OSError, YAMLError) as error:
+            raise PrivatePartsError(
+                f"{private}: not valid YAML: {str(error).splitlines()[0]}"
+            ) from error
+        if not isinstance(mine, list):
+            raise PrivatePartsError(f"{private}: must be a list of parts")
+        public_ids = {part["id"] for part in data["parts"]}
+        for n, part in enumerate(mine, 1):
+            if not isinstance(part, dict) or "id" not in part:
+                raise PrivatePartsError(f"{private}: entry {n} has no id")
+            if part["id"] in public_ids:
+                raise PrivatePartsError(f"{private}: part {part['id']!r} reuses a public id")
+            _refuse_bad_units(private, part)
+        try:
+            return Catalog.model_validate({**data, "parts": [*data["parts"], *mine]})
+        except ValidationError as error:
+            first = error.errors()[0]
+            loc, where = first["loc"][1:], ""  # ("parts", index, field, ...)
+            if loc and isinstance(loc[0], int):
+                part_id = mine[loc[0] - len(data["parts"])]["id"]
+                where = f"part {part_id!r} {'.'.join(map(str, loc[1:])) or 'entry'}: "
+            raise PrivatePartsError(f"{private}: {where}{first['msg']}") from error
     return Catalog.model_validate(data)
 
 
@@ -156,7 +259,7 @@ class Robot(BaseModel):
 
 def load_robots(path: Path | str | None = None) -> list[Robot]:
     """The robot rows (default: the ones shipped with lockwire)."""
-    data = YAML(typ="safe").load(Path(path or _ROBOTS_PATH).read_text())
+    data = YAML(typ="safe").load(Path(path or _ROBOTS_PATH).read_text(encoding="utf-8"))
     robots = [Robot.model_validate(row) for row in data["robots"]]
     if len({r.id for r in robots}) != len(robots):
         raise ValueError("duplicate robot id in the catalog")

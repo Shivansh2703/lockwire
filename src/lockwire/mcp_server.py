@@ -11,6 +11,7 @@ place, and takes ``expected_revision`` to refuse a stale file.
 
 from __future__ import annotations
 
+import functools
 import secrets
 from pathlib import Path
 from typing import Annotated, Any
@@ -18,6 +19,7 @@ from typing import Annotated, Any
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from lockwire.catalog import PrivatePartsError
 from lockwire.confine import without_values
 from pydantic import Field, ValidationError
 from ruamel.yaml import YAMLError
@@ -29,7 +31,7 @@ from lockwire.describe import describe_device as _describe_device
 from lockwire.describe import describe_system as _describe_system
 from lockwire.edit import Change, EditRefusal, resolve_witness
 from lockwire.plan import Plan
-from lockwire.schema import ArtifactRef, Contract, UnsupportedSchemaVersion
+from lockwire.schema import ArtifactRef, Contract, ContractError, UnsupportedSchemaVersion
 
 # The SDK only carries an exception's own text to the client when it is a
 # `ToolError` (anything else reaches the client as a generic "Error executing
@@ -97,6 +99,15 @@ REVISION = Annotated[
 ]
 
 
+def _plain(error: Exception) -> str:
+    """The CLI's plain line for a file-system failure (no Errno); other errors as they are."""
+    if isinstance(error, OSError):
+        from lockwire.cli import plain_os_error
+
+        return without_values(plain_os_error(error))
+    return without_values(str(error))
+
+
 def _load_contract(contract: str) -> Contract:
     """Resolve ``contract`` against the server's cwd; refuse a path that does not exist,
     or one written by a lockwire newer than this one.
@@ -108,17 +119,41 @@ def _load_contract(contract: str) -> Contract:
     path = Path(contract)
     if not path.exists():
         raise ToolError(f"no contract at {path}")
+    if path.is_dir():
+        raise ToolError(f"{path} is a folder; pass the lockfile or model inside it")
+    if path.suffix.lower() in (".urdf", ".xacro", ".sdf"):
+        raise ToolError(f"{path} is a robot model, not a lockfile; use check_model on it")
     try:
         return api.load(path)
     except UnsupportedSchemaVersion as error:
         raise ToolError(f"REFUSED — {error}") from error
+    except ContractError as error:  # the user's file: the same plain lines the CLI prints
+        raise ToolError(str(error)) from error
     except (OSError, KeyError, TypeError, ValueError, YAMLError) as error:
-        raise ToolError(without_values(str(error))) from error
+        raise ToolError(_plain(error)) from error
 
 
 def build_server() -> MCPServer:
     """Construct the lockwire MCP server (no stdio — tests can drive it in-process)."""
     server = MCPServer("lockwire", version=__version__)
+    _tool = server.tool
+
+    def tool(*args: Any, **kwargs: Any) -> Any:
+        register = _tool(*args, **kwargs)
+
+        def wrap(fn: Any) -> Any:
+            @functools.wraps(fn)
+            def guarded(*a: Any, **k: Any) -> Any:
+                try:
+                    return fn(*a, **k)
+                except PrivatePartsError as error:  # a broken private parts file, as plain text
+                    raise ToolError(str(error)) from error
+
+            return register(guarded)
+
+        return wrap
+
+    server.tool = tool  # type: ignore[method-assign]
 
     @server.tool()
     def check_contract(
@@ -130,7 +165,10 @@ def build_server() -> MCPServer:
         evidence_root: Annotated[
             str | None, _arg("Folder the actuator evidence paths are relative to.")
         ] = None,
-        expected_revision: REVISION = None,
+        expected_revision: Annotated[
+            str | None,
+            _arg("SHA-256 of the contract bytes you read; only used with actuator_evidence."),
+        ] = None,
     ) -> dict[str, Any]:
         """Run lockwire's record-level checks on the contract and return its verdict and findings, each carrying a `next_command` where one applies; refuses a contract path that does not exist."""
         loaded = _load_contract(contract)
@@ -144,7 +182,7 @@ def build_server() -> MCPServer:
                 options["expected_revision"] = expected_revision
             document = api.check(loaded, **options)
         except (OSError, TypeError, ValueError, YAMLError) as error:
-            raise ToolError(without_values(str(error))) from error
+            raise ToolError(_plain(error)) from error
         line = ["check", contract]
         if actuator_evidence is not None:
             for case_id in sorted(actuator_evidence):
@@ -184,6 +222,11 @@ def build_server() -> MCPServer:
             path = str(file := file.relative_to(Path.cwd()))
         if file.suffix.lower() not in MODEL_SUFFIXES or not file.is_file():
             raise ToolError(f"no .urdf/.xacro/.sdf model at {path}")
+        from lockwire.urdf import ModelDefect
+
+        line = ["check", path] + (["--mass", datasheet_mass] if datasheet_mass else [])
+        line += ["--model", model] if model else []
+        warned: list[str] = []
         try:
             with tempfile.TemporaryDirectory(prefix="lockwire-") as folder:
                 lock = model_lock(
@@ -192,15 +235,21 @@ def build_server() -> MCPServer:
                     mass=datasheet_mass,
                     source=source,
                     tolerance_pct=tolerance_pct,
+                    warnings=warned,
                 )
                 loaded = load_contract(lock)
-                line = ["check", path] + (["--mass", datasheet_mass] if datasheet_mass else [])
-                line += ["--model", model] if model else []
                 document = api.check(
-                    loaded, contract_path=lock, model=model, model_file=file, mass=datasheet_mass
+                    loaded,
+                    contract_path=lock,
+                    model=model,
+                    model_file=file,
+                    mass=datasheet_mass,
+                    warnings=warned,
                 )
+        except ModelDefect as error:  # the CLI's NO-GO, not a tool failure
+            document = api.defect_document(file, error)
         except (OSError, SyntaxError, TypeError, ValueError, YAMLError) as error:
-            raise ToolError(without_values(str(error))) from error
+            raise ToolError(_plain(error)) from error
         return _with_cli_line(document, _cli_line(*line))
 
     @server.tool()
@@ -219,7 +268,7 @@ def build_server() -> MCPServer:
         try:
             _report, document = sim_document(Path(path), loaded, Path(lock_path))
         except (OSError, SyntaxError, TypeError, ValueError) as error:
-            raise ToolError(without_values(str(error))) from error
+            raise ToolError(_plain(error)) from error
         return _with_cli_line(document, _cli_line("check-sim", path, "--lock", lock_path))
 
     @server.tool()
@@ -238,7 +287,7 @@ def build_server() -> MCPServer:
         ] = None,
         expected_revision: REVISION = None,
     ) -> dict[str, str]:
-        """Write a new current-version contract from an exact 0.2/0.3/0.4 file revision without
+        """Write a new current-version contract from an exact 0.2/0.3/0.4/0.5 file revision without
         changing that legacy file; refuses a stale revision or occupied output path.
         """
         # `out`/`expected_revision` are optional in the signature only so a missing
@@ -267,7 +316,9 @@ def build_server() -> MCPServer:
         contract: CONTRACT,
         change: Annotated[list[str], _arg("Proposed edits, each PATH=VALUE, e.g. 'x.mass=2 kg'.")],
         source: Annotated[str, _arg("Where the proposed values come from.")],
-        witness: Annotated[str | None, _arg("The human who vouches for the values.")] = None,
+        witness: Annotated[
+            str | None, _arg("Required in practice: the real person who vouches for the values.")
+        ] = None,
     ) -> dict[str, Any]:
         """Compare current and proposed contract checks without writing the contract or health ledger; findings carry a `next_command` where one applies."""
         _load_contract(contract)
@@ -289,7 +340,8 @@ def build_server() -> MCPServer:
             ValueError,
             YAMLError,
         ) as error:
-            raise ToolError(f"REFUSED — {error}") from error
+            said = str(error).replace("--witness", "witness").replace("--change", "change")
+            raise ToolError(f"REFUSED — {said}") from error  # the tool's argument names, not flags
         line = ["what-if", contract]
         for entry in change:
             line += ["--change", entry]
@@ -385,7 +437,7 @@ def build_server() -> MCPServer:
                 expected_revision=expected_revision,
             )
         except (EditRefusal, UnsupportedSchemaVersion, OSError, YAMLError) as error:
-            raise ToolError(without_values(str(error))) from error
+            raise ToolError(_plain(error)) from error
         return _with_cli_line(
             document,
             _cli_line("review", contract, path, flag, "--witness", witness, *extra),
@@ -400,8 +452,76 @@ def build_server() -> MCPServer:
         try:
             document = api.from_parts(parts, catalog=catalog)
         except (OSError, ValidationError, YAMLError) as error:
-            raise ToolError(without_values(str(error))) from error
+            raise ToolError(_plain(error)) from error
         return _with_cli_line(document, _cli_line("from-parts", "<parts.txt>"))
+
+    @server.tool()
+    def swap(
+        contract: CONTRACT,
+        joint: Annotated[str, _arg("The revolute/continuous joint whose servo to swap.")],
+        part_id: Annotated[
+            str | None, _arg("A catalog servo id: its knock-on is shown (default: the top one).")
+        ] = None,
+        expected_revision: Annotated[
+            str | None,
+            _arg("SHA-256 of the contract bytes you read; given WITH part_id, writes the swap."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Rank catalog servos for one joint by its real gravity load (fit: stall >= 2x load,
+        tight: >= 1x, too weak) and list each joint above it, load before -> after. Writes only
+        when part_id AND expected_revision are both given: the joint's servo: entry and one
+        device carrying the servo mass difference; the file's version line is left as it is."""
+        from lockwire.swap import apply_swap, preview, shown_ratio
+
+        loaded = _load_contract(contract)
+        if expected_revision is not None and part_id is None:
+            raise ToolError("REFUSED — writing a swap requires part_id")
+        try:
+            if expected_revision is None:
+                pv, written = preview(loaded, joint, part_id), None
+            else:
+                pv, written = apply_swap(
+                    Path(contract), joint, part_id, expected_revision=expected_revision
+                )
+        except (EditRefusal, OSError, ValueError, YAMLError) as error:
+            raise ToolError(f"REFUSED — {without_values(str(error))}") from error
+
+        knock = [  # a status drop first
+            {
+                "joint": k.joint,
+                "before_nm": k.before and round(k.before, 3),
+                "after_nm": k.after and round(k.after, 3),
+            }
+            | (
+                {"status": k.status, "ratio": shown_ratio(k.ratio), "dropped": k.dropped}
+                if k.status
+                else {}
+            )
+            for k in sorted(pv.knock_on, key=lambda k: not k.dropped)
+        ]
+        line = ["swap", contract, joint] + (["--use", part_id] if written else [])
+        return {
+            "joint": joint,
+            "current": pv.current,
+            "load_nm": round(pv.load, 3),
+            "chosen": pv.chosen.id if pv.chosen else None,
+            "knock_on": knock,
+            "notes": pv.notes or ["no cited alternatives yet"] * (not pv.candidates),
+            "candidates": [
+                {
+                    "id": x.id,
+                    "status": x.status,
+                    "label": x.label,
+                    "stall_nm": x.stall,
+                    "ratio": shown_ratio(x.ratio),
+                    "mass_g": x.mass_g,
+                }
+                | ({"flags": x.flags} if x.flags else {})
+                for x in pv.candidates
+            ],  # fmt: skip
+            "written": bool(written and written.written),
+            "cli_line": _cli_line(*line),
+        }
 
     plugins.load(mcp=server)  # a plugin adds its own tools
     return server

@@ -11,6 +11,7 @@ import type {
   WhatIfPayload,
   StartPayload,
   StartersPayload,
+  SwapPreviewPayload,
 } from "../shared/api.gen";
 import schemaDocument from "../renderer/schema.json";
 
@@ -38,6 +39,11 @@ const validatePlan = payloadValidator<PlanPayload>("PlanPayload");
 const validateWhatIf = payloadValidator<WhatIfPayload>("WhatIfPayload");
 const validateStart = payloadValidator<StartPayload>("StartPayload");
 const validateStarters = payloadValidator<StartersPayload>("StartersPayload");
+const validateSwapPreview = payloadValidator<SwapPreviewPayload>("SwapPreviewPayload");
+
+export function validateSwapPreviewPayload(payload: unknown): SwapPreviewPayload {
+  return validated(payload, validateSwapPreview, "contract:swap-preview");
+}
 
 export function validateStartersPayload(payload: unknown): StartersPayload {
   return validated(payload, validateStarters, "file:starters");

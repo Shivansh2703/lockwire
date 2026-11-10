@@ -37,6 +37,7 @@ from lockwire.schema import (
     Contract,
     MAX_CONTRACT_BYTES,
     _guard_contract_raw,
+    plain_message,
     _load_yaml_guarded,
     _model_structure_hash,
     _reject_yaml_anchors_aliases,
@@ -263,9 +264,13 @@ def parse_value(raw: str, *, field_name: str) -> Any:
     except ValueError:
         pass
     try:
-        return float(text)
+        number = float(text)
     except ValueError:
         pass
+    else:
+        if not math.isfinite(number):
+            raise EditRefusal(f"{raw!r} is not a usable number; write a plain number like 20.6")
+        return number
     if field_name == "mount_xyz":
         triple = _TRIPLE_RE.match(text)
         if triple:
@@ -281,6 +286,8 @@ def parse_value(raw: str, *, field_name: str) -> Any:
     if single:
         value, unit = single.groups()
         if units.known(unit):
+            if not math.isfinite(float(value)):
+                raise EditRefusal(f"{raw!r} is not a usable number; write a plain number like 20.6")
             return _flow_quantity(float(value), unit)
         raise EditRefusal(f"unknown unit {unit!r} in {raw!r}")
     return text
@@ -705,6 +712,11 @@ def _backup_temp(path: Path, contents: bytes) -> Path:
     return tmp_path
 
 
+def _named(error: Exception, tmp_path: Path, contract_path: Path) -> str:
+    """A refusal about the staged temp file names the user's file instead."""
+    return str(error).replace(tmp_path.name, contract_path.name)
+
+
 def _replace(tmp_path: Path, contract_path: Path) -> None:
     """Install a written file atomically with the file's own permissions.
 
@@ -927,6 +939,8 @@ def _apply_change(doc: Any, index: int, change: Change) -> str:
             if isinstance(change.value, str)
             else change.value
         )
+        if value is None:
+            raise EditRefusal("no value given; declare a value like '20.6 kg'")
         if change.unit is not None:
             value = _attach_unit(value, change.unit)
     except EditRefusal as error:
@@ -1108,7 +1122,7 @@ def apply_review(
         except UnsupportedSchemaVersion:
             raise
         except Exception as error:
-            raise EditRefusal(f"review of {path}: {error}") from error
+            raise EditRefusal(f"review of {path}: {_named(error, tmp_path, contract_path)}") from error
         diff = "".join(
             difflib.unified_diff(
                 original_text.replace("\r\n", "\n").splitlines(keepends=True),
@@ -1138,8 +1152,13 @@ def _correlate_failure(doc: Any, changes: list[Change], error: Exception) -> str
                     or loc_path.startswith(change.path + "/")
                     or (change.path.startswith(loc_path + "/") if loc_path else False)
                 ):
-                    return f"entry {index} ({change.path}): {pydantic_error.get('msg', error)}"
-    return f"contract invalid after {len(changes)} change(s): {error}"
+                    return f"entry {index} ({change.path}): {plain_message(pydantic_error)}"
+    lines = (
+        [".".join(map(str, e["loc"])) + ": " + plain_message(e) for e in errors()]
+        if callable(errors)
+        else [str(error)]
+    )
+    return f"contract invalid after {len(changes)} change(s): " + "; ".join(lines)
 
 
 # ------------------------------------------------- add device|rail|bus|family|model|budget|gearbox
@@ -1312,7 +1331,7 @@ def add_entry(
         except UnsupportedSchemaVersion:  # in the file before the edit; see apply_changes
             raise
         except Exception as error:
-            raise EditRefusal(f"add {kind} {new_id!r} invalid: {error}") from error
+            raise EditRefusal(f"add {kind} {new_id!r} invalid: {_named(error, tmp_path, contract_path)}") from error
 
         diff = "".join(
             difflib.unified_diff(
@@ -1382,7 +1401,7 @@ def _add_battery_entry(
         except UnsupportedSchemaVersion:  # in the file before the edit; see apply_changes
             raise
         except Exception as error:
-            raise EditRefusal(f"battery invalid: {error}") from error
+            raise EditRefusal(f"battery invalid: {_named(error, tmp_path, contract_path)}") from error
 
         diff = "".join(
             difflib.unified_diff(

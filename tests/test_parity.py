@@ -4,6 +4,7 @@ import typer
 
 from lockwire.cli import app
 from lockwire.mcp_server import build_server
+from lockwire.plugins import PRO_COMMANDS
 
 TOOLS_BY_COMMAND = {
     "check": {"check_contract"},
@@ -14,6 +15,7 @@ TOOLS_BY_COMMAND = {
     "plan": {"validate_plan"},
     "review": {"review_value"},
     "upgrade": {"upgrade_contract"},
+    "swap": {"swap"},
     "catalog robots": {"list_robots"},
 }
 NAMED_GAPS = {
@@ -25,7 +27,7 @@ for _names, _why in {
     "accept add gearbox declare apply scene~import": "contract write door",
     "mount-shape move place reparent rotate": "pose edit, a contract write door",
     "export init start report": "writes a file for the user, not a question",
-    "hw scan": "probes attached hardware",
+    "hw scan record-servos": "probes attached hardware",
     "diff blame log": "needs git history a robot-facing server does not own",
     "mcp serve": "launches a server itself",
     "bench api-types api-schema import": "hidden developer or build-time command",
@@ -37,7 +39,7 @@ def _free_leaves(command, prefix=""):
     for name, sub in sorted(command.commands.items()):
         if getattr(sub, "commands", None):
             yield from _free_leaves(sub, f"{prefix}{name} ")
-        elif not getattr(sub.callback, "__module__", "").startswith("lockwire_pro"):
+        elif f"{prefix}{name}".split()[0] not in PRO_COMMANDS:
             yield f"{prefix}{name}"
 
 

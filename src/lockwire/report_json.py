@@ -13,7 +13,7 @@ Three properties this file is responsible for, each load-bearing:
   exit map would eventually disagree with the terminal, and a gate that
   disagrees with itself is worse than no gate.
 - **`not_scored` findings are carried, not filtered.** They are the half the
-  product exists to say out loud (`docs/gate_coverage.md`). A document that
+  product exists to say out loud. A document that
   emitted only violations would let a consumer render a clean green screen over
   an admitted coverage hole.
 - **A vacuous pass is visibly distinct.** ``NOT_SCORED`` (exit 3) and ``scored``
@@ -188,7 +188,17 @@ def datasheet_badge(robot: Robot | None, findings: list[Finding], scored: frozen
     names = ", ".join("mass" if k == "mass_total" else k for k in compared if k in off or not off)
     mass = robot.numbers["mass_total"]
     scope = f", mass {mass.scope.replace('_', ' ')}" if mass.scope else ""
-    word, color = ("differs", "red") if off else ("matches", "brightgreen")
+    taken = {keys[f.quantity] for f in getattr(findings, "accepted", []) if f.quantity in keys}
+    if off:
+        word, color = "differs", "red"
+    elif taken:  # an accepted difference is on record, not a match
+        word, color, names = (
+            "accepted difference",
+            "lightgrey",
+            ", ".join("mass" if k == "mass_total" else k for k in compared if k in taken),
+        )
+    else:
+        word, color = "matches", "brightgreen"
     return badge | {
         "message": f"{word} ({names}) · {robot.id} sheet {mass.retrieved}{scope}",
         "color": color,

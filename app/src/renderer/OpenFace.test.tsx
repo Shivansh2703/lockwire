@@ -50,6 +50,11 @@ describe("OpenFace", () => {
     expect(onOpenRobot).toHaveBeenCalledTimes(1);
   });
 
+  it("every way in is disabled until the engine is ready", () => {
+    renderFace({ connected: false, starters: [{ name: "arm", title: "Arm", based_on: "x" }], recent: [{ path: "/a/l.yaml", name: "arm" }] });
+    expect([...container.querySelectorAll("button")].map((b) => b.disabled)).toEqual([true, true, true, true]);
+  });
+
   it("lists the starters as example chips plus Blank, and reports the clicked name", () => {
     const onNewRobot = vi.fn();
     const starters = [

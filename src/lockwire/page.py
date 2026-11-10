@@ -21,12 +21,13 @@ from pydantic import BaseModel
 from lockwire import plugins
 from lockwire.checks import (
     _ScoreBook,
+    shown_path,
     check_scene_placement,
     check_zero_mass,
     is_lock_drift,
     run_record_checks,
 )
-from lockwire.cli_line import cli_line
+from lockwire.cli_line import cli_line, cli_line as quote_path  # build_payload shadows cli_line
 from lockwire.constraints import constraint_rows
 from lockwire.describe import describe_all, engineer_detail, render_power_tree
 from lockwire.edit import resolve_witness
@@ -120,6 +121,8 @@ def _shape(finding: Finding) -> str:
     blanked — the kind of check it was is what remains, and that is what the reader
     is being told.
     """
+    if re.fullmatch(r"model/joints/.+/limits/effort", finding.quantity):
+        return "model/joints/*/limits/effort"  # a joint name may itself contain "/"
     parts = finding.quantity.split("/")
     shaped = []
     for index, part in enumerate(parts):
@@ -808,10 +811,12 @@ def _cards(
         observed, expected, figure_note = _card_figures(group[0])
         targets = _targets(contract, group)
         fix = fix_text(group[0].action)
-        for t in sorted(
-            targets or [], key=lambda t: -len(t["id"])
-        ):  # a part's shown name, not its raw id
-            fix = re.sub(rf"(?<![\w.]){re.escape(t['id'])}(?![\w.])", t["label"], fix)
+        # a part's shown name, not its raw id; a line with a command keeps real ids after its
+        # first clause (the exact model edit and `lockwire swap <file> <joint>` get pasted).
+        head, sep, rest = fix.partition("; ") if "lockwire " in fix else (fix, "", "")
+        for t in sorted(targets or [], key=lambda t: -len(t["id"])):
+            head = re.sub(rf"(?<![\w.]){re.escape(t['id'])}(?![\w.])", t["label"], head)
+        fix = head + sep + rest
         cards.append(
             _card(
                 severity=group[0].severity,
@@ -1223,6 +1228,7 @@ _COMMAND_MODES = {
     # mounting geometry." These commands are that mode's write door.
     "place": "design",
     "mount-shape": "design",
+    "swap": "design",  # Part Swap: a servo for one joint, previewed, written on --use
     "move": "design",
     "rotate": "design",
     "reparent": "design",
@@ -1234,6 +1240,7 @@ _COMMAND_MODES = {
     "what-if": "check",
     "check-sim": "check",  # a sim file read beside the lock; no app face yet
     "hw": "check",
+    "record-servos": "reference",  # reads a servo bus into a folder; CLI only
     "plan": "plan",
     "mcp": "plan",
     "scan": "reference",
@@ -1620,6 +1627,11 @@ def build_payload(
     adds_up = len(scored_records)
     state, headline, qualifier = _headline(decision.code, violations, warnings, unchecked, adds_up)
     cards = _cards(contract, record_findings, echoed=echoed, redact_paths=redact_paths)
+    if contract_path is not None:  # the app's terminal opens in the robot's folder: file name only
+        for card in cards:
+            card["fix"] = card["fix"].replace(
+                f"swap {quote_path(shown_path(contract_path))} ", f"swap {contract_path.name} "
+            )
     if _nothing_declared(contract) and all(c["severity"] == "not_scored" for c in cards):
         # a lockfile fresh out of `start` has nothing to compare, so the
         # generic per-severity grammar above produces no card at all — the page

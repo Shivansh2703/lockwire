@@ -58,6 +58,10 @@ describe("a lens draws only the parts the payload puts in it, on a real mount", 
           "--platform=browser",
           "--format=iife",
           "--jsx=automatic",
+          // DesignLens -> DesignPanel -> proRegistry uses vite's import.meta.glob, which plain
+          // esbuild lacks; no paid plugin is wanted in a lens mount, so it globs nothing.
+          "--define:import.meta.glob=__noGlob",
+          "--banner:js=var __noGlob = () => ({});",
           `--outfile=${join(outDir, "lens-e2e-bundle.js")}`,
         ],
         { stdio: "pipe" },

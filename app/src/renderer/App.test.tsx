@@ -110,7 +110,7 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     root = createRoot(container);
     act(() => root.render(<App />));
     await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".open-face-new button")].find((b) => b.textContent === "Blank")!.click());
-    expect(container.querySelector(".start-note")?.textContent).toBe("Opened from /ud/examples/roverSave a copy…");
+    expect(container.querySelector(".start-note")?.textContent).toBe("This is an example robot. Save a copy to change it.Save a copy…");
     await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Save a copy…")!.click());
     expect(newRobot.mock.calls).toEqual([[null, undefined], [null, true]]);
   });
@@ -186,6 +186,17 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Retry opening")!.click());
     expect(startFromUrdf).toHaveBeenCalledTimes(2);
     expect(container.querySelector("[role=alert]")).toBeNull();
+  });
+
+  it("a file the engine refuses offers opening a different robot, not a retry", async () => {
+    const startFromUrdf = vi.fn().mockResolvedValue({ started: false, opened: { opened: true, path: "/x/bad.yaml", error: "not a lockfile" } });
+    Object.assign(window, { lockwire: { startFromUrdf } });
+    root = createRoot(container);
+    act(() => root.render(<App />));
+    clickOpenRobot();
+    await act(async () => {});
+    const labels = [...container.querySelectorAll("[role=alert] button")].map((b) => b.textContent);
+    expect(labels).toEqual(["Open a different robot"]);
   });
 
   it("test_first_launch_shows_open_face_not_a_check_face", () => {

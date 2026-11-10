@@ -82,9 +82,9 @@ A finding carries one of two sources:
 ## `start` exit codes 
 
 `start` writes the contract only: no page is written, no browser is opened, and it never loads a
-scene, so an unresolved `package://` mesh is not its business. `start` has no exit 2: a file it
-cannot read or write is exit 1, the same code as every other case here: the URDF/SDF could not
-be parsed, or the contract could not be read or written. See `report.EXIT_CODE_TABLE["start"]`.
+scene, so an unresolved `package://` mesh is not its business. Exit 1: the URDF/SDF could not
+be parsed, or the contract could not be read or written. A model path that does not exist is
+exit 2, the same code `check` gives it. See `report.EXIT_CODE_TABLE["start"]`.
 
 ## Banned synonyms
 

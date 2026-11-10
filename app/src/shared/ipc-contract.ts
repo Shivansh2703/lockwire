@@ -31,6 +31,7 @@ export const PERMITTED_COMMAND_CLASSES = [
   "contract:page",
   "contract:declare-form",
   "contract:what-if",
+  "contract:swap-preview",
   "contract:plan",
   "contract:diff",
   "contract:history",
@@ -121,6 +122,10 @@ export type ContractWriteRequest =
   | {
       command: "mount-shape";
       args: Provenance & { contract: string; target: string; shape: MountShape };
+    }
+  | {
+      command: "swap-apply";
+      args: { contract: string; joint: string; part_id: string; expected_revision: string };
     };
 
 export type ContractUndoRequest = {
@@ -145,6 +150,9 @@ export type ContractWhatIfRequest = {
   expected_revision: string;
   change: { path: string; value: string; source: string; witness: string };
 };
+
+/** Part Swap: the ranked servos for one joint, and the knock-on for `part_id` (default: the top one). */
+export type SwapPreviewRequest = { contract: string; joint: string; part_id?: string };
 
 export type PlanRequest = { contract: string; plan: string };
 export type DiffRequest = { contract: string; a?: string; b?: string };

@@ -4,6 +4,6 @@ Exists so ``jobs.py`` can start a run as an argv list against ``sys.executable``
 without depending on a console script being on PATH.
 """
 
-from lockwire.cli import app
+import lockwire
 
-app()
+lockwire.main()

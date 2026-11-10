@@ -11,7 +11,7 @@ from lockwire import report_html
 from lockwire.checks import run_record_checks
 from lockwire.cli import app
 from lockwire.plan import AssertionOutcome, PlanReport
-from lockwire.report import VERDICT_EXIT_CODES, Finding, RecordReport, render, verdict
+from lockwire.report import VERDICT_EXIT_CODES, Finding, RecordReport, ScoredRecord, render, verdict
 from lockwire.report_html import render_html
 from lockwire.schema import Physical, Provenance, Quantity, load_contract
 from conftest import LIMIT_RAISED_MARK_TEXT
@@ -193,7 +193,9 @@ def test_redact_paths_leaves_no_absolute_path(monkeypatch):
         witness="shivansh",
         action="check it",
     )
-    monkeypatch.setattr(report_html, "run_record_checks", lambda contract: RecordReport([finding]))
+    monkeypatch.setattr(
+        report_html, "run_record_checks", lambda contract, **_: RecordReport([finding])
+    )
 
     full = render_html(contract)
     redacted = render_html(contract, redact_paths=True)
@@ -259,7 +261,9 @@ def test_redact_paths_sweeps_the_whole_document_not_a_field_list(monkeypatch):
         witness="shivansh",
         action=f"open {leaky_path} and confirm the datasheet value",
     )
-    monkeypatch.setattr(report_html, "run_record_checks", lambda contract: RecordReport([finding]))
+    monkeypatch.setattr(
+        report_html, "run_record_checks", lambda contract, **_: RecordReport([finding])
+    )
 
     redacted = render_html(
         contract,
@@ -330,7 +334,7 @@ def test_budget_limit_exceeding_rail_capacity_cites_budget_source(monkeypatch):
     monkeypatch.setattr(
         report_html,
         "run_record_checks",
-        lambda contract: RecordReport([finding]),
+        lambda contract, **_: RecordReport([finding]),
     )
     html = render_html(contract)
     html_data = _html_data(html)
@@ -368,7 +372,7 @@ def test_rail_capacity_exceeded_cites_rail_source(monkeypatch):
     monkeypatch.setattr(
         report_html,
         "run_record_checks",
-        lambda contract: RecordReport([finding]),
+        lambda contract, **_: RecordReport([finding]),
     )
     html = render_html(contract)
     html_data = _html_data(html)
@@ -431,7 +435,7 @@ def test_finding_without_source_renders_exactly_as_before(monkeypatch):
     monkeypatch.setattr(
         report_html,
         "run_record_checks",
-        lambda contract: RecordReport([finding]),
+        lambda contract, **_: RecordReport([finding]),
     )
     html_data = _html_data(render_html(contract))
     assert html_data["findings"][0]["source"] is None
@@ -450,7 +454,7 @@ def test_cluster_root_source_survives_collapse(monkeypatch):
     )
 
     _, text_report = _plain_render(findings)
-    monkeypatch.setattr(report_html, "run_record_checks", lambda contract: findings)
+    monkeypatch.setattr(report_html, "run_record_checks", lambda contract, **_: findings)
     html_data = _html_data(render_html(load_contract(FIXTURES / "contract_clean.yaml")))
 
     assert "source: rail capacity datasheet" in text_report
@@ -500,7 +504,7 @@ def test_clustered_findings_render_as_one_alarm_in_text_and_html(monkeypatch):
     findings = RecordReport([_cluster_finding(member) for member in members])
 
     gate_result, text_report = _plain_render(findings)
-    monkeypatch.setattr(report_html, "run_record_checks", lambda contract: findings)
+    monkeypatch.setattr(report_html, "run_record_checks", lambda contract, **_: findings)
     html_data = _html_data(render_html(load_contract(FIXTURES / "contract_clean.yaml")))
 
     assert text_report.count("VIOLATION") == 1
@@ -542,13 +546,13 @@ def test_single_member_cluster_renders_exactly_as_an_ordinary_finding(monkeypatc
     monkeypatch.setattr(
         report_html,
         "run_record_checks",
-        lambda contract: RecordReport([clustered]),
+        lambda contract, **_: RecordReport([clustered]),
     )
     clustered_data = _html_data(render_html(contract))
     monkeypatch.setattr(
         report_html,
         "run_record_checks",
-        lambda contract: RecordReport([ordinary]),
+        lambda contract, **_: RecordReport([ordinary]),
     )
     ordinary_data = _html_data(render_html(contract))
 
@@ -1133,3 +1137,28 @@ def test_fourbar_changepoint_scored_warning_is_counted():
     report = run_record_checks(load_contract(path), contract_path=path)
     _, text = _plain_render(report)
     assert "scored 1: 0 add up, 0 do not, 1 warn" in text
+
+
+def test_html_report_carries_the_model_value_finding(tmp_path, testbot_urdf, monkeypatch):
+    from lockwire.schema import Contract, RobotInfo
+    from lockwire.urdf import parse_urdf
+
+    monkeypatch.chdir(tmp_path)
+    urdf = Path("robot.urdf")
+    urdf.write_text(testbot_urdf.read_text())
+    contract = Contract(robot=RobotInfo(name="testbot"), model=parse_urdf(urdf))
+    urdf.write_text(testbot_urdf.read_text().replace('"1.2"', '"1.32"', 1))
+    html = render_html(contract, tmp_path / "lockwire.yaml")
+    assert f"model/links/{contract.model.links[0].name}/mass" in html
+
+
+def test_scored_line_parts_add_up_to_n():
+    def row(q: str, sev: str = "violation") -> Finding:
+        return Finding(severity=sev, quantity=q, observed="o", expected="e", action="a")
+
+    keys = frozenset({"a", "b", "model/structure_hash", "model/links/x/mass"})
+    passed = [ScoredRecord(quantity=q, observed="o", expected="e", margin="m") for q in "ab"]
+    report = RecordReport([row("model/links/x/mass")], [], scored=4, scored_keys=keys,
+                          scored_records=passed, accepted=[row("a"), row("elsewhere")])  # fmt: skip
+    line = next(x for x in _plain_render(report)[1].splitlines() if x.startswith("scored"))
+    assert line.startswith("scored 4: 2 add up, 1 do not, 1 model check ·"), line

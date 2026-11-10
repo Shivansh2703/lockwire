@@ -125,7 +125,7 @@ def test_only_one_cli_line_builder_exists():
     it instead of quoting independently.
     """
     src_dir = Path(__file__).parent.parent / "src" / "lockwire"
-    dirs = [str(d) for d in (src_dir, src_dir.with_name("lockwire_pro")) if d.exists()]
+    dirs = [str(d) for d in src_dir.parent.iterdir() if d.is_dir()]  # every package under src/
     hits = subprocess.run(
         ["grep", "-rl", "shlex.quote(", *dirs],
         capture_output=True,

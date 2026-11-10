@@ -48,6 +48,30 @@ licence is permissive (Apache-2.0, BSD, MIT) and they fit in 2 MB. Otherwise dra
 simple boxes and cylinders from its URDF. Never invent a number: if you cannot
 find it at its source, leave it out.
 
+## Add a part
+
+A part is one component (a servo, a computer, a battery) and its numbers, in
+`src/lockwire/catalog_seed.yaml`. Add one by pull request. Parts only you need can stay private in
+`~/.lockwire/parts.yaml` instead; see [the parts list](docs/guides/parts.md).
+
+What a part needs:
+
+- `id` (unique), `family` and `name`. A servo also gives its `bus` word (`feetech-sts`, `dynamixel-p2`).
+- Every number has `value`, `unit`, `kind` and a `source`. For `kind: datasheet` the `source`
+  starts with the maker's `https://` URL and quotes the sheet's own words.
+- A part is labelled **cited** only if every number is a datasheet figure with a URL. Retail
+  listings, numbers read from a file and assumed placeholders make it **unverified**; say plainly in
+  the `source` that a placeholder is one.
+
+Run it locally:
+
+```bash
+uv run lockwire from-parts parts.txt   # a line naming your part matches it, with its label
+uv run pytest tests/test_catalog.py
+```
+
+`tests/test_catalog.py` checks every part has a kind and a source.
+
 ## Add a robot row
 
 A robot row is one whole robot and the numbers its vendor publishes, in

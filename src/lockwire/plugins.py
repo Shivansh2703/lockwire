@@ -37,6 +37,17 @@ class ServeCommand(NamedTuple):
 # prepare the app's `state` at construction; and the factory behind `lockwire serve --profile`,
 # `(profile, required) -> Callable[[request], request]`, raising ValueError to refuse.
 SERVE_COMMANDS: dict[str, ServeCommand] = {}
+# Pro commands live in the private Pro package. `help --all` lists these names under "Pro"
+# whether or not it is installed, with one line pointing at the waitlist. The public snapshot
+# reads this set to drop tests that invoke a Pro command.
+PRO_COMMANDS = frozenset(
+    {
+        "preflight", "baseline", "baseline-review", "baseline-check", "sample", "health",
+        "actuator-review-draft", "bag", "doctor", "tune", "battery", "print-check", "fly", "fleet-drift",
+    }
+)  # fmt: skip
+WAITLIST_URL = "https://lockwirerobotics.com"  # the website, until a waitlist page exists
+WAITLIST_LINE = f"Paid plans are waitlist only for now: {WAITLIST_URL}"
 SERVE_SETUP: list[Callable[[Any], None]] = []
 SERVE_POLICY: Callable[..., Callable[[Any], Any]] | None = None
 

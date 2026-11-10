@@ -1,113 +1,156 @@
 # Example lockfile (Servo bench): a Raspberry Pi 5 and four MG996R hobby servos share one
 # 5 V regulator. The regulator is rated 15 W (5 V x 3 A) but the servos can
 # stall at 4 x 7 W. `lockwire check` on this file ends NO-GO: the rail browns out.
-schema_version: "0.2"
+# The arm is built to fail too: a small 3-joint arm of our own design (shoulder, elbow, wrist)
+# whose wrist declares 0.4 N*m of effort but is driven by an SCS0009 that stalls at 0.226 N*m.
+# The shoulder and elbow STS3215s fit; the gravity load on the shoulder is the Part Swap demo.
+schema_version: "0.5"
+servo:
+  shoulder: feetech.sts3215
+  elbow: feetech.sts3215
+  wrist: feetech.scs0009
 robot:
   name: Servo bench (built to fail)
   id: servo-bench
+model:
+  source: "author-chosen: generic 3-joint arm, lockwire's own design (no vendor model)"
+  source_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  structure_hash: "4391bae32044e81fb2ac63c56948f0650a84879af409ffa3e07a9a5549bcec01"
+  links:
+  - {name: base, mass: {value: 0.2, unit: kg}, com: [0.0, 0.0, 0.025], frame: base}
+  - {name: upper_arm, mass: {value: 0.1, unit: kg}, com: [0.1, 0.0, 0.0], frame: upper_arm}
+  - {name: forearm, mass: {value: 0.07, unit: kg}, com: [0.1, 0.0, 0.0], frame: forearm}
+  - {name: hand, mass: {value: 0.09, unit: kg}, com: [0.17, 0.0, 0.0], frame: hand}
+  joints:
+  - name: shoulder
+    type: revolute
+    parent: base
+    child: upper_arm
+    origin: {xyz: [0.0, 0.0, 0.05]}
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -1.57, upper: 1.57, effort: 1.5, velocity: 3.0}
+  - name: elbow
+    type: revolute
+    parent: upper_arm
+    child: forearm
+    origin: {xyz: [0.2, 0.0, 0.0]}
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -1.57, upper: 1.57, effort: 1.5, velocity: 3.0}
+  - name: wrist
+    type: revolute
+    parent: forearm
+    child: hand
+    origin: {xyz: [0.2, 0.0, 0.0]}
+    axis: [0.0, 1.0, 0.0]
+    limits: {lower: -1.57, upper: 1.57, effort: 0.4, velocity: 3.0}
+  provenance:
+    witness: human
+    source: "author-chosen: generic 3-joint arm (boxes and cylinders), lockwire's own design"
+    locked_at: 2026-11-09
+    note: "Built to fail on the wrist: 0.4 N*m declared effort vs the SCS0009 stall torque of 0.226 N*m. Link masses include their servos; the hand mass sits 0.17 m out."
 families:
-  - id: fam.companion.sbc
-    name: Companion computer
-  - id: fam.servo
-    name: Hobby servo
-  - id: fam.regulator
-    name: 5 V regulator
+- id: fam.companion.sbc
+  name: Companion computer
+- id: fam.servo
+  name: Hobby servo
+- id: fam.regulator
+  name: 5 V regulator
 device_models:
-  - id: mdl.sbc.raspberry-pi-5
-    family: fam.companion.sbc
-    provenance:
-      witness: w0
-      source: "raspberrypi.com/documentation/computers/raspberry-pi.html"
-      locked_at: 2026-10-15
-      note: "Pi 5 needs a 5.1 V supply; power table lists 800 mA typical bare-board active current (0.8 A x 5.1 V = 4.08 W, typical not peak; the 1.6 A in that table is the maximum USB peripheral draw, not the board). The board is fed from this rail, not from its USB-C port."
-  - id: mdl.servo.mg996r
-    family: fam.servo
-    provenance:
-      witness: w0
-      source: "towerpro.com.tw/product/mg996r"
-      locked_at: 2026-10-15
-      note: "Operating voltage 4.8 to 6.6 V; stall current draw 1400 mA (page does not state the test voltage; 5 V x 1.4 A = 7 W used). Hobby servos stall when a joint is blocked or overloaded."
-  - id: mdl.regulator.ubec-5v-3a
-    family: fam.regulator
-    provenance:
-      witness: human
-      source: "author-chosen: typical 5 V / 3 A BEC"
-      locked_at: 2026-10-15
-      note: "Replace with your regulator's datasheet rating. 5 V x 3 A = 15 W."
+- id: mdl.sbc.raspberry-pi-5
+  family: fam.companion.sbc
+  provenance:
+    witness: w0
+    source: "raspberrypi.com/documentation/computers/raspberry-pi.html"
+    locked_at: 2026-10-15
+    note: "Pi 5 needs a 5.1 V supply; power table lists 800 mA typical bare-board active current (0.8 A x 5.1 V = 4.08 W, typical not peak; the 1.6 A in that table is the maximum USB peripheral draw, not the board). The board is fed from this rail, not from its USB-C port."
+- id: mdl.servo.mg996r
+  family: fam.servo
+  provenance:
+    witness: w0
+    source: "towerpro.com.tw/product/mg996r"
+    locked_at: 2026-10-15
+    note: "Operating voltage 4.8 to 6.6 V; stall current draw 1400 mA (page does not state the test voltage; 5 V x 1.4 A = 7 W used). Hobby servos stall when a joint is blocked or overloaded."
+- id: mdl.regulator.ubec-5v-3a
+  family: fam.regulator
+  provenance:
+    witness: human
+    source: "author-chosen: typical 5 V / 3 A BEC"
+    locked_at: 2026-10-15
+    note: "Replace with your regulator's datasheet rating. 5 V x 3 A = 15 W."
 devices:
-  - id: dev.pi5
-    model: mdl.sbc.raspberry-pi-5
-    power:
-      rail: rail.servo-5v
-      draw: {value: 4.1, unit: W}
-    owner: you
-    provenance:
-      witness: w0
-      source: "raspberrypi.com/documentation/computers/raspberry-pi.html"
-      locked_at: 2026-10-15
-      note: "0.8 A typical bare-board active x 5.1 V = 4.08 W, rounded up to 4.1 W (typical, not peak)."
-  - id: dev.servo1
-    model: mdl.servo.mg996r
-    power:
-      rail: rail.servo-5v
-      draw: {value: 7, unit: W}
-    owner: you
-    provenance:
-      witness: w0
-      source: "towerpro.com.tw/product/mg996r"
-      locked_at: 2026-10-15
-      note: "Stall draw: 1.4 A x 5 V = 7 W."
-  - id: dev.servo2
-    model: mdl.servo.mg996r
-    power:
-      rail: rail.servo-5v
-      draw: {value: 7, unit: W}
-    owner: you
-    provenance:
-      witness: w0
-      source: "towerpro.com.tw/product/mg996r"
-      locked_at: 2026-10-15
-      note: "Stall draw: 1.4 A x 5 V = 7 W."
-  - id: dev.servo3
-    model: mdl.servo.mg996r
-    power:
-      rail: rail.servo-5v
-      draw: {value: 7, unit: W}
-    owner: you
-    provenance:
-      witness: w0
-      source: "towerpro.com.tw/product/mg996r"
-      locked_at: 2026-10-15
-      note: "Stall draw: 1.4 A x 5 V = 7 W."
-  - id: dev.servo4
-    model: mdl.servo.mg996r
-    power:
-      rail: rail.servo-5v
-      draw: {value: 7, unit: W}
-    owner: you
-    provenance:
-      witness: w0
-      source: "towerpro.com.tw/product/mg996r"
-      locked_at: 2026-10-15
-      note: "Stall draw: 1.4 A x 5 V = 7 W."
+- id: dev.pi5
+  model: mdl.sbc.raspberry-pi-5
+  power:
+    rail: rail.servo-5v
+    draw: {value: 4.1, unit: W}
+  owner: you
+  provenance:
+    witness: w0
+    source: "raspberrypi.com/documentation/computers/raspberry-pi.html"
+    locked_at: 2026-10-15
+    note: "0.8 A typical bare-board active x 5.1 V = 4.08 W, rounded up to 4.1 W (typical, not peak)."
+- id: dev.servo1
+  model: mdl.servo.mg996r
+  power:
+    rail: rail.servo-5v
+    draw: {value: 7, unit: W}
+  owner: you
+  provenance:
+    witness: w0
+    source: "towerpro.com.tw/product/mg996r"
+    locked_at: 2026-10-15
+    note: "Stall draw: 1.4 A x 5 V = 7 W."
+- id: dev.servo2
+  model: mdl.servo.mg996r
+  power:
+    rail: rail.servo-5v
+    draw: {value: 7, unit: W}
+  owner: you
+  provenance:
+    witness: w0
+    source: "towerpro.com.tw/product/mg996r"
+    locked_at: 2026-10-15
+    note: "Stall draw: 1.4 A x 5 V = 7 W."
+- id: dev.servo3
+  model: mdl.servo.mg996r
+  power:
+    rail: rail.servo-5v
+    draw: {value: 7, unit: W}
+  owner: you
+  provenance:
+    witness: w0
+    source: "towerpro.com.tw/product/mg996r"
+    locked_at: 2026-10-15
+    note: "Stall draw: 1.4 A x 5 V = 7 W."
+- id: dev.servo4
+  model: mdl.servo.mg996r
+  power:
+    rail: rail.servo-5v
+    draw: {value: 7, unit: W}
+  owner: you
+  provenance:
+    witness: w0
+    source: "towerpro.com.tw/product/mg996r"
+    locked_at: 2026-10-15
+    note: "Stall draw: 1.4 A x 5 V = 7 W."
 topology:
   rails:
-    - id: rail.servo-5v
-      voltage: {value: 5, unit: V}
-      capacity: {value: 15, unit: W}
-      provenance:
-        witness: human
-        source: "author-chosen: typical 5 V / 3 A BEC"
-        locked_at: 2026-10-15
-        note: "5 V x 3 A = 15 W. Replace with your regulator's rating."
-budgets:
-  - id: bud.power.servo-5v
-    kind: rail_power
-    rail: rail.servo-5v
-    limit: {value: 15, unit: W}
-    owner: you
+  - id: rail.servo-5v
+    voltage: {value: 5, unit: V}
+    capacity: {value: 15, unit: W}
     provenance:
       witness: human
       source: "author-chosen: typical 5 V / 3 A BEC"
       locked_at: 2026-10-15
-      note: "Budget equals the regulator rating: 5 V x 3 A = 15 W. Pi 4.1 W + 4 servos x 7 W stall = 32.1 W."
+      note: "5 V x 3 A = 15 W. Replace with your regulator's rating."
+budgets:
+- id: bud.power.servo-5v
+  kind: rail_power
+  rail: rail.servo-5v
+  limit: {value: 15, unit: W}
+  owner: you
+  provenance:
+    witness: human
+    source: "author-chosen: typical 5 V / 3 A BEC"
+    locked_at: 2026-10-15
+    note: "Budget equals the regulator rating: 5 V x 3 A = 15 W. Pi 4.1 W + 4 servos x 7 W stall = 32.1 W."

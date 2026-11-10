@@ -1,0 +1,37 @@
+# Part Swap test catalog (tests/test_swap.py): made-up servos around the SO-101's STS3215.
+parts:
+  - id: feetech.sts3215
+    family: servo
+    name: STS3215 (test copy)
+    bus: feetech-sts
+    numbers:
+      mass: {value: 55, unit: g, kind: datasheet, source: "https://example.com/sts3215"}
+      stall_torque: {value: 1.912, unit: N*m, kind: datasheet, source: "https://example.com/sts3215"}
+  - id: test.twin
+    family: servo
+    name: Same mass as the STS3215
+    bus: feetech-sts
+    numbers:
+      mass: {value: 55, unit: g, kind: datasheet, source: "https://example.com/twin"}
+      stall_torque: {value: 3.0, unit: N*m, kind: datasheet, source: "https://example.com/twin"}
+  - id: test.heavy
+    family: servo
+    name: Heavy and strong
+    bus: dynamixel-p2
+    numbers:
+      mass: {value: 400, unit: g, kind: datasheet, source: "https://example.com/heavy"}
+      stall_torque: {value: 6.0, unit: N*m, kind: datasheet, source: "https://example.com/heavy"}
+  - id: test.fit-unverified
+    family: servo
+    name: Strongest, but no datasheet
+    bus: feetech-sts
+    numbers:
+      mass: {value: 30, unit: g, kind: assumed, source: "assumed for the test"}
+      stall_torque: {value: 9.0, unit: N*m, kind: assumed, source: "assumed for the test"}
+  - id: test.weak
+    family: servo
+    name: Far too weak
+    bus: feetech-sts
+    numbers:
+      mass: {value: 10, unit: g, kind: datasheet, source: "https://example.com/weak"}
+      stall_torque: {value: 0.01, unit: N*m, kind: datasheet, source: "https://example.com/weak"}

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const exposed: Record<string, unknown> = {};
 const invokeCalls: unknown[][] = [];
+let invokeFail: string | null = null;
 
 // The free app: no preload/pro/ folder was found.
 vi.mock("./proRegistry", () => ({ proApi: null }));
@@ -18,6 +19,7 @@ vi.mock("electron", () => ({
     removeListener: () => undefined,
     invoke: (...args: unknown[]) => {
       invokeCalls.push(args);
+      if (invokeFail) return Promise.reject(new Error(invokeFail));
       return Promise.resolve({ accepted: true });
     },
   },
@@ -25,10 +27,18 @@ vi.mock("electron", () => ({
 
 beforeEach(() => {
   invokeCalls.length = 0;
+  invokeFail = null;
+});
+
+it("shows a failed command as a plain sentence", async () => {
+  await import("./index");
+  invokeFail = "Error invoking remote method 'lockwire:run': Error: contract:page: invalid page payload";
+  await expect((exposed.lockwire as { runProbe: (a: object) => Promise<unknown> }).runProbe({})).rejects.toThrow(/^The app and its engine disagree/);
+  invokeFail = null;
 });
 
 describe("preload exposes a small, explicitly enumerated API", () => {
-  it("test_exposed_surface_is_exactly_the_thirty_six_named_methods", async () => {
+  it("test_exposed_surface_is_exactly_the_thirty_seven_named_methods", async () => {
     await import("./index");
     expect(Object.keys(exposed.lockwire as object).sort()).toEqual([
       "applyAssistant",
@@ -65,6 +75,7 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       "startFromUrdf",
       "startTerminal",
       "stopAgent",
+      "swapPreview",
       "undoContract",
       "writeContract",
       "writeTerminal",

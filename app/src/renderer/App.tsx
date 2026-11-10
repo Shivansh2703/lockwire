@@ -100,6 +100,7 @@ export function App() {
   const [comparing, setComparing] = useState(false); // the Compare with datasheet panel (mockup 3B)
   const documentGeneration = useRef(0);
   const documentLoad = useRef(0);
+  const verdictRef = useRef<string | undefined>(undefined); // the verdict of the last opened check
   const openedPathRef = useRef<string | undefined>(undefined);
   const errorGeneration = useRef(0);
   const renderedGeneration = documentGeneration.current;
@@ -139,6 +140,14 @@ export function App() {
     setHistoryDiff(null); setFindingSel(null); setPickedPath(null); setDeclareReview(false); setProHighlight([]); setComparing(false); setSeen([]);
   }
 
+  // Re-check after a swap, then tell the user what the engine said, and if the swap broke a GO.
+  async function afterSwap(contract: string, lines: string[]): Promise<void> {
+    const was = verdictRef.current;
+    await onOpenLockfile(contract);
+    const worse = verdictRef.current === "NO-GO" && (was === "GO" || was === "GO_WITH_NOTES");
+    setStartNote([...lines, ...(worse ? ["The robot is now NO-GO after this swap. Open the findings, or swap again and pick another servo."] : [])].join("\n") || null);
+  }
+
   async function loadOpened(result: FileOpenResult, token?: number): Promise<void> {
     if (!result.opened) return; // user cancelled the dialog -- stay on OpenFace
     const load = token ?? ++documentLoad.current;
@@ -146,6 +155,7 @@ export function App() {
     if (load !== documentLoad.current) return; // a newer open began meanwhile
     setRetryOpen(() => () => onOpenLockfile(result.path));
     if ("error" in result) {
+      setRetryOpen(null); // the engine read the file and refused it: opening it again cannot help
       setOpenError(result.error);
       return;
     }
@@ -173,6 +183,7 @@ export function App() {
         () => setHistory({ available: false, entries: [] }),
       );
       setCheckDoc(result.checkPayload);
+      verdictRef.current = result.payload.verdict;
       setCheckState({
         kind: "check",
         payload: {
@@ -603,6 +614,9 @@ export function App() {
                 onCompare={opened ? () => setComparing(true) : undefined}
                 onRecheck={opened ? () => void onOpenLockfile(opened.path) : undefined}
                 saved={opened && savedBeside === opened.path ? "saved beside your model" : undefined}
+                contract={opened?.path}
+                expectedRevision={opened?.revision}
+                onSwapped={opened ? (lines) => void afterSwap(opened.path, lines) : undefined}
                 pills={pro?.checkPills?.(page)}
                 more={pro?.CheckMore ? <pro.CheckMore contract={opened?.path} expectedRevision={opened?.revision} check={checkDoc} /> : null}
                 notice={meshGap && <EmptyGeometryPanel gap={meshGap} onChooseFolder={() => void onChoosePackageFolder()} onSkip={() => setMeshGap(null)} />}
@@ -617,6 +631,7 @@ export function App() {
               onReopen={opened ? (contract) => window.lockwire.getContractPage({ contract }) : undefined}
               onPayload={opened ? replaceOpenedPage : undefined}
               onJump={onJump}
+              onSwapped={opened ? (lines) => { setMode("Check"); void afterSwap(opened.path, lines); } : undefined}
               onPlace={opened ? (device, frame) => { const prov = placeProv(); return prov ? writePlace(placeRequest(device, frame, [0, 0, 0], prov)) : Promise.resolve("Set your witness name in Declare first."); } : undefined}
             />
           )
@@ -728,10 +743,10 @@ export function App() {
         <>
           <FailureBanner />
           {openError && <div className="open-face-error">
-            <Notice kind="error" action={retryOpen ? { label: "Retry opening", onClick: () => void retryOpen() } : undefined}>{openError}</Notice>
+            <Notice kind="error" action={retryOpen ? { label: "Retry opening", onClick: () => void retryOpen() } : { label: "Open a different robot", onClick: () => void onStartFromUrdf() }}>{openError}</Notice>
           </div>}
           {startNote && <div className="start-note"><Notice kind="info">{startNote}</Notice></div>}
-          {example && <div className="start-note"><Notice kind="info" action={{ label: "Save a copy…", onClick: () => void onNewRobot(example.starter, true) }}>{example.starter ? "Example opened" : "Opened"} from {example.dir}</Notice></div>}
+          {example && <div className="start-note"><Notice kind="info" action={{ label: "Save a copy…", onClick: () => void onNewRobot(example.starter, true) }}>This is an example robot. Save a copy to change it.</Notice></div>}
         </>
       }
       left={mode === "Design" ? <DesignParts payload={designPayload} />
@@ -739,7 +754,7 @@ export function App() {
         : mode === "Declare" && opened ? <DeclareValues payload={opened.declareForm} selectedPath={declareSel} onSelect={(path) => pickDeclare(path)} onAddPart={() => setAddingPart(true)} /> : undefined}
       above={mode === "Design" ? <DesignLens payload={designPayload} /> : undefined}
       tools={mode === "Design" ? <DesignTools payload={designPayload} canAnalyse={!!(opened?.path && opened.revision)} /> : undefined}
-      center={mode === "Check" && !payload ? <OpenFace recent={recents} onOpenRobot={() => void onStartFromUrdf()} starters={starters} onNewRobot={(s) => void onNewRobot(s)} onOpenRecent={(p) => void onOpenLockfile(p)} /> : undefined}
+      center={mode === "Check" && !payload ? <OpenFace connected={!(sidecarState.phase === "starting" && window.lockwire?.getSidecarState)} recent={recents} onOpenRobot={() => void onStartFromUrdf()} starters={starters} onNewRobot={(s) => void onNewRobot(s)} onOpenRecent={(p) => void onOpenLockfile(p)} /> : undefined}
     >
       {mode === "Check" || mode === "Design" || mode === "Reference" || !body || (OWN_PANEL.has(mode) && opened) ? body : (
         <Panel title={label}>{body}</Panel>

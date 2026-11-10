@@ -20,7 +20,7 @@ LOCK = "lockwire.yaml"
 def _proposed(tool: str, args: dict, path: Path) -> str:
     if tool == "Write":
         return args["content"]
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     for edit in args.get("edits") or [args]:  # MultiEdit sends `edits`; Edit is one edit
         old, new = edit["old_string"], edit["new_string"]
         text = text.replace(old, new) if edit.get("replace_all") else text.replace(old, new, 1)
@@ -62,7 +62,11 @@ def _violations(path: Path, tmp: Path) -> dict[str, list[str]]:
     for f in document["findings"] if document["exit_code"] == 1 else []:
         if f["severity"] == "violation":
             lines = [f"VIOLATION {f['quantity']}: {f['observed']}, expected {f['expected']}"]
-            lines += [f"  run: {f['next_command']}"] if f.get("next_command") else []
+            cmd = f.get("next_command")
+            if cmd and " --force" in cmd:  # re-locking discards locked entries: not an agent's call
+                cmd = None
+                lines.append("  the model changed: a person must review it and re-lock, not you")
+            lines += [f"  run: {cmd}"] if cmd else []
             found[f["quantity"]] = [line.replace(str(tmp), str(path)) for line in lines]
     return found
 
@@ -84,7 +88,7 @@ def hook_check(stdin: str) -> tuple[int, str]:
         os.close(fd)
         tmp = Path(name)
         try:
-            tmp.write_text(_proposed(tool, args, path))
+            tmp.write_text(_proposed(tool, args, path), encoding="utf-8")
             found = _violations(path, tmp)
         finally:
             tmp.unlink(missing_ok=True)

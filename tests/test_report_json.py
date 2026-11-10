@@ -110,3 +110,16 @@ def test_datasheet_badge_maps_matches_differs_and_not_compared():
     assert datasheet_badge(ur, [heavy], both)["color"] == "red"
     assert datasheet_badge(None, [heavy], both)["message"] == "not compared"
     assert datasheet_badge(ur, [], frozenset())["message"] == "not compared"
+
+
+def test_datasheet_badge_accepted_difference_is_not_a_match():
+    from lockwire.catalog import recognise
+    from lockwire.report import Finding, RecordReport
+    from lockwire.report_json import datasheet_badge
+
+    ur = recognise("ur5e", [])
+    both = frozenset({"datasheet/ur5e/mass_total", "datasheet/ur5e/dof"})
+    taken = Finding.model_construct(severity="violation", quantity="datasheet/ur5e/mass_total")
+    badge = datasheet_badge(ur, RecordReport(accepted=[taken]), both)
+    assert badge["message"].startswith("accepted difference (mass) · ur5e")
+    assert badge["color"] == "lightgrey"

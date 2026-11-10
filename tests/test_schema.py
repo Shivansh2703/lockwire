@@ -16,6 +16,7 @@ from lockwire.schema import (
     REJECT_YAML_ANCHORS_ALIASES,
     Actuator,
     Band,
+    ContractError,
     Battery,
     Budget,
     Bus,
@@ -866,17 +867,17 @@ def test_resolve_paths(clean_contract):
 
 def test_minimal_contract_valid():
     contract = Contract(robot=RobotInfo(name="bare"))
-    # MUTATION-BITE: catches failure to advance the authored contract default to v0.5.
-    assert contract.schema_version == "0.5"
+    # MUTATION-BITE: catches failure to advance the authored contract default to v0.6.
+    assert contract.schema_version == "0.6"
 
 
 def test_v04_upgrade_is_pure_and_legacy_documents_remain_legacy():
     legacy = {"schema_version": "0.2", "robot": {"name": "legacy"}}
     proposal = upgrade_contract_document(legacy)
     assert legacy["schema_version"] == "0.2"
-    assert proposal["schema_version"] == "0.5"
+    assert proposal["schema_version"] == "0.6"
     assert Contract.model_validate(legacy).schema_version == "0.2"
-    assert "schema_version: '0.5'" in upgrade_contract_text(
+    assert "schema_version: '0.6'" in upgrade_contract_text(
         'schema_version: "0.3"\nrobot:\n  name: legacy\n'
     )
 
@@ -890,6 +891,7 @@ def test_v04_upgrade_refuses_actuator_cases_hidden_in_legacy_version():
     assert legacy["actuator_cases"]
     with pytest.raises(ValidationError, match="actuator_cases require schema_version '0.4'"):
         Contract.model_validate(legacy)
+    assert Contract.model_validate(legacy | {"schema_version": "0.5"}).actuator_cases
 
     with pytest.raises(ValueError, match="legacy contract must not contain actuator_cases"):
         upgrade_contract_document(legacy)
@@ -1524,7 +1526,7 @@ def test_load_rejects_oversized_flow_list_subsecond(tmp_path):
     Board: ~200 KiB flow list → ~4s ruamel parse; ~1.8 MiB hangs. The 256 KiB
     cap must refuse oversized flow YAML in bounded time (stat is instant).
     """
-    text = _no_anchor_flow_list_yaml(approx_bytes=300 * 1024)
+    text = _no_anchor_flow_list_yaml(approx_bytes=MAX_CONTRACT_BYTES + 1024)
     path = tmp_path / "flow-over.yaml"
     path.write_text(text)
     assert path.stat().st_size > MAX_CONTRACT_BYTES
@@ -1564,7 +1566,7 @@ def test_under_cap_flow_list_reaches_validation_bounded(tmp_path):
     started = time.perf_counter()
     # A too-tight size guard raises its own ValueError (not ValidationError), which
     # fails the test; a loader that accepts the extra key fails "DID NOT RAISE".
-    with pytest.raises(ValidationError):
+    with pytest.raises(ContractError):
         load_contract(path)
     elapsed = time.perf_counter() - started
     # Secondary sanity only — not a load-sensitive gate (minutes, not seconds).
@@ -1579,7 +1581,7 @@ def _time_admitted_under_cap_parse(path: Path) -> float:
     of the extra top-level key ``x`` proves validation ran.
     """
     started = time.perf_counter()
-    with pytest.raises(ValidationError):
+    with pytest.raises(ContractError):
         load_contract(path)
     elapsed = time.perf_counter() - started
     # Hang backstop only (same 300 s ceiling) — not a speed gate.
@@ -1660,7 +1662,7 @@ def test_defeat_geometry_guard_is_load_bearing(tmp_path, monkeypatch):
     # WITHOUT guard: anchors accepted; schema validation sees the extra keys.
     # MUTATION-BITE: asymmetry proves the walk is load-bearing (not a timeout).
     monkeypatch.setattr("lockwire.schema.REJECT_YAML_ANCHORS_ALIASES", False)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ContractError):
         load_contract(path)
 
 
@@ -1672,7 +1674,7 @@ def test_non_ascii_defeat_geometry_guard_is_load_bearing(tmp_path, monkeypatch):
         load_contract(path)
     # MUTATION-BITE: asymmetry proves Unicode anchors still need the tree walk.
     monkeypatch.setattr("lockwire.schema.REJECT_YAML_ANCHORS_ALIASES", False)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ContractError):
         load_contract(path)
 
 
@@ -1889,7 +1891,7 @@ def test_all_fixtures_still_load_after_why_max_rate(fixture):
     schema version bump."""
     from lockwire.schema import SCHEMA_VERSION
 
-    assert SCHEMA_VERSION == "0.5"
+    assert SCHEMA_VERSION == "0.6"
     contract = load_contract(Path(__file__).parent / "fixtures" / fixture)
     for model in contract.device_models:
         for band in model.hard_limits.values():
@@ -1941,7 +1943,7 @@ def test_unsupported_schema_version_raises_typed(tmp_path):
     still loads."""
     from lockwire.schema import SUPPORTED_SCHEMA_VERSIONS, UnsupportedSchemaVersion
 
-    for version in ("0.1", "0.6"):
+    for version in ("0.1", "0.7"):
         with pytest.raises(UnsupportedSchemaVersion) as caught:
             load_contract(_contract_at_version(tmp_path, version))
         assert caught.value.found == version
@@ -2078,7 +2080,7 @@ def test_missing_schema_version_is_one_default_for_load_and_upgrade():
     """a keyless document means the latest version in load and in upgrade."""
     text = "robot:\n  name: r\nstructural: {}\n"
     doc = YAML().load(text)
-    assert upgrade_contract_document(dict(doc))["schema_version"] == "0.5"
+    assert upgrade_contract_document(dict(doc))["schema_version"] == "0.6"
     assert "schema_version" in upgrade_contract_text("robot:\n  name: r\n")
 
 
@@ -2169,3 +2171,14 @@ def test_old_lock_loads_without_battery_chemistry():
     assert type(c.topology.battery).model_validate(ok).chemistry == "lipo"
     with pytest.raises(ValidationError):  # bites an unchecked chemistry string
         type(c.topology.battery).model_validate({**ok, "chemistry": "alkaline"})
+
+
+def test_v05_upgrade_changes_only_the_version_line():
+    import difflib
+
+    for eol in ("\n", "\r\n"):  # a CRLF checkout keeps its line endings
+        old = 'schema_version: "0.5"\nrobot:\n    name: r  # four-space\nlinks:\n- a\n-   b\n'
+        old = old.replace("\n", eol)
+        new = upgrade_contract_text(old).splitlines(True)
+        changed = [d for d in difflib.ndiff(old.splitlines(True), new) if d[0] in "+-"]
+        assert changed == [f'- schema_version: "0.5"{eol}', f'+ schema_version: "0.6"{eol}']

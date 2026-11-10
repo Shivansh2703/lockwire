@@ -917,6 +917,11 @@ def test_payload_carries_modes_and_faces():
     assert payload["faces"]["design"]["parts"], "X500 declares devices; the list must not be empty"
 
 
+def _is_waitlist_stub(sub):
+    """cli.py's hidden `_pro_stub` for a Pro name when Pro is absent; a real one is still checked."""
+    return bool(sub.hidden and "_pro_stub" in getattr(sub.callback, "__qualname__", ""))
+
+
 def _walk_cli_commands(command, prefix=()):
     """Recurse into every group (a typer sub-app, e.g. `scene`) and yield
     each leaf command's full path, e.g. `("scene", "import")`. A top-level
@@ -929,6 +934,8 @@ def _walk_cli_commands(command, prefix=()):
     top-level group only, so it never saw `scene import`.)"""
     for name, sub in command.commands.items():
         path = prefix + (name,)
+        if _is_waitlist_stub(sub):
+            continue  # free package only: a hidden Pro name that answers with the waitlist
         if getattr(sub, "commands", None) is not None:
             yield from _walk_cli_commands(sub, path)
         else:
@@ -1070,12 +1077,14 @@ def test_payload_joints_are_in_one_robot_frame(tmp_path):
 def test_qarm_findings_target_the_joints_and_link_they_are_about(tmp_path):
     page = _qarm_payload(tmp_path)
     targets = [t for card in page["cards"] for t in card["targets"]]
-    assert sorted(t["id"] for t in targets if t["kind"] == "joint") == [
-        "ELBOW",
-        "SHOULDER",
-        "WRIST",
-        "YAW",
-    ]
+    # QARM.urdf states velocity="0" on all four joints: one effort card names them all,
+    # and each joint gets its own velocity card
+    assert (
+        sorted(t["id"] for t in targets if t["kind"] == "joint")
+        == ["ELBOW"] * 2 + ["SHOULDER"] * 2 + ["WRIST"] * 2 + ["YAW"] * 2
+    )
+    velocity = [c for c in page["cards"] if c["shape"].endswith("/velocity")]
+    assert sorted(c["targets"][0]["id"] for c in velocity) == ["ELBOW", "SHOULDER", "WRIST", "YAW"]
     # world is a massless fixed root: no body at all, so neither a mass warning nor a frames line
     assert not [t for t in targets if t["kind"] == "link" and t["id"] == "world"]
     assert "Frames without mass" not in [c.get("title") for c in page["cards"]]
@@ -1271,6 +1280,17 @@ def test_lockfile_servo_line_flags_the_joint_and_lights_its_link():
     card = next(c for c in cards if c["shape"] == "model/joints/*/limits/effort")
     assert card["severity"] == "violation" and "upper" in card["targets"][0]["parts"]
     assert card["title"] == "Shoulder above the servo's stall torque"  # not "differs from lockfile"
+
+
+def test_servo_stall_shape_survives_a_joint_name_with_a_slash(tmp_path):
+    urdf = tmp_path / "arm.urdf"
+    src = (Path(__file__).parent / "fixtures" / "servo_arm.urdf").read_text()
+    urdf.write_text(src.replace('name="shoulder"', 'name="left/shoulder"'))
+    contract = Contract(
+        robot=RobotInfo(name="arm"), model=parse_urdf(urdf), servo="feetech.sts3215"
+    )
+    card = next(c for c in build_payload(contract)["cards"] if "stall" in c["title"])
+    assert card["shape"] == "model/joints/*/limits/effort"
 
 
 def test_lockfile_servo_per_joint_pattern_compares_only_matching_joints():

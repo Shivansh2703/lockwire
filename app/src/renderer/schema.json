@@ -664,6 +664,21 @@
         "additionalProperties": false,
         "description": "``api.check`` / ``lockwire check --json``.\n\n``scene`` is a sidecar-only addition (e1-b2, not a CLI field \u2014 T2 keeps\n``lockwire check`` scene-free by design, ``cli.py:454``): present only on\nthe ``/v1/run`` reply, and only when a scene sits beside the contract.\n``None`` when there is no scene to offer; ``SceneUnchanged`` when the\ncaller's ``scene.have`` already matches the current hash.\n\n``headline`` (E2-hl) is the plain-words sentence for the verdict --\n``api.check``'s own field, not shared with ``PlanPayload``\n(its door does not fill it), computed once by ``report.verdict_headline``\nand reused, never re-derived by a consumer.\n\n``graph`` rides beside ``scene`` for the same reason and on the same\ncondition (E2-j2): the app's Design tab needs the lens bar's words\n(``GraphLens.label``/``.caption``) next to the scene it labels, and\n``report_html._graph`` already computes exactly this dict for the page\npayload (``gui.py:1019``) \u2014 this is the same call, not a second one.\n``None`` when there is no contract to derive it from (a refusal never\nreaches this far) or no scene sits beside the contract, matching\n``scene``'s own condition so the two never disagree about whether a\nDesign tab has anything to show.",
         "properties": {
+          "accepted": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Finding"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Accepted"
+          },
           "artifact_type": {
             "const": "lockwire-check-report",
             "title": "Artifact Type",
@@ -2683,6 +2698,21 @@
         "additionalProperties": false,
         "description": "``api.plan`` / ``lockwire plan --json``. ``outcomes`` rides along only\nwhen the report carries them (``plan.PlanReport``), exactly as\n``api.verdict_document`` attaches them. ``steps`` is joined from the\nreport's own outcomes and findings before the document is emitted.",
         "properties": {
+          "accepted": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Finding"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Accepted"
+          },
           "artifact_type": {
             "const": "lockwire-plan-report",
             "title": "Artifact Type",
@@ -2973,6 +3003,21 @@
       "RecordComparison": {
         "additionalProperties": false,
         "properties": {
+          "accepted": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Finding"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Accepted"
+          },
           "artifact_type": {
             "const": "lockwire-record-comparison",
             "title": "Artifact Type",
@@ -3901,6 +3946,231 @@
         "title": "StartersPayload",
         "type": "object"
       },
+      "SwapCandidate": {
+        "additionalProperties": false,
+        "description": "One catalog servo ranked for a joint; ``ratio`` is stall/load, capped at 100.",
+        "properties": {
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "enum": [
+              "cited",
+              "unverified"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "mass_g": {
+            "title": "Mass G",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ratio": {
+            "title": "Ratio",
+            "type": "number"
+          },
+          "stall_nm": {
+            "title": "Stall Nm",
+            "type": "number"
+          },
+          "status": {
+            "enum": [
+              "fit",
+              "tight",
+              "too weak"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "label",
+          "status",
+          "stall_nm",
+          "ratio",
+          "mass_g",
+          "flags"
+        ],
+        "title": "SwapCandidate",
+        "type": "object"
+      },
+      "SwapKnockOn": {
+        "additionalProperties": false,
+        "description": "One joint above the swapped one: load before -> after; no status when its servo\nhas no stall torque, no loads when the gravity walk did not score it.",
+        "properties": {
+          "after_nm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Nm"
+          },
+          "before_nm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Nm"
+          },
+          "dropped": {
+            "title": "Dropped",
+            "type": "boolean"
+          },
+          "joint": {
+            "title": "Joint",
+            "type": "string"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fit",
+                  "tight",
+                  "too weak"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "was": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fit",
+                  "tight",
+                  "too weak"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Was"
+          }
+        },
+        "required": [
+          "joint",
+          "before_nm",
+          "after_nm",
+          "status",
+          "was",
+          "ratio",
+          "dropped"
+        ],
+        "title": "SwapKnockOn",
+        "type": "object"
+      },
+      "SwapPreviewPayload": {
+        "additionalProperties": false,
+        "description": "The sidecar's ``swap-preview``: ``swap.preview`` for one joint, the knock-on for ``chosen``.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/SwapCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "chosen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "delta_g": {
+            "title": "Delta G",
+            "type": "number"
+          },
+          "joint": {
+            "title": "Joint",
+            "type": "string"
+          },
+          "knock_on": {
+            "items": {
+              "$ref": "#/components/schemas/SwapKnockOn"
+            },
+            "title": "Knock On",
+            "type": "array"
+          },
+          "load_nm": {
+            "title": "Load Nm",
+            "type": "number"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "joint",
+          "current",
+          "load_nm",
+          "chosen",
+          "delta_g",
+          "candidates",
+          "knock_on",
+          "notes"
+        ],
+        "title": "SwapPreviewPayload",
+        "type": "object"
+      },
       "Target": {
         "additionalProperties": false,
         "description": "What a card is about, typed by the engine so the app never parses text.",
@@ -4233,6 +4503,40 @@
     "ScenePayload.vertices": {
       "by": "scene.load_scene",
       "kind": "measured"
+    },
+    "SwapCandidate.mass_g": {
+      "by": "swap.preview",
+      "kind": "catalog",
+      "mark": "catalog"
+    },
+    "SwapCandidate.ratio": {
+      "by": "swap.status",
+      "kind": "derived"
+    },
+    "SwapCandidate.stall_nm": {
+      "by": "swap.preview",
+      "kind": "catalog",
+      "mark": "catalog"
+    },
+    "SwapKnockOn.after_nm": {
+      "by": "checks.gravity_loads",
+      "kind": "derived"
+    },
+    "SwapKnockOn.before_nm": {
+      "by": "checks.gravity_loads",
+      "kind": "derived"
+    },
+    "SwapKnockOn.ratio": {
+      "by": "swap.status",
+      "kind": "derived"
+    },
+    "SwapPreviewPayload.delta_g": {
+      "by": "swap.preview",
+      "kind": "derived"
+    },
+    "SwapPreviewPayload.load_nm": {
+      "by": "checks.gravity_loads",
+      "kind": "derived"
     },
     "_VerdictDocument.exit_code": {
       "by": "report.verdict",

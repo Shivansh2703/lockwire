@@ -573,7 +573,13 @@ def verdict(findings: list[Finding]) -> Verdict:
     caps = [
         f"{f.observed}; "
         for f in findings
-        if f.severity == "not_scored" and f.quantity == "preflight/recording"
+        if f.severity == "not_scored"
+        and (
+            f.quantity == "preflight/recording"
+            # the lock names a model file that could not be read now (keyed on the
+            # drift check's `expected`): every model check went silent, so no GO
+            or f.expected == "a readable URDF at the provenance path"
+        )
     ]
     if scored == 0 or caps:
         nothing = "nothing compared; " if scored == 0 else ""
@@ -636,7 +642,7 @@ def verdict_headline(violations: int, warnings: int, unchecked: int, adds_up: in
 # its own NOT_SCORED path exits 3.
 EXIT_CODE_TABLE: dict[str, dict[int, str]] = {
     "upgrade": {
-        0: "new 0.4 contract written; legacy file retained",
+        0: "new current-version contract written; legacy file retained",
         2: "refused source revision, version, contents, or output path",
     },
     "what-if": {
@@ -698,7 +704,7 @@ EXIT_CODE_TABLE: dict[str, dict[int, str]] = {
         "orphaned subtree, or a bad --source/--witness)",
     },
     "import": {
-        2: "REFUSED (the inbound direction is refused until Anthropic publishes the standard)",
+        2: "REFUSED (the inbound direction is refused until a standard manifest format exists)",
     },
     "hw": {
         0: "recorded (including honest undetermined routing)",
@@ -722,6 +728,7 @@ EXIT_CODE_TABLE: dict[str, dict[int, str]] = {
     "start": {
         0: "the contract was written (or an existing one kept); no page is written",
         1: "the URDF/SDF could not be parsed, or the contract could not be read or written",
+        2: "the URDF/SDF file was not found",
     },
 }
 
@@ -788,7 +795,8 @@ def render(
             for finding in findings
             if finding.severity == "warning" and finding.quantity in scored_keys
         )
-        accepted = len(findings.accepted)
+        passed = {r.quantity for r in findings.scored_records}  # an accepted pass is in "add up"
+        accepted = sum(f.quantity in scored_keys - passed for f in findings.accepted)
         if findings.scored == 0:
             # A warning (an empty budget, say) is not a failed comparison — with
             # a zero denominator there is nothing to have agreed or disagreed,
@@ -802,17 +810,10 @@ def render(
             adds_up = len(findings.scored_records)
             # A structure-hash match counts toward the presence floor but
             # compares no physics: its own bucket, so the line never claims it added up.
-            model_checks = int(
-                "model/structure_hash" in scored_keys
-                and not any(
-                    f.severity == "violation"
-                    and (
-                        f.quantity == "model/structure_hash"
-                        or f.quantity.startswith(("model/links/", "model/external_assets/"))
-                    )
-                    for f in findings
-                )
-            )
+            bad = {f.quantity for f in findings if f.severity == "violation"}
+            model_checks = int("model/structure_hash" in scored_keys - bad)
+            # a changed link or mesh is not "unchanged": keep the bucket, drop the claim
+            edited = any(q.startswith(("model/links/", "model/external_assets/")) for q in bad)
             parts = []
             if adds_up or comparison_violations or comparison_warnings:
                 parts += [f"{adds_up} add up", f"{comparison_violations} do not"]
@@ -822,7 +823,9 @@ def render(
                 parts.append(f"{accepted} accepted")
             if model_checks:
                 since = "no lockfile yet" if unlocked else "structure unchanged since lock"
-                parts.append(f"1 model check ({since})")
+                parts.append(
+                    f"1 model check ({since})" if unlocked or not edited else "1 model check"
+                )
             console.print(
                 f"scored {findings.scored}: {', '.join(parts)} · {decision.not_scored} not scored"
             )
@@ -1018,7 +1021,7 @@ def _gh(text: str, prop: bool = False) -> str:
 def _lockfile_line(contract: Path, quantity: str) -> int | None:
     """Line of a finding's quantity in the lockfile, walking its path keys in order."""
     # ponytail: substring walk, not a YAML-node resolve; good enough to land the annotation
-    lines, at, found = contract.read_text().splitlines(), 0, None
+    lines, at, found = contract.read_text(encoding="utf-8").splitlines(), 0, None
     for key in quantity.split("/"):
         hit = next((n for n in range(at, len(lines)) if key in lines[n]), None)
         if hit is None:

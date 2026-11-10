@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<!-- One planted structure mistake per pack 4 check. -->
+<robot name="pack4">
+  <link name="base"><inertial><mass value="1.0"/><inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="arm"><inertial><mass value="0.2"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="finger_a"/>
+  <link name="finger_b"/>
+  <link name="finger_c"/>
+  <link name="camera"/>
+  <link name="camera_optical_frame"/>
+  <link name="odom"/>
+  <link name="slider"/>
+  <joint name="shoulder" type="revolute">
+    <parent link="base"/><child link="arm"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="5" velocity="1"/>
+  </joint>
+  <!-- chained mimic: a follows b, b follows shoulder -->
+  <joint name="grip_a" type="revolute">
+    <parent link="arm"/><child link="finger_a"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/><mimic joint="grip_b"/>
+  </joint>
+  <joint name="grip_b" type="revolute">
+    <parent link="arm"/><child link="finger_b"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/><mimic joint="shoulder"/>
+  </joint>
+  <!-- mimic of a joint that does not exist -->
+  <joint name="grip_c" type="revolute">
+    <parent link="arm"/><child link="finger_c"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/><mimic joint="grip_main"/>
+  </joint>
+  <joint name="camera_mount" type="fixed"><parent link="arm"/><child link="camera"/></joint>
+  <!-- optical frame left unrotated -->
+  <joint name="camera_optical" type="fixed"><parent link="camera"/><child link="camera_optical_frame"/><origin rpy="0 0 0"/></joint>
+  <!-- sound: the optical turn split over two fixed joints -->
+  <link name="lens"/>
+  <link name="lens_optical_frame"/>
+  <joint name="lens_mount" type="fixed"><parent link="arm"/><child link="lens"/><origin rpy="0 0 -1.5707963"/></joint>
+  <joint name="lens_optical" type="fixed"><parent link="lens"/><child link="lens_optical_frame"/><origin rpy="-1.5707963 0 0"/></joint>
+  <!-- planar joint below the root -->
+  <joint name="slide" type="planar"><parent link="arm"/><child link="slider"/><axis xyz="0 0 1"/></joint>
+  <!-- odom is declared and joined to nothing: a second root -->
+  <ros2_control name="sys" type="system">
+    <joint name="shoulder"><command_interface name="position"/></joint>
+    <joint name="sholder"><command_interface name="position"/></joint>
+    <joint name="grip_b"><command_interface name="position"/></joint>
+  </ros2_control>
+</robot>

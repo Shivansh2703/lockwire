@@ -49,9 +49,9 @@ let root: Root;
 beforeEach(() => { mockMatchMedia(); setSelectedPartId(null); container = document.createElement("div"); document.body.appendChild(container); });
 afterEach(() => { act(() => root.unmount()); container.remove(); Reflect.deleteProperty(window, "lockwire"); });
 
-async function open(plan: PlanPayload = PLAN, page: PagePayload = PAGE) {
+async function open(plan: PlanPayload = PLAN, page: PagePayload = PAGE, check = X500_CHECK_PAYLOAD) {
   (window as unknown as { lockwire: object }).lockwire = {
-    startFromUrdf: vi.fn().mockResolvedValue(picked({ opened: true, path: "/tmp/r.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD })),
+    startFromUrdf: vi.fn().mockResolvedValue(picked({ opened: true, path: "/tmp/r.yaml", payload: check, checkPayload: check })),
     getContractPage: vi.fn().mockResolvedValue(page), getDeclareForm: vi.fn().mockResolvedValue(FORM), getHistory: vi.fn().mockResolvedValue([]),
     choosePlan: vi.fn().mockResolvedValue("/tmp/plan.yaml"), checkPlan: vi.fn().mockResolvedValue(plan),
   };
@@ -107,6 +107,13 @@ describe("click-through", () => {
     expect(container.querySelector(".datasheet-compare-result")?.textContent).toBe(line);
     expect(container.querySelector(".finding-card")?.textContent).toContain(line);
     expect([...container.querySelectorAll(".finding-card .kit-btn")].map((b) => b.textContent)).toContain("Declare it");
+  });
+
+  it("Check: after a swap the engine's lines show, and a GO that became NO-GO is said", async () => {
+    await open(PLAN, { ...PAGE, cards: [{ ...CARD, shape: "model/joints/*/limits/effort", quantity: "model/joints/wrist/limits/effort", raw: "expected <= 1 N*m, the stall torque\n action x; in a.urdf: edit, then re-lock" }] } as PagePayload, { ...X500_CHECK_PAYLOAD, verdict: "GO" });
+    Object.assign(window.lockwire, { swapPreview: vi.fn().mockResolvedValue({ joint: "wrist", current: null, load_nm: 0.15, chosen: "p", delta_g: 1, candidates: [{ id: "p", name: "P", label: "cited", status: "fit", stall_nm: 1, ratio: 3, mass_g: 5, flags: [] }], knock_on: [], notes: [] }), writeContract: vi.fn().mockResolvedValue({ refusal: null, payload: { lines: ["swapped wrist to p", "added device"] } }), openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/tmp/r.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }) });
+    for (const t of ["Swap", "Use this"]) await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === t)!.click());
+    expect(container.querySelector(".start-note")!.textContent).toMatch(/^swapped wrist to p\nadded device\nThe robot is now NO-GO after this swap/);
   });
 
   it("Check: an Instead move selects the rail it names, not the device it moves", async () => {

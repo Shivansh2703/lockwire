@@ -121,6 +121,7 @@ export interface CheckPayload {
   counts: Counts;
   scored: number | null;
   findings: (Finding)[];
+  accepted?: (Finding)[] | null;
   not_compared?: (NotCompared)[];
   artifact_type: "lockwire-check-report";
   scene?: ScenePayload | SceneUnchanged | null;
@@ -438,6 +439,7 @@ export interface PlanPayload {
   counts: Counts;
   scored: number | null;
   findings: (Finding)[];
+  accepted?: (Finding)[] | null;
   not_compared?: (NotCompared)[];
   artifact_type: "lockwire-plan-report";
   outcomes?: (AssertionOutcome)[] | null;
@@ -479,6 +481,7 @@ export interface RecordComparison {
   counts: Counts;
   scored: number | null;
   findings: (Finding)[];
+  accepted?: (Finding)[] | null;
   not_compared?: (NotCompared)[];
   artifact_type: "lockwire-record-comparison";
   facts: (WhatIfFact)[];
@@ -619,6 +622,38 @@ export interface Starter {
 
 export interface StartersPayload {
   starters: (Starter)[];
+}
+
+export interface SwapCandidate {
+  id: string;
+  name: string;
+  label: "cited" | "unverified";
+  status: "fit" | "tight" | "too weak";
+  stall_nm: number;
+  ratio: number;
+  mass_g: number;
+  flags: (string)[];
+}
+
+export interface SwapKnockOn {
+  joint: string;
+  before_nm: number | null;
+  after_nm: number | null;
+  status: "fit" | "tight" | "too weak" | null;
+  was: "fit" | "tight" | "too weak" | null;
+  ratio: number | null;
+  dropped: boolean;
+}
+
+export interface SwapPreviewPayload {
+  joint: string;
+  current: string | null;
+  load_nm: number;
+  chosen: string | null;
+  delta_g: number;
+  candidates: (SwapCandidate)[];
+  knock_on: (SwapKnockOn)[];
+  notes: (string)[];
 }
 
 export interface Target {

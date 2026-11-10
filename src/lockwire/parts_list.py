@@ -123,10 +123,20 @@ def match_parts(text: str, catalog: Path | str | None = None) -> dict[str, Any]:
         row: dict[str, Any] = {"line": number, "text": line.strip(), "quantity": quantity}
         hit = _match(rest, parts)
         if hit is None:
-            rows.append({**row, "status": "NO MATCH", "id": None, "confidence": None})
+            rows.append(
+                {**row, "status": "NO MATCH", "id": None, "confidence": None, "label": None}
+            )
             continue
         part, confidence = hit
-        rows.append({**row, "status": "MATCHED", "id": part.id, "confidence": confidence})
+        rows.append(
+            {
+                **row,
+                "status": "MATCHED",
+                "id": part.id,
+                "confidence": confidence,
+                "label": part.label,
+            }
+        )
         mismatches += [{"line": number, "id": part.id, **m} for m in _mismatches(rest, part)]
     return {"lines": rows, "mismatches": mismatches}
 

@@ -309,6 +309,21 @@ describe("DesignPanel", () => {
     expect([...container.querySelectorAll(".kit-panel-title")].pop()?.textContent).toBe("Arm"); // the link, not its joint "shoulder"
   });
 
+  it("a rotary joint's inspector offers Swap servo and opens the Part Swap panel for it", async () => {
+    const swapPreview = vi.fn().mockResolvedValue({ joint: "shoulder", current: null, load_nm: 0.8, chosen: null, delta_g: 0, candidates: [], knock_on: [], notes: [] });
+    Object.assign(window, { lockwire: { swapPreview } });
+    const j = { type: "revolute", parent: "base", parent_name: "Base", position: [0, 0, 0], axis: [0, 0, 1], lower: null, upper: null, effort: null };
+    const skeleton = { scene: null, graph: null, links: [], joints: [{ ...j, name: "shoulder", child: "arm", child_name: "Arm" }, { ...j, name: "mount", type: "fixed", parent: "arm", parent_name: "Arm", child: "cam", child_name: "Cam" }] } as unknown as CheckPayload;
+    act(() => root.render(<Page payload={skeleton} contract="/r.yaml" expectedRevision="rev1" onSwapped={() => {}} />));
+    const swap = () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Swap servo");
+    act(() => setSelectedPartId("mount"));
+    expect(swap()).toBeUndefined(); // a fixed joint has no servo
+    act(() => row("Arm").click());
+    await act(async () => swap()!.click());
+    expect(swapPreview).toHaveBeenCalledWith({ contract: "/r.yaml", joint: "shoulder" });
+    expect(container.textContent).toContain("Swap the shoulder servo");
+  });
+
   it("draws the links as a tree from the root and shows a part drawn as two meshes under one group", () => {
     const chain = {
       scene: null,

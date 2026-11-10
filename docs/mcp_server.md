@@ -47,9 +47,10 @@ Then ask the agent: "Check my robot's lockwire.yaml and explain the NO-GO."
 - **`list_devices`**: every device's id, model and role.
 - **`review_value`**: approve or question one declared value, with a note and a human witness.
 - **`match_parts_list`**: match a pasted parts list to the catalog. Writes nothing.
+- **`swap`**: rank catalog servos for one joint by its real gravity load and list the joints above it, load before and after ([Part swap](guides/part-swap.md)). Previews by default; writes only with a `part_id` and an `expected_revision`.
 
-Three more come from the recording plugin installed with lockwire: **`preflight`** (the go/no-go gate against
-a recording), **`health`** and **`prepare_actuator_review_draft`**.
+Three more tools (`preflight`, `health`, `prepare_actuator_review_draft`) belong to Lockwire Pro, which is waitlist only
+(https://lockwirerobotics.com). They are not part of free lockwire.
 
 Paths are resolved against the server's working directory, and a path that does not exist
 is refused. Every parameter carries a description in `tools/list`. Findings come worst first

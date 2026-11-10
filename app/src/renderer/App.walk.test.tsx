@@ -54,6 +54,7 @@ async function setup(tab: string, prep?: () => Promise<void> | void) {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: () => { calls += 1; return Promise.resolve(); } } });
   root = createRoot(container);
   act(() => root!.render(<App />));
+  await act(async () => {}); // the engine's state arrives; Open robot waits for it
   await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Open robot")!.click());
   await act(async () => {});
   act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click()); click([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === tab)!);

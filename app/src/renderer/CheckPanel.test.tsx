@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import { CheckPanel } from "./CheckPanel";
+import { CheckPanel, servoStall } from "./CheckPanel";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
 
 const robotView = vi.fn((_props: Record<string, unknown>) => null);
@@ -190,6 +190,28 @@ describe("Check mode header", () => {
   });
 });
 
+describe("Check servo finding (Part Swap)", () => {
+  it("offers Swap and Set limit; Set limit only shows the exact edit, Swap opens the panel for that joint", async () => {
+    const swapPreview = vi.fn().mockResolvedValue({ joint: "wrist", current: null, load_nm: 0.15, chosen: null, delta_g: 0, candidates: [], knock_on: [], notes: [] });
+    const writeContract = vi.fn();
+    Object.assign(window, { lockwire: { swapPreview, writeContract } });
+    const edit = "in arm.urdf: joint wrist <limit effort=\"0.4\"> → \"0.226\"";
+    const raw = `VIOLATION model/joints/wrist/limits/effort\n  expected   <= 0.226 N*m, the feetech.scs0009 stall torque\n  action     a simulator will let wrist push 0.4 N*m, which a feetech.scs0009 cannot; ${edit}, then re-lock (ignore if another motor drives it)`;
+    const servo = { ...cards[0]!, shape: "model/joints/*/limits/effort", quantity: "model/joints/wrist/limits/effort", raw };
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, cards: [servo] } as never} selected={0} onSelect={() => {}} contract="/r.yaml" expectedRevision="rev1" onSwapped={() => {}} />));
+    const button = (t: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === t);
+    act(() => button("Set limit to servo's stall")!.click());
+    expect(container.querySelector(".check-edit code")!.textContent).toBe(edit);
+    act(() => button("Copy")!.click());
+    expect(writeContract).not.toHaveBeenCalled(); // the app never writes the model file
+    expect(swapPreview).not.toHaveBeenCalled();
+    await act(async () => button("Swap")!.click());
+    expect(swapPreview).toHaveBeenCalledWith({ contract: "/r.yaml", joint: "wrist" });
+    expect(container.textContent).toContain("Swap the wrist servo");
+  });
+});
+
 describe("Check owner pills", () => {
   const html = (owners: string[]) => {
     const p = { ...X500_CHECK_PAYLOAD, findings: owners.map((owner) => ({ ...X500_CHECK_PAYLOAD.findings[0]!, owner })) };
@@ -201,5 +223,12 @@ describe("Check owner pills", () => {
     expect(html(["you"])).toBeNull();
     act(() => root.unmount());
     expect(html(["you", "lab"])).not.toBeNull();
+  });
+});
+describe("servoStall", () => {
+  it("keeps a joint name that contains a slash", () => {
+    const raw = "expected <= 0.2 N*m, the feetech.scs0009 stall torque\naction  x; in m: joints a limits effort 0.4 → 0.2, then re-lock";
+    const card = { ...first!, shape: "model/joints/*/limits/effort", quantity: "model/joints/left/wrist/limits/effort", raw } as never;
+    expect(servoStall(card)?.joint).toBe("left/wrist");
   });
 });

@@ -17,8 +17,7 @@ Code) an edit hook that blocks a change that breaks the lock.
 | Cursor | yes | `AGENTS.md` | no |
 | Codex CLI | yes | `AGENTS.md` | no (see below) |
 
-Lockwire's MCP server offers tools only, so every agent above gets the same tools: twelve,
-plus three when the recording plugin is installed (fifteen in the full install). The agent's
+Lockwire's MCP server offers tools only, so every agent above gets the same tools. The agent's
 `tools/list` is the live list; the [MCP page](../mcp_server.md) describes each one. To check
 a model with no lockfile, an agent calls `check_model(path="robot.urdf")`.
 
@@ -36,15 +35,16 @@ physics, the edit is blocked and the agent sees why:
 
 ```text
 lockwire: this edit to robot.urdf breaks the locked physics. Undo it, or ask a human to re-lock:
-VIOLATION model/links/base_link/mass: URDF has mass 9.2, expected locked mass 1.2
+VIOLATION model/links/base_link/mass: model file has mass 9.2, expected locked mass 1.2
 ```
 
-The hook runs the same Python that ran `agent-setup`, not whatever `lockwire` is first on
-PATH. If Lockwire can't check an edit to one of those files, the edit is blocked with one
-line naming the error; edits to other files always go through. If that Python is gone (say
-you ran `agent-setup` through `uvx` and the uv cache was cleaned), model edits are blocked
-with "re-run lockwire agent-setup --claude". To remove the hook, delete the `PreToolUse`
-entry whose command contains `lockwire hook-check`.
+The hook runs the same Python that ran `agent-setup`. If you ran `agent-setup` through `uvx`,
+the hook instead calls `lockwire` from your PATH, or `uvx lockwire` if there is none, so it
+keeps working after uv's cache is cleaned; with neither, model edits are blocked with a line
+saying so. If Lockwire can't check an edit to one of
+those files, the edit is blocked with one line naming the error; edits to other files always
+go through. To remove the hook, delete the `PreToolUse` entry whose command contains
+`lockwire hook-check`.
 
 ### The plugin
 
@@ -95,7 +95,13 @@ format, so in Codex the pre-commit hook and CI catch a bad edit instead.
    gives the new value and their name:
 
    ```bash
-   lockwire declare lockwire.yaml <quantity> "<value>" --source "<where>" --witness "<name>"
+   lockwire declare lockwire.yaml <path> "<value>" --source "<where>" --witness "<name>"
+   ```
+
+   The path is `/`-separated, for example:
+
+   ```bash
+   lockwire declare lockwire.yaml devices/dev.pi5/power/draw "5 W" --source "bench meter" --witness "Maya Chen"
    ```
 
    An agent never picks a witness name itself, and never re-locks (`lockwire start --force`)

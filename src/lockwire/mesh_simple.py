@@ -132,7 +132,9 @@ def read_obj(path: Path) -> tuple[tuple[float, ...], tuple[float, ...] | None, t
     have_normals = False
     face_count = 0
 
-    for lineno, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
+    for lineno, line in enumerate(
+        path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+    ):
         words = line.split()
         if not words:
             continue

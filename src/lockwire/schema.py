@@ -43,19 +43,23 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
 from ruamel.yaml import YAML
+from ruamel.yaml.error import MarkedYAMLError
 
 import numpy as np
 
 from lockwire import fieldpath, units
 
 # 0.5: a URDF <axis/> with no xyz reads (1, 0, 0) per the URDF spec (0.4 and older read 0 0 1).
-SCHEMA_VERSION = "0.5"
-SUPPORTED_SCHEMA_VERSIONS = frozenset({"0.2", "0.3", "0.4", SCHEMA_VERSION})
-_V04_ON = frozenset({"0.4", SCHEMA_VERSION})  # versions with the 0.4 sections
+# 0.6: format bump for the optional ``servo:`` field (same shape).
+SCHEMA_VERSION = "0.6"
+SUPPORTED_SCHEMA_VERSIONS = frozenset({"0.2", "0.3", "0.4", "0.5", SCHEMA_VERSION})
+_V04_ON = frozenset({"0.4", "0.5", SCHEMA_VERSION})  # versions with the 0.4 sections
 
 
 def _declared_version(document: Any) -> object:
@@ -79,12 +83,12 @@ CONTEXTS = (
     "nominal-op",
 )  # start with 3 max (spec: context proliferation trap)
 
-# Real checked-in lockfiles are a few KB (fixtures ≈ 4–13 KiB; largest ≈ 11 KiB).
-# 256 KiB is ~23× headroom over that, while bounding worst-case ruamel
-# flow-collection parse to ~5s (board-measured ~19s/MB). The old 2 MiB
-# ceiling did not bound that super-linear path (~1.8 MiB flow list hung).
-# Path.stat (no read) still rejects oversized input before the scanner runs.
-MAX_CONTRACT_BYTES = 256 * 1024
+# The lock Lockwire writes is ~0.7 KB per link: real public robots (up to 214 links) are
+# <= 140 KB, a 400-link one 311 KB. 512 KiB is ~1.7x the 400-link lock. ruamel parses ~14 s/MB
+# of the worst YAML (one long inline list, or a block sequence of scalars), so the cap alone
+# bounds the work: measured worst file at the cap ~7 s. Path.stat rejects oversized input
+# before any read.
+MAX_CONTRACT_BYTES = 512 * 1024
 
 # lockwire lockfiles are declarative records and need no YAML anchors/aliases.
 # After the byte cap and a cheap ruamel load (aliases stay as shared refs),
@@ -581,6 +585,8 @@ class MeshRef(Base):
 class ModelRecord(Base):
     source: str
     source_sha256: str
+    # The `--xacro-arg name=value` pairs `start` expanded the model with; None when none were given.
+    xacro_args: dict[str, str] | None = None
     structure_hash: str  # derived from links+joints when joints are recorded
     # Exact bytes for external URDF/SDF mesh files, relative to the contract.
     # A selected model with mesh geometry refuses an undeclared or changed file.
@@ -877,6 +883,9 @@ class DeviceModel(Base):
     provenance: Provenance | None = None
     thermal_limit: ThermalLimit | None = None  # datasheet trip; thermal-budget check
     radio: Radio | None = None  # datasheet RF operands consumed by the link-budget check
+    # Optional and additive, so SCHEMA_VERSION does not move and every older lock loads unchanged:
+    # the id of a cited motor+prop thrust table (thrust_tables.yaml) consumed by `lockwire fly`.
+    thrust_table: str | None = None
 
 
 IdentityStrength = Literal["instance", "model", "positional"]
@@ -1411,6 +1420,13 @@ class Rail(Base):
     charged_by: str | None = None  # -> Device.id of an alternator/generator feeding this rail
     provenance: Provenance | None = None
 
+    @field_validator("capacity")
+    @classmethod
+    def _capacity_above_zero(cls, v: Quantity) -> Quantity:
+        if v.base() <= 0:
+            raise ValueError("must be greater than 0")
+        return v
+
     @field_validator("efficiency")
     @classmethod
     def _valid_efficiency(cls, v: float) -> float:
@@ -1475,6 +1491,20 @@ class Battery(Base):
     charge_temp_c: Band | None = None  # datasheet charge window, unit C; overrides the default
     discharge_temp_c: Band | None = None  # datasheet discharge window, unit C
     mass: MassQuantity | None = None  # pack mass; energy-density sanity
+    # Charging group (Check Pack 3): optional and additive like the chemistry group.
+    charger_voltage: VoltageQuantity | None = (
+        None  # charger's constant-voltage setpoint, whole pack
+    )
+    charger_current: CurrentQuantity | None = None  # charger's charge current
+    charger_float: bool | None = None  # charger holds a float / trickle charge when full
+    cutoff_voltage: VoltageQuantity | None = None  # BMS or ESC low-voltage cutoff, whole pack
+
+    @field_validator("charger_voltage", "charger_current", "cutoff_voltage")
+    @classmethod
+    def _above_zero(cls, v: Quantity | None) -> Quantity | None:
+        if v is not None and v.base() <= 0:
+            raise ValueError("must be greater than 0")
+        return v
 
 
 class Wire(Base):
@@ -1492,6 +1522,7 @@ class Wire(Base):
     id: str
     awg: int  # American Wire Gauge (positive integer sizes; e.g. 16)
     installation: Literal["free_air", "enclosed"]  # no default — required at validation
+    connector: Literal["xt60", "jst-xh"] | None = None  # additive; maker-rated current check
     rail: str  # -> Rail.id; computed draw is the rolled-up load on this rail
     draw_mode: str = "nominal"  # retained; ampacity evaluates worst declared mode
     owner: str
@@ -1569,6 +1600,14 @@ class Budget(Base):
 class RobotInfo(Base):
     name: str
     id: str | None = None
+    region: Literal["eu", "us", "in"] | None = None  # additive; where it runs (radio power limits)
+
+
+class Autopilot(Base):
+    """Flight-controller parameters as set on the vehicle; only the names declared are judged."""
+
+    firmware: Literal["ardupilot", "px4"]
+    params: dict[str, float] = {}
 
 
 EvidenceClass = Literal["measured", "synthetic"]
@@ -3389,6 +3428,35 @@ class Gearbox(Base):
         return v
 
 
+class PrintedLink(Base):
+    """A 3D-printed link, read only by `lockwire print-check` (Pro). The model carries no
+    geometry, so the root section is declared here: `width_mm`+`height_mm` (box) or
+    `diameter_mm` (round). `layers`: along or across the link's length (the load path)."""
+
+    material: str
+    infill_pct: float = Field(gt=0, le=100)
+    walls: int = Field(ge=1)
+    layers: Literal["along", "across"]
+    width_mm: float | None = Field(default=None, gt=0)
+    height_mm: float | None = Field(default=None, gt=0)
+    diameter_mm: float | None = Field(default=None, gt=0)
+    threadlocker: bool | None = None  # additive; anaerobic threadlocker used on this part's screws
+
+    @field_validator("material")
+    @classmethod
+    def _known_material(cls, v: str) -> str:
+        if v not in ("PLA", "PETG", "ASA"):
+            raise ValueError(f"material {v!r} not supported yet (PLA, PETG, ASA)")
+        return v
+
+    @model_validator(mode="after")
+    def _one_section(self) -> "PrintedLink":
+        box = self.width_mm is not None and self.height_mm is not None
+        if box == (self.diameter_mm is not None) or (not box and (self.width_mm or self.height_mm)):
+            raise ValueError("needs width_mm+height_mm (box) or diameter_mm (round)")
+        return self
+
+
 class Contract(Base):
     schema_version: str = SCHEMA_VERSION
     robot: RobotInfo
@@ -3411,6 +3479,10 @@ class Contract(Base):
     # for all, or joint-name pattern -> id;
     # `check --servo` overrides it. None keeps older lockfiles byte-identical.
     servo: str | dict[str, str] | None = None
+    # Additive, like `servo`: link name -> how it was printed (Print Check, Pro).
+    printed: dict[str, PrintedLink] | None = None
+    # Additive, like `servo`: flight-controller failsafe parameters (Check Pack 3).
+    autopilot: Autopilot | None = None
 
     @model_validator(mode="after")
     def _unique_ids(self) -> "Contract":
@@ -3502,6 +3574,27 @@ class Contract(Base):
                     f"allocation {FITTED_BAND_ALPHA_GATE}/{row.denominator} = "
                     f"{expected_alpha}"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _printed_needs_06(self, info: ValidationInfo) -> "Contract":
+        legacy = self.schema_version in {"0.2", "0.3", "0.4", "0.5"}
+        if self.printed and legacy and not (info.context or {}).get("upgrading"):
+            raise ValueError(
+                f"printed: needs lockfile format 0.6 or later (this file is "
+                f"{self.schema_version}); `lockwire upgrade` writes a 0.6 copy"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _thrust_table_needs_v06(self, info: ValidationInfo) -> "Contract":
+        legacy = self.schema_version in {"0.2", "0.3", "0.4", "0.5"}
+        upgrading = (info.context or {}).get("upgrading")
+        if legacy and not upgrading and any(m.thrust_table for m in self.device_models):
+            raise ValueError(
+                f"device_models thrust_table needs lockfile format 0.6 or later (this file is "
+                f"{self.schema_version}); `lockwire upgrade` writes a 0.6 copy"
+            )
         return self
 
     @model_validator(mode="after")
@@ -3710,26 +3803,96 @@ class UnsupportedSchemaVersion(ValueError):
         )
 
 
+_PLAIN = {
+    "extra_forbidden": "unknown key (not part of the lockfile format)",
+    "missing": "required, but missing",
+    "float_parsing": "must be a number",
+    "float_type": "must be a number",
+    "int_parsing": "must be a whole number",
+    "int_type": "must be a whole number",
+    "string_type": "must be text",
+    "bool_parsing": "must be true or false",
+    "bool_type": "must be true or false",
+    "list_type": "must be a list",
+    "dict_type": "must be a mapping",
+}
+
+
+def plain_message(e: Any) -> str:
+    """One pydantic error as plain words (no class names, no docs URL)."""
+    if e["type"] == "model_type":
+        if (e.get("ctx") or {}).get("class_name") == "Quantity":
+            return "needs a number and a unit, like {value: 20.6, unit: kg}"
+        return "must be a block of named fields, not a single value"
+    msg = _PLAIN.get(e["type"]) or e["msg"].removeprefix("Value error, ")
+    if e["type"] in {"literal_error", "enum"}:
+        msg = "must be " + e["msg"].removeprefix("Input should be ")
+    return msg
+
+
+_NOT_A_LOCKFILE = (
+    "{name} is not a Lockwire lockfile. To make one from your robot: lockwire start <robot.urdf>"
+)
+
+
+class ContractError(ValueError):
+    """A lockfile that failed validation: the user's mistake, not a lockwire bug. ``lines`` is
+    one ``<file>: <dotted.path>: <plain message>`` per error; ``main`` and the MCP tools print
+    them as they are (exit 2) instead of pydantic's dump."""
+
+    def __init__(self, error: ValidationError, name: str) -> None:
+        self.lines = []
+        for e in error.errors():
+            msg = plain_message(e)
+            where = ".".join(map(str, e["loc"]))
+            self.lines.append(f"{name}: {where + ': ' if where else ''}{msg}")
+        if any(e["type"] == "missing" for e in error.errors()):
+            self.lines.append(
+                f"{name} may be cut short or not a lockfile: restore it from version control, "
+                "or make a new one with lockwire start <robot.urdf>"
+            )
+        super().__init__("\n".join(self.lines))
+
+
 def load_contract(path: Path) -> Contract:
     _guard_contract_raw(path)
-    return load_contract_bytes(path.read_bytes())
+    return load_contract_bytes(path.read_bytes(), name=path.name)
 
 
-def load_contract_bytes(raw: bytes) -> Contract:
-    """Validate one caller-held contract byte sequence without reopening its path."""
+def load_contract_bytes(raw: bytes, *, upgrading: bool = False, name: str = "lockfile") -> Contract:
+    """Validate one caller-held contract byte sequence without reopening its path.
+    ``upgrading`` admits a legacy file carrying a section the upgrade will make legal."""
 
     if len(raw) > MAX_CONTRACT_BYTES:
         raise ValueError(
             f"contract file exceeds size limit ({len(raw)} bytes > {MAX_CONTRACT_BYTES})"
         )
-    data = _load_yaml_guarded(_yaml(), StringIO(raw.decode("utf-8")))
+    try:
+        data = _load_yaml_guarded(_yaml(), StringIO(raw.decode("utf-8")))
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            f"{name} is not a text file, so it is not a Lockwire lockfile. "
+            "To make one from your robot: lockwire start <robot.urdf>"
+        ) from error
+    except MarkedYAMLError as error:  # error path only: one plain line, not a parser dump
+        mark = error.problem_mark
+        where = f"line {mark.line + 1}, column {mark.column + 1}: " if mark else ""
+        raise ValueError(
+            f"{name}: {where}{error.problem or error.context} (not a lockfile, or cut short: "
+            "restore it or run lockwire start <robot.urdf>)"
+        ) from error
+    if not isinstance(data, dict):
+        raise ValueError(_NOT_A_LOCKFILE.format(name=name))
     _reject_yaml_anchors_aliases(data)
     declared = _declared_version(data)
     if declared not in SUPPORTED_SCHEMA_VERSIONS:
         raise UnsupportedSchemaVersion(declared, SUPPORTED_SCHEMA_VERSIONS)
     if isinstance(data, dict) and "schema_version" in data:
         data["schema_version"] = declared
-    return Contract.model_validate(data)
+    try:
+        return Contract.model_validate(data, context={"upgrading": upgrading})
+    except ValidationError as error:
+        raise ContractError(error, name) from error
 
 
 def upgrade_contract_document(document: dict[str, Any]) -> dict[str, Any]:
@@ -3754,8 +3917,22 @@ def upgrade_contract_text(text: str) -> str:
     _reject_yaml_anchors_aliases(data)
     if not isinstance(data, dict):
         raise ValueError("contract document must be a mapping")
+    proposed = upgrade_contract_document(data)
+    if _declared_version(data) == "0.5":  # same shape, so edit the version line only
+        edited, count = re.subn(
+            r"^(schema_version:[ \t]*[\"']?)0\.5(?=[\"']?[ \t]*(?:#[^\r\n]*)?\r?$)",  # CRLF too
+            r"\g<1>0.6",
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if (
+            count
+            and _declared_version(_load_yaml_guarded(_yaml(), StringIO(edited))) == SCHEMA_VERSION
+        ):
+            return edited
     output = StringIO()
-    _yaml().dump(upgrade_contract_document(data), output)
+    _yaml().dump(proposed, output)
     return output.getvalue()
 
 

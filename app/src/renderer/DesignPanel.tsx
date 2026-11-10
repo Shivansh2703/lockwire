@@ -22,12 +22,13 @@ import { DesignControls, type DesignEditReply, type DesignEditRequest } from "./
 import { CalloutLayer, type CalloutAnchor } from "./scene/CalloutLayer";
 import { Icon } from "./kit/icons";
 import { limbOf } from "./kit/limb";
-import { Disclosure, EmptyState, Field, IconButton, Inspector, Jumper, Notice, Panel, PartTree, PillTabs, Figure, type Status } from "./kit";
+import { Button, Disclosure, EmptyState, Field, IconButton, Inspector, Jumper, Notice, Panel, PartTree, PillTabs, Figure, type Status } from "./kit";
 import type { OnJump } from "./jump";
 import { highlightsFromCards } from "./scene/robotScene";
 import { LENS_IDS, type LensedPart } from "./scene/lenses";
 import { pro } from "./proRegistry";
 import { ConnectionLines, ConnectionsPanel } from "./Connections";
+import { SwapPanel } from "./SwapPanel";
 import { CONN_LENSES, type ConnLens } from "./scene/connections";
 import { resetDesignView, setDesignView, useDesignView } from "./scene/designView";
 import {
@@ -295,6 +296,7 @@ export function DesignPanel({
   onPayload,
   onJump,
   onPlace,
+  onSwapped,
 }: {
   payload: Payload;
   contract?: string;
@@ -306,8 +308,11 @@ export function DesignPanel({
   onJump?: OnJump;
   /** Keyboard route for dragging a part onto the body: mount the device at a frame's origin. */
   onPlace?: (device: string, frame: string) => Promise<string | null>;
+  /** A Part Swap was written from a rotary joint: re-check. */
+  onSwapped?: (lines: string[]) => void;
 }) {
   const [placeRefusal, setPlaceRefusal] = useState<string | null>(null);
+  const [swapJoint, setSwapJoint] = useState<string | null>(null);
   const selectedPartId = useSelectedPartId();
   const selectedGroup = useSelectedGroup();
   const view = useDesignView();
@@ -449,12 +454,19 @@ export function DesignPanel({
   if (!part && !joint && !groupHead) {
     return analysis;
   }
+  const canSwap = !!(contract && expectedRevision && onSwapped);
+  if (swapJoint && canSwap) {
+    return <SwapPanel contract={contract!} revision={expectedRevision!} joint={swapJoint} onClose={() => setSwapJoint(null)} onApplied={(lines) => { setSwapJoint(null); onSwapped!(lines); }} />;
+  }
   return (
     <>
       <Panel title={groupHead?.label ?? listName ?? (joint && joint.child_name) ?? "Inspector"}>
         <div className="design-face">
           <>
           {details.length > 0 && <Inspector rows={details} />}
+          {canSwap && joint && (joint.type === "revolute" || joint.type === "continuous") && (
+            <Button variant="secondary" onClick={() => setSwapJoint(joint.name)}>Swap servo</Button>
+          )}
           <Disclosure summary="Details"><Inspector rows={more} /></Disclosure>
           {!groupHead && contract && expectedRevision && onEdit && onReopen && onPayload && (
             <Disclosure summary="Edit placement">

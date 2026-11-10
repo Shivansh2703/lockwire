@@ -367,6 +367,8 @@ button {
 
 .finding-fix {
   color: var(--muted);
+  overflow-wrap: anywhere; /* long paths and commands wrap inside the panel */
+  min-width: 0;
 }
 
 .finding-expander {
@@ -1396,6 +1398,8 @@ table {
   box-shadow: var(--shadow-sm);
 }
 
+.kit-notice > span { white-space: pre-line; }
+
 .kit-notice-error {
   background: color-mix(in srgb, var(--bad) 12%, var(--panel));
 }
@@ -1438,7 +1442,9 @@ table {
 .shell-center { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .shell-center > * { pointer-events: auto; }
 .shell-center .kit-panel { min-width: 320px; }
-.shell-notices { position: absolute; top: var(--head); left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; gap: var(--sp-2); max-width: 90%; }
+.shell-notices { overflow-wrap: break-word; width: max-content; position: absolute; top: var(--head); left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; gap: var(--sp-2); max-width: 90%; }
+/* Narrow window: the gap between the side panels is too thin for a banner, so it spans the window above the status row. */
+@media (max-width: 900px) { .shell-notices { top: auto; bottom: 56px; left: 16px !important; right: 16px; width: auto; max-width: none !important; transform: none; } } /* !important: Shell.tsx sets left/maxWidth inline from the panel insets */
 .open-face { display: flex; flex-direction: column; gap: var(--sp-2); }
 .open-face .kit-panel-title { font-size: 18px; }
 .open-face-actions { display: flex; }
@@ -1906,4 +1912,16 @@ table {
 .kit-slot-bottomRight { bottom: var(--sp-3); right: var(--sp-3); }
 .shell .kit-slot-bottomRight { right: 12px; bottom: 12px; }
 .shell .kit-slot-bottomRight .kit-toolpill { border-radius: var(--radius-pill); padding: 3px; }
+/* Part Swap: the servo finding's two actions and the swap panel (SwapPanel.tsx). */
+.check-servo { margin-top: var(--sp-2); }
+.check-edit { display: flex; gap: var(--sp-2); align-items: center; margin: var(--sp-2) 0 0; }
+.check-edit code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.swap-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; text-align: left; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; margin-bottom: 4px; }
+.swap-row[aria-pressed="true"] { border-color: currentColor; }
+.swap-label { color: var(--muted); font-size: 12px; }
+.swap-nums { font-size: 12px; font-variant-numeric: tabular-nums; }
+.swap-flags { grid-column: 1 / -1; color: var(--warn); font-size: 12px; }
+.swap-knock { margin: 2px 0 8px; padding-left: 18px; font-size: 12px; }
+.swap-knock .swap-drop { color: var(--warn); font-weight: 600; }
+.swap-knock .swap-note { color: var(--muted); }
 .shell-hint { position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%); z-index: 1; pointer-events: none; padding: 6px 14px; border-radius: var(--radius-pill); background: var(--panel); box-shadow: var(--shadow); color: var(--muted); font-size: 12px; white-space: nowrap; }

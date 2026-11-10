@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import type { FileOpenResult, StartUrdfResult } from "../main/ipc";
 import type { SidecarState } from "../main/sidecar";
-import type { DeclareFormPayload, DiffPayload, LogPayload, PagePayload, PlanPayload, Starter, WhatIfPayload } from "../shared/api.gen";
+import type { DeclareFormPayload, DiffPayload, LogPayload, PagePayload, PlanPayload, Starter, SwapPreviewPayload, WhatIfPayload } from "../shared/api.gen";
 import { proApi } from "./proRegistry";
 import {
   AGENT_EVENT_CHANNEL,
@@ -24,6 +24,7 @@ import {
   type TerminalStartRequest,
   type StartUrdfRequest,
   type ContractWhatIfRequest,
+  type SwapPreviewRequest,
   type ContractPageRequest,
   type DeclareFormRequest,
   type DiffRequest,
@@ -47,6 +48,7 @@ const lockwire = {
   getContractPage: (request: ContractPageRequest): Promise<PagePayload> => run("contract:page", request),
   getDeclareForm: (request: DeclareFormRequest): Promise<DeclareFormPayload> => run("contract:declare-form", request),
   compareContractWhatIf: (request: ContractWhatIfRequest): Promise<WhatIfPayload> => run("contract:what-if", request),
+  swapPreview: (request: SwapPreviewRequest): Promise<SwapPreviewPayload> => run("contract:swap-preview", request),
   checkPlan: (request: PlanRequest): Promise<PlanPayload | null> => run("contract:plan", request),
   diffContract: (request: DiffRequest): Promise<DiffPayload> => run("contract:diff", request),
   getHistory: (request: HistoryRequest): Promise<LogPayload> => run("contract:history", request),
@@ -105,8 +107,15 @@ const lockwire = {
   },
 };
 
+// Electron wraps a main-process throw as "Error invoking remote method '...': Error: <msg>", and our own
+// refusals start with an internal channel name; the user sees a sentence, not that.
+function plain(e: unknown): Error {
+  const msg = (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']*': (Error: )?/, "").replace(/^(contract|file|sidecar|lockwire)(:[a-z-]+)*: /, "");
+  return new Error(/^invalid (page )?payload|^invalid run reply/.test(msg) ? "The app and its engine disagree. Reinstall the app." : msg);
+}
+
 function run<T>(commandClass: CommandClass, args: unknown): Promise<T> {
-  return ipcRenderer.invoke(RUN_CHANNEL, commandClass, args);
+  return ipcRenderer.invoke(RUN_CHANNEL, commandClass, args).catch((e) => { throw plain(e); });
 }
 
 contextBridge.exposeInMainWorld("lockwire", lockwire);

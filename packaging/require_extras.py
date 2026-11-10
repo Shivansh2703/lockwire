@@ -34,8 +34,7 @@ import importlib.util
 
 # Import name -> the `uv sync --extra <name>` that supplies it, or None for a module the
 # base install already carries. `uvicorn` is here because the mcp SDK's server needs it
-# and nothing else in the tree declares it; `mcap_ros2` is `mcap-ros2-support`'s import
-# name. Add an extra to pyproject and this map must grow with it — asserted in
+# and nothing else in the tree declares it. Add an extra to pyproject and this map must grow with it — asserted in
 # tests/test_packaging_extras.py against pyproject itself.
 FREE_CLAIMED: dict[str, str | None] = {  # what the free spec (packaging/lockwire.spec) freezes
     "lockwire": None,
@@ -44,13 +43,12 @@ FREE_CLAIMED: dict[str, str | None] = {  # what the free spec (packaging/lockwir
     "uvicorn": "mcp",
     "fastapi": "serve",
 }
+# Extras only the paid build uses are claimed by that build's own spec, so the public pyproject
+# declares no extra that no shipped code uses.
 CLAIMED: dict[str, str | None] = {
     **FREE_CLAIMED,
-    "mcap": "ros2bag",
-    "mcap_ros2": "ros2bag",
-    # MAVLink frame admission imports this package lazily; a frozen build must
-    # fail before Analysis when the optional dialect dependency is absent.
-    "pymavlink": "mavlink",
+    # `lockwire record-servos` imports pyserial lazily; the bus extra carries it.
+    "serial": "bus",
     # `lockwire check <robot name>` imports this lazily.
     "robot_descriptions": "robots",
     "xacrodoc": "robots",

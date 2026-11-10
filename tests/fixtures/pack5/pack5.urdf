@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<!-- One planted mistake per pack 5 check. -->
+<robot name="pack5">
+  <link name="base">
+    <inertial><mass value="1.0"/><inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/></inertial>
+    <!-- same mesh, millimetre scale on the visual only -->
+    <visual><geometry><mesh filename="base.stl" scale="0.001 0.001 0.001"/></geometry></visual>
+    <collision><geometry><mesh filename="base.stl"/></geometry></collision>
+  </link>
+  <link name="arm"><inertial><mass value="0.2"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="wrist"><inertial><mass value="0.1"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="hand"><inertial><mass value="0.1"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <!-- soft limits wider than the hard ones -->
+  <joint name="shoulder" type="revolute">
+    <parent link="base"/><child link="arm"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="5" velocity="1"/>
+    <safety_controller soft_lower_limit="-1.5" soft_upper_limit="1.5" k_position="20" k_velocity="10"/>
+  </joint>
+  <!-- soft limits left out: both default to 0 -->
+  <joint name="elbow" type="revolute">
+    <parent link="arm"/><child link="wrist"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="5" velocity="1"/>
+    <safety_controller k_velocity="10"/>
+  </joint>
+  <!-- sound: inside the hard limits -->
+  <joint name="roll" type="revolute">
+    <parent link="wrist"/><child link="hand"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="5" velocity="1"/>
+    <safety_controller soft_lower_limit="-0.9" soft_upper_limit="0.9" k_position="20" k_velocity="10"/>
+  </joint>
+  <!-- typo: the link is "wrist" -->
+  <gazebo reference="wirst"><sensor name="cam" type="camera"/></gazebo>
+  <gazebo reference="hand"><sensor name="cam" type="camera"/></gazebo>
+  <gazebo><plugin name="p" filename="libp.so"/></gazebo>
+  <!-- sound: ros2_control repeats the simulator's sensor name on purpose -->
+  <gazebo reference="arm"><sensor name="imu" type="imu"/></gazebo>
+  <ros2_control name="s" type="sensor"><sensor name="imu"/></ros2_control>
+  <gazebo reference=""><plugin name="q" filename="libq.so"/></gazebo>
+  <!-- soft limits the wrong way round -->
+  <link name="nail">
+    <inertial><mass value="0.1"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial>
+  </link>
+  <joint name="twist" type="revolute">
+    <parent link="tip"/><child link="nail"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="5" velocity="1"/>
+    <safety_controller soft_lower_limit="0.5" soft_upper_limit="-0.5" k_velocity="10"/>
+  </joint>
+  <!-- only the upper soft limit given; and a scale that is not three numbers -->
+  <link name="tip">
+    <inertial><mass value="0.1"/><inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/></inertial>
+    <visual><geometry><mesh filename="tip.stl" scale="1 1 abc"/></geometry></visual>
+    <collision><geometry><mesh filename="tip.stl"/></geometry></collision>
+  </link>
+  <joint name="pinch" type="revolute">
+    <parent link="hand"/><child link="tip"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="5" velocity="1"/>
+    <safety_controller soft_upper_limit="0.5" k_velocity="10"/>
+  </joint>
+</robot>

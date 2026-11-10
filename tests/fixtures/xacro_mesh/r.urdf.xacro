@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!-- Synthetic: a 2-link xacro whose masses come from one property and whose mesh sits beside it.
+     Locked at m = 1.0, an edit of the property must be drift; `check r.urdf.xacro` with no lock
+     must find m.stl. -->
+<robot name="r" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="m" value="1.0"/>
+  <link name="base"><inertial><mass value="${m}"/><inertia ixx="0.01" iyy="0.02" izz="0.03" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="arm"><inertial><mass value="${m}"/><inertia ixx="0.01" iyy="0.02" izz="0.03" ixy="0" ixz="0" iyz="0"/></inertial>
+    <visual><geometry><mesh filename="m.stl" scale="1 1 1"/></geometry></visual></link>
+  <joint name="j1" type="revolute"><parent link="base"/><child link="arm"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="10" velocity="1"/></joint>
+</robot>

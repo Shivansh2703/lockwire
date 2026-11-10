@@ -38,6 +38,7 @@ const FREE_CLASSES = [
   "contract:page",
   "contract:plan",
   "contract:probe",
+  "contract:swap-preview",
   "contract:undo",
   "contract:what-if",
   "contract:write",

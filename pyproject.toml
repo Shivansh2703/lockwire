@@ -1,6 +1,6 @@
 [project]
 name = "lockwire"
-version = "0.2.6"
+version = "0.2.7"
 description = "The physical-assumption contract for robots: checks that a robot's declared parts (power, weight, bus, torque) add up"
 readme = "README.md"
 authors = [
@@ -23,40 +23,26 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=2.5.1",
-    "pydantic>=2.13.4",
+    "pydantic>=2.13.4,<3",
     "rich>=15.0.0",
-    "ruamel-yaml>=0.19.1",
-    "typer>=0.26.8",
+    "ruamel-yaml>=0.19.1,<0.20",  # 0.x: a minor bump may break the round-trip API
+    # typer 0.29 breaks click Argument handling (AttributeError: TyperArgument has no attribute type); lift the cap once the code is fixed
+    "typer>=0.26.8,<0.29",
     "xacro>=2.1.1",
 ]
 
 [project.optional-dependencies]
-# Reading real ROS 2 bags. Optional on purpose: a plain install must stay lean
-# (the check path deliberately has no scipy), and a team that never touches
-# rosbag2 should not carry a decoder.
-#
-# The load-bearing property is that these need **no ROS installation**:
-# `mcap-ros2-support` depends only on `mcap`, which depends only on lz4 and
-# zstandard. So `preflight --from run.mcap` works in a bare venv on macOS, which
-# is what lets someone try lockwire against a bag they already have without
-# installing ROS first.
-ros2bag = [
-    "mcap>=1.4.0",
-    "mcap-ros2-support>=0.5.7",
+# Reading a Feetech STS/SCS servo bus (`lockwire record-servos`); read-only.
+bus = [
+    "pyserial>=3.5",
 ]
-# Protocol admission for observed MAVLink v2 common-dialect frames. The core
-# check/CLI path does not import it; field command mapping remains separate.
-mavlink = [
-    "pymavlink==2.4.50",
-]
-# Serving lockwire over MCP to an agent. Optional for the same reason as `ros2bag`:
-# a plain install must stay lean, and the SDK is only needed by `lockwire mcp`.
+# Serving lockwire over MCP to an agent. Optional: a plain install must stay lean, and the SDK is only needed by `lockwire mcp`.
 mcp = [
-    "mcp>=2.2.0",
+    "mcp>=2.2.0,<3",
     "pyjwt>=2.15",  # direct floor: a fresh lock must not resolve below the fixed release
 ]
 # The Electron app's sidecar: `lockwire serve` over local HTTP. Optional for the
-# same reason as `desktop`/`ros2bag`/`mcp` — a plain CLI install stays lean; only the
+# same reason as `mcp` — a plain CLI install stays lean; only the
 # packaged app build and anyone running the sidecar by hand need these. Versions are
 # today's PyPI current stable (measured, E1-a).
 serve = [
@@ -81,31 +67,21 @@ Issues = "https://github.com/Shivansh2703/lockwire/issues"
 [project.scripts]
 lockwire = "lockwire:main"
 
-[project.entry-points."lockwire.plugins"]
-pro = "lockwire_pro.plugin:register"
-
 [build-system]
 requires = ["uv_build>=0.11.26,<0.12.0"]
 build-backend = "uv_build"
 
-# One distribution, two importable packages: the core `lockwire` and `lockwire_pro`, the
 # plugin with the recording commands (preflight, baseline, health...), loaded via its entry point.
 [tool.uv.build-backend]
-module-name = ["lockwire", "lockwire_pro"]
+module-name = "lockwire"
 
 [dependency-groups]
 dev = [
-    "mcp>=2.2.0",
-    # tests/test_ros2bag.py and tests/test_live_samples.py importorskip on this
-    # decoder. CI's `test` job runs a plain `uv sync --dev` (no extras), so
-    # without it here those tests silently never ran. Dev-only: the runtime
-    # `ros2bag` extra above stays optional so a plain install stays lean.
-    "mcap>=1.4.0",
-    "mcap-ros2-support>=0.5.7",
-    # Tests must exercise CRC/dialect admission instead of silently skipping it.
-    "pymavlink==2.4.50",
+    "mcp>=2.2.0,<3",
+    # The packaging gate claims `serial` (bus extra); dev env must import it.
+    "pyserial>=3.5",
     # tests/test_serve.py needs the sidecar (`lockwire serve`) importable and
-    # runnable as a subprocess. Same reasoning as `mcp`/`mcap` above: CI's
+    # runnable as a subprocess. Same reasoning as `mcp` above: CI's
     # `test` job runs a plain `uv sync --dev`, so without these here that
     # whole test file would silently never run. Dev-only: the runtime `serve`
     # extra above stays optional so a plain install stays lean.
@@ -140,19 +116,8 @@ line-length = 100
 "scripts/measure_stacked_gate.py" = ["E402"]
 
 [tool.pytest.ini_options]
-# `ros/lockwire_ros` is on the path so the ROS package's ROS-free halves
-# (`lockwire_ros.core`, `lockwire_ros.diagnostics`) are covered by the ordinary
-# suite on any machine. Those two modules hold the fail-closed decision and the
-# severity mapping — the parts with judgement in them — and leaving them
-# testable only inside a container would mean they were usually untested.
-pythonpath = [".", "ros/lockwire_ros"]
-# The ROS package's tests live in the ROS package, not in `tests/`, and the
-# reason is load-bearing rather than tidiness: they must also run inside a
-# Humble container where `lockwire` is deliberately NOT installed, and
-# `tests/conftest.py` imports it at collection time. Kept on testpaths so the
-# ordinary suite still covers them here. Cases needing rclpy `importorskip` it,
-# so they skip off-robot instead of erroring.
-testpaths = ["tests", "ros/lockwire_ros/test"]
+pythonpath = ["."]
+testpaths = ["tests"]
 # chrome: drives real headless Chrome (subprocess spawn). scripts/pytest_slot.sh
 # excludes this marker from every non-exclusive (targeted) run so workers' test
 # runs never spawn Chrome processes; the cadence Check (--exclusive) still runs

@@ -563,6 +563,7 @@ parts:
 - id: dynamixel.xl430-w250
   family: fam.servo.smart
   name: ROBOTIS Dynamixel XL430-W250 smart servo
+  bus: dynamixel-p2
   numbers:
     mass:
       value: 57.2
@@ -594,11 +595,27 @@ parts:
       unit: N*m
       kind: datasheet
       source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Specifications, Stall Torque row: 1.5 N.m at 12.0 V, 1.4 A), read 2026-11-07"
+    stall_torque_voltage:
+      value: 12
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/ (Specifications, Stall Torque row: 1.5 N.m at 12.0 V, 1.4 A), read 2026-11-07"
   note: "draw_max is stall (wheel blocked) at the recommended 11.1 V; draw_typical is the standby current, not a running draw. Same numbers as the rover starter."
 - id: dynamixel.xm430-w350
   family: fam.servo.smart
   name: ROBOTIS Dynamixel XM430-W350 smart servo
+  bus: dynamixel-p2
   numbers:
+    stall_torque:
+      value: 4.1
+      unit: N*m
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/ (Specifications, Stall Torque row: 4.1 N.m at 12.0 V, 2.3 A), read 2026-11-09"
+    stall_torque_voltage:
+      value: 12
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xm430-w350/ (Specifications, Stall Torque row: 4.1 N.m at 12.0 V, 2.3 A), read 2026-11-09"
     mass:
       value: 82
       unit: g
@@ -628,7 +645,18 @@ parts:
 - id: dynamixel.xc330-t288
   family: fam.servo.smart
   name: ROBOTIS Dynamixel XC330-T288 smart servo
+  bus: dynamixel-p2
   numbers:
+    stall_torque:
+      value: 1.0
+      unit: N*m
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/ (Specifications, Stall Torque row: 1.00 N.m at 12.0 V, 0.88 A), read 2026-11-09"
+    stall_torque_voltage:
+      value: 12
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc330-t288/ (Specifications, Stall Torque row: 1.00 N.m at 12.0 V, 0.88 A), read 2026-11-09"
     mass:
       value: 23
       unit: g
@@ -758,6 +786,7 @@ parts:
 - id: feetech.st3215
   family: fam.servo.smart
   name: Feetech ST3215 smart servo (12 V class)
+  bus: feetech-sts
   numbers:
     input_voltage_min:
       value: 6
@@ -779,14 +808,191 @@ parts:
       unit: N*m
       kind: datasheet
       source: "Waveshare ST3215 servo wiki, Features (High torque, up to 30kg.cm@12V), https://www.waveshare.com/wiki/ST3215_Servo, read 2026-11-07; 30 kg*cm x 0.0980665 = 2.942 N*m. The page does not say 'stall'; taken as the stall figure, the most the servo can hold"
+    stall_torque_voltage:
+      value: 12
+      unit: V
+      kind: datasheet
+      source: "Waveshare ST3215 servo wiki, Features (High torque, up to 30kg.cm@12V), https://www.waveshare.com/wiki/ST3215_Servo, read 2026-11-07; 30 kg*cm x 0.0980665 = 2.942 N*m. The page does not say 'stall'; taken as the stall figure, the most the servo can hold"
   note: "Distributor page, not Feetech's own. The page does not say at what voltage the 2.7 A locked-rotor current is measured, so no draw_max (watts) is carried and the picker does not offer this part."
 - id: feetech.sts3215
   family: fam.servo.smart
   name: Feetech STS3215 smart servo (7.4 V class)
+  bus: feetech-sts
   numbers:
+    mass:
+      value: 55
+      unit: g
+      kind: datasheet
+      source: "https://core-electronics.com.au/feetech-sts3215-smart-servo.html (retail distributor listing, not the maker: 55g), read 2026-11-09"
+    input_voltage_min:
+      value: 6
+      unit: V
+      kind: datasheet
+      source: "https://core-electronics.com.au/feetech-sts3215-smart-servo.html (retail distributor listing, not the maker: 6V - 7.4V; a wowrobo.com listing says 4-7.4V), read 2026-11-09"
+    input_voltage_max:
+      value: 7.4
+      unit: V
+      kind: datasheet
+      source: "https://core-electronics.com.au/feetech-sts3215-smart-servo.html (retail distributor listing, not the maker: 6V - 7.4V), read 2026-11-09"
     stall_torque:
       value: 1.912
       unit: N*m
       kind: datasheet
       source: "Feetech 'STS3215 Magnetic Encoder 360 Serial bus Servo Evaluation' sheet, page 1 (Stall Torque: 19.5kg.cm@7.4V), https://www.mantech.co.za/datasheets/products/sts3215-200620a-1.pdf, read 2026-11-07; 19.5 kg*cm x 0.0980665 = 1.912 N*m"
+    stall_torque_voltage:
+      value: 7.4
+      unit: V
+      kind: datasheet
+      source: "Feetech 'STS3215 Magnetic Encoder 360 Serial bus Servo Evaluation' sheet, page 1 (Stall Torque: 19.5kg.cm@7.4V), https://www.mantech.co.za/datasheets/products/sts3215-200620a-1.pdf, read 2026-11-07; 19.5 kg*cm x 0.0980665 = 1.912 N*m"
   note: "The 7.4 V STS3215 (SO-100/SO-101 arms). The 12 V, 30 kg*cm part is feetech.st3215."
+- id: feetech.sts3250
+  family: fam.servo.smart
+  name: Feetech STS3250 smart servo
+  bus: feetech-sts
+  numbers:
+    mass:
+      value: 74.5
+      unit: g
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/562636.html (STS3250 page: 74.5 +/- 1 g; weight 74.5 g), read 2026-11-09"
+    input_voltage_min:
+      value: 6
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/562636.html (Operating voltage 6-12V), read 2026-11-09"
+    input_voltage_max:
+      value: 12
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/562636.html (Operating voltage 6-12V), read 2026-11-09"
+    stall_torque:
+      value: 4.903
+      unit: N*m
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/562636.html (Peak stall torque 50kg.cm@12V), read 2026-11-09; 50 kg*cm x 0.0980665 = 4.903 N*m"
+    stall_torque_voltage:
+      value: 12
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/562636.html (Peak stall torque 50kg.cm@12V), read 2026-11-09; 50 kg*cm x 0.0980665 = 4.903 N*m"
+- id: feetech.sts3032
+  family: fam.servo.smart
+  name: Feetech ST-3032-C036 smart servo (STS3032)
+  bus: feetech-sts
+  numbers:
+    mass:
+      value: 20.6
+      unit: g
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/568388.html (STS3032 page: 20.6 +/- 1 g; weight 20.6 g), read 2026-11-09"
+    input_voltage_min:
+      value: 4.8
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/568388.html (Operating voltage 4.8-6V), read 2026-11-09"
+    input_voltage_max:
+      value: 6
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/568388.html (Operating voltage 4.8-6V), read 2026-11-09"
+    stall_torque:
+      value: 0.441
+      unit: N*m
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/568388.html (Peak stall torque 4.5kg.cm@6V), read 2026-11-09; 4.5 kg*cm x 0.0980665 = 0.441 N*m"
+    stall_torque_voltage:
+      value: 6
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/en/568388.html (Peak stall torque 4.5kg.cm@6V), read 2026-11-09; 4.5 kg*cm x 0.0980665 = 0.441 N*m"
+  note: "The page's spec table says ST-3032-C036 and its description says STS3032-C036; the page does not say which is correct."
+- id: feetech.scs0009
+  family: fam.servo.smart
+  name: Feetech SC-0090-C001 smart servo (SCS0009)
+  bus: feetech-scs
+  numbers:
+    mass:
+      value: 13.2
+      unit: g
+      kind: datasheet
+      source: "https://www.feetechrc.com/6v-23kg-serial-bus-steering-gear_65522.html (SCS0009 page: 13.2 +/- 1 g; weight 13.2 g), read 2026-11-09"
+    input_voltage_min:
+      value: 4
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/6v-23kg-serial-bus-steering-gear_65522.html (Operating voltage 4-7.4V), read 2026-11-09"
+    input_voltage_max:
+      value: 7.4
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/6v-23kg-serial-bus-steering-gear_65522.html (Operating voltage 4-7.4V), read 2026-11-09"
+    stall_torque:
+      value: 0.226
+      unit: N*m
+      kind: datasheet
+      source: "https://www.feetechrc.com/6v-23kg-serial-bus-steering-gear_65522.html (Peak stall torque 2.3kg.cm@6V), read 2026-11-09; 2.3 kg*cm x 0.0980665 = 0.226 N*m"
+    stall_torque_voltage:
+      value: 6
+      unit: V
+      kind: datasheet
+      source: "https://www.feetechrc.com/6v-23kg-serial-bus-steering-gear_65522.html (Peak stall torque 2.3kg.cm@6V), read 2026-11-09; 2.3 kg*cm x 0.0980665 = 0.226 N*m"
+- id: dynamixel.xl330-m288
+  family: fam.servo.smart
+  name: ROBOTIS Dynamixel XL330-M288-T smart servo
+  bus: dynamixel-p2
+  numbers:
+    mass:
+      value: 18
+      unit: g
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/ (Weight 18 g), read 2026-11-09"
+    input_voltage_min:
+      value: 3.7
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/ (Input Voltage 3.7 ~ 6.0 V), read 2026-11-09"
+    input_voltage_max:
+      value: 6.0
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/ (Input Voltage 3.7 ~ 6.0 V), read 2026-11-09"
+    stall_torque:
+      value: 0.52
+      unit: N*m
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/ (Specifications, Stall Torque row: 0.52 N.m at 5.0 V, 1.47 A), read 2026-11-09"
+    stall_torque_voltage:
+      value: 5
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/ (Specifications, Stall Torque row: 0.52 N.m at 5.0 V, 1.47 A), read 2026-11-09"
+- id: dynamixel.xc430-w150
+  family: fam.servo.smart
+  name: ROBOTIS Dynamixel XC430-W150-T smart servo
+  bus: dynamixel-p2
+  numbers:
+    mass:
+      value: 65
+      unit: g
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-w150/ (Weight 65 g), read 2026-11-09"
+    input_voltage_min:
+      value: 6.5
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-w150/ (Input Voltage 6.5 ~ 14.8 V), read 2026-11-09"
+    input_voltage_max:
+      value: 14.8
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-w150/ (Input Voltage 6.5 ~ 14.8 V), read 2026-11-09"
+    stall_torque:
+      value: 1.6
+      unit: N*m
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-w150/ (Specifications, Stall Torque row: 1.6 N.m at 12.0 V, 1.4 A), read 2026-11-09"
+    stall_torque_voltage:
+      value: 12
+      unit: V
+      kind: datasheet
+      source: "https://emanual.robotis.com/docs/en/dxl/x/xc430-w150/ (Specifications, Stall Torque row: 1.6 N.m at 12.0 V, 1.4 A), read 2026-11-09"

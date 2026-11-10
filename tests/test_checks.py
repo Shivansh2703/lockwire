@@ -44,6 +44,7 @@ from lockwire.report import CGReport, Finding, RecordReport, render
 from lockwire.scene import Scene, ScenePart
 from lockwire.schema import (
     AntennaGain,
+    Autopilot,
     Band,
     Bus,
     Contract,
@@ -52,6 +53,7 @@ from lockwire.schema import (
     InputVoltageRange,
     LinkBudget,
     PowerMode,
+    PrintedLink,
     Provenance,
     Quantity,
     Radio,
@@ -3775,6 +3777,19 @@ def test_mass_total_link_without_mass_is_not_scored(clean_contract):
     assert gap.severity == "not_scored" and "imu_link" in gap.observed
 
 
+def test_mass_total_counts_a_link_with_no_inertial_as_a_frame(clean_contract, tmp_path):
+    """No <inertial> at all (ANYmal's root 'base') is a 0 kg frame: the total scores and says so."""
+    budget = next(b for b in clean_contract.budgets if b.kind == "mass_total")
+    budget.sources, budget.limit, budget.nominal = "links", Quantity(value=10.0, unit="kg"), None
+    (tmp_path / "m.urdf").write_text(
+        f'<robot name="r"><link name="a"/><link name="b"><inertial>{_G}</inertial></link>{_OK}</robot>'
+    )
+    clean_contract.model, scores = parse_urdf(tmp_path / "m.urdf"), _ScoreBook()
+    assert not [f for f in check_budgets(clean_contract, scores=scores) if "mass" in f.quantity]
+    (got,) = [r for r in scores.records if r.quantity == "budgets/bud.mass.devices"]
+    assert "1 links with no <inertial>" in got.observed
+
+
 def test_mass_nominal_is_not_a_float_equality(clean_contract):
     """100 g + 200 g is 0.30000000000000004 kg; against a 300 g nominal with no tolerance it holds."""
     budget = next(b for b in clean_contract.budgets if b.kind == "mass_total")
@@ -3948,22 +3963,27 @@ def test_mass_total_nominal(clean_contract, nominal_kg, flagged):
     assert bool(found) is flagged and (not flagged or "-13%" in found[0].delta)
 
 
-def _mass_edited_contract(tmp_path, testbot_urdf):
-    urdf = tmp_path / "robot.urdf"
+def _mass_edited_contract(tmp_path, testbot_urdf, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    urdf = Path("robot.urdf")
     urdf.write_text(testbot_urdf.read_text())
     contract = Contract(robot=RobotInfo(name="testbot"), model=parse_urdf(urdf))
     urdf.write_text(testbot_urdf.read_text().replace('"1.2"', '"1.32"', 1))  # +10 % mass
     return contract
 
 
-def test_model_values_mass_edit_is_a_violation_with_a_relock_command(tmp_path, testbot_urdf):
-    contract = _mass_edited_contract(tmp_path, testbot_urdf)
+def test_model_values_mass_edit_is_a_violation_with_a_relock_command(
+    tmp_path, testbot_urdf, monkeypatch
+):
+    contract = _mass_edited_contract(tmp_path, testbot_urdf, monkeypatch)
+    lock = tmp_path / "lockwire.yaml"
     assert check_urdf_drift(contract) == []  # the structure hash alone cannot see it
-    (finding,) = check_model_values(contract)
+    assert check_model_values(contract) == []  # never the cwd's copy
+    (finding,) = check_model_values(contract, contract_path=lock)
     assert finding.severity == "violation"
     assert finding.quantity == f"model/links/{contract.model.links[0].name}/mass"
     assert "start" in finding.next_command and "--force" in finding.next_command
-    run = run_record_checks(contract)
+    run = run_record_checks(contract, contract_path=lock)
     assert any(f.quantity.endswith("/mass") for f in run)
     assert _plain_render(run)[1].count("unchanged") == 0  # never claims 'unchanged'
 
@@ -3986,11 +4006,11 @@ def test_sdf_with_include_flags_both_bad_inertias_and_a_mass_edit(tmp_path, monk
     (part,) = load_robot_scene(sdf).parts  # the 3D scene shows the included part, placed
     assert part.extras_id == "Suspension::link" and part.translation == approx((0, 0.158, 0.09))
     sdf.write_text(sdf.read_text().replace("<mass>59</mass>", "<mass>65</mass>"))
-    (finding,) = check_model_values(contract)
+    (finding,) = check_model_values(contract, contract_path=Path("lockwire.yaml"))
     assert finding.severity == "violation" and finding.quantity == "model/links/body/mass"
 
 
-def test_every_next_command_names_a_real_cli_verb(tmp_path, testbot_urdf):
+def test_every_next_command_names_a_real_cli_verb(tmp_path, testbot_urdf, monkeypatch):
     from conftest import FIXTURES
     from typer.main import get_command
 
@@ -3998,7 +4018,7 @@ def test_every_next_command_names_a_real_cli_verb(tmp_path, testbot_urdf):
 
     verbs = set(get_command(app).commands)
     contracts = [load_contract(p) for p in sorted(FIXTURES.glob("contract_*.yaml"))]
-    contracts.append(_mass_edited_contract(tmp_path, testbot_urdf))
+    contracts.append(_mass_edited_contract(tmp_path, testbot_urdf, monkeypatch))
     commands = [f.next_command for c in contracts for f in run_record_checks(c) if f.next_command]
     assert commands  # bites a vacuous pass
     assert all(cmd.split()[1] in verbs for cmd in commands), commands
@@ -4043,7 +4063,8 @@ def test_datasheet_agreement_passes_burger_and_dof_and_yields_to_mass_and_deviat
     with_mass = _locked(tmp_path / "b", "turtlebot3/turtlebot3_waffle_pi.urdf", "1.6 kg")
     assert not [f for f in check_datasheet_agreement(with_mass) if "mass" in f.quantity]
     heavy = _locked(tmp_path / "c", "turtlebot3/turtlebot3_waffle_pi.urdf", "2 kg")
-    assert "declared mass: 2 kg" in check_datasheet_agreement(heavy)[0].expected
+    found = check_datasheet_agreement(heavy)[0]
+    assert "declared mass: 2 kg" in found.expected and found.next_command is None
     robots = catalog.load_robots()
     row = next(r for r in robots if r.id == "turtlebot3-burger")
     row.numbers["dof"].value = 3
@@ -4097,15 +4118,17 @@ def test_datasheet_reach_is_straight_line_and_dof_counts_types_not_followers(tmp
 
 _PACK1 = Path(__file__).parent / "fixtures" / "pack1" / "pack1.urdf"
 _AUBO = Path(__file__).parent / "fixtures" / "aubo_tensor.urdf"
+_PACK4 = Path(__file__).parent / "fixtures" / "pack4" / "pack4.urdf"
+_PACK5 = Path(__file__).parent / "fixtures" / "pack5" / "pack5.urdf"
 
 
 @pytest.mark.parametrize(
     ("urdf", "quantity", "severity"),
     [
-        (_PACK1, "model/sanity/j_inverted/limits", "warning"),
+        (_PACK1, "model/sanity/j_inverted/limits", "violation"),
         (_PACK1, "model/sanity/j_no_velocity/velocity", "warning"),
         (_PACK1, "model/sanity/j_no_velocity/axis", "not_scored"),
-        (_PACK1, "model/sanity/loops", "warning"),
+        (_PACK1, "model/sanity/loops", "violation"),
         (_PACK1, "model/sanity/j_mimic/mimic", "warning"),
         (_PACK1, "model/sanity/meshes", "not_scored"),
         (_AUBO, "model/links/forearm_link/inertia", "warning"),
@@ -4117,21 +4140,134 @@ _AUBO = Path(__file__).parent / "fixtures" / "aubo_tensor.urdf"
         (_PACK1, "model/joints/j_far/origin", "not_scored"),
         (_PACK1, "model/links/spin/mass_vs_size", "warning"),
         (_PACK1, "model/joints/j_degrees/limits/max_velocity", "violation"),
+        (_PACK4, "model/sanity/control/sholder", "warning"),  # joint the model lacks
+        (_PACK4, "model/sanity/control/grip_b", "warning"),  # commanding a mimic
+        (_PACK4, "model/sanity/frames/camera_optical_frame/optical", "warning"),
+        (_PACK4, "model/sanity/tree/roots", "violation"),
+        (_PACK4, "model/sanity/tree/map_odom", "warning"),
+        (_PACK4, "model/sanity/tree/floating", "warning"),
+        (_PACK4, "model/sanity/grip_a/mimic_target", "not_scored"),  # mimic of a mimic
+        (_PACK4, "model/sanity/grip_c/mimic_target", "violation"),  # target missing
+        (_PACK5, "model/sanity/shoulder/soft_limits", "warning"),  # wider than hard
+        (_PACK5, "model/sanity/elbow/soft_limits", "warning"),  # left at 0
+        (_PACK5, "model/sanity/pinch/soft_limits", "warning"),  # one side left out
+        (_PACK5, "model/sanity/gazebo/wirst", "warning"),
+        (_PACK5, "model/sanity/gazebo/sensors/cam", "warning"),
+        (_PACK5, "model/sanity/base/mesh_scale", "warning"),
     ],
 )
-def test_check_pack_1_model_mistakes(urdf, quantity, severity):
-    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(urdf))
-    found = [f for f in run_record_checks(contract) if f.quantity == quantity]
+def test_check_pack_1_model_mistakes(urdf, quantity, severity, monkeypatch):
+    monkeypatch.chdir(urdf.parent)  # a lock names its model relative to itself
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path(urdf.name)))
+    run = run_record_checks(contract, contract_path=Path("lockwire.yaml"))
+    found = [f for f in run if f.quantity == quantity]
     assert [f.severity for f in found] == [severity]  # bites the planted mistake passing
+    assert not [f for f in run if "/lens_optical_frame/" in f.quantity]  # split turn is sound
     assert found[0].next_command.split()[1] in ("start", "check")  # a real verb
 
 
-def test_xacro_standoff_inertia_above_its_cylinder_is_flagged():
-    contract = Contract(
-        robot=RobotInfo(name="p"),
-        model=parse_urdf(Path(__file__).parent / "fixtures" / "standoff.urdf.xacro"),
+_G = '<mass value="1"/><inertia ixx="0.01" iyy="0.01" izz="0.01"/>'
+_J = '<joint name="j" type="revolute"><parent link="a"/><child link="b"/><limit {} effort="1" velocity="1"/>{}</joint>'
+_OK = _J.format('lower="-1" upper="1"', "")
+_LOOP = '<joint name="k" type="fixed"><parent link="b"/><child link="a"/></joint>'
+_SLIDE = (
+    _OK
+    + '<joint name="s" type="prismatic"><parent link="b"/><child link="c"/><axis xyz="0 0 1"/><limit lower="-0.005" upper="0.005" effort="1" velocity="1"/></joint>'
+)
+_COM = '<origin xyz="0 0.2 0"/>'  # 1.96 N*m on a 1 N*m joint
+_DRIVEN = '<transmission><joint name="j"/><actuator><mechanicalReduction>{}</mechanicalReduction></actuator></transmission>'
+
+
+def _bot(b=_G, vis="", c=False, joint=_OK):
+    link = lambda n, x, v="": f'<link name="{n}"><inertial>{x}</inertial>{v}</link>'  # noqa: E731
+    return link("a", _G) + link("b", b, vis) + (link("c", _G) if c else "") + joint
+
+
+def _mesh(scale):
+    return f'<visual><geometry><mesh filename="m.stl" scale="{scale}"/></geometry></visual>'
+
+
+@pytest.mark.parametrize(
+    ("body", "quantity", "severity"),
+    [
+        (_bot('<mass value="NaN"/>'), "b/mass_value", "violation"),
+        (_bot('<mass value="-2"/>'), "b/mass_value", "violation"),
+        (_bot('<mass value="1"/>'), "b/no_inertia", "warning"),
+        (_bot(c=True), "tree/roots", "violation"),
+        (_bot(joint=_OK + _LOOP), "tree/roots", "violation"),
+        (
+            _bot(joint=_OK.replace("<child", "<mimic joint='x'/><child")),
+            "j/mimic_target",
+            "violation",
+        ),
+        (_bot(joint=_J.format('lower="1" upper="-1"', "")), "j/limits", "violation"),
+        (_bot('<mass value="1"/><inertia ixx="-1" iyy="1" izz="1"/>'), "b/inertia", "violation"),
+        (_bot(vis=_mesh("nan 1 1")), "b/mesh_scale_value", "warning"),
+        (_bot(vis=_mesh("0 0 0")), "b/mesh_scale_value", "warning"),
+        (_bot(vis=_mesh("1,5 1 1")), "b/mesh_scale_value", "warning"),
+        (_bot(vis=_mesh("-1 1 1")), "b/mesh_scale_value", None),  # a mirror is legitimate
+        (_bot(c=True, joint=_SLIDE), "s/limits/effort", "violation"),  # 9.81 N on a 1 N slide
+        (_bot(c=True, joint=_SLIDE + _DRIVEN.format(1)), "s/limits/effort", "not_scored"),
+        (_bot(_COM + _G, joint=_OK + _DRIVEN.format(25)), "j/limits/effort", "warning"),  # Cassie
+        (_bot(_COM + _G, joint=_OK + _DRIVEN.format(0.07)), "j/limits/effort", "violation"),
+        (_bot(_G.replace('"1"', '"100"')), "b/mass_vs_size", "warning"),  # B2 head_Link
+        (_bot(joint=_OK.replace('velocity="1"', 'velocity="0"')), "j/velocity", "warning"),
+        (_bot('<mass value="0.213"/><inertia/>'), "b/inertia", "violation"),  # Dobot elbow
+        (_bot('<mass value="1e-9"/><inertia/>'), "b/inertia", None),  # SO-101 frame stand-in
+    ],
+)
+def test_broken_models_are_flagged(body, quantity, severity, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    Path("m.urdf").write_text(f'<robot name="r">{body}</robot>')
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("m.urdf")))
+    run = run_record_checks(contract, contract_path=Path("lockwire.yaml"))
+    got = [
+        f.severity for f in run if f.quantity.startswith("model/") and f.quantity.endswith(quantity)
+    ]
+    assert got == ([severity] if severity else [])
+
+
+@pytest.mark.parametrize(
+    ("body", "said"), [("", "has no <link>"), ('<link name=""/>', "empty name")]
+)
+def test_model_without_a_named_link_is_refused(body, said, tmp_path):
+    (tmp_path / "m.urdf").write_text(f'<robot name="r">{body}</robot>')
+    with pytest.raises(ValueError, match=said):
+        parse_urdf(tmp_path / "m.urdf")
+
+
+def test_check_pack_4_is_silent_on_sound_models(monkeypatch):
+    from lockwire.checks import CHECK_PACK_4, CHECK_PACK_5
+
+    for rel in ("turtlebot3/turtlebot3_waffle_pi.urdf", "so101/so101.urdf", "pack1/pack1.urdf"):
+        urdf = Path(__file__).parent / "fixtures" / rel  # waffle_pi has a real optical frame
+        monkeypatch.chdir(urdf.parent)
+        contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path(urdf.name)))
+        assert [
+            f
+            for chk in (*CHECK_PACK_4, *CHECK_PACK_5)
+            for f in chk(contract, contract_path=Path("lockwire.yaml"))
+        ] == []
+
+
+def test_check_pack_5_flags_only_the_planted_mistakes(monkeypatch):
+    from lockwire.checks import CHECK_PACK_5
+
+    monkeypatch.chdir(_PACK5.parent)  # sound roll, hand, imu and the odd scale stay silent
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path(_PACK5.name)))
+    found = [f for chk in CHECK_PACK_5 for f in chk(contract, contract_path=Path("lockwire.yaml"))]
+    assert sorted(f.quantity.removeprefix("model/sanity/") for f in found) == sorted(
+        "shoulder/soft_limits elbow/soft_limits pinch/soft_limits twist/soft_limits gazebo/wirst "
+        "gazebo/sensors/cam base/mesh_scale".split()
     )
-    (found,) = [f for f in run_record_checks(contract) if f.quantity.endswith("mass_vs_size")]
+
+
+def test_xacro_standoff_inertia_above_its_cylinder_is_flagged(monkeypatch):
+    monkeypatch.chdir(Path(__file__).parent / "fixtures")
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("standoff.urdf.xacro")))
+    run = run_record_checks(contract, contract_path=Path("lockwire.yaml"))
+    assert not [f for f in run_record_checks(contract) if "mass_vs_size" in f.quantity]  # no cwd
+    (found,) = [f for f in run if f.quantity.endswith("mass_vs_size")]
     assert found.quantity == "model/links/standoff/mass_vs_size" and "51x" in found.observed
     assert found.action.startswith("compute standoff's inertia")
 
@@ -4202,6 +4338,10 @@ def test_pre_05_lock_of_an_empty_axis_warns_loads_and_upgrades_with_a_notice(tmp
     assert notices == [f.observed]
     (f,) = check_urdf_drift(load_contract(tmp_path / "new.yaml"))
     assert f.severity == "violation" and "axis changed" in f.observed
+    for version in ("0.5", "0.6"):  # 0.5 already read <axis/> as 1 0 0: drift, not legacy
+        save_contract(Contract(schema_version=version, robot=RobotInfo(name="r"), model=model), old)
+        (f,) = check_urdf_drift(load_contract(old))
+        assert f.severity == "violation" and "axis changed" in f.observed
 
 
 def _li_ion_pack(c, lo=20, hi=24, **fields):
@@ -4239,6 +4379,20 @@ def test_battery_cell_window_vs_rail(clean_contract):
             ("warning", "topology/battery/discharge_temp_c"),
         ),
         ({"mass": Quantity(value=0.1, unit="kg")}, ("warning", "topology/battery/mass")),
+        # 6S li-ion: charger cap 6 x 4.25 = 25.5 V, 1C = 4.5 A, cell floor 6 x 3.0 = 18 V
+        (
+            {"charger_voltage": Quantity(value=26, unit="V")},
+            ("violation", "topology/battery/charger_voltage"),
+        ),
+        ({"charger_float": True}, ("violation", "topology/battery/charger_float")),
+        (
+            {"charger_current": Quantity(value=10, unit="A")},
+            ("warning", "topology/battery/charger_current"),
+        ),
+        (
+            {"cutoff_voltage": Quantity(value=16, unit="V")},
+            ("warning", "topology/battery/cutoff_voltage"),
+        ),
     ],
 )
 def test_battery_pack_checks_bite(clean_contract, fields, expected):
@@ -4254,8 +4408,89 @@ def test_battery_pack_checks_silent_with_margin(clean_contract):
         c_rate_burst=20.0,
         internal_resistance_mohm=30.0,
         mass=Quantity(value=1.0, unit="kg"),
+        charger_voltage=Quantity(value=25.2, unit="V"),
+        charger_float=False,
+        charger_current=Quantity(value=4, unit="A"),
+        cutoff_voltage=Quantity(value=18.6, unit="V"),
     )
     assert not [q for s, q in got if "battery" in q or "rail.22v" in q]  # bites a false finding
+
+
+def test_pack3_non_physics_checks_bite_then_fall_silent(clean_contract):
+    c = clean_contract
+    c.robot.region = "eu"
+    _plant_radio_link(c, frequency_hz=2.44e9)  # 20 dBm + 2 dBi = 22 dBm radiated; EU cap is 20
+    c.device("dev.imu").power.draw = Quantity(value=20, unit="W")  # 4 A on the 5 V rail
+    wire = Wire(id="w", awg=10, installation="free_air", rail="rail.5v", owner="x")
+    wire.connector = "jst-xh"  # rated 3 A
+    c.topology.wires.append(wire)
+    link = PrintedLink(material="PLA", infill_pct=20, walls=2, layers="along", diameter_mm=10)
+    link.threadlocker = True
+    c.schema_version = "0.6"  # printed: is a 0.6 line
+    c.printed = {"arm": link}
+    c.autopilot = Autopilot(firmware="ardupilot", params={"FS_THR_ENABLE": 0, "BATT_LOW_VOLT": 17})
+    new = {
+        ("warning", "devices/dev.radio.rfd900/link_budget/tx_power"),
+        ("violation", "topology/wires/w/connector"),
+        ("warning", "printed/arm/threadlocker"),
+        ("violation", "autopilot/params/FS_THR_ENABLE"),
+        ("warning", "autopilot/params/BATT_LOW_VOLT"),  # 17 V is under 6 x 3.0 V
+    }
+    assert new <= _li_ion_pack(c)  # bites each check that stays quiet
+    c.robot.region = "us"  # 20 dBm at the port is inside the US 30 dBm cap
+    wire.connector = "xt60"  # rated 30 A
+    link.threadlocker = False
+    c.autopilot.params = {"FS_THR_ENABLE": 1, "BATT_LOW_VOLT": 21}
+    assert not new & _li_ion_pack(c)  # bites a check that fires on a healthy value
+
+
+@pytest.mark.parametrize(
+    ("region", "tx", "gain", "fires"),
+    [
+        ("us", 28, 12, True),  # 28 dBm > 30 - (12 - 6) = 24 dBm cap
+        ("us", 28, 2, False),  # same power, small antenna: under the 30 dBm cap
+        ("in", 31, 2, True),  # > 30 dBm output
+        ("in", 28, 10, True),  # output fine, 38 dBm radiated > 36
+        ("in", 28, 2, False),
+    ],
+)
+def test_radio_power_us_and_in(clean_contract, region, tx, gain, fires):
+    clean_contract.robot.region = region
+    _plant_radio_link(clean_contract, frequency_hz=2.44e9, tx_power_dbm=tx, tx_gain_dbi=gain)
+    got = {(f.severity, f.quantity) for f in run_record_checks(clean_contract)}
+    assert (("warning", "devices/dev.radio.rfd900/link_budget/tx_power") in got) is fires
+
+
+def test_lifepo4_charger_and_cutoff(clean_contract):
+    q, lfp = Quantity, {"chemistry": "lifepo4"}  # _li_ion_pack resets chemistry unless passed
+    # 6S LFP: charger cap 6 x 3.65 = 21.9 V with no li-ion tolerance; cell floor 6 x 2.5 = 15 V
+    over = _li_ion_pack(clean_contract, **lfp, charger_voltage=q(value=22, unit="V"))
+    assert ("violation", "topology/battery/charger_voltage") in over
+    low = _li_ion_pack(clean_contract, **lfp, charger_voltage=q(value=21.9, unit="V"))
+    assert ("violation", "topology/battery/charger_voltage") not in low
+    assert ("warning", "topology/battery/cutoff_voltage") not in _li_ion_pack(
+        clean_contract,
+        **lfp,
+        cutoff_voltage=q(value=16, unit="V"),  # < li-ion's 18 V, > LFP's 15
+    )
+    assert ("warning", "topology/battery/cutoff_voltage") in _li_ion_pack(
+        clean_contract, **lfp, cutoff_voltage=q(value=14, unit="V")
+    )
+
+
+@pytest.mark.parametrize(
+    ("firmware", "params", "expected"),
+    [
+        ("px4", {"COM_LOW_BAT_ACT": 0}, ("warning", "autopilot/params/COM_LOW_BAT_ACT")),
+        ("ardupilot", {"BATT_FS_LOW_ACT": 0}, ("warning", "autopilot/params/BATT_FS_LOW_ACT")),
+        ("ardupilot", {"BATT_LOW_VOLT": 0}, ("warning", "autopilot/params/BATT_LOW_VOLT")),
+    ],
+)
+def test_autopilot_failsafe_off_branches(clean_contract, firmware, params, expected):
+    clean_contract.autopilot = Autopilot(firmware=firmware, params=params)
+    assert expected in _li_ion_pack(clean_contract)
+    clean_contract.autopilot = Autopilot(firmware=firmware, params={k: 21 for k in params})
+    assert expected not in _li_ion_pack(clean_contract)  # a nonzero action is healthy
 
 
 def test_accepted_finding_is_set_aside_at_its_pinned_value_and_fires_when_it_changes(tmp_path):
@@ -4324,3 +4559,38 @@ def test_unrecorded_meshes_are_not_compared_not_silent(tmp_path):
     contract.model.mesh_refs = None  # a lock written before mesh refs were recorded
     (finding,) = check_mesh_drift(contract, contract_path=lock)
     assert finding.severity == "not_scored" and "predates" in finding.observed
+
+
+def test_datasheet_mass_row_sums_the_model_file_as_it_is_now(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    model = tmp_path / "waffle.urdf"
+    text = (Path(__file__).parent / "fixtures/turtlebot3/turtlebot3_waffle_pi.urdf").read_text()
+    model.write_text(text, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(app, ["start", "waffle.urdf"])
+    model.write_text(text.replace("1.3729096", "2.0"), encoding="utf-8")
+    assert "2.181" in CliRunner().invoke(app, ["check", "--all"]).output
+    from lockwire.checks import _model_file_links as links
+
+    assert links(load_contract(tmp_path / "lockwire.yaml"), None) == []  # never the cwd's copy
+
+
+def test_gravity_reach_survives_a_dbl_max_limit(clean_contract):
+    """Ingenuity's DBL_MAX limits once crashed formatting the pose angle (OverflowError)."""
+    from lockwire.checks import check_gravity_reach
+    from tests.test_statics import chain1
+
+    clean_contract.model = chain1(limits={"lower": -1.79769e308, "upper": 1.79769e308})
+    check_gravity_reach(clean_contract)
+
+
+def test_relock_command_replays_recorded_xacro_args(tmp_path):
+    from lockwire.checks import _relock_command
+
+    lock = tmp_path / "x.yaml"
+    assert "--xacro-arg" not in _relock_command(Path("m.xacro"), lock)
+    cmd = _relock_command(Path("m.xacro"), lock, {"foo": "2", "n": "a b"})
+    assert "--xacro-arg foo=2 --xacro-arg 'n=a b' --force" in cmd

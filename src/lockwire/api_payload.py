@@ -242,6 +242,15 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "Counts.not_scored": _build_kind_declaration("derived", "report.verdict"),
     "MeshGap.missing": _build_kind_declaration("derived", "start_operation._find_meshes"),
     "MeshGap.total": _build_kind_declaration("derived", "start_operation._find_meshes"),
+    # --- Part Swap (the app's swap-preview): catalog servo figures, gravity loads and ratios
+    "SwapCandidate.stall_nm": _build_kind_declaration("catalog", "swap.preview", mark="catalog"),
+    "SwapCandidate.mass_g": _build_kind_declaration("catalog", "swap.preview", mark="catalog"),
+    "SwapCandidate.ratio": _build_kind_declaration("derived", "swap.status"),
+    "SwapKnockOn.before_nm": _build_kind_declaration("derived", "checks.gravity_loads"),
+    "SwapKnockOn.after_nm": _build_kind_declaration("derived", "checks.gravity_loads"),
+    "SwapKnockOn.ratio": _build_kind_declaration("derived", "swap.status"),
+    "SwapPreviewPayload.load_nm": _build_kind_declaration("derived", "checks.gravity_loads"),
+    "SwapPreviewPayload.delta_g": _build_kind_declaration("derived", "swap.preview"),
     # --- the Add part picker: a catalog number; its own `kind` field says datasheet or assumed
     "AddPartNumber.value": _build_kind_declaration(
         "catalog", "catalog.SourcedNumber", mark="catalog"
@@ -870,6 +879,48 @@ class StartersPayload(_Strict):
     starters: list[Starter]
 
 
+SwapStatus = Literal["fit", "tight", "too weak"]
+
+
+class SwapCandidate(_Strict):
+    """One catalog servo ranked for a joint; ``ratio`` is stall/load, capped at 100."""
+
+    id: str
+    name: str
+    label: Literal["cited", "unverified"]
+    status: SwapStatus
+    stall_nm: float
+    ratio: float
+    mass_g: float
+    flags: list[str]
+
+
+class SwapKnockOn(_Strict):
+    """One joint above the swapped one: load before -> after; no status when its servo
+    has no stall torque, no loads when the gravity walk did not score it."""
+
+    joint: str
+    before_nm: float | None
+    after_nm: float | None
+    status: SwapStatus | None
+    was: SwapStatus | None
+    ratio: float | None
+    dropped: bool
+
+
+class SwapPreviewPayload(_Strict):
+    """The sidecar's ``swap-preview``: ``swap.preview`` for one joint, the knock-on for ``chosen``."""
+
+    joint: str
+    current: str | None
+    load_nm: float
+    chosen: str | None
+    delta_g: float
+    candidates: list[SwapCandidate]
+    knock_on: list[SwapKnockOn]
+    notes: list[str]
+
+
 class AcceptedRow(_Strict):
     """A finding the lockfile accepted on record: the Check panel's muted Accepted rows."""
 
@@ -1012,6 +1063,7 @@ ALL_MEMBERS: tuple[type[BaseModel], ...] = (
     DeclareFormPayload,
     StartPayload,
     StartersPayload,
+    SwapPreviewPayload,
 )
 
 

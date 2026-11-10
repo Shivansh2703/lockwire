@@ -56,6 +56,7 @@ from lockwire.urdf import (
     parse_urdf,
     read_model_bytes,
     read_urdf_topology,
+    UnresolvedXacroError,
 )
 
 # the YAML is the truth. This is only how far the model in the scene is
@@ -105,10 +106,12 @@ class _ScoreBook:
 
     def __init__(self) -> None:
         self._keys: set[str] = set()
+        self._n = 0
         self.records: list[ScoredRecord] = []
 
     def record(self, key: str) -> None:
         self._keys.add(key)
+        self._n += 1  # two checks may score one key; each comparison counts
 
     def passed(
         self,
@@ -152,7 +155,7 @@ class _ScoreBook:
         return frozenset(self._keys)
 
     def __len__(self) -> int:
-        return len(self._keys)
+        return self._n
 
 
 def _empty_score_disclosure() -> Finding:
@@ -220,15 +223,17 @@ def run_record_checks(
     findings += check_electrical_segments(contract, scores=scores)
     findings += check_rail_topology(contract, scores=scores)
     findings += check_voltage_compatibility(contract, scores=scores)
-    findings += check_budgets(contract, scores=scores)
+    findings += check_budgets(contract, scores=scores, contract_path=contract_path)
     findings += check_ampacity(contract, scores=scores)
     findings += check_rail_current(contract, scores=scores)
     findings += check_torque_budgets(contract, scores=scores)
-    findings += check_gravity_reach(contract, scores=scores)
+    findings += check_gravity_reach(contract, scores=scores, contract_path=contract_path)
     findings += check_bus_bandwidth(contract, scores=scores)
     findings += check_zero_mass(contract, contract_path=contract_path)
     findings += check_unusable_effort(contract)
-    findings += check_servo_stall(contract, servo or contract.servo, scores=scores)
+    findings += check_servo_stall(
+        contract, servo or contract.servo, scores=scores, contract_path=contract_path
+    )
     findings += check_mechanisms(contract, scores=scores)
     findings += check_urdf_drift(contract, scores=scores, contract_path=contract_path)
     findings += check_model_values(contract, scores=scores, contract_path=contract_path)
@@ -236,7 +241,13 @@ def run_record_checks(
     findings += check_datasheet_agreement(
         contract, scores=scores, model=model, contract_path=contract_path
     )
-    for pack_check in (*CHECK_PACK_1, *CHECK_PACK_2):
+    for pack_check in (
+        *CHECK_PACK_1,
+        *CHECK_PACK_2,
+        *CHECK_PACK_3,
+        *CHECK_PACK_4,
+        *CHECK_PACK_5,
+    ):
         findings += pack_check(contract, contract_path=contract_path)
     findings += check_envelopes_vs_hard_limits(contract, scores=scores)
     if current_conditions is not None:
@@ -1936,7 +1947,44 @@ def _with_enforcement_provenance(expected: str, *limits: tuple[str, str | None])
     )
 
 
-def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
+def mass_sum(
+    c: Contract, sources: str, frames: frozenset[str] = frozenset()
+) -> tuple[float, list[str], list[str], list[str]]:
+    """(kg, contributors, devices with no mass, links with no mass) for a mass budget's
+    `sources` ("devices", "links" or "links+devices"). A missing mass is a gap, never 0 kg:
+    no physical block and a physical block with no mass are disclosed alike. ``frames`` are
+    links with no <inertial> in the model file: pure frames, 0 kg and not a gap."""
+    total_kg, contributors, unknown_devices, unknown_links = 0.0, [], [], []
+    if sources in ("devices", "links+devices"):
+        for d in c.devices:
+            if d.physical is None or d.physical.mass is None:
+                unknown_devices.append(d.id)
+            else:
+                total_kg += d.physical.mass.base()
+                contributors.append(d.id)
+    if sources in ("links", "links+devices") and c.model is not None:
+        for link in c.model.links:
+            if link.mass is None:
+                if link.name not in frames:
+                    unknown_links.append(link.name)
+            else:
+                total_kg += link.mass.base()
+                contributors.append(link.name)
+    return total_kg, contributors, unknown_devices, unknown_links
+
+
+def _frame_links(c: Contract, contract_path: Path | None) -> frozenset[str]:
+    """Links with no <inertial> element at all in the model file: frames, not missing masses."""
+    found = _urdf_root(c, contract_path) if c.model else None
+    if found is None:
+        return frozenset()
+    bare = {k.get("name") for k in found[1].findall("link") if k.find("inertial") is None}
+    return frozenset(k.name for k in c.model.links if k.mass is None and k.name in bare)
+
+
+def check_budgets(
+    c: Contract, *, scores: _ScoreBook | None = None, contract_path: Path | None = None
+) -> list[Finding]:
     """Budgets are derived entries: current value = sum over witnesses, here the
     contract's own device and model entries. Power follows the efficiency-aware
     rail tree so one child load constrains its converter, ancestors, and endurance."""
@@ -2097,36 +2145,27 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                 )
 
         elif b.kind == "mass_total":
-            total_kg = 0.0
-            contributors: list[str] = []
-            unknown_mass: list[str] = []
-            if b.sources in ("devices", "links+devices"):
-                for d in c.devices:
-                    if d.physical is None or d.physical.mass is None:
-                        # no physical block and a physical block with no
-                        # declared mass are the same coverage gap — never summed
-                        # as a 0 kg contributor, always disclosed alike.
-                        out.append(
-                            Finding(
-                                severity="not_scored",
-                                quantity=f"devices/{d.id}/physical/mass",
-                                observed="mass not declared",
-                                expected="a positive mass with units",
-                                owner=b.owner,
-                                action="declare the device's mass, or accept it excluded from this budget",
-                            )
-                        )
-                        unknown_mass.append(d.id)
-                        continue
-                    total_kg += d.physical.mass.base()
-                    contributors.append(d.id)
-            if b.sources in ("links", "links+devices") and c.model is not None:
-                for link in c.model.links:
-                    if link.mass is None:
-                        unknown_mass.append(link.name)  # same gap as a massless device
-                        continue
-                    total_kg += link.mass.base()
-                    contributors.append(link.name)
+            frames = _frame_links(c, contract_path) if "links" in b.sources else frozenset()
+            total_kg, contributors, unknown_devices, unknown_links = mass_sum(c, b.sources, frames)
+            framed = (
+                f"; {len(frames)} links with no <inertial> counted as 0 kg frames: "
+                + ", ".join(sorted(frames)[:3])
+                + (", ..." if len(frames) > 3 else "")
+                if frames
+                else ""
+            )
+            for device_id in unknown_devices:
+                out.append(
+                    Finding(
+                        severity="not_scored",
+                        quantity=f"devices/{device_id}/physical/mass",
+                        observed="mass not declared",
+                        expected="a positive mass with units",
+                        owner=b.owner,
+                        action="declare the device's mass, or accept it excluded from this budget",
+                    )
+                )
+            unknown_mass = unknown_devices + unknown_links
             if unknown_mass and not total_kg > limit:
                 # a partial sum is not a total; it can still violate, never pass.
                 out.append(
@@ -2152,7 +2191,8 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                         severity="violation",
                         quantity=f"budgets/{b.id}",
                         observed=format_magnitude(total_kg, "kg")
-                        + (f"; mass unknown for {', '.join(unknown_mass)}" if unknown_mass else ""),
+                        + (f"; mass unknown for {', '.join(unknown_mass)}" if unknown_mass else "")
+                        + framed,
                         expected=_with_enforcement_provenance(
                             f"<= {format_magnitude(limit_kg, 'kg')}",
                             ("limit", b.limit_enforced_by),
@@ -2172,7 +2212,7 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                 headroom_kg = limit_kg - total_kg
                 scores.passed(
                     f"budgets/{b.id}",
-                    observed=format_magnitude(total_kg, "kg"),
+                    observed=format_magnitude(total_kg, "kg") + framed,
                     expected=_with_enforcement_provenance(
                         f"<= {format_magnitude(limit_kg, 'kg')}",
                         ("limit", b.limit_enforced_by),
@@ -2193,7 +2233,7 @@ def check_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Find
                         Finding(
                             severity="violation",
                             quantity=f"budgets/{b.id}/nominal",
-                            observed=format_magnitude(total_kg, "kg"),
+                            observed=format_magnitude(total_kg, "kg") + framed,
                             expected=f"{format_magnitude(nominal_kg, 'kg')} +/- {b.tolerance_pct or 0:g}%",
                             observed_quantity=Quantity(value=total_kg, unit="kg"),
                             expected_quantity=Quantity(value=nominal_kg, unit="kg"),
@@ -2773,7 +2813,36 @@ def _sinusoid_peak(a, b, limits) -> tuple[np.ndarray, np.ndarray]:
     return best, at
 
 
-def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
+def gravity_loads(c: Contract) -> dict[str, float] | None:
+    """Worst-pose static gravity load (N*m) per rotary joint, exactly as check_gravity_reach
+    scores it but for every rotary joint, limit or not; None when it cannot score."""
+    got = _gravity_worst(c)
+    if isinstance(got, list):
+        return None
+    worst, by_name = got[0], got[1]
+    return {n: row[0].torque_nm for n, row in worst.items() if by_name[n].type in _ROTARY}
+
+
+def _transmissions(c: Contract, contract_path: Path | None) -> tuple[set[str], dict[str, float]]:
+    """(joints a <transmission> or <ros2_control> block names, joint -> mechanicalReduction),
+    read from the model file; both empty when the file cannot be read."""
+    found = _urdf_root(c, contract_path)
+    if found is None:
+        return set(), {}
+    named: set[str] = set()
+    reduction: dict[str, float] = {}
+    for block in (*found[1].iter("transmission"), *found[1].iter("ros2_control")):
+        joints = [j.get("name", "") for j in block.findall("joint")]
+        named.update(joints)
+        ratio = _floats(next((r.text for r in block.iter("mechanicalReduction")), None))
+        for name in joints if block.tag == "transmission" and ratio else ():
+            reduction[name] = ratio[0]
+    return named, reduction
+
+
+def check_gravity_reach(
+    c: Contract, *, scores: _ScoreBook | None = None, contract_path: Path | None = None
+) -> list[Finding]:
     """Static gravity torque at the worst pose must fit each joint's effort limit.
 
     Each joint's own angle is solved exactly: its torque is a*cos(q) + b*sin(q), so the peak over
@@ -2789,7 +2858,95 @@ def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> lis
     joint, no link mass or no single root; ``not_scored`` says why when it cannot score
     (closed chain, zero or missing axis, a massive link with no CoM, a joint over the pose
     cap). Silent for joints with no effort limit.
+
+    From the model file: when it names its driven joints in <transmission>/<ros2_control>
+    blocks, a slide none of them names is passive (a suspension), so its load is not compared.
+    A joint over its effort whose transmission has mechanicalReduction > 1 is a warning, not a
+    violation: URDF effort is joint-side, but some files (Cassie) write the motor side.
     """
+    got = _gravity_worst(c)
+    if isinstance(got, list):
+        return got
+    worst, by_name, note, out = got
+    driven, reduction = _transmissions(c, contract_path) if worst else (set(), {})
+    for name, (r, pose, how, dev) in worst.items():
+        if r.limit_nm is None:
+            continue
+        quantity = f"model/joints/{name}/limits/effort"
+        if driven and name not in driven and by_name[name].type == "prismatic":
+            out.append(
+                Finding(
+                    severity="not_scored",
+                    quantity=quantity,
+                    observed=(
+                        f"passive slide: no <transmission> or <ros2_control> names {name} while "
+                        f"{len(driven)} other joints have one; its {r.torque_nm:.2f} N load is not "
+                        f"compared with its {r.limit_nm:.2f} N effort"
+                    ),
+                    expected="an actuated joint for the effort limit to be a holding limit",
+                    action=f"if {name} is driven, add its transmission to the model",
+                )
+            )
+            continue
+        payload = f"with {r.payload_kg:g} kg payload" if r.payload_kg else "no payload declared"
+        unit, what = (
+            ("N", "N weight along the slide axis")
+            if by_name[name].type == "prismatic"
+            else ("N*m", "N*m static gravity torque")
+        )
+        observed = (
+            f"{r.torque_nm:.2f} {what} at pose "
+            + ", ".join(
+                f"{k}={round(d) if math.isfinite(d := math.degrees(v)) else d}deg"
+                for k, v in pose.items()
+            )
+            + f" (peak over its own range, other joints at {how}; {payload}; "
+            f"{dev}{note})"
+        )
+        expected = f"<= {r.limit_nm:.2f} {unit} joint effort limit"
+        if scores is not None:
+            scores.record(quantity)
+        if r.torque_nm <= r.limit_nm:
+            if scores is not None:
+                scores.passed(
+                    quantity,
+                    f"{r.torque_nm:.2f} {unit}" + (f" {payload}" if r.payload_kg else ""),
+                    expected,
+                    f"{r.margin_nm:.2f} {unit} headroom",
+                    detail=observed,
+                )
+            continue
+        gear = reduction.get(name, 1.0)
+        motor_side = gear > 1 and r.torque_nm <= r.limit_nm * gear
+        if motor_side:
+            expected += (
+                f", or <= {r.limit_nm * gear:.2f} {unit} if that effort is motor-side "
+                f"(x {gear:g} mechanicalReduction in its <transmission>); not compared: the "
+                "model does not say which side"
+            )
+        out.append(
+            Finding(
+                severity="warning" if motor_side else "violation",
+                quantity=quantity,
+                observed=observed,
+                expected=expected,
+                delta=f"+{r.torque_nm - r.limit_nm:.2f} {unit}",
+                dependent=quantity,
+                action=(
+                    f"if {name}'s effort is joint-side, as URDF intends, the joint cannot hold "
+                    "this pose; if motor-side, write the joint-side effort into the model"
+                    if motor_side
+                    else "the joint cannot hold this pose against gravity: raise the effort limit "
+                    "with a stronger actuator, shorten the reach, or lighten the links"
+                ),
+            )
+        )
+    return out
+
+
+def _gravity_worst(c: Contract) -> list[Finding] | tuple[dict, dict, str, list[Finding]]:
+    """check_gravity_reach's worst-pose walk: findings when it cannot score, else (worst row,
+    pose, how, devices per joint; joints by name; note; not-scored findings)."""
     if c.model is None:
         return []
     joints = c.model.joints
@@ -2896,7 +3053,7 @@ def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> lis
             return []  # no single root or an off-frame CoM: silent, as before
         for kk, joint in enumerate(plan.joints):
             lim = joint.limits.effort_limit if joint.limits is not None else None
-            if lim is None or (joint.type == "prismatic") != (j.type == "prismatic"):
+            if (joint.type == "prismatic") != (j.type == "prismatic"):
                 continue
             if joint.type == "prismatic" and joint.name != j.name:
                 continue
@@ -2916,7 +3073,8 @@ def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> lis
             i = int(best.argmax())
             if joint.name not in worst or best[i] > worst[joint.name][0].torque_nm:
                 kg = float((plan.carries @ plan.payload)[kk])
-                row = statics.JointTorque(joint.name, float(best[i]), lim, lim - float(best[i]), kg)
+                margin = None if lim is None else lim - float(best[i])
+                row = statics.JointTorque(joint.name, float(best[i]), lim, margin, kg)
                 nd = int((plan.carries @ (plan.device > 0))[kk])
                 dkg = float((plan.carries @ plan.device)[kk])
                 dev = f"includes {nd} device masses ({dkg:g} kg)" if nd else "no device masses"
@@ -2931,48 +3089,7 @@ def check_gravity_reach(c: Contract, *, scores: _ScoreBook | None = None) -> lis
             f"{', '.join(skipped[:3])}{', ...' if len(skipped) > 3 else ''} carry too many "
             f"rotary joints to keep the +/-90 deg poses within the {_REACH_MAX_POSES} pose grid"
         )
-    for name, (r, pose, how, dev) in worst.items():
-        quantity = f"model/joints/{name}/limits/effort"
-        payload = f"with {r.payload_kg:g} kg payload" if r.payload_kg else "no payload declared"
-        unit, what = (
-            ("N", "N weight along the slide axis")
-            if by_name[name].type == "prismatic"
-            else ("N*m", "N*m static gravity torque")
-        )
-        observed = (
-            f"{r.torque_nm:.2f} {what} at pose "
-            + ", ".join(f"{k}={round(math.degrees(v))}deg" for k, v in pose.items())
-            + f" (peak over its own range, other joints at {how}; {payload}; "
-            f"{dev}{note})"
-        )
-        expected = f"<= {r.limit_nm:.2f} {unit} joint effort limit"
-        if scores is not None:
-            scores.record(quantity)
-        if r.torque_nm <= r.limit_nm:
-            if scores is not None:
-                scores.passed(
-                    quantity,
-                    f"{r.torque_nm:.2f} {unit}" + (f" {payload}" if r.payload_kg else ""),
-                    expected,
-                    f"{r.margin_nm:.2f} {unit} headroom",
-                    detail=observed,
-                )
-            continue
-        out.append(
-            Finding(
-                severity="violation",
-                quantity=quantity,
-                observed=observed,
-                expected=expected,
-                delta=f"+{r.torque_nm - r.limit_nm:.2f} {unit}",
-                dependent=quantity,
-                action=(
-                    "the joint cannot hold this pose against gravity: raise the effort limit "
-                    "with a stronger actuator, shorten the reach, or lighten the links"
-                ),
-            )
-        )
-    return out
+    return worst, by_name, note, out
 
 
 def check_torque_budgets(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
@@ -3214,12 +3331,72 @@ _TOOL_LINK = re.compile(
 )
 
 
+def _bad_masses(root: ET.Element) -> dict[str, str]:
+    """Link name -> its mass text, for each mass that is NaN or negative."""
+    bad: dict[str, str] = {}
+    for el in root.findall("link"):
+        raw = el.find("inertial/mass")
+        raw = raw.get("value", "") if raw is not None else ""
+        v = _floats(raw)
+        if v and not v[0] >= 0.0:  # NaN fails >= too
+            bad[el.get("name", "")] = raw
+    return bad
+
+
+def check_link_values(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Link values no simulator accepts: a NaN or negative mass, a mass with no inertia, a
+    mesh scale that is NaN, zero or not three numbers."""
+    ctx = _model_warner(c, contract_path)
+    if ctx is None:
+        return []
+    root, warn, out = ctx
+    for name, raw in _bad_masses(root).items():
+        warn(
+            f"{name}/mass_value",
+            f"link '{name}' has mass {raw}; a mass must be a positive number",
+            "a positive mass, or no mass for a pure frame",
+            f"fix link '{name}' mass in the source model",
+            severity="violation",
+        )
+    for el in root.findall("link"):
+        name = el.get("name", "")
+        mass = (
+            _floats(el.find("inertial/mass").get("value"))
+            if el.find("inertial/mass") is not None
+            else []
+        )
+        if mass and mass[0] > 0 and el.find("inertial/inertia") is None:
+            warn(
+                f"{name}/no_inertia",
+                f"link '{name}' has mass {mass[0]:g} kg but no inertia; simulators treat it as zero",
+                "an <inertia> with the mass",
+                f"add link '{name}' inertia from CAD",
+            )
+        for mesh in el.iter("mesh"):
+            raw = mesh.get("scale")
+            v = _floats(raw)
+            if raw is not None and (len(v) != 3 or not all(math.isfinite(x) and x for x in v)):
+                warn(
+                    f"{name}/mesh_scale_value",
+                    f"link '{name}' mesh {mesh.get('filename', '?')} has scale '{raw}'",
+                    "three finite non-zero numbers (a negative one mirrors the mesh)",
+                    f"fix link '{name}' mesh scale",
+                )
+    return out
+
+
 def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
     """Missing or non-positive link mass is derived from the canonical link
     records so a stale zero_mass_links cache cannot hide incomplete inertia."""
     if c.model is None:
         return []
-    massless = [k.name for k in c.model.links if k.mass is None or k.mass.base() <= 0.0]
+    found = _urdf_root(c, contract_path)
+    bad = _bad_masses(found[1]) if found else {}  # check_link_values says these, not "a frame"
+    massless = [
+        k.name
+        for k in c.model.links
+        if (k.mass is None or k.mass.base() <= 0.0) and k.name not in bad
+    ]
     # A massless link with no massive link below it is a sensor/mount frame: one summary line.
     kids: dict[str, list[str]] = {}
     for j in c.model.joints:
@@ -3294,8 +3471,42 @@ def servo_stall_torque(servo: str) -> SourcedNumber:
     raise ValueError(f"no catalog servo {servo!r} with a stall torque (known: {known})")
 
 
+def servo_for(servo: str | dict[str, str] | None, joint: str) -> str | None:
+    """The catalog servo id a `servo:` line names for ``joint``: the one id, or the first
+    matching joint-name pattern of a map; None when nothing matches."""
+    rules = servo if isinstance(servo, dict) else {"*": servo} if servo else {}
+    return next((s for pat, s in rules.items() if fnmatch.fnmatchcase(joint, pat)), None)
+
+
+def shown_path(path: Path | None) -> str:
+    """The lockfile as a command can name it from where the user is: as typed when relative,
+    cwd-relative when absolute under cwd, else absolute (always runnable)."""
+    if path is None:
+        return "lockwire.yaml"
+    if path.is_absolute() and path.is_relative_to(Path.cwd()):
+        return str(path.relative_to(Path.cwd()))
+    return str(path)
+
+
+def _effort_edit(c: Contract, joint: str, effort: float, stall: float) -> str:
+    """The exact model edit that brings ``joint``'s effort to the stall, rounded down to
+    0.001 (the precision the finding prints the stall at) so it never exceeds it. Lockwire
+    shows this line; it never writes the model file."""
+    to = f"{math.floor(stall * 1000 + 1e-9) / 1000:.3f}"
+    name = c.model.source.rsplit("/", 1)[-1]
+    if name.endswith((".urdf", ".xacro")):
+        return f'in {name}: joint {joint} <limit effort="{effort:g}"> → "{to}"'
+    if name.endswith(".sdf"):
+        return f"in {name}: joint {joint} <effort>{effort:g}</effort> → {to}"
+    return f"in this lockfile's model: joints {joint} limits effort {effort:g} → {to}"
+
+
 def check_servo_stall(
-    c: Contract, servo: str | dict[str, str] | None, *, scores: _ScoreBook | None = None
+    c: Contract,
+    servo: str | dict[str, str] | None,
+    *,
+    scores: _ScoreBook | None = None,
+    contract_path: Path | None = None,
 ) -> list[Finding]:
     """Each revolute/continuous joint's effort limit vs the stall torque of the servo that
     drives it, named by `check --servo <id>` or the lockfile's `servo:` line.
@@ -3318,12 +3529,15 @@ def check_servo_stall(
                     quantity="servo",
                     observed=str(unknown),
                     expected="a catalog servo id with a stall torque",
-                    action="fix the lockfile's servo: line to one of the known ids",
+                    action=(
+                        "if this is a private part, add it to ~/.lockwire/parts.yaml "
+                        "(see the parts guide); otherwise fix the servo: line to a known id"
+                    ),
                 )
             )
     for joint in c.model.joints:
         effort = joint.limits.effort if joint.limits else None
-        sid = next((s for pat, s in rules.items() if fnmatch.fnmatchcase(joint.name, pat)), None)
+        sid = servo_for(rules, joint.name)
         if joint.type not in _ROTARY or effort is None or effort <= 0 or sid not in stalls:
             continue
         stall = stalls[sid]
@@ -3344,12 +3558,14 @@ def check_servo_stall(
                 severity="violation",
                 quantity=quantity,
                 observed=f"{effort:.2f} N*m joint effort limit",
-                expected=f"<= {stall.value:.2f} N*m, the {sid} stall torque",
+                expected=f"<= {stall.value:.3f} N*m, the {sid} stall torque",
                 delta=f"{effort / stall.value:.1f}x the stall torque",
                 source=stall.source,
                 action=(
                     f"a simulator will let {joint.name} push {effort:g} N*m, which a {sid} cannot; "
-                    f"set its effort to {stall.value:.2f} or less (ignore if another motor drives it)"
+                    f"{_effort_edit(c, joint.name, effort, stall.value)}, then re-lock "
+                    "(ignore if another motor drives it); or find a stronger servo: "
+                    f"{cli_line('lockwire', 'swap', shown_path(contract_path), joint.name)}"
                 ),
             )
         )
@@ -3477,11 +3693,23 @@ def check_mechanisms(c: Contract, *, scores: _ScoreBook | None = None) -> list[F
 
 
 def _urdf_path_candidate(model: ModelRecord) -> str | None:
-    """Return the URDF/SDF path named by provenance (preferred) or model.source."""
+    """Return the URDF/xacro/SDF path named by provenance (preferred) or model.source."""
     for candidate in (model.provenance.source, model.source):
-        if candidate.lower().endswith((".urdf", ".sdf")):
+        if candidate.lower().endswith((".urdf", ".xacro", ".sdf")):
             return candidate
     return None
+
+
+def _model_on_disk(contract_path: Path | None, named: str) -> Path | None:
+    """The model file a lock names: an absolute path as written, a relative one beside the lock.
+
+    A relative path with no lock to anchor it is refused: it would be read from the
+    working directory, which may hold a same-named file that is not this robot's.
+    """
+    absolute = Path(named).expanduser()
+    if absolute.is_absolute():
+        return absolute
+    return resolve_source(contract_path, named) if contract_path else None
 
 
 def check_urdf_drift(
@@ -3541,7 +3769,8 @@ def check_urdf_drift(
                 severity="not_scored",
                 quantity="model/structure_hash",
                 observed=observed,
-                expected="a readable URDF at the provenance path",
+                # absent, not unreadable: visible on GO (report.verdict caps only unreadable)
+                expected="the URDF on disk at the provenance path",
                 source=named,
                 action=(
                     "download the URDF next to the lockfile to re-check it"
@@ -3554,13 +3783,15 @@ def check_urdf_drift(
 
     try:
         topology = (
-            read_sdf_topology(path) if path.suffix.lower() == ".sdf" else read_urdf_topology(path)
+            read_sdf_topology(path)
+            if path.suffix.lower() == ".sdf"
+            else read_urdf_topology(path, c.model.xacro_args)
         )
     except (OSError, ET.ParseError, ValueError, TypeError) as error:
         try:
             needs_args = "Undefined substitution argument" in str(
                 error
-            ) or "<xacro:arg" in path.read_text(errors="replace")
+            ) or "<xacro:arg" in path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             needs_args = False
         if needs_args:  # xacro args are not kept in the lock, so this is a coverage gap
@@ -3576,7 +3807,9 @@ def check_urdf_drift(
                     action=f"run {cli_line('lockwire', 'start', path)} --xacro-arg name=value to re-check it",
                 )
             ]
-        if not isinstance(error, OSError) and (c.model.joints or c.model.links):
+        if not isinstance(error, (OSError, UnresolvedXacroError)) and (
+            c.model.joints or c.model.links
+        ):
             # it parsed when the lock was written (the lock holds its links/joints)
             return [
                 Finding(
@@ -3609,8 +3842,8 @@ def check_urdf_drift(
     # report.render shows it as its own "model check" bucket.
     if disk_hash == c.model.structure_hash:
         return []
-    # A lock written before the default axis was filled in (or before 0.5) reads the same file.
-    legacy = c.schema_version != SCHEMA_VERSION
+    # A lock written before 0.5 read an <axis/> with no xyz as 0 0 1; 0.5 and later read 1 0 0.
+    legacy = c.schema_version in {"0.2", "0.3", "0.4"}
     if c.model.joints and locked_record_hash(c.model, topology, legacy) == c.model.structure_hash:
         old = legacy_axis_joints(c.model, topology) if legacy else []
         if not old:
@@ -3626,7 +3859,7 @@ def check_urdf_drift(
                 expected="each locked joint axis read the way the URDF spec defines it",
                 source=str(path),
                 action="confirm those joints turn about X (or write their xyz), then re-lock",
-                next_command=_relock_command(path, contract_path),
+                next_command=_relock_command(path, contract_path, c.model.xacro_args),
             )
         ]
 
@@ -3639,14 +3872,14 @@ def check_urdf_drift(
             delta=(f"contract {c.model.structure_hash[:12]}... != urdf {disk_hash[:12]}..."),
             source=str(path),
             action=_RELOCK_ACTION,
-            next_command=_relock_command(path, contract_path),
+            next_command=_relock_command(path, contract_path, c.model.xacro_args),
         )
     ]
 
 
 _RELOCK_ACTION = (
-    "review the structural change, then re-lock from the URDF with the command below "
-    "(this discards locked entries)"
+    "fix the model file; if the structural change is on purpose, a person reviews it and "
+    "re-locks (the command below discards locked entries)"
 )
 
 
@@ -3654,12 +3887,15 @@ def _describe_hint(contract_path: Path | str | None) -> str:
     return cli_line("lockwire", "describe", contract_path or "lockwire.yaml")
 
 
-def _relock_command(urdf: Path, contract_path: Path | None) -> str:
+def _relock_command(
+    urdf: Path, contract_path: Path | None, xacro_args: dict[str, str] | None = None
+) -> str:
     default = (
         contract_path is None or Path(contract_path).resolve() == Path("lockwire.yaml").resolve()
     )
     out = [] if default else ["--out", contract_path]  # --out lockwire.yaml is the default
-    return cli_line("lockwire", "start", urdf, *out, "--force")
+    args = [a for k, v in (xacro_args or {}).items() for a in ("--xacro-arg", f"{k}={v}")]
+    return cli_line("lockwire", "start", urdf, *out, *args, "--force")
 
 
 def check_model_values(
@@ -3674,18 +3910,21 @@ def check_model_values(
     named = _urdf_path_candidate(c.model) if c.model else None
     if named is None:
         return []
-    path = (contract_path and resolve_source(contract_path, named)) or Path(named)
+    path = _model_on_disk(contract_path, named)
+    if not path:
+        return []
     try:
         sdf = path.suffix.lower() == ".sdf"
-        topology = read_sdf_topology(path) if sdf else read_urdf_topology(path)
-        disk = {link.name: link for link in (parse_sdf(path) if sdf else parse_urdf(path)).links}
+        topology = read_sdf_topology(path) if sdf else read_urdf_topology(path, c.model.xacro_args)
+        parsed = parse_sdf(path) if sdf else parse_urdf(path, c.model.xacro_args)
+        disk = {link.name: link for link in parsed.links}
     except (OSError, ET.ParseError, ValueError, TypeError):
         return []
     same = (topology.record_hash if c.model.joints else topology.topology_hash) == (
         c.model.structure_hash
     ) or (
         c.model.joints
-        and locked_record_hash(c.model, topology, c.schema_version != SCHEMA_VERSION)
+        and locked_record_hash(c.model, topology, c.schema_version in {"0.2", "0.3", "0.4"})
         == c.model.structure_hash
     )
     if not same:
@@ -3723,11 +3962,11 @@ def check_model_values(
                         expected=f"locked {what} {show(locked)}",
                         source=str(path),
                         action=(
-                            f"the model file's {what} of {link.name} changed after the lock; if the "
-                            "edit is real, re-lock from the model with the command below "
-                            "(this discards locked entries)"
+                            f"the model file's {what} of {link.name} changed after the lock; fix the model "
+                            "file; if the edit is on purpose, a person reviews it and re-locks "
+                            "(the command below discards locked entries)"
                         ),
-                        next_command=_relock_command(path, contract_path),
+                        next_command=_relock_command(path, contract_path, c.model.xacro_args),
                     )
                 )
                 if scores is not None:
@@ -3744,28 +3983,28 @@ def check_mesh_drift(
     What the lock never recorded is `not_scored`, never a silent pass.
     """
     named = _urdf_path_candidate(c.model) if c.model else None
-    path = contract_path and named and resolve_source(contract_path, named)
+    path = named and _model_on_disk(contract_path, named)
     try:
         if not path:
             now = []
         elif path.suffix.lower() == ".sdf":  # includes spliced in, as the lock read it
             now = mesh_refs(read_sdf_root(path)[0])
         else:
-            now = mesh_refs(ET.fromstring(read_model_bytes(path)))
+            now = mesh_refs(ET.fromstring(read_model_bytes(path, c.model.xacro_args)))
     except (OSError, ET.ParseError, ValueError, TypeError):
         return []  # the drift check already says why the model can't be read
     locked = c.model.mesh_refs if c.model else None
     if not path or (not now and not locked):
         return []
-    relock = _relock_command(path, contract_path)
+    relock = _relock_command(path, contract_path, c.model.xacro_args)
 
     def finding(
         severity: str,
         quantity: str,
         observed: str,
         expected: str,
-        action: str = "a mesh changed after the lock; if the edit is real, re-lock from the URDF "
-        "with the command below (this discards locked entries)",
+        action: str = "a mesh changed after the lock; fix the mesh file; if the edit is on purpose, a person "
+        "reviews it and re-locks (the command below discards locked entries)",
     ) -> Finding:
         if scores is not None and severity == "violation":
             scores.record(quantity)
@@ -3786,7 +4025,7 @@ def check_mesh_drift(
                 "model/meshes",
                 "this lock predates recorded mesh files and scales; a mesh edit is not compared",
                 "mesh files and scales recorded at lock",
-                "re-lock with the command below to record them (this discards locked entries)",
+                "a person can re-lock to record them (the command below discards locked entries)",
             )
         ]
     if locked != now:
@@ -3844,6 +4083,22 @@ _SCOPE_WORDS = {
 }
 
 
+def _model_file_links(c: Contract, contract_path: Path | None) -> list:
+    """The links parsed from the model file on disk now; empty when it is missing or unreadable."""
+    named = _urdf_path_candidate(c.model)
+    if named is None:
+        return []
+    path = _model_on_disk(contract_path, named)
+    if not path:
+        return []
+    try:
+        if path.suffix.lower() == ".sdf":
+            return list(parse_sdf(path).links)
+        return list(parse_urdf(path, c.model.xacro_args).links)
+    except (OSError, ET.ParseError, ValueError, TypeError):
+        return []
+
+
 def check_datasheet_agreement(
     c: Contract,
     *,
@@ -3885,6 +4140,9 @@ def check_datasheet_agreement(
         return poses[link]
 
     payloads = [link.payload.base() for link in c.model.links if link.payload]
+    mass_sum = sum(link.mass.base() for link in c.model.links if link.mass)
+    if live := _model_file_links(c, contract_path):  # the file as it is now, not as it was locked
+        mass_sum = sum(link.mass.base() for link in live if link.mass)
     speeds = [
         j.limits.velocity
         for j in moving
@@ -3892,7 +4150,7 @@ def check_datasheet_agreement(
     ]
     derived = {
         "mass_total": (
-            sum(link.mass.base() for link in c.model.links if link.mass),
+            mass_sum,
             0.05,
             "sum of link masses",
         ),
@@ -3990,10 +4248,11 @@ def check_datasheet_agreement(
             delta=f"{delta:+.1%}",
             source=row.url,
             action=(
-                f"check the URDF counts what the sheet counts ({row.scope or key}); if the sheet "
-                "is right, fix the URDF; to compare with another figure, re-run with --mass"
+                "check the URDF counts what the sheet counts; if the sheet is right, fix the "
+                f"URDF; to compare with another figure, run {cli_line('lockwire', 'check')} "
+                "<robot.urdf> --mass"
             ),
-            next_command=rerun,
+            next_command=None if key in who else rerun,  # never swap a typed mass for the sheet's
         )
         ranked.append(((0 if severity == "violation" else 1, -abs(delta)), finding))
     return [finding for _, finding in sorted(ranked, key=lambda pair: pair[0])[:3]]
@@ -4588,14 +4847,16 @@ def _urdf_root(c: Contract, contract_path: Path | None) -> tuple[Path, ET.Elemen
     named = next((n for n in names if n.lower().endswith((".urdf", ".xacro", ".sdf"))), None)
     if named is None:
         return None
-    path = (contract_path and resolve_source(contract_path, named)) or Path(named)
+    path = _model_on_disk(contract_path, named)
+    if not path:
+        return None
     if path.suffix.lower() == ".sdf":
         try:
             return path, urdf_view(path)
         except (OSError, ET.ParseError, ValueError):
             return None
     try:
-        raw = read_model_bytes(path)  # a .xacro is expanded here
+        raw = read_model_bytes(path, c.model.xacro_args)  # a .xacro is expanded here
         if _has_doctype_entity(raw):
             return None
         root = ET.fromstring(raw)
@@ -4635,7 +4896,7 @@ def check_urdf_sanity(c: Contract, *, contract_path: Path | None = None) -> list
     if found is None:
         return []
     path, root = found
-    fix = _relock_command(path, contract_path)
+    fix = _relock_command(path, contract_path, c.model.xacro_args)
     out: list[Finding] = []
 
     def warn(quantity: str, observed: str, expected: str, action: str, severity="warning"):
@@ -4664,9 +4925,11 @@ def check_urdf_sanity(c: Contract, *, contract_path: Path | None = None) -> list
                 # Joint._ordered rejects this; urdf.py drops the limit and locks it unlimited.
                 warn(
                     f"{name}/limits",
-                    f"joint {name} has lower {lo[0]:g} >= upper {hi[0]:g}; locked as unlimited",
+                    f"joint {name} has lower {lo[0]:g} {'>' if lo[0] > hi[0] else '>='} "
+                    f"upper {hi[0]:g}; locked as unlimited",
                     "lower < upper",
                     f"swap or fix {name}'s limits",
+                    severity="violation" if lo[0] > hi[0] else "warning",
                 )
             elif lo and hi:
                 limits[name] = (lo[0], hi[0])
@@ -4678,6 +4941,13 @@ def check_urdf_sanity(c: Contract, *, contract_path: Path | None = None) -> list
                     f"moving joint {name} has no velocity limit",
                     "a <limit velocity=...> (ROS urdfdom refuses the file without it)",
                     f"add {name}'s velocity limit from its datasheet",
+                )
+            elif _floats(lim.get("velocity"))[:1] == [0.0]:
+                warn(
+                    f"{name}/velocity",
+                    f"moving {jtype} joint {name} has velocity limit 0: it may not move at all",
+                    "a positive <limit velocity=...> (0 is an exporter placeholder)",
+                    f"set {name}'s velocity limit from its datasheet",
                 )
         axis = _floats(el.find("axis").get("xyz")) if el.find("axis") is not None else []
         norm = math.sqrt(sum(v * v for v in axis)) if len(axis) == 3 else 1.0
@@ -4701,6 +4971,7 @@ def check_urdf_sanity(c: Contract, *, contract_path: Path | None = None) -> list
             "links with more than one parent joint (a kinematic loop): " + ", ".join(two_parents),
             "a tree: one parent joint per link",
             "give each link one parent joint",
+            severity="violation",
         )
     for el in joints:
         mimic, name = el.find("mimic"), el.get("name", "?")
@@ -4753,9 +5024,14 @@ def check_inertia_valid(c: Contract, *, contract_path: Path | None = None) -> li
         a, b, big = sorted(link.inertia.moments_kgm2)
         # ponytail: the slacks absorb the eigen-solve's float noise only. Zero is allowed
         # (a point mass, e.g. SO-101's 1e-9 kg gripper frame).
+        # A body with mass spreads it over a volume, so its moments cannot all be zero. ponytail:
+        # 1 mg floor, below it a zero tensor is a massless-frame stand-in (SO-101's 1e-9 kg frame).
+        heavy = link.mass is not None and link.mass.base() >= 1e-6
         bad = (
             "a principal moment is negative"
             if a < -1e-12
+            else f"all moments are zero on a {link.mass.base():g} kg link"
+            if heavy and big == 0
             else "the largest moment exceeds the sum of the other two"
             if big > (a + b) * (1 + 1e-6)
             else None
@@ -4763,13 +5039,15 @@ def check_inertia_valid(c: Contract, *, contract_path: Path | None = None) -> li
         if bad:
             out.append(
                 Finding(
-                    severity="warning",
+                    severity="violation" if a < -1e-12 or big == 0 else "warning",
                     quantity=f"model/links/{link.name}/inertia",
                     observed=f"principal moments {a:.4g}, {b:.4g}, {big:.4g} kg*m^2: {bad}",
                     expected="non-negative moments with the largest <= the sum of the other two",
                     action=(f"no real body has this inertia; recompute {link.name}'s from CAD"),
                     next_command=_relock_command(
-                        Path(_urdf_path_candidate(c.model) or c.model.source), contract_path
+                        Path(_urdf_path_candidate(c.model) or c.model.source),
+                        contract_path,
+                        c.model.xacro_args,
                     ),
                 )
             )
@@ -4825,53 +5103,73 @@ def check_mass_vs_size(c: Contract, *, contract_path: Path | None = None) -> lis
     if found is None or c.model is None:
         return []
     path, root = found
-    fix = _relock_command(path, contract_path)
+    fix = _relock_command(path, contract_path, c.model.xacro_args)
     shapes = _link_primitives(root)
     out = []
     for link in c.model.links:
-        sets = shapes.get(link.name)
-        if not sets or link.mass is None or link.mass.base() <= 0:
+        if link.mass is None or link.mass.base() <= 0:
             continue
         mass, com = link.mass.base(), link.com or (0.0, 0.0, 0.0)
-        prims = [p for shapes_ in sets for p in shapes_]  # collision and visual together
-        volumes = [sum(p[2] for p in shapes_) for shapes_ in sets]
         problems = []
-        # Fetched https://en.wikipedia.org/wiki/Density 2026-11-04: osmium, "the densest known
-        # element", 22,570 kg/m^3; aerographite, the lightest solid in its table, 0.2 kg/m^3.
-        # Outside that, units slipped. The roomier set judges "too dense", the tighter "too light".
-        if min(volumes) > 0 and not (mass / max(volumes) <= 22570 and mass / min(volumes) >= 0.2):
-            density = mass / max(volumes) if mass / max(volumes) > 22570 else mass / min(volumes)
-            problems.append(f"density {density:.4g} kg/m^3 from {mass:g} kg (g vs kg or mm vs m?)")
-        # The CoM is a mass-weighted average, a convex combination of the body's points, so it
-        # lies in their convex hull (https://en.wikipedia.org/wiki/Convex_combination), which
-        # the box around the shapes' bounding spheres contains.
-        box = [
-            (min(o[i] - r for o, r, *_ in prims), max(o[i] + r for o, r, *_ in prims))
-            for i in range(3)
-        ]
-        if any(not lo - 1e-6 <= x <= hi + 1e-6 for x, (lo, hi) in zip(com, box)):
-            problems.append(f"CoM {_fmt_point(com)} m lies outside the link's shapes")
-        # I = sum(r^2 dm) <= m R^2: the radius of gyration cannot exceed the body's extent
-        # from the CoM (https://en.wikipedia.org/wiki/Radius_of_gyration).
-        extent = max(math.dist(com, o) + r for o, r, *_ in prims)
-        if link.inertia and math.sqrt(max(link.inertia.moments_kgm2) / mass) > extent * (1 + 1e-6):
-            problems.append(
-                f"radius of gyration {math.sqrt(max(link.inertia.moments_kgm2) / mass):.4g} m "
-                f"exceeds the shapes' extent {extent:.4g} m from the CoM"
-            )
-        # About the shape's own thinnest axis, every point lies within axis_r of it, so no body
-        # inside can exceed m (axis_r + CoM offset)^2 there; the smallest principal moment is the
-        # minimum over all axes, so it is bounded too. ponytail: single-shape sets only; a
-        # multi-shape link has no one axis, so it keeps the looser extent bound above.
-        if link.inertia and not problems and all(len(shapes_) == 1 for shapes_ in sets):
-            cap = max(mass * (a_r + math.dist(com, o)) ** 2 for ((o, _, _, a_r),) in sets)
-            low = min(link.inertia.moments_kgm2)
-            # ponytail: 2x slack, since a collision primitive often simplifies the part a little.
-            if cap > 0 and low > 2 * cap:
-                problems.append(
-                    f"smallest moment {low:.4g} kg*m^2 is {low / cap:.0f}x the most a "
-                    f"{mass:g} kg body inside its shape can have ({cap:.3g}): placeholder inertia?"
+        sets = shapes.get(link.name)
+        if sets:
+            prims = [p for shapes_ in sets for p in shapes_]  # collision and visual together
+            volumes = [sum(p[2] for p in shapes_) for shapes_ in sets]
+            # Fetched https://en.wikipedia.org/wiki/Density 2026-11-04: osmium, "the densest known
+            # element", 22,570 kg/m^3; aerographite, the lightest solid in its table, 0.2 kg/m^3.
+            # Outside that, units slipped. The roomier set judges "too dense", the tighter "too light".
+            if min(volumes) > 0 and not (
+                mass / max(volumes) <= 22570 and mass / min(volumes) >= 0.2
+            ):
+                density = (
+                    mass / max(volumes) if mass / max(volumes) > 22570 else mass / min(volumes)
                 )
+                problems.append(
+                    f"density {density:.4g} kg/m^3 from {mass:g} kg (g vs kg or mm vs m?)"
+                )
+            # The CoM is a mass-weighted average, a convex combination of the body's points, so it
+            # lies in their convex hull (https://en.wikipedia.org/wiki/Convex_combination), which
+            # the box around the shapes' bounding spheres contains.
+            box = [
+                (min(o[i] - r for o, r, *_ in prims), max(o[i] + r for o, r, *_ in prims))
+                for i in range(3)
+            ]
+            if any(not lo - 1e-6 <= x <= hi + 1e-6 for x, (lo, hi) in zip(com, box)):
+                problems.append(f"CoM {_fmt_point(com)} m lies outside the link's shapes")
+            # I = sum(r^2 dm) <= m R^2: the radius of gyration cannot exceed the body's extent
+            # from the CoM (https://en.wikipedia.org/wiki/Radius_of_gyration).
+            extent = max(math.dist(com, o) + r for o, r, *_ in prims)
+            if link.inertia and math.sqrt(max(link.inertia.moments_kgm2) / mass) > extent * (
+                1 + 1e-6
+            ):
+                problems.append(
+                    f"radius of gyration {math.sqrt(max(link.inertia.moments_kgm2) / mass):.4g} m "
+                    f"exceeds the shapes' extent {extent:.4g} m from the CoM"
+                )
+            # About the shape's own thinnest axis, every point lies within axis_r of it, so no body
+            # inside can exceed m (axis_r + CoM offset)^2 there; the smallest principal moment is the
+            # minimum over all axes, so it is bounded too. ponytail: single-shape sets only; a
+            # multi-shape link has no one axis, so it keeps the looser extent bound above.
+            if link.inertia and not problems and all(len(shapes_) == 1 for shapes_ in sets):
+                cap = max(mass * (a_r + math.dist(com, o)) ** 2 for ((o, _, _, a_r),) in sets)
+                low = min(link.inertia.moments_kgm2)
+                # ponytail: 2x slack, since a collision primitive often simplifies the part a little.
+                if cap > 0 and low > 2 * cap:
+                    problems.append(
+                        f"smallest moment {low:.4g} kg*m^2 is {low / cap:.0f}x the most a "
+                        f"{mass:g} kg body inside its shape can have ({cap:.3g}): placeholder inertia?"
+                    )
+        # No shape needed (mesh links too): at most 22,570 kg/m^3 (osmium, above), the least
+        # spread-out body of this mass is a solid ball of radius r, and I1 + I2 + I3 =
+        # 2 * sum(r^2 dm) >= 1.2 m r^2. Zero inertia is judged by check_inertia_valid
+        # instead, so it is skipped; so is a link the shape checks above already flagged.
+        trace = sum(link.inertia.moments_kgm2) if link.inertia else 0.0
+        floor = 1.2 * mass * (3 * mass / (4 * math.pi * 22570)) ** (2 / 3)
+        if not problems and 0 < trace < floor * (1 - 1e-6):
+            problems.append(
+                f"inertia {trace:.4g} kg*m^2 (sum of principal moments) is below {floor:.4g}, the "
+                f"least any {mass:g} kg solid can have: the mass or the inertia is wrong"
+            )
         for problem in problems:
             out.append(
                 Finding(
@@ -4913,7 +5211,9 @@ def check_inertia_scale(c: Contract, *, contract_path: Path | None = None) -> li
             expected="inertia computed from each part (placeholder inertia?)",
             action="if placeholders, compute the inertia from CAD, then re-lock",
             next_command=_relock_command(
-                Path(_urdf_path_candidate(c.model) or c.model.source), contract_path
+                Path(_urdf_path_candidate(c.model) or c.model.source),
+                contract_path,
+                c.model.xacro_args,
             ),
         )
     ]
@@ -4923,7 +5223,9 @@ def check_limit_unit_traps(c: Contract, *, contract_path: Path | None = None) ->
     """Degrees typed as radians, and joint numbers too large for a robot (mm typed as m)."""
     if c.model is None:
         return []
-    fix = _relock_command(Path(_urdf_path_candidate(c.model) or c.model.source), contract_path)
+    fix = _relock_command(
+        Path(_urdf_path_candidate(c.model) or c.model.source), contract_path, c.model.xacro_args
+    )
     out = []
     for j in c.model.joints:
         lim = j.limits
@@ -5095,7 +5397,7 @@ def check_controller_limits(c: Contract, *, contract_path: Path | None = None) -
     from ruamel.yaml import YAML, YAMLError
 
     try:
-        data = YAML(typ="safe").load(yaml_path.read_text())
+        data = YAML(typ="safe").load(yaml_path.read_text(encoding="utf-8"))
     except (OSError, YAMLError):
         return []
     rows = data.get("joint_limits", data) if isinstance(data, dict) else {}
@@ -5506,9 +5808,256 @@ def check_battery_energy_density(
     ]
 
 
+# --- Check Pack 3: failures outside physics (charging, connectors, chemistry, firmware, law) ---
+
+
+def _pack3(
+    severity: str, quantity: str, observed: str, expected: str, action: str, source: str, path: Any
+) -> Finding:
+    return Finding(
+        severity=severity,
+        quantity=quantity,
+        observed=observed,
+        expected=expected,
+        action=action,
+        source=source,
+        next_command=_describe_hint(path),
+    )
+
+
+_BU = "https://batteryuniversity.com/article/"
+
+
+def check_charger(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Declared charger setpoint, float mode and current against the pack's chemistry."""
+    pack = _pack(c)
+    if pack is None:
+        return []
+    battery, row, nominal = pack
+    lithium = battery.chemistry in ("li-ion", "lipo", "lifepo4")
+    out: list[Finding] = []
+    if battery.charger_voltage is not None and battery.cells_series and row[1] is not None:
+        # Samsung INR18650-30Q charges at "4.20 +/- 0.05 V"; LFP has no such tolerance on record.
+        tolerance = 0.05 if battery.chemistry in ("li-ion", "lipo") else 0.0
+        limit = battery.cells_series * (row[1] + tolerance)
+        volts = battery.charger_voltage.base()
+        if volts > limit + 1e-9:
+            out.append(
+                _pack3(
+                    "violation",
+                    "topology/battery/charger_voltage",
+                    f"charger set to {volts:g} V",
+                    f"<= {limit:g} V ({battery.cells_series} cells x {row[1] + tolerance:g} V)",
+                    "overcharging these cells can start a fire; lower the charger's voltage",
+                    _BU + "bu-409-charging-lithium-ion",
+                    contract_path,
+                )
+            )
+    if battery.charger_float and lithium:
+        out.append(
+            _pack3(
+                "violation",
+                "topology/battery/charger_float",
+                f"float charge on a {battery.chemistry} pack",
+                "a charger that stops when the pack is full",
+                "lithium cells cannot take a float charge: it plates lithium and is unsafe",
+                _BU + "bu-409-charging-lithium-ion",
+                contract_path,
+            )
+        )
+    if battery.charger_current is not None and lithium and nominal:
+        amp_hours = battery.capacity.base() / nominal
+        amps = battery.charger_current.base()
+        if amps > amp_hours * (1 + 1e-9):  # exactly 1C must not warn on float rounding
+            out.append(
+                _pack3(
+                    "warning",
+                    "topology/battery/charger_current",
+                    f"charging at {amps:.3g} A ({amps / amp_hours:.2g}C)",
+                    f"<= {amp_hours:.3g} A (1C), unless the cell datasheet allows more",
+                    "fast charging wears the pack and heats it; lower the charge current",
+                    _BU + "bu-808-how-to-prolong-lithium-based-batteries",
+                    contract_path,
+                )
+            )
+    return out
+
+
+def check_battery_cutoff(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Declared low-voltage cutoff against the chemistry's lowest safe cell voltage."""
+    pack = _pack(c)
+    if pack is None or pack[0].cutoff_voltage is None or not pack[0].cells_series:
+        return []
+    battery, row, _ = pack
+    per_cell = battery.cutoff_voltage.base() / battery.cells_series
+    if per_cell >= row[2]:
+        return []
+    return [
+        _pack3(
+            "warning",
+            "topology/battery/cutoff_voltage",
+            f"cutoff at {per_cell:.3g} V per cell",
+            f">= {row[2]:g} V per cell for {battery.chemistry}",
+            "the pack is drained past its safe minimum before the cutoff acts; raise the cutoff",
+            "chemistry cell minimum (same table as the cell-window check)",
+            contract_path,
+        )
+    ]
+
+
+# Maker-rated continuous current. XT60: Amass XT60 spec V1.2 (rated 30 A, 60 A instantaneous).
+# JST XH: JST eXH series sheet (3 A). ponytail: two connectors read at source; add a row per
+# connector as its maker sheet is read.
+_CONNECTOR_A = {"xt60": 30.0, "jst-xh": 3.0}
+
+
+def check_connector_rating(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Worst rail current through a wire against its connector's maker-rated current."""
+    out: list[Finding] = []
+    for wire in c.topology.wires if c.topology else []:
+        rail = c.rail(wire.rail)
+        if wire.connector is None or rail is None or rail.voltage is None:
+            continue  # check_ampacity already reports a missing rail or voltage
+        load_w, mode, _, unknown = _worst_rail_power(c, wire.rail)
+        volts = rail.voltage.base()
+        if unknown or volts <= 0.0:
+            continue  # likewise reported by check_ampacity
+        amps, rated = load_w / volts, _CONNECTOR_A[wire.connector]
+        if amps > rated:
+            out.append(
+                _pack3(
+                    "violation",
+                    f"topology/wires/{wire.id}/connector",
+                    f"{amps:.3g} A through the {wire.connector} connector ({mode})",
+                    f"<= {rated:g} A (maker's rated current)",
+                    "the connector overheats at this current; use a larger connector",
+                    "Amass XT60 spec V1.2; JST XH series sheet",
+                    contract_path,
+                )
+            )
+    return out
+
+
+def check_threadlocker_on_print(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Anaerobic threadlocker declared on a 3D-printed (thermoplastic) part."""
+    return [
+        _pack3(
+            "warning",
+            f"printed/{name}/threadlocker",
+            f"threadlocker on printed {link.material} part {name}",
+            "no threadlocker touching the plastic",
+            "threadlocker can stress-crack plastic; use a plastic-safe grade or lock nuts",
+            "Henkel Loctite 243 technical data sheet",
+            contract_path,
+        )
+        for name, link in (c.printed or {}).items()
+        if link.threadlocker
+    ]
+
+
+_ARDU = "https://ardupilot.org/copter/docs/"
+_PX4 = "https://docs.px4.io/main/en/advanced_config/parameter_reference.html"
+# (firmware, parameter) -> (severity, what a value of 0 means, source)
+_FAILSAFE_OFF = {
+    ("ardupilot", "FS_THR_ENABLE"): (
+        "violation",
+        "the radio failsafe is switched off",
+        _ARDU + "radio-failsafe.html",
+    ),
+    ("ardupilot", "BATT_FS_LOW_ACT"): (
+        "warning",
+        "a low battery triggers no action",
+        _ARDU + "failsafe-battery.html",
+    ),
+    ("px4", "COM_LOW_BAT_ACT"): ("warning", "a low battery only warns", _PX4),
+}
+
+
+def check_autopilot_failsafe(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Declared flight-controller parameters that leave a failsafe off or set below the pack."""
+    if c.autopilot is None:
+        return []
+    params, out = c.autopilot.params, []
+    for (firmware, name), (severity, meaning, source) in _FAILSAFE_OFF.items():
+        if firmware == c.autopilot.firmware and params.get(name) == 0:
+            out.append(
+                _pack3(
+                    severity,
+                    f"autopilot/params/{name}",
+                    f"{name} = 0: {meaning}",
+                    "a failsafe that lands or returns the vehicle",
+                    f"set {name} to an action; with 0 the vehicle keeps going",
+                    source,
+                    contract_path,
+                )
+            )
+    low_v = params.get("BATT_LOW_VOLT") if c.autopilot.firmware == "ardupilot" else None
+    pack = _pack(c)
+    floor = pack[0].cells_series * pack[1][2] if pack and pack[0].cells_series else None
+    if low_v == 0 and not params.get("BATT_LOW_MAH"):
+        observed, expected = "BATT_LOW_VOLT = 0: battery failsafe is switched off", "> 0 V"
+    elif low_v and floor and low_v < floor:
+        observed = f"BATT_LOW_VOLT = {low_v:g} V, below the pack's safe minimum"
+        expected = f">= {floor:g} V ({pack[0].cells_series} cells x {pack[1][2]:g} V)"
+    else:
+        return out
+    return [
+        *out,
+        _pack3(
+            "warning",
+            "autopilot/params/BATT_LOW_VOLT",
+            observed,
+            expected,
+            "set the low-battery voltage above the pack's minimum so the failsafe acts in time",
+            _ARDU + "failsafe-battery.html",
+            contract_path,
+        ),
+    ]
+
+
+def check_radio_legal_power(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """2.4 GHz transmit power against the declared region's licence-free limit.
+
+    ponytail: 2.4 GHz only and cable loss is not subtracted (so it can over-warn by the
+    feedline loss); other bands join as their rule text is read at source.
+    """
+    out: list[Finding] = []
+    for device in c.devices if c.robot.region else []:
+        budget, model = device.link_budget, c.device_model(device.model)
+        if budget is None or model is None or model.radio is None or budget.tx_antenna is None:
+            continue  # check_link_budget already reports the gap
+        hz = budget.carrier_frequency.base() if budget.carrier_frequency else 0.0
+        if not 2.4e9 <= hz <= 2.4835e9:
+            continue
+        tx, gain = model.radio.tx_power.base(), budget.tx_antenna.gain.base()
+        eirp = tx + gain
+        if c.robot.region == "eu":  # ETSI EN 300 328 V2.2.2 cl. 4.3.2.2.3
+            over, limit, rule = eirp > 20, "20 dBm radiated", "ETSI EN 300 328"
+        elif c.robot.region == "us":  # 47 CFR 15.247(b)(3) and (b)(4)
+            cap = 30 - max(0.0, gain - 6)
+            over, limit, rule = tx > cap, f"{cap:g} dBm at the antenna port", "47 CFR 15.247"
+        else:  # India, G.S.R. 45(E) 2005: 1 W output, 4 W radiated
+            over = tx > 30 or eirp > 36
+            limit, rule = "30 dBm output and 36 dBm radiated", "India G.S.R. 45(E)"
+        if over:
+            out.append(
+                _pack3(
+                    "warning",
+                    f"devices/{device.id}/link_budget/tx_power",
+                    f"{tx:g} dBm into a {gain:g} dBi antenna ({eirp:g} dBm radiated)",
+                    f"<= {limit} in region {c.robot.region}",
+                    "over the licence-free limit; lower transmit power or antenna gain",
+                    rule,
+                    contract_path,
+                )
+            )
+    return out
+
+
 CHECK_PACK_1 = (
     check_model_checks_skipped,
     check_urdf_sanity,
+    check_link_values,
     check_inertia_valid,
     check_inertia_scale,
     check_mass_vs_size,
@@ -5527,3 +6076,356 @@ CHECK_PACK_2 = (
     check_battery_temperature,
     check_battery_energy_density,
 )
+
+CHECK_PACK_3 = (
+    check_charger,
+    check_battery_cutoff,
+    check_connector_rating,
+    check_threadlocker_on_print,
+    check_autopilot_failsafe,
+    check_radio_legal_power,
+)
+
+
+# ---------------------------------------------------------------- check pack 4
+# Structure of the model file itself: control blocks, frames, mimics. No lockfile lines needed.
+
+
+def _model_warner(c: Contract, contract_path: Path | None):
+    """(root, warn, findings) for a model-structure check, or None with no readable URDF."""
+    found = _urdf_root(c, contract_path)
+    if found is None:
+        return None
+    path, root = found
+    fix = _relock_command(path, contract_path, c.model.xacro_args)
+    out: list[Finding] = []
+
+    def warn(quantity: str, observed: str, expected: str, action: str, severity="warning"):
+        out.append(
+            Finding(
+                severity=severity,
+                quantity=f"model/sanity/{quantity}",
+                observed=observed,
+                expected=expected,
+                source=str(path),
+                action=action + ", then re-lock",
+                next_command=fix,
+            )
+        )
+
+    return root, warn, out
+
+
+def check_control_joint_names(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """ros2_control and transmission blocks naming a joint the model lacks, or commanding
+    a fixed or mimic joint."""
+    ctx = _model_warner(c, contract_path)
+    if ctx is None:
+        return []
+    root, warn, out = ctx
+    joints = {el.get("name"): el for el in root.findall("joint")}
+    seen: set[str] = set()
+    # ros2_control component_parser.cpp refuses all three when the hardware loads
+    # (https://raw.githubusercontent.com/ros-controls/ros2_control/master/hardware_interface/src/component_parser.cpp).
+    for block in (*root.findall("ros2_control"), *root.findall("transmission")):
+        for ref in block.findall("joint"):
+            name = ref.get("name", "?")
+            real = joints.get(name)
+            kind = (
+                None
+                if real is None or not ref.findall("command_interface")
+                else "fixed"
+                if real.get("type", "fixed") == "fixed"
+                else "mimic"
+                if real.find("mimic") is not None
+                else None
+            )
+            if name in seen or (real is not None and kind is None):
+                continue
+            seen.add(name)
+            if real is None:
+                warn(
+                    f"control/{name}",
+                    f"the {block.tag} block names joint {name}, which the model does not have",
+                    "a joint the model declares",
+                    f"rename {name} in the {block.tag} block or add the joint",
+                )
+            else:
+                warn(
+                    f"control/{name}",
+                    f"the {block.tag} block commands {name}, a {kind} joint",
+                    "command interfaces only on joints that move on their own",
+                    f"remove the command interface from {name}",
+                )
+    return out
+
+
+# REP-103: an optical frame has z forward, x right, y down, so from a body frame
+# (x forward, y left, z up) it is rpy (-pi/2, 0, -pi/2)
+# (https://raw.githubusercontent.com/ros-infrastructure/rep/master/rep-0103.rst).
+_OPTICAL_ROTATION: _Matrix3 = ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0))
+_OPTICAL_TOLERANCE = 5e-3  # ours, no published figure: loose enough for a rounded -1.57
+
+
+def check_optical_frames(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """A camera's optical frame not rotated to z forward, x right, y down (REP-103)."""
+    ctx = _model_warner(c, contract_path)
+    if ctx is None:
+        return []
+    root, warn, out = ctx
+
+    def rotation(joint: ET.Element) -> _Matrix3:
+        origin = joint.find("origin")
+        rpy = _floats(origin.get("rpy")) if origin is not None else []
+        return _rpy_rotation((rpy[0], rpy[1], rpy[2]) if len(rpy) == 3 else (0.0, 0.0, 0.0))
+
+    def off(rot: _Matrix3) -> float:
+        return max(abs(rot[i][j] - _OPTICAL_ROTATION[i][j]) for i in range(3) for j in range(3))
+
+    above = {
+        j.find("child").get("link"): rotation(j)
+        for j in root.findall("joint")
+        if j.get("type", "fixed") == "fixed" and j.find("child") is not None
+    }
+    for el in root.findall("joint"):
+        parent, child, origin = el.find("parent"), el.find("child"), el.find("origin")
+        link = child.get("link", "") if child is not None else ""
+        if (
+            el.get("type", "fixed") != "fixed"
+            or not link.endswith(("_optical", "_optical_frame"))
+            or parent is None
+            or "optical" in parent.get("link", "")
+        ):
+            continue
+        rpy = _floats(origin.get("rpy")) if origin is not None else []
+        rot, up = rotation(el), above.get(parent.get("link"))
+        # the turn may be split over the two fixed joints above the optical frame
+        both = up and tuple(
+            tuple(sum(up[i][k] * rot[k][j] for k in range(3)) for j in range(3)) for i in range(3)
+        )
+        if off(rot) > _OPTICAL_TOLERANCE and (not both or off(both) > _OPTICAL_TOLERANCE):
+            shown = " ".join(f"{v:.4g}" for v in rpy) or "0 0 0"
+            warn(
+                f"frames/{link}/optical",
+                f"{link} is rotated rpy {shown} from {parent.get('link')}",
+                "rpy -1.5708 0 -1.5708 (z forward, x right, y down)",
+                f"set the rpy of joint {el.get('name', '?')} to -1.5708 0 -1.5708",
+            )
+    return out
+
+
+def check_frame_tree(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Frames that do not form one tree: more or fewer than one root, a link called map or
+    odom, a floating or planar joint below the root. (The parser already refuses a joint
+    that names a missing link.)"""
+    ctx = _model_warner(c, contract_path)
+    if ctx is None:
+        return []
+    root, warn, out = ctx
+    links = [el.get("name", "") for el in root.findall("link")]
+    children: set[str] = set()
+    up: dict[str, str] = {}
+    loose: list[tuple[str, str]] = []
+    for el in root.findall("joint"):
+        ends = [
+            (e.get("link", "") if e is not None else "") for e in map(el.find, ("parent", "child"))
+        ]
+        children.add(ends[1])
+        up.setdefault(ends[1], ends[0])
+        if el.get("type") in ("floating", "planar"):
+            loose.append((el.get("name", "?"), ends[0]))
+    roots = [n for n in links if n not in children]
+    if links and len(roots) != 1:
+        walk = [links[0]]  # no root: every link has a parent, so walking up ends in a loop
+        while not roots and up[walk[-1]] not in walk:
+            walk.append(up[walk[-1]])
+        cycle = " -> ".join([*walk[walk.index(up[walk[-1]]) :], up[walk[-1]]]) if not roots else ""
+        warn(
+            "tree/roots",
+            f"{len(roots)} root links"
+            + (": " + ", ".join(sorted(roots)) if roots else f"; kinematic loop {cycle}"),
+            "exactly one link with no parent joint",
+            "join every part to one root link",
+            severity="violation",
+        )
+    # REP-105: map and odom are world frames a localiser publishes; each frame has one parent
+    # (https://raw.githubusercontent.com/ros-infrastructure/rep/master/rep-0105.rst).
+    world = sorted(n for n in links if n in ("map", "odom"))
+    if world:
+        warn(
+            "tree/map_odom",
+            "the model declares a link named " + " and ".join(world),
+            "map and odom published by localisation, not declared in the model",
+            "rename or remove the link",
+        )
+    # kdl_parser: "Converting unknown joint type of joint '%s' into a fixed joint"
+    # (https://raw.githubusercontent.com/ros/kdl_parser/ros2/kdl_parser/src/kdl_parser.cpp).
+    below = sorted(name for name, parent in loose if parent not in roots)
+    if below:
+        warn(
+            "tree/floating",
+            "floating or planar joints below the root: " + ", ".join(below),
+            "floating and planar joints only at the root (KDL turns others into fixed joints)",
+            "replace them with revolute and prismatic joints",
+            severity="warning" if root.find("ros2_control") is not None else "not_scored",
+        )
+    return out
+
+
+def check_mimic_targets(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """A mimic joint that follows a joint the model lacks, follows another mimic, or
+    follows itself in a circle."""
+    ctx = _model_warner(c, contract_path)
+    if ctx is None:
+        return []
+    root, warn, out = ctx
+    joints = {el.get("name", "?") for el in root.findall("joint")}
+    mimics = {
+        el.get("name", "?"): el.find("mimic").get("joint", "")
+        for el in root.findall("joint")
+        if el.find("mimic") is not None
+    }
+    for name, target in mimics.items():
+        # urdfdom never checks that the mimicked joint exists
+        # (https://raw.githubusercontent.com/ros/urdfdom/master/urdf_parser/src/joint.cpp).
+        if target not in joints:
+            warn(
+                f"{name}/mimic_target",
+                f"{name} mimics {target or '(no joint)'}, which the model does not have",
+                "a joint the model declares",
+                f"point {name}'s mimic at a real joint",
+                severity="violation",
+            )
+        elif target in mimics:
+            seen, cur = {name}, target
+            while cur in mimics and cur not in seen:
+                seen.add(cur)
+                cur = mimics[cur]
+            circle = cur in seen
+            warn(
+                f"{name}/mimic_target",
+                f"{name} mimics {target}, itself a mimic" + (", in a circle" if circle else ""),
+                "a mimic that follows a driven joint",
+                f"point {name}'s mimic at the joint that is driven",
+                # A chain is reported as unsupported only by old user reports: a disclosure.
+                severity="warning" if circle else "not_scored",
+            )
+    return out
+
+
+CHECK_PACK_4 = (
+    check_control_joint_names,
+    check_optical_frames,
+    check_frame_tree,
+    check_mimic_targets,
+)
+
+
+def _float(el: ET.Element | None, attr: str) -> float | None:
+    try:
+        return float(el.get(attr)) if el is not None and el.get(attr) is not None else None
+    except ValueError:
+        return None
+
+
+def check_safety_limits(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """A joint's safety controller whose soft limits sit outside the joint's hard limits,
+    or are left at their default of zero so the joint cannot move."""
+    ctx = _model_warner(c, contract_path)
+    if ctx is None:
+        return []
+    root, warn, out = ctx
+    for joint in root.findall("joint"):
+        safety, limit, name = (
+            joint.find("safety_controller"),
+            joint.find("limit"),
+            joint.get("name", "?"),
+        )
+        if safety is None or joint.get("type") not in ("revolute", "prismatic"):
+            continue
+        # urdfdom: soft_lower_limit and soft_upper_limit default to 0 when absent
+        # (https://raw.githubusercontent.com/ros/urdfdom/master/urdf_parser/src/joint.cpp).
+        attrs = ("soft_lower_limit", "soft_upper_limit")
+        unset = [a for a in attrs if _float(safety, a) is None]
+        soft = [_float(safety, a) or 0.0 for a in attrs]
+        hard = [_float(limit, a) for a in ("lower", "upper")]
+        if unset or soft[0] >= soft[1]:
+            warn(
+                f"{name}/soft_limits",
+                f"{name} has a safety controller without {' and '.join(unset)}, which then is 0"
+                if unset
+                else f"{name} soft limits {soft[0]:g} to {soft[1]:g} leave it no room to move",
+                "soft limits set inside the joint's range",
+                f"set soft_lower_limit and soft_upper_limit on {name}",
+            )
+        elif None not in hard and (soft[0] < hard[0] or soft[1] > hard[1]):
+            warn(
+                f"{name}/soft_limits",
+                f"{name} soft limits {soft[0]:g} to {soft[1]:g} reach past its hard limits "
+                f"{hard[0]:g} to {hard[1]:g}",
+                "soft limits inside the hard limits, so they act first",
+                f"move {name}'s soft limits inside its hard limits",
+            )
+    return out
+
+
+def check_gazebo_references(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """A ``<gazebo reference=...>`` block naming a link or joint the model lacks (the
+    simulator drops the block without a word), and two sensors sharing one name."""
+    ctx = _model_warner(c, contract_path)
+    if ctx is None:
+        return []
+    root, warn, out = ctx
+    known = {el.get("name") for el in (*root.findall("link"), *root.findall("joint"))}
+    for ref in sorted({g.get("reference") for g in root.findall("gazebo")} - known - {None, ""}):
+        warn(
+            f"gazebo/{ref}",
+            f"a gazebo block refers to {ref}, which the model does not have",
+            "a link or joint the model declares",
+            f"rename the gazebo block's reference from {ref} to a real link or joint",
+        )
+    # only the simulator's sensors: a ros2_control <sensor> has to repeat the gazebo name
+    names = [s.get("name") for g in root.findall("gazebo") for s in g.iter("sensor")]
+    names = [n for n in names if n]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        # sdformat sensor.sdf: a sensor name is required and must be unique in its model
+        # (https://github.com/gazebosim/sdformat/blob/main/sdf/1.12/sensor.sdf).
+        warn(
+            f"gazebo/sensors/{name}",
+            f"{names.count(name)} sensors are named {name}",
+            "one name per sensor",
+            f"give each sensor named {name} its own name",
+        )
+    return out
+
+
+def check_mesh_scale_agreement(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """One link using the same mesh file for its visual and its collision at two different
+    scales, so what you see is not what collides."""
+    ctx = _model_warner(c, contract_path)
+    if ctx is None:
+        return []
+    root, warn, out = ctx
+    for link in root.findall("link"):
+        scales: dict[str, set[str]] = {}
+        for mesh in (
+            *link.findall("visual/geometry/mesh"),
+            *link.findall("collision/geometry/mesh"),
+        ):
+            scale = _floats(mesh.get("scale") or "1 1 1")
+            if len(scale) == 3:
+                scales.setdefault(mesh.get("filename", ""), set()).add(
+                    " ".join(f"{v:g}" for v in scale)
+                )
+        for filename, seen in scales.items():
+            if len(seen) > 1:
+                warn(
+                    f"{link.get('name', '?')}/mesh_scale",
+                    f"{Path(filename).name} is used at scales {' and '.join(sorted(seen))}",
+                    "one scale for the visual and the collision mesh",
+                    f"give {link.get('name', '?')}'s visual and collision mesh the same scale",
+                )
+    return out
+
+
+CHECK_PACK_5 = (check_safety_limits, check_gazebo_references, check_mesh_scale_agreement)

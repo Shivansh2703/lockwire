@@ -227,3 +227,45 @@ def test_every_starter_opens_go_with_no_violation(name, tmp_path, monkeypatch):
     # every accepted gap still matches its finding (shown as accepted, never silently stale)
     rows = _load(tmp_path / "lockwire.yaml").get("accepted") or []
     assert len(doc.get("accepted") or []) == len(rows)
+
+
+def test_servo_bench_arm_fails_the_servo_check_on_the_wrist_only():
+    from lockwire.checks import check_servo_stall
+
+    c = load_contract(EXAMPLES / "servo-bench.yaml")
+    [f] = check_servo_stall(c, c.servo)
+    assert f.quantity == "model/joints/wrist/limits/effort"
+    assert "in this lockfile's model: joints wrist limits effort 0.4 → 0.226" in f.action
+    assert "or find a stronger servo: lockwire swap lockwire.yaml wrist" in f.action
+    assert f.expected.startswith("<= 0.226 N*m")  # same precision as the suggested limit
+
+
+def test_servo_stall_command_names_the_lockfile_as_runnable_and_the_app_by_file_name(tmp_path):
+    from pathlib import Path
+
+    from lockwire.checks import check_servo_stall
+    from lockwire.page import build_payload
+
+    c = load_contract(EXAMPLES / "servo-bench.yaml")
+    [f] = check_servo_stall(c, c.servo, contract_path=Path("sub/dir/lockwire.yaml"))
+    assert "lockwire swap sub/dir/lockwire.yaml wrist" in f.action
+    [g] = check_servo_stall(c, c.servo, contract_path=tmp_path / "lockwire.yaml")
+    assert f"swap {tmp_path}/lockwire.yaml wrist" in g.action  # absolute outside cwd: runnable
+    (tmp_path / "lockwire.yaml").write_bytes((EXAMPLES / "servo-bench.yaml").read_bytes())
+    cards = build_payload(c, contract_path=tmp_path / "lockwire.yaml")["cards"]
+    [card] = [x for x in cards if "stall" in x["raw"]]
+    assert (
+        card["fix"].endswith("lockwire swap lockwire.yaml wrist") and "joints wrist" in card["fix"]
+    )
+
+
+def test_start_example_copy_differs_from_the_shipped_file_by_the_version_line_only(tmp_path):
+    for name in ops.example_names():
+        out = Path(ops.start_example(name, tmp_path / f"{name}.yaml")["path"])
+        folder = ops.EXAMPLES / name
+        src = folder / "contract.yaml" if folder.is_dir() else ops.EXAMPLES / f"{name}.yaml"
+        a, b = src.read_text().splitlines(), out.read_text().splitlines()
+        assert len(a) == len(b), name
+        assert [x for x, y in zip(a, b) if x != y] == [
+            x for x in a if x.startswith("schema_version:")
+        ], name

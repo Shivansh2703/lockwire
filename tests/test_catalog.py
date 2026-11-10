@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from lockwire import catalog as catalog_module
 from lockwire.catalog import Catalog, CatalogPart, SourcedNumber, load_catalog
 
 VALID_KINDS = {"datasheet", "source_file", "assumed"}
@@ -14,7 +15,7 @@ def test_load_catalog_reads_the_seeded_file():
     catalog = load_catalog()
     assert isinstance(catalog, Catalog)
     # "about 40" — not pinned exact, just in the expected ballpark.
-    assert 30 <= len(catalog.parts) <= 50
+    assert 30 <= len(catalog.parts) <= 60
 
 
 def test_every_seeded_number_has_a_kind_and_a_source():
@@ -126,7 +127,7 @@ def test_no_module_straddles_catalog_and_registry_vocabularies():
     through one door, not read both models directly.
     """
     src_root = Path(__file__).parent.parent / "src" / "lockwire"
-    roots = [r for r in (src_root, src_root.with_name("lockwire_pro")) if r.exists()]
+    roots = [r for r in src_root.parent.iterdir() if r.is_dir()]  # every package under src/
     offenders = []
     for path in sorted(p for r in roots for p in r.rglob("*.py")):
         code = _code_only(path.read_text())
@@ -172,3 +173,79 @@ def test_fingerprint_needs_80_percent_link_overlap():
     assert recognise("renamed", burger + ["extra_link"]).id == "turtlebot3-burger"  # 7 of 8
     half = ["base_footprint", "base_link", "caster_back_link", "imu_link"]
     assert recognise("renamed", half) is None  # 4 of 7: a partial match recognises nothing
+
+
+def test_servo_rows_carry_what_part_swap_needs():
+    need = {"stall_torque", "mass", "input_voltage_min", "input_voltage_max"}
+    parts = [p for p in load_catalog().parts if p.family == "fam.servo.smart" and p.bus]
+    for maker in ("feetech", "dynamixel"):
+        full = [p for p in parts if p.id.startswith(maker + ".") and need <= set(p.numbers)]
+        assert len(full) >= 3, maker
+        for p in full:
+            assert all(n.kind == "datasheet" and "http" in n.source for n in p.numbers.values())
+
+
+def _part(pid, *numbers):
+    nums = {
+        f"k{i}": SourcedNumber(value=1, unit="g", kind=k, source=s)
+        for i, (k, s) in enumerate(numbers)
+    }
+    return CatalogPart(id=pid, family="f", name="n", numbers=nums)
+
+
+def test_label_is_cited_only_when_every_number_is_a_datasheet_url_figure():
+    url = ("datasheet", "https://x.com/ds p3")
+    assert _part("a", url, url).label == "cited"
+    assert _part("a", url, ("assumed", "ASSUMED")).label == "unverified"
+    assert _part("a", ("datasheet", "https://shop.com retail listing")).label == "unverified"
+
+
+def _private(tmp_path, monkeypatch, pid):
+    (tmp_path / ".lockwire").mkdir()
+    (tmp_path / ".lockwire" / "parts.yaml").write_text(f"- {{id: {pid}, family: f, name: Mine}}\n")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
+def test_private_parts_merge_without_touching_the_seed(tmp_path, monkeypatch):
+    seed = Path(catalog_module.__file__).parent / "catalog_seed.yaml"
+    before = seed.read_bytes()
+    _private(tmp_path, monkeypatch, "mine.1")
+    assert "mine.1" in {p.id for p in load_catalog().parts}
+    assert seed.read_bytes() == before
+
+
+def test_private_part_reusing_a_public_id_is_refused(tmp_path, monkeypatch):
+    _private(tmp_path, monkeypatch, load_catalog().parts[0].id)
+    with pytest.raises(ValueError, match="parts.yaml"):
+        load_catalog()
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        ("- {id: a\n", "not valid YAML"),
+        ("id: a\n", "must be a list"),
+        ("- {family: f, name: Mine}\n", "entry 1 has no id"),
+        ("- {id: x, family: f}\n", "part 'x' name: Field required"),
+        (
+            "- {id: x, family: f, name: M, numbers: {stall_torque: {value: 20, unit: kg*cm}}}\n",
+            r"part 'x' numbers.stall_torque.unit is 'kg\*cm'; write it in N\*m",
+        ),
+    ],
+)
+def test_malformed_private_file_is_one_plain_error_naming_it(tmp_path, monkeypatch, text, said):
+    (tmp_path / ".lockwire").mkdir()
+    (tmp_path / ".lockwire" / "parts.yaml").write_text(text)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with pytest.raises(ValueError, match=f"^{tmp_path}.*parts.yaml: .*{said}"):
+        load_catalog()
+
+
+@pytest.mark.parametrize("unit", ["stone", "V"])
+def test_an_explicit_parts_file_with_a_non_mass_mass_unit_is_refused(tmp_path, unit):
+    f = tmp_path / "c.yaml"
+    f.write_text(
+        f"parts:\n- {{id: x, family: f, name: M, numbers: {{mass: {{value: 50, unit: {unit}}}}}}}\n"
+    )
+    with pytest.raises(ValueError, match=rf"^{f}: part 'x' numbers.mass.unit is '{unit}'"):
+        load_catalog(f)

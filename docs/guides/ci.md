@@ -37,14 +37,14 @@ The same list as the Action's `action.yml` (a test keeps them equal):
 | `model` | | A URDF, xacro or SDF to check directly when the repo has no lockfile; overrides `contract`. |
 | `adopt` | `false` | `true` annotates and summarises but never fails the job (see Adopt mode). A comma list of finding ids or prefixes (`datasheet/,model/links/`) annotates only those. |
 | `strict` | `false` | Treat warnings as failures (GO with notes exits 1). |
-| `version` | (the Action's own code) | Pin a release from PyPI, e.g. `0.2.6`. |
+| `version` | (the Action's own code) | Pin a release from PyPI, e.g. `0.2.7`. |
 | `python-version` | `3.12` | Python to run Lockwire with. |
 | `mass` | | With `model`, the datasheet mass to compare, e.g. `1.8 kg`. |
 | `source` | | Where `mass` comes from, a URL or title. |
 | `tolerance-pct` | (Lockwire's default) | The percent `mass` may differ. |
 | `baseline` | | A committed file from `lockwire check --write-baseline <file>`; only findings not in it fail. |
-| `evidence` | | Actuator evidence, one `CASE_ID=RELATIVE_PATH@SHA256` per line. |
-| `evidence-root` | | The folder the evidence paths are relative to. |
+| `evidence` | | Lockwire Pro only; does nothing useful in the free package. Actuator evidence, one `CASE_ID=RELATIVE_PATH@SHA256` per line. |
+| `evidence-root` | | Lockwire Pro only. The folder the evidence paths are relative to. |
 | `package-root` | | ROS package roots for `package://` paths in the report, one per line. |
 | `badge-json` | | Write a datasheet badge to this path (see Badge). Off when empty. |
 
@@ -68,23 +68,15 @@ Fix them, then remove `adopt`.
 
 ### Evidence
 
-Actuator cases can be backed by recorded evidence files. Each line
-of `evidence` names a case, a file relative to `evidence-root`, and that file's SHA-256, and
-becomes one `--actuator-evidence` flag on `lockwire check`:
-
-```yaml
-        with:
-          evidence: |
-            shoulder-stall=evidence/shoulder.csv@<sha256>
-          evidence-root: .
-```
+The `evidence` inputs are for actuator cases, which are Lockwire Pro. In the free package they have nothing to check, so leave them empty.
 
 ### Badge
 
 When `lockwire check` recognises your robot, it compares the URDF's total mass and joint
 count with the vendor's datasheet. Set `badge-json` to a path and the Action writes that
 result as a [shields.io endpoint](https://shields.io/badges/endpoint-badge) file: green
-"matches (mass, dof)", red "differs", or grey "not compared", followed by the robot, the day
+"matches (mass, dof)", red "differs", grey "accepted difference (mass)" when you recorded the
+gap with `lockwire accept`, or grey "not compared", followed by the robot, the day
 the sheet was read and what its weight includes.
 
 ```yaml
@@ -116,14 +108,14 @@ In `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Shivansh2703/lockwire
-    rev: v0.2.6
+    rev: v0.2.7
     hooks:
       - id: lockwire-check
 ```
 
 The hook runs `lockwire check` on `lockwire.yaml` whenever a commit touches a model file
 (`.urdf`, `.xacro`, `.sdf`) or the lockfile. Set `rev:` to the release you installed: each
-release adds its tag (`v0.2.6` and later).
+release adds its tag (`v0.2.7` and later).
 
 `lockwire agent-setup` writes both the workflow and the pre-commit entry for you;
 `lockwire agent-setup --ci` writes only the workflow.

@@ -12,6 +12,7 @@ Traps handled here (spec v3):
 import datetime as dt
 import hashlib
 import re
+import typing
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,7 +44,32 @@ class UnresolvedXacroError(ValueError):
     """Input still contains xacro/ROS substitutions; refuse rather than invent names."""
 
 
-def read_model_bytes(path: Path, xacro_args: dict[str, str] | None = None) -> bytes:
+class ModelDefect(ValueError):
+    """The model names a link it lacks, or a name twice: a real defect, not a tool failure."""
+
+
+class NotANumber(ValueError):
+    """A numeric attribute that does not parse; the message names the element and attribute."""
+
+
+def _num(raw: str, where: str) -> float:
+    try:
+        return float(raw)
+    except ValueError:
+        hint = " (use a dot for decimals)" if "," in raw else ""
+        raise NotANumber(f"{where} is {raw!r}, not a number{hint}") from None
+
+
+# A plain URDF that pulls one file from a ROS package: skipped, the rest is still read.
+_FIND_INCLUDE = re.compile(
+    rb"""<xacro:include\b[^>]*?filename=["']([^"']*\$\(find[^"']*)["'][^>]*?(?:/>|>.*?</xacro:include>)""",
+    re.S,
+)
+
+
+def read_model_bytes(
+    path: Path, xacro_args: dict[str, str] | None = None, warnings: list[str] | None = None
+) -> bytes:
     """The model's URDF/SDF bytes; xacro (a ``.xacro`` file, or any file with ``${``,
     ``$(`` or ``<xacro:``) is expanded in memory (no ROS needed).
 
@@ -52,8 +78,16 @@ def read_model_bytes(path: Path, xacro_args: dict[str, str] | None = None) -> by
     ``xacro_args`` are the ``name:=value`` arguments.
     """
     raw = path.read_bytes()
-    if path.suffix.lower() != ".xacro" and not any(t in raw for t in (b"${", b"$(", b"<xacro:")):
-        return raw
+    stripped = _FIND_INCLUDE.sub(b"", raw)  # unchanged when there is no $(find) include
+    if path.suffix.lower() != ".xacro" and not any(
+        t in stripped for t in (b"${", b"$(", b"<xacro:")
+    ):
+        for name in _FIND_INCLUDE.findall(raw) if warnings is not None else ():
+            warnings.append(
+                f"skipped <xacro:include filename={name.decode(errors='replace')!r}>: it needs "
+                "a ROS environment; checked the links and joints in this file only"
+            )
+        return stripped
     _refuse_doctype_entity(raw, path)
     import xacro
 
@@ -183,7 +217,9 @@ def _parse_link(el: ET.Element, notes: list[str] | None = None) -> tuple[Link, b
         return Link(name=name), True
 
     mass_el = inertial.find("mass")
-    mass_val = float(mass_el.get("value", "0")) if mass_el is not None else 0.0
+    mass_val = (
+        _num(mass_el.get("value", "0"), f"link {name!r} mass value") if mass_el is not None else 0.0
+    )
     if not mass_val > 0.0:
         if mass_val != 0.0 and notes is not None:
             notes.append(f"link {name!r} has mass {mass_el.get('value')}; treated as zero mass.")
@@ -191,14 +227,18 @@ def _parse_link(el: ET.Element, notes: list[str] | None = None) -> tuple[Link, b
 
     origin = inertial.find("origin")
     xyz = tuple(
-        float(x) for x in (origin.get("xyz", "0 0 0") if origin is not None else "0 0 0").split()
+        _num(x, f"link {name!r} inertial origin xyz")
+        for x in (origin.get("xyz", "0 0 0") if origin is not None else "0 0 0").split()
     )
 
     inertia_el = inertial.find("inertia")
     inertia = None
     if inertia_el is not None:
         inertia = _principal(
-            *(float(inertia_el.get(k, "0")) for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz"))
+            *(
+                _num(inertia_el.get(k, "0"), f"link {name!r} inertia {k}")
+                for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+            )
         )
 
     link = Link(
@@ -212,13 +252,15 @@ def _parse_link(el: ET.Element, notes: list[str] | None = None) -> tuple[Link, b
 
 
 def _xyz_rpy(
-    origin: ET.Element | None,
+    origin: ET.Element | None, where: str = "origin"
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     xyz = tuple(
-        float(x) for x in (origin.get("xyz", "0 0 0") if origin is not None else "0 0 0").split()
+        _num(x, f"{where} xyz")
+        for x in (origin.get("xyz", "0 0 0") if origin is not None else "0 0 0").split()
     )
     rpy = tuple(
-        float(x) for x in (origin.get("rpy", "0 0 0") if origin is not None else "0 0 0").split()
+        _num(x, f"{where} rpy")
+        for x in (origin.get("rpy", "0 0 0") if origin is not None else "0 0 0").split()
     )
     return xyz, rpy  # type: ignore[return-value]
 
@@ -284,41 +326,63 @@ def locked_record_hash(model: ModelRecord, topology: "UrdfTopology", legacy: boo
     return _model_structure_hash([Link(name=n) for n in topology.link_names], joints)
 
 
-def _f(raw: str | None) -> float | None:
-    return float(raw) if raw is not None else None
+_JOINT_TYPES = typing.get_args(Joint.model_fields["type"].annotation)
 
 
-def _parse_joint(el: ET.Element, notes: list[str] | None = None) -> Joint:
-    """URDF joint -> schema Joint; consumed by URDF drift."""
+def _parse_joint(
+    el: ET.Element, notes: list[str] | None = None, warnings: list[str] | None = None
+) -> Joint:
+    """URDF joint -> schema Joint; consumed by URDF drift.
+
+    ``warnings`` collects lines the check reports: an infinite, DBL_MAX or negative-velocity
+    limit is read as not stated, an unknown joint type as ball (spherical) or floating."""
+    name = el.get("name", "?")
+    warn = warnings.append if warnings is not None else lambda _line: None
     parent = el.find("parent")
     child = el.find("child")
-    xyz, rpy = _xyz_rpy(el.find("origin"))
+    xyz, rpy = _xyz_rpy(el.find("origin"), f"joint {name!r} origin")
     axis_el = el.find("axis")
     jtype = el.get("type", "fixed")
+    if jtype not in _JOINT_TYPES:
+        given, jtype = jtype, "ball" if jtype == "spherical" else "floating"
+        warn(f"unsupported joint type {given!r} on joint {name!r}; checked as {jtype}")
+    unbounded: list[str] = []
+
+    def limit(key: str) -> float | None:
+        raw = limit_el.get(key)
+        value = None if raw is None else _num(raw, f"joint {name!r} limit {key}")
+        if value is not None and not abs(value) < 1e300:  # inf, DBL_MAX or nan
+            unbounded.append(f"{key} {raw}")
+            return None
+        if value is not None and key == "velocity" and value < 0:  # -1: "unknown" by convention
+            warn(f"joint {name!r} velocity limit is {raw}; treated as not stated")
+            return None
+        return value
+
     # URDF spec: absent <axis> or <axis/> without xyz means (1, 0, 0), only on joints with an axis
     axis = None
     if axis_el is not None or jtype in _AXIS_TYPES:
         axis = tuple(
-            float(x)
+            _num(x, f"joint {name!r} axis xyz")
             for x in ((axis_el.get("xyz") if axis_el is not None else None) or "1 0 0").split()
         )
     limit_el = el.find("limit")
     limits = None
     # A mimic joint follows its parent and has no limits of its own (OnRobot's RG6 ships 0/0/effort 0).
     if limit_el is not None and el.find("mimic") is None:
-        lower_raw, upper_raw = limit_el.get("lower"), limit_el.get("upper")
-        effort_raw, velocity_raw = limit_el.get("effort"), limit_el.get("velocity")
-        lo, hi = (float(v) if v is not None else None for v in (lower_raw, upper_raw))
+        lo, hi = limit("lower"), limit("upper")
         if jtype in ("revolute", "prismatic") and None not in (lo, hi) and lo >= hi:
             # A reversed range would abort the whole lock: treat as unlimited and say so.
             if notes is not None:
                 notes.append(f"joint {el.get('name')!r} has lower {lo} >= upper {hi}; unlimited.")
         else:
             limits = JointLimits(
-                lower=lo, upper=hi, effort=_f(effort_raw), velocity=_f(velocity_raw)
+                lower=lo, upper=hi, effort=limit("effort"), velocity=limit("velocity")
             )
+    if unbounded:
+        warn(f"joint {name!r} limit {', '.join(unbounded)}; treated as unbounded")
     return Joint(
-        name=el.get("name", "?"),
+        name=name,
         type=jtype,  # type: ignore[arg-type]
         parent=parent.get("link", "?") if parent is not None else "?",
         child=child.get("link", "?") if child is not None else "?",
@@ -340,7 +404,7 @@ class UrdfTopology:
 
 
 _DOCTYPE_ENTITY_FORBIDDEN = (
-    "URDF DOCTYPE/ENTITY declarations are not permitted (billion-laughs risk)"
+    "XML DOCTYPE/ENTITY declarations are not permitted (billion-laughs risk)"
 )
 
 
@@ -384,9 +448,9 @@ def _refuse_doctype_entity(raw: bytes, path: Path) -> None:
         raise ValueError(f"{path}: {_DOCTYPE_ENTITY_FORBIDDEN}")
 
 
-def read_urdf_topology(path: Path) -> UrdfTopology:
+def read_urdf_topology(path: Path, xacro_args: dict[str, str] | None = None) -> UrdfTopology:
     """Read on-disk URDF topology for drift checks. Raises on I/O or parse errors."""
-    raw = read_model_bytes(path)
+    raw = read_model_bytes(path, xacro_args)
     _refuse_doctype_entity(raw, path)
     root = ET.fromstring(raw)
     if root.tag != "robot":
@@ -476,27 +540,50 @@ def mesh_refs(root: ET.Element) -> list[MeshRef]:
 
 
 def parse_urdf(
-    path: Path, xacro_args: dict[str, str] | None = None, notes: list[str] | None = None
+    path: Path,
+    xacro_args: dict[str, str] | None = None,
+    notes: list[str] | None = None,
+    warnings: list[str] | None = None,
 ) -> ModelRecord:
-    """``notes`` collects plain-words lines about tolerated oddities."""
+    """``notes`` collects plain-words lines about tolerated oddities; ``warnings`` the ones a
+    check reports as findings. A missing or duplicate name raises ``ModelDefect``."""
     raw = read_model_bytes(
-        path, xacro_args
+        path, xacro_args, warnings
     )  # for .xacro: the expanded bytes, so an include edit is drift
     _refuse_doctype_entity(raw, path)
     root = ET.fromstring(raw)
     if root.tag != "robot":
         raise ValueError(f"{path}: root element is <{root.tag}>, expected <robot>")
     _refuse_unresolved_xacro(root, path)
+    names = [el.get("name", "") for el in root.findall("link")]
+    if not names:
+        raise ValueError(f"{path} has no <link>; this is not a robot model")
+    if "" in names:
+        raise ValueError(f"{path} has a <link> with an empty name; give every link a name")
 
     links: list[Link] = []
     zero_mass: list[str] = []
-    for el in root.findall("link"):
-        link, is_zero = _parse_link(el, notes)
-        links.append(link)
-        if is_zero:
-            zero_mass.append(link.name)
+    try:
+        for el in root.findall("link"):
+            link, is_zero = _parse_link(el, notes)
+            links.append(link)
+            if is_zero:
+                zero_mass.append(link.name)
+        joints = [_parse_joint(el, notes, warnings) for el in root.findall("joint")]
+    except NotANumber as error:
+        raise NotANumber(f"{path}: {error}") from None
 
-    joints = [_parse_joint(el, notes) for el in root.findall("joint")]
+    names = [link.name for link in links]
+    for kind, rows in (("link", names), ("joint", [joint.name for joint in joints])):
+        if twice := sorted({n for n in rows if rows.count(n) > 1}):
+            raise ModelDefect(f"{path}: {kind} name {twice[0]!r} is used more than once")
+    for joint in joints:
+        for end, link_name in (("parent", joint.parent), ("child", joint.child)):
+            if link_name not in names:
+                raise ModelDefect(
+                    f"{path}: joint {joint.name!r} names {end} link {link_name!r}, "
+                    "which the model does not have"
+                )
 
     return ModelRecord(
         source=str(path),

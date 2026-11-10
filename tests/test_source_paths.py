@@ -269,7 +269,7 @@ def test_urdf_drift_resolves_a_relative_model_source_from_the_contract_directory
 
 
 _SRC = Path(__file__).parent.parent / "src" / "lockwire"
-_SRCS = [r for r in (_SRC, _SRC.with_name("lockwire_pro")) if r.exists()]
+_SRCS = [r for r in _SRC.parent.iterdir() if r.is_dir()]  # every package under src/
 _SANCTIONED_DOOR = _SRC / "gitref.py"
 _SUBPROCESS_CALL_NAMES = {"run", "Popen", "call", "check_call", "check_output"}
 

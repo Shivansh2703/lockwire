@@ -70,7 +70,7 @@ re-declare every fact in the lockfile by hand, because no command carries those 
 Any field you hand-edited (including `robot.name`) is silently overwritten back to the URDF-derived value.
 
 A lockfile whose `schema_version` this lockwire does not recognise is refused before any check
-runs: `check` prints `REFUSED — contract declares schema_version '0.99'; this lockwire supports 0.2, 0.3, 0.4, 0.5`
+runs: `check` prints `REFUSED — contract declares schema_version '0.99'; this lockwire supports 0.2, 0.3, 0.4, 0.5, 0.6`
 and exits 2. A lockfile at an older supported version is accepted as-is, with no automatic upgrade.
 
 ## Xacro templates
@@ -98,8 +98,7 @@ Under every verdict, **Not compared yet** lists the checks that had nothing to j
 the reason. That is the honest part: a check Lockwire could not run is never counted as
 passed.
 
-Most findings end with a `run:` line, and the report ends with a `->` line: the exact
-command to run next. In JSON (`--json -` prints one JSON document on stdout, the human
+Most findings end with a `run:` line: the exact command to run next. In JSON (`--json -` prints one JSON document on stdout, the human
 report goes to stderr) the same command is the finding's `next_command`.
 
 ### Exit codes
@@ -152,17 +151,20 @@ The check took about half a second on the SO-101 fixture. The two launch lines w
 Before a robot (or an agent) moves, write the motion as a plan and check it:
 
 ```bash
-echo 'steps: [{kind: joint_target, joint: hip, effort: 3.0}]' > plan.yaml
+lockwire start --example servo-bench
+echo 'steps: [{kind: joint_target, joint: wrist, effort: 3.0}]' > plan.yaml
 lockwire plan lockwire.yaml plan.yaml
 ```
 
-A plan that asks a joint for more than its limit is a NO-GO, before anything executes.
+A plan that asks a joint for more than its limit is a NO-GO, before anything executes. This one
+asks the wrist for 3.0 and prints `VIOLATION ... observed 3.0, expected <= 0.4`. The joint name
+must exist in your lockfile; an unknown joint is "NOT SCORED" (exit 3).
 
 ## More commands
 
-`lockwire --help` lists the nine everyday commands. These also work but are not listed there:
+`lockwire --help` lists the everyday commands. These also work but are not listed there:
 `init`, `upgrade`, `check-sim`, `describe`, `export`, `scan`, `hw`, `review`, `place`,
-`mount-shape`, `move`, `rotate`, `reparent`, `apply`, `add`, `gearbox`, `agent-setup`, `log`,
-`blame`, `scene`, `catalog`. Run `lockwire <command> --help` for any of them.
+`mount-shape`, `move`, `rotate`, `reparent`, `apply`, `add`, `gearbox`, `log`,
+`blame`, `scene`, `catalog`, `swap`, `plan`, `from-parts`, `record-servos`, `declare`. Run `lockwire <command> --help` for any of them.
 
 See also: [every check](checks.md), [CI](ci.md), [AI agents](agents.md).

@@ -12,6 +12,8 @@ export const VIEW_HINT = "Drag to turn · two-finger scroll to move · pinch to 
 // what the user did, never a second file-open or a second copy of `start`'s output.
 
 export interface OpenFaceProps {
+  /** The engine answers; until then every way in is disabled, so nothing fails with a raw error. */
+  connected?: boolean;
   /** Genuinely empty on first launch -- no example rows (plan v8 line 430). */
   recent?: Recent[];
   onOpenRobot?: () => void;
@@ -25,6 +27,7 @@ export interface OpenFaceProps {
 // Short model name per bundled starter (full provenance stays in the tooltip).
 const MODEL: Record<string, string> = { arm: "SO-101", drone: "Holybro X500", humanoid: "ToddlerBot", quadruped: "Solo-12", rover: "TurtleBot3" };
 export function OpenFace({
+  connected = true,
   recent = [],
   onOpenRobot,
   starters = [],
@@ -58,11 +61,11 @@ export function OpenFace({
           {/* The drop itself bubbles to App's window-level handler (pathForFile -> openDroppedPath). */}
           <p className="open-face-hint">Drop a model file, or</p>
           <div className="open-face-actions">
-            <Button variant="primary" onClick={onOpenRobot}>
+            <Button variant="primary" disabled={!connected} onClick={onOpenRobot}>
               Open robot
             </Button>
           </div>
-          <small className="open-face-hint">URDF, SDF, xacro or a lockfile</small>
+          <small className="open-face-hint">{connected ? "URDF, SDF, xacro or a lockfile" : "Starting up, one moment…"}</small>
         </div>
 
         <div className="open-face-new">
@@ -70,13 +73,13 @@ export function OpenFace({
           <ul>
             {starters.map((s) => (
               <li key={s.name}>
-                <Button variant="quiet" title={`Based on ${s.based_on}`} onClick={() => onNewRobot?.(s.name)}>
+                <Button variant="quiet" disabled={!connected} title={`Based on ${s.based_on}`} onClick={() => onNewRobot?.(s.name)}>
                   {`${s.title} · ${MODEL[s.name] ?? s.based_on}`}
                 </Button>
               </li>
             ))}
             <li>
-              <Button variant="quiet" onClick={() => onNewRobot?.(null)}>Blank</Button>
+              <Button variant="quiet" disabled={!connected} onClick={() => onNewRobot?.(null)}>Blank</Button>
             </li>
           </ul>
         </div>
@@ -87,7 +90,7 @@ export function OpenFace({
             <ul>
               {recent.map(({ path, name, at }) => (
                 <li key={path}>
-                  <Button variant="quiet" title={path} onClick={() => onOpenRecent?.(path)}>
+                  <Button variant="quiet" disabled={!connected} title={path} onClick={() => onOpenRecent?.(path)}>
                     {name}
                     {Number.isFinite(at) && <small className="open-face-folder">{ago(at as number)}</small>}
                   </Button>

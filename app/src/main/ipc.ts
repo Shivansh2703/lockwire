@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 
 import type { CheckFacePayload } from "../renderer/checkFacePayload";
-import { type CheckPayload, type DeclareFormPayload, type DiffPayload, type LogPayload, type PagePayload, type PlanPayload, type StartersPayload, type WhatIfPayload } from "../shared/api.gen";
+import { type CheckPayload, type DeclareFormPayload, type DiffPayload, type LogPayload, type PagePayload, type PlanPayload, type StartersPayload, type SwapPreviewPayload, type WhatIfPayload } from "../shared/api.gen";
 import {
   PERMITTED_COMMAND_CLASSES,
   MENU_OPENED_CHANNEL,
@@ -14,6 +14,7 @@ import {
   type CommandClass,
   type StartUrdfRequest,
   type ContractWhatIfRequest,
+  type SwapPreviewRequest,
   type ContractPageRequest,
   type DeclareFormRequest,
   type DiffRequest,
@@ -38,6 +39,7 @@ import {
   validatePagePayload,
   validatePlanPayload,
   validateWhatIfPayload,
+  validateSwapPreviewPayload,
 } from "./pagePayload";
 import { handleTerminalKill, handleTerminalResize, handleTerminalStart, handleTerminalWrite } from "./terminal";
 import { proMain } from "./proRegistry";
@@ -193,6 +195,8 @@ function isContractWriteRequest(value: unknown): value is ContractWriteRequest {
       return isReparentArgs(value.args);
     case "mount-shape":
       return isMountShapeArgs(value.args);
+    case "swap-apply":
+      return hasOnlyKeys(value.args, ["contract", "joint", "part_id", "expected_revision"]) && hasStrings(value.args, ["contract", "joint", "part_id", "expected_revision"]);
     default:
       return false;
   }
@@ -222,6 +226,10 @@ function isDeclareFormRequest(args: unknown): args is DeclareFormRequest {
 function isContractWhatIfRequest(args: unknown): args is ContractWhatIfRequest {
   if (!isRecord(args) || !hasOnlyKeys(args, ["contract", "expected_revision", "change"]) || !hasStrings(args, ["contract", "expected_revision"]) || !isRecord(args.change)) return false;
   return hasOnlyKeys(args.change, ["path", "value", "source", "witness"]) && hasStrings(args.change, ["path", "value", "source", "witness"]);
+}
+
+function isSwapPreviewRequest(args: unknown): args is SwapPreviewRequest {
+  return isRecord(args) && hasOnlyKeys(args, ["contract", "joint", "part_id"]) && hasStrings(args, ["contract", "joint"]) && (args.part_id === undefined || typeof args.part_id === "string");
 }
 
 function isPlanRequest(args: unknown): args is PlanRequest {
@@ -315,6 +323,13 @@ async function handleWhatIf(args: unknown): Promise<WhatIfPayload> {
   const reply = await runSidecarCommand({ command: "what-if", args });
   if (reply.refusal || !reply.payload) throw new Error(reply.refusal ?? "the sidecar returned no what-if payload");
   return proMain ? proMain.validators.whatIf(reply.payload) : validateWhatIfPayload(reply.payload);
+}
+
+async function handleSwapPreview(args: unknown): Promise<SwapPreviewPayload> {
+  if (!isSwapPreviewRequest(args)) throw new Error("contract:swap-preview: invalid arguments");
+  const reply = await runSidecarCommand({ command: "swap-preview", args });
+  if (reply.refusal || !reply.payload) throw new Error(reply.refusal ?? "the sidecar returned no swap payload");
+  return validateSwapPreviewPayload(reply.payload);
 }
 
 /** An empty `plan` means "the one beside the lockfile": `<lockfile stem>.plan.yaml`, or null when absent. */
@@ -668,6 +683,7 @@ const HANDLERS = {
   "contract:page": handleContractPage,
   "contract:declare-form": handleDeclareForm,
   "contract:what-if": handleWhatIf,
+  "contract:swap-preview": handleSwapPreview,
   "contract:plan": handlePlan,
   "contract:diff": handleDiff,
   "contract:history": handleHistory,

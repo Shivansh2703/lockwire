@@ -76,6 +76,7 @@ from lockwire.report_json import (
 from lockwire.schema import (
     ArtifactRef,
     Contract,
+    RobotInfo,
     UnsupportedSchemaVersion,
     load_contract,
     load_contract_bytes,
@@ -563,6 +564,16 @@ def _actuator_check_context(
     return actuator_evidence, Path(evidence_root), revision
 
 
+def defect_document(model_file: Path, error: Exception) -> dict[str, Any]:
+    """The check document for a model file with a dup/missing link or joint: NO-GO."""
+    from lockwire.start_operation import defect_report  # noqa: PLC0415
+    from lockwire.urdf import robot_name  # noqa: PLC0415
+
+    return check_document(
+        Contract(robot=RobotInfo(name=robot_name(model_file))), defect_report(error)
+    )
+
+
 def check(
     contract: Path | str | Contract,
     *,
@@ -574,6 +585,7 @@ def check(
     model: str | None = None,
     model_file: Path | None = None,
     mass: str | None = None,
+    warnings: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Record-level checks: the document ``lockwire check --json`` writes.
 
@@ -609,10 +621,17 @@ def check(
 
         rerun_command(findings, rerun)
     if model_file is not None and path is not None:
-        from lockwire.start_operation import drop_same_figure, typed_paths  # noqa: PLC0415
+        from lockwire.start_operation import (  # noqa: PLC0415
+            drop_same_figure,
+            typed_paths,
+            warning_findings,
+            zero_if_nothing_compared,
+        )
 
+        findings += warning_findings(list(warnings))
         typed_paths(findings, path, model_file)
         drop_same_figure(findings, mass)
+        zero_if_nothing_compared(findings)
     return check_document(
         loaded,
         findings,
@@ -1175,9 +1194,9 @@ def upgrade(
     if hashlib.sha256(raw).hexdigest() != expected_revision:
         raise ValueError("legacy contract changed since its revision was selected")
     upgraded = upgrade_contract_text(raw.decode("utf-8")).encode("utf-8")
-    legacy = load_contract_bytes(raw)
-    if legacy.schema_version not in {"0.2", "0.3", "0.4"}:
-        raise ValueError("upgrade requires an explicit legacy schema_version 0.2, 0.3 or 0.4")
+    legacy = load_contract_bytes(raw, upgrading=True, name=contract_path.name)
+    if legacy.schema_version not in {"0.2", "0.3", "0.4", "0.5"}:
+        raise ValueError("upgrade requires an explicit legacy schema_version 0.2, 0.3, 0.4 or 0.5")
     load_contract_bytes(upgraded)
     if contract_path.read_bytes() != raw:
         raise ValueError("legacy contract changed during upgrade")
