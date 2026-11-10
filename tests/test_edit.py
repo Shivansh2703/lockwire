@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import json
 import multiprocessing
+import os
 import queue
 import sys
 import time
@@ -2110,18 +2111,21 @@ def test_writer_locks_do_not_pile_up_and_a_waiter_retries_on_the_live_file(tmp_p
         (tmp_path / str(n)).mkdir()
         assert apply_changes(_copy(tmp_path / str(n)), [mount]).written
     folder, seen = tmp_path / "lockwire-locks", []
+    left = (
+        6 if os.name == "nt" else 1
+    )  # Windows refuses to unlink an open file: one stays per contract
 
     def waiter():
         with edit._contract_lock(tmp_path / "c.yaml"):
             seen.append(len(list(folder.iterdir())))
 
     with edit._contract_lock(tmp_path / "c.yaml"):
-        assert len(list(folder.iterdir())) == 1  # the five writers left nothing
+        assert len(list(folder.iterdir())) == left  # POSIX: the five writers left nothing
         thread = threading.Thread(target=waiter)
         thread.start()
         time.sleep(0.3)  # the waiter has opened the held file and blocks on it
     thread.join(10)
-    assert seen == [1]  # it holds the file the path names, not the unlinked one
+    assert seen == [left]  # it holds the file the path names, not the unlinked one
 
 
 def test_edit_no_backup_inside_git_repo(tmp_path):
