@@ -216,7 +216,9 @@ def _is_file(p: Path) -> bool:
         return False
 
 
-def _find_package_dir(root: Path, pkg: str, max_depth: int) -> Path | None:
+def _find_package_dir(
+    root: Path, pkg: str, max_depth: int, follow_links: bool = True
+) -> Path | None:
     def walk(d: Path, depth: int) -> Path | None:
         if depth > max_depth or not d.is_dir():
             return None
@@ -240,7 +242,10 @@ def _find_package_dir(root: Path, pkg: str, max_depth: int) -> Path | None:
             children = sorted(
                 p
                 for p in d.iterdir()
-                if p.is_dir() and not p.name.startswith(".") and p.name != "node_modules"
+                if p.is_dir()
+                and (follow_links or not p.is_symlink())
+                and not p.name.startswith(".")
+                and p.name != "node_modules"
             )
         except OSError:
             return None

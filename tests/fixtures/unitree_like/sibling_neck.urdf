@@ -1,0 +1,6 @@
+<robot name="neck">
+  <link name="base"/><link name="yaw"/><link name="pitch"/><link name="arm"/>
+  <joint name="head_yaw_joint" type="revolute"><parent link="base"/><child link="yaw"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="0.86" velocity="11"/></joint>
+  <joint name="head_pitch_joint" type="revolute"><parent link="yaw"/><child link="pitch"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="33" velocity="33.4"/></joint>
+  <joint name="wrist_joint" type="revolute"><parent link="pitch"/><child link="arm"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="1000" velocity="1"/></joint>
+</robot>

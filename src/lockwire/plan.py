@@ -594,7 +594,7 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                         Finding(
                             severity="violation",
                             quantity=path,
-                            observed=f"{total_w:.2f} W rolled-up draw on {checked_rail.id}",
+                            observed=f"{total_w:.2f} W rolled-up draw on {checked_rail.id} (contract plus this plan's rail loads)",
                             expected=_with_enforcement_provenance(
                                 f"<= {capacity_w:.2f} W capacity",
                                 ("capacity", checked_rail.capacity_enforced_by),

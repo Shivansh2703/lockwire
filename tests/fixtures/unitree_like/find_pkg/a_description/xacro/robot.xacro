@@ -1,0 +1,4 @@
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="r">
+  <xacro:include filename="$(find a_description)/xacro/const.xacro"/>
+  <link name="base"><inertial><mass value="${trunk_mass}"/><inertia ixx="0.011" iyy="0.017" izz="0.023" ixy="0" ixz="0" iyz="0"/></inertial></link>
+</robot>

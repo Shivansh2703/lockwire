@@ -19,6 +19,7 @@ import os
 import shutil
 import sys
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from lockwire import __version__, export_mhs, gitref
 from lockwire import api, plugins
 from lockwire.bench import DEFAULT_CORPUS_PATH, format_report, load_corpus, run_bench
 from lockwire.catalog import load_catalog, load_robots, recognise
+from lockwire.checks import SIDE as _SIDE
 from lockwire.checks import is_lock_drift, run_record_checks, servo_stall_torque, shown_path
 from lockwire.confine import confine
 from lockwire.cli_line import argv_from_context, cli_line, cli_line as build_cli_line
@@ -86,6 +88,7 @@ from lockwire.schema import (
 )
 from lockwire.schema import load_contract as _load_contract_lib
 from lockwire.sdf import parse_sdf
+from lockwire.start_operation import MODEL_SUFFIXES
 from lockwire.urdf import ModelDefect, _refuse_doctype_entity, parse_urdf, robot_name
 
 
@@ -633,6 +636,31 @@ def upgrade_cmd(
         )
 
 
+def _torque_claims(torque: list[str], source: str | None, out) -> dict[str, float]:
+    """The `--torque 'JOINT=VALUE N*m'` claims, or one plain line and exit 2."""
+    import re
+
+    claims = {}
+    for text in torque:
+        m = re.fullmatch(r"\s*(.+?)\s*=\s*([0-9.]+(?:e[-+]?\d+)?)\s*(\S+)\s*", text, re.I)
+        line = (
+            "--torque needs --source <url> saying where the published torque comes from"
+            if not source
+            else f"--torque must look like 'knee=120 N*m', not {text!r}"
+            if not m
+            else f"--torque takes N*m only, not {m[3]!r}"
+            if m[3] not in ("N*m", "N·m")
+            else "--torque needs a value above 0"
+            if float(m[2]) <= 0
+            else None
+        )
+        if line:
+            out.print(line, highlight=False, markup=False)
+            raise typer.Exit(2)
+        claims[m[1]] = float(m[2])
+    return claims
+
+
 @app.command(
     help="Start here: check a robot model (URDF, xacro, SDF) and print a verdict.\n\n"
     f"{exit_code_help('check')}"
@@ -680,6 +708,11 @@ def check(
         [], "--xacro-arg", help="Model file only: a xacro argument, name=value."
     ),
     lock: Path | None = typer.Option(None, "--lock", help="Model file only: keep the lock here."),
+    torque: list[str] = typer.Option(
+        [], "--torque", help="Model file only: published 'JOINT=VALUE N*m'; needs --source."
+    ),
+    payload: str | None = typer.Option(None, "--payload", help="Model file only: load, '2 kg'."),
+    at: str | None = typer.Option(None, "--at", help="Link that carries --payload."),
     output_format: str = typer.Option(
         "text",
         "--format",
@@ -711,7 +744,7 @@ def check(
         False, "--all", help="Also print warnings, unjudged checks' detail and passed checks."
     ),
 ) -> None:
-    """Start here: check a robot model (URDF, xacro, SDF) and print a verdict."""
+    """Start here: check a robot model (URDF, xacro, SDF, MJCF) and print a verdict."""
     # `--json -` makes stdout exactly one JSON document; the human report and errors go to stderr.
     out = Console(stderr=True) if str(json_out) == "-" else console
     if output_format not in ("text", "github"):
@@ -719,7 +752,7 @@ def check(
         raise typer.Exit(2)
     import tempfile
 
-    from lockwire.start_operation import MODEL_SUFFIXES, model_lock
+    from lockwire.start_operation import add_payload, model_lock
 
     model_file = (
         contract if contract.suffix.lower() in MODEL_SUFFIXES and contract.is_file() else None
@@ -735,9 +768,24 @@ def check(
             ("--witness", witness),
             ("--xacro-arg", xacro_arg),
             ("--lock", lock),
+            ("--torque", torque),
+            ("--payload", payload),
+            ("--at", at),
         )
         if v
     ]
+    if (
+        model_file is None
+        and given
+        and contract.is_file()
+        and contract.suffix not in (".yaml", ".yml")
+    ):
+        out.print(
+            f"{contract} is not a model lockwire reads (URDF, xacro, SDF or MJCF).",
+            highlight=False,
+            markup=False,
+        )
+        raise typer.Exit(2)
     if model_file is None and given:
         out.print(
             f"{', '.join(given)} works on a model file only: lockwire check <robot.urdf> "
@@ -750,12 +798,21 @@ def check(
         out.print(f"'{contract}' is a folder; pass the lockfile or model inside it")
         raise typer.Exit(2)
     warned: list[str] = []
+    claims = _torque_claims(torque, source, out)
+    if bool(payload) != bool(at):
+        out.print("--payload and --at go together: --payload '2 kg' --at <link>", markup=False)
+        raise typer.Exit(2)
     if model_file is not None:
         folder = lock.parent if lock else Path(tempfile.mkdtemp(prefix="lockwire-"))
         if not lock:
             ctx.call_on_close(lambda: shutil.rmtree(folder, ignore_errors=True))
         elif lock.exists():
-            out.print(f"[red]{lock} exists[/] — pick a new --lock path")
+            out.print(
+                f"{lock} already exists; run `lockwire check {lock}` to check against it, "
+                "or pick a new name.",
+                highlight=False,
+                markup=False,
+            )
             raise typer.Exit(2)
         try:
             contract = model_lock(
@@ -768,6 +825,8 @@ def check(
                 xacro_args=_xacro_args(xacro_arg, out),
                 warnings=warned,
             )
+            if payload:
+                add_payload(contract, at, payload, out)
             if lock:
                 contract = contract.rename(lock)
         except ModelDefect as error:  # a real defect in the model: NO-GO, not a tool failure
@@ -803,6 +862,14 @@ def check(
         )
         links = [link.name for link in loaded.model.links] if loaded.model else []
         robot = recognise(loaded.robot.name, links, robot_model)
+        joints = [j.name for j in loaded.model.joints] if loaded.model else []
+        if missing := [n for n in claims if n not in joints]:
+            out.print(
+                f"no joint named {missing[0]}; the joints are: {', '.join(joints)}",
+                highlight=False,
+                markup=False,
+            )
+            raise typer.Exit(2)
         load_catalog()  # a bad ~/.lockwire/parts.yaml stops here as one line, not mid-check
         if servo:
             servo_stall_torque(servo)  # an unknown id stops here, before any verdict
@@ -818,6 +885,14 @@ def check(
         model=robot_model,
         servo=servo,
     )
+    if claims:
+        from lockwire.checks import _ScoreBook, check_torque_claims
+
+        book = _ScoreBook()
+        findings += check_torque_claims(loaded, claims, source, book)
+        findings.scored = (findings.scored or 0) + len(book)
+        findings.scored_keys = (findings.scored_keys or frozenset()) | book.keys
+        findings.scored_records += book.records
     if model_file is not None:
         from lockwire.start_operation import (
             drop_same_figure,
@@ -2393,6 +2468,33 @@ def mcp_cmd() -> None:
     build_server().run("stdio")
 
 
+_MODEL_NOISE = tuple(f"model/{k}" for k in ("source", "structure_hash", "provenance"))
+
+
+def _pair_sides(before: Contract, after: Contract) -> None:
+    """Rename `after`'s links and joints to `before`'s when they differ only by a side token."""
+    import re
+
+    def swaps(old: list[Any], new: list[Any]) -> dict[str, str]:
+        key = lambda n: re.sub(_SIDE, "_~", n.lower())  # noqa: E731
+        ours = {key(x.name): x.name for x in old}
+        return {x.name: ours[key(x.name)] for x in new if ours.get(key(x.name), x.name) != x.name}
+
+    a, b = before.model, after.model
+    joints, links = swaps(a.joints, b.joints), swaps(a.links, b.links)
+    if len(joints) * 2 <= len(b.joints):  # most joints must pair, else leave the names alone
+        return
+    for link in b.links:
+        link.frame = links.get(link.frame, link.frame)
+        link.name = links.get(link.name, link.name)
+    for joint in b.joints:
+        joint.name = joints.get(joint.name, joint.name)
+        joint.parent, joint.child = (
+            links.get(joint.parent, joint.parent),
+            links.get(joint.child, joint.child),
+        )
+
+
 def _diff_side(
     spec: str, contract: Path, repo: Path | None, *, exit_code: bool, side: str
 ) -> Contract:
@@ -2411,6 +2513,17 @@ def _diff_side(
     """
     on_disk = Path(spec)
     text: str | None = None
+    if on_disk.is_file() and on_disk.suffix.lower() in MODEL_SUFFIXES:
+        import tempfile
+
+        from lockwire.start_operation import model_lock
+
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                return _load_contract_lib(model_lock(on_disk, Path(folder)))
+        except (OSError, ModelDefect, ValueError) as error:
+            console.print(f"[red]diff failed:[/] {escape(_why(error))}")
+            raise typer.Exit(2) from error
     if not (on_disk.exists() and on_disk.is_file()):
         if repo is None:
             console.print("not a git repository — nothing to compare against")
@@ -2460,7 +2573,19 @@ def diff_cmd(
         b if b is not None else str(contract), contract, repo, exit_code=exit_code, side="b"
     )
 
+    models = all(Path(x).suffix.lower() in MODEL_SUFFIXES for x in (a, b))
+    if models:
+        _pair_sides(before, after)
     diff = fact_diff(before, after)
+    if models:  # two model files: the file's own path and hashes always differ
+        diff.changes = [
+            replace(c, witness=None, source=None)  # the witness is the lock's own temp file
+            for c in diff.changes
+            if not c.path.startswith(_MODEL_NOISE)
+        ]
+        if not json_output:
+            mass = [sum(x.mass.value for x in c.model.links if x.mass) for c in (before, after)]
+            console.print(f"mass: {mass[0]:g} kg -> {mass[1]:g} kg", highlight=False)
     if json_output:
         typer.echo(json.dumps(diff.as_json(), indent=2))
     else:
@@ -2658,7 +2783,10 @@ def serve_cmd(
 
         from lockwire.serve import run_server
     except ImportError:
-        print("install the serve extra: uv sync --extra serve", file=sys.stderr)
+        print(
+            'install the serve extra: pip install "lockwire[serve]" (repo: uv sync --extra serve)',
+            file=sys.stderr,
+        )
         raise typer.Exit(2) from None
     raise typer.Exit(
         run_server(

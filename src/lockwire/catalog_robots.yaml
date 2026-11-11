@@ -116,6 +116,54 @@ robots:
       source: "https://www.unitree.com/go2/ — Weight (with battery) About 15kg"}
     dof: {value: 12, unit: count, kind: datasheet, retrieved: 2026-11-04,
       source: "https://www.unitree.com/go2/ — Aluminum knee joint motor 12 set"}
+    joint_torque_max: {value: 45, unit: N*m, kind: datasheet, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/go2/ — Max Joint Torque About 45N·m (the largest joint motor)"}
+  known_urdf_deviations: []
+- id: unitree-go2w
+  name: Unitree Go2-W
+  aliases: [go2w_description, go2w]
+  fingerprint: [base, Head_upper, Head_lower, FL_hip, FL_thigh, FL_calf, FL_calflower, FL_calflower1, FL_foot_motor, FL_foot, FR_hip, FR_thigh, FR_calf, FR_calflower, FR_calflower1, FR_foot_motor, FR_foot, RL_hip, RL_thigh, RL_calf, RL_calflower, RL_calflower1, RL_foot_motor, RL_foot, RR_hip, RR_thigh, RR_calf, RR_calflower, RR_calflower1, RR_foot_motor, RR_foot, imu, radar]
+  numbers:
+    mass_total: {value: 18, unit: kg, kind: datasheet, scope: with_battery, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/go2-w — Weight (with battery) About 18kg"}
+    joint_torque_max: {value: 45, unit: N*m, kind: datasheet, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/go2-w — Max Joint Torque About 45N.m (the largest joint motor)"}
+  known_urdf_deviations: []
+- id: unitree-b2
+  name: Unitree B2
+  aliases: [b2_description, b2]
+  fingerprint: [base_link, lidar_link, f_dc_link, r_dc_link, imu_link, head_Link, tail_link, FL_hip, FL_hip_rotor, FL_thigh, FL_thigh_rotor, FL_calf, FL_calf_rotor, FL_foot, FR_hip, FR_hip_rotor, FR_thigh, FR_thigh_rotor, FR_calf, FR_calf_rotor, FR_foot, RL_hip, RL_hip_rotor, RL_thigh, RL_thigh_rotor, RL_calf, RL_calf_rotor, RL_foot, RR_hip, RR_hip_rotor, RR_thigh, RR_thigh_rotor, RR_calf, RR_calf_rotor, RR_foot, f_oc_link, r_oc_link]
+  numbers:
+    mass_total: {value: 60, unit: kg, kind: datasheet, scope: with_battery, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/b2 — ≈ 60kg Total weight (battery included)"}
+    joint_torque_max: {value: 360, unit: N*m, kind: datasheet, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/b2 — Max Joint Torque About 360N.m"}
+  known_urdf_deviations: []
+- id: unitree-b2w
+  name: Unitree B2-W
+  aliases: [b2w_description, b2w]
+  fingerprint: [base_link, lidar_link, f_dc_link, r_dc_link, imu_link, head_Link, tail_link, FL_hip, FL_thigh, FL_calf, FL_foot, FR_hip, FR_thigh, FR_calf, FR_foot, RL_hip, RL_thigh, RL_calf, RL_foot, RR_hip, RR_thigh, RR_calf, RR_foot, f_oc_link, logo_link, r_oc_ink]
+  numbers:
+    mass_total: {value: 85, unit: kg, kind: datasheet, scope: with_battery, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/b2-w — ≈85kg Total weight (battery included)"}
+  known_urdf_deviations: []
+- id: unitree-b1
+  name: Unitree B1
+  aliases: [b1_description, b1]
+  fingerprint: [world, base, trunk, imu_link, left_side_camera_link, right_side_camera_link, head_camera_1_link, head_camera_2_link, tail_camera_link, FR_hip, FR_hip_rotor, FR_thigh, FR_thigh_rotor, FR_calf, FR_calf_rotor, FR_foot, FL_hip, FL_hip_rotor, FL_thigh, FL_thigh_rotor, FL_calf, FL_calf_rotor, FL_foot, RR_hip, RR_hip_rotor, RR_thigh, RR_thigh_rotor, RR_calf, RR_calf_rotor, RR_foot, RL_hip, RL_hip_rotor, RL_thigh, RL_thigh_rotor, RL_calf, RL_calf_rotor, RL_foot]
+  numbers:
+    mass_total: {value: 50, unit: kg, kind: datasheet, scope: with_battery, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/b1 — Whole Machine (involve battery) About 50kg"}
+  known_urdf_deviations: []
+- id: unitree-aliengo
+  name: Unitree Aliengo
+  aliases: [aliengo]
+  fingerprint: [world, base, trunk, imu_link, FR_hip, FR_hip_rotor, FR_thigh, FR_thigh_rotor, FR_calf, FR_calf_rotor, FR_foot, FL_hip, FL_hip_rotor, FL_thigh, FL_thigh_rotor, FL_calf, FL_calf_rotor, FL_foot, RR_hip, RR_hip_rotor, RR_thigh, RR_thigh_rotor, RR_calf, RR_calf_rotor, RR_foot, RL_hip, RL_hip_rotor, RL_thigh, RL_thigh_rotor, RL_calf, RL_calf_rotor, RL_foot]
+  numbers:
+    mass_total: {value: 21.5, unit: kg, kind: datasheet, scope: dry, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/aliengo — Weight (without battery) 21.5kg ±1kg"}
+    dof: {value: 12, unit: count, kind: datasheet, retrieved: 2026-11-11,
+      source: "https://www.unitree.com/aliengo — Degrees of Freedom (number of motors) 12"}
   known_urdf_deviations: []
 - id: franka-fr3
   name: Franka Research 3

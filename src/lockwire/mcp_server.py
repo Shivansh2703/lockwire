@@ -221,7 +221,7 @@ def build_server() -> MCPServer:
         if file.is_absolute() and file.is_relative_to(Path.cwd()):  # hints run from the cwd
             path = str(file := file.relative_to(Path.cwd()))
         if file.suffix.lower() not in MODEL_SUFFIXES or not file.is_file():
-            raise ToolError(f"no .urdf/.xacro/.sdf model at {path}")
+            raise ToolError(f"no {'/'.join(MODEL_SUFFIXES)} model at {path}")
         from lockwire.urdf import ModelDefect
 
         line = ["check", path] + (["--mass", datasheet_mass] if datasheet_mass else [])

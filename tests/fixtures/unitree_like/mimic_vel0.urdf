@@ -1,0 +1,9 @@
+<robot name="mimic_vel0">
+  <link name="base"><inertial><mass value="1"/><inertia ixx="0.01" iyy="0.01" izz="0.01"/></inertial></link>
+  <link name="a"><inertial><mass value="1"/><inertia ixx="0.01" iyy="0.01" izz="0.01"/></inertial></link>
+  <link name="b"><inertial><mass value="1"/><inertia ixx="0.01" iyy="0.01" izz="0.01"/></inertial></link>
+  <link name="c"><inertial><mass value="1"/><inertia ixx="0.01" iyy="0.01" izz="0.01"/></inertial></link>
+  <joint name="j_a" type="revolute"><parent link="base"/><child link="a"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint>
+  <joint name="j_b" type="revolute"><parent link="a"/><child link="b"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="0"/></joint>
+  <joint name="j_c" type="revolute"><parent link="a"/><child link="c"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="0" velocity="0"/><mimic joint="j_a"/></joint>
+</robot>

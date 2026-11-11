@@ -24,6 +24,7 @@ from lockwire.schema import (
     load_contract,
     save_contract,
 )
+from lockwire.mjcf import parse_mjcf
 from lockwire.sdf import parse_sdf
 from lockwire.urdf import _refuse_doctype_entity, parse_urdf, read_model_bytes
 
@@ -98,6 +99,8 @@ def start_contract(
             model = (
                 parse_sdf(source)
                 if xml.tag == "sdf"
+                else parse_mjcf(source, warned)
+                if xml.tag == "mujoco"
                 else parse_urdf(source, xacro_args, notes, warned)
             )
         except ValueError as error:  # name the model as the caller typed it, not resolved
@@ -149,7 +152,7 @@ def start_contract(
         return {**done, "note": note} if note else done
 
 
-MODEL_SUFFIXES = (".urdf", ".xacro", ".sdf")
+MODEL_SUFFIXES = (".urdf", ".xacro", ".sdf", ".xml", ".mjcf")
 
 
 def add_mass_check(
@@ -188,6 +191,24 @@ def add_mass_check(
     # the repo refuses the bare word "you" as a witness: use the machine's name for the user
     witness = witness or resolve_witness(None) or getpass.getuser()
     add_entry(lock, "budget", fields, source=source or "typed on the command line", witness=witness)
+
+
+def add_payload(lock: Path, link: str, payload: str, out) -> None:
+    """`declare model/links/<link>/payload` on a model's lock; an unknown link: one line, exit 2."""
+    import getpass
+
+    import typer
+
+    from lockwire.edit import Change, apply_changes, resolve_witness
+    from lockwire.schema import load_contract
+
+    links = [x.name for x in load_contract(lock).model.links]
+    if link not in links:
+        out.print(f"no link named {link}; the links are: {', '.join(links)}", markup=False)
+        raise typer.Exit(2)
+    witness = resolve_witness(None) or getpass.getuser()
+    source = "typed on the command line"
+    apply_changes(lock, [Change(f"model/links/{link}/payload", payload, source, witness)])
 
 
 def model_lock(model: Path, folder: Path, *, mass: str | None = None, **options) -> Path:

@@ -1,0 +1,9 @@
+<robot name="dup_inertial">
+  <link name="base"><inertial><mass value="5"/><inertia ixx="0.1" iyy="0.1" izz="0.1"/></inertial></link>
+  <link name="thigh"><inertial><origin xyz="0 0 -0.1"/><mass value="3.591"/><inertia ixx="0.02" iyy="0.02" izz="0.01"/></inertial></link>
+  <link name="thigh_protect"><inertial><origin xyz="0 0 -0.1"/><mass value="3.591"/><inertia ixx="0.02" iyy="0.02" izz="0.01"/></inertial></link>
+  <link name="thigh_r"><inertial><origin xyz="0 0 -0.1"/><mass value="3.591"/><inertia ixx="0.02" iyy="0.02" izz="0.01"/></inertial></link>
+  <joint name="hip" type="revolute"><parent link="base"/><child link="thigh"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="10" velocity="5"/></joint>
+  <joint name="hip_r" type="revolute"><parent link="thigh"/><child link="thigh_r"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="10" velocity="5"/></joint>
+  <joint name="protect" type="fixed"><parent link="thigh"/><child link="thigh_protect"/></joint>
+</robot>

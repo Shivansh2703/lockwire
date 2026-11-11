@@ -141,13 +141,15 @@ def test_no_module_straddles_catalog_and_registry_vocabularies():
 
 
 def test_every_robot_number_is_a_fetched_datasheet_figure_and_assumed_is_refused():
-    from lockwire.catalog import RobotNumber, load_robots
+    from lockwire.catalog import RobotNumber, load_robots, recognise
 
     robots = load_robots()
-    assert len(robots) == 8
+    assert len(robots) == 13
     for number in (n for r in robots for n in r.numbers.values()):
         assert number.kind == "datasheet" and number.url.startswith("https://") and number.retrieved
-    assert all(r.numbers["mass_total"].scope and "dof" in r.numbers for r in robots)
+    assert all(r.numbers["mass_total"].scope for r in robots)
+    assert "dof" not in {r.id: r for r in robots}["unitree-b2"].numbers  # the page gives none
+    assert all(recognise("x", r.fingerprint).id == r.id for r in robots if "unitree" in r.id)
     with pytest.raises(ValidationError, match="datasheet"):
         RobotNumber(value=1, unit="kg", kind="assumed", source="https://x", retrieved="2026-11-04")
 

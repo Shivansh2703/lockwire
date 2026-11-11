@@ -67,6 +67,28 @@ _FIND_INCLUDE = re.compile(
 )
 
 
+def _find_in_checkout(model: Path, pkg: str) -> Path | None:
+    """`$(find pkg)` from the model's own checkout: the model's folder and its ancestors up
+    to the repo root (the first holding a git folder), searched 3 deep. With no git folder it
+    stops one level above the model's own package (its workspace), or at the model's folder when
+    it is in no package, so a stray folder in a shared parent (tmp, home) is never found.
+    Symlinked folders are not followed, so nothing outside is read."""
+    from lockwire.scene_urdf import _find_package_dir  # lazy: scene_urdf imports this module
+
+    here = model.resolve().parent
+    ups = [here, *here.parents][:4]
+    top = next((d.parent for d in ups if (d / "package.xml").is_file()), here)
+    if any((d / ".git").exists() for d in ups):
+        top = None
+    for root in ups:
+        found = _find_package_dir(root, pkg, max_depth=3, follow_links=False)
+        if found is not None:
+            return found
+        if (root / ".git").exists() or root == top:
+            break
+    return None
+
+
 def read_model_bytes(
     path: Path, xacro_args: dict[str, str] | None = None, warnings: list[str] | None = None
 ) -> bytes:
@@ -91,13 +113,28 @@ def read_model_bytes(
     _refuse_doctype_entity(raw, path)
     import xacro
 
+    from xacro import substitution_args as sub
+
+    ros_find = sub._eval_find
+
+    def find(pkg):  # the ROS environment first, then the checkout; else the ROS error
+        try:
+            return ros_find(pkg)
+        except Exception:
+            if (d := _find_in_checkout(path, pkg)) is None:
+                raise
+            return str(d)
+
     mappings, wanted = dict(xacro_args or {}), {}
     while True:
+        sub._eval_find = find
         try:
             out = xacro.process_file(str(path), mappings=mappings).toxml().encode()
             failure = None
         except Exception as exc:  # xacro raises XacroException, ParseError, even SystemExit-ish
             out, failure = b"", exc
+        finally:
+            sub._eval_find = ros_find
         undefined = re.fullmatch(r"Undefined substitution argument (\S+)", str(failure))
         if undefined and undefined[1] not in mappings:
             # ponytail: declarations in this file only; an <xacro:include>d file's defaults are not read

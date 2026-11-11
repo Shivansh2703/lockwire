@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.2.8 — 2026-11-11
+
+- `lockwire check model.xml` now reads MuJoCo MJCF models (masses, joints, ranges) instead of refusing them, and says what it did not compare (like actuators and meshes).
+- `lockwire check` now notes when two neighbouring joints of one limb that share a name prefix (like `head_yaw` and `head_pitch`) have efforts 20 or more times apart, since one may be a typo.
+- `lockwire check` now warns when a left/right pair of joints or links in one model differs by more than 10% in effort, velocity, mass or inertia (like a hip whose inertia is 25% off its twin).
+- `lockwire check` now warns when a link carries the same inertial as the link it is fixed to (like a thigh guard that copies the thigh), because its mass is counted twice.
+- `lockwire check` now warns when a continuous joint sits in the middle of a limited leg chain (like a thigh with no position limit between hip and calf); wheels and turntables are left alone.
+- The robot catalog now recognises Unitree Go2-W, B2, B2-W, B1 and Aliengo and checks mass (and joint torque where Unitree publishes it) against the maker's page.
+- `lockwire check robot.urdf --payload '2 kg' --at <link>` checks gravity with that load on that link, without editing a lockfile.
+- `lockwire check robot.urdf --torque 'knee=120 N*m' --source <url>` compares that joint's URDF effort limit with the torque on the maker's page and warns when it is more than 10% off. Repeat `--torque` for more joints.
+- `lockwire check <robot> --lock <path>` on a path that already exists still refuses, but now says to run `lockwire check <path>` to check against it, or pick a new name.
+- `lockwire check` no longer warns about velocity limits on a mimic follower joint (like a gripper finger); it still warns when the mimic target is missing.
+- `--model unitree-go2` now warns when the URDF's largest joint effort is more than 10% off the maker's published max joint torque (about 45 N·m).
+- `lockwire check` on a xacro model now resolves `$(find pkg)` from the model's own checkout (no ROS needed) instead of exiting 2.
+- `lockwire diff` takes two robot files (URDF, xacro, SDF): it lists the mass and the changed limits, and pairs left/right joints.
+- `lockwire serve` without the serve extra now says to run `pip install "lockwire[serve]"`.
+- `lockwire plan` says its rail total includes the plan's own added loads, so it can read higher than `check`.
+- xacro `$(find pkg)` without a git folder no longer searches above the model's own workspace.
+
 ## 0.2.7 — 2026-11-10
 
 Fixed:

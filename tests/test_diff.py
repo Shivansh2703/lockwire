@@ -280,3 +280,18 @@ def test_repo_root_reads_a_worktree_whose_dotgit_is_a_file(tmp_path):
     assert gitref.repo_root(worktree / "lockwire.yaml") == worktree.resolve()
     assert gitref.rev_parse("HEAD", repo=worktree) is not None
     assert gitref.repo_root(tmp_path) is None  # a plain directory is not a repo
+
+
+def test_diff_two_model_files_lists_mass_and_effort_not_hashes():
+    like = FIXTURES / "unitree_like"
+    result = runner.invoke(app, ["diff", str(like / "h1_a.urdf"), str(like / "h1_b.urdf")])
+    out = plain(result.output)
+    assert "mass: 43 kg -> 33 kg" in out
+    assert "knee_joint/limits/effort: 300.0 -> 360.0" in out
+    assert "structure_hash" not in out and "source" not in out
+
+
+def test_diff_pairs_left_and_right_model_files():
+    like = FIXTURES / "unitree_like"
+    result = runner.invoke(app, ["diff", str(like / "hand_L.urdf"), str(like / "hand_R.urdf")])
+    assert "left_finger_joint/limits/effort: 0.93 -> 0.0" in plain(result.output)

@@ -1,0 +1,5 @@
+<robot name="hand">
+  <link name="palm"><inertial><mass value="1"/><inertia ixx="0.1" iyy="0.1" izz="0.1" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="left_finger"><inertial><mass value="0.1"/><inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <joint name="left_finger_joint" type="revolute"><parent link="palm"/><child link="left_finger"/><axis xyz="0 1 0"/><limit lower="0" upper="1" effort="0.93" velocity="10"/></joint>
+</robot>

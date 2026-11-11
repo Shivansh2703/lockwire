@@ -2343,3 +2343,28 @@ def test_comma_decimal_names_the_file_as_typed(monkeypatch):
     result = runner.invoke(app, ["check", "comma_decimal.urdf", "--all"])
     assert "comma_decimal.urdf" in result.output
     assert str(FIXTURES) not in plain(result.output)
+
+
+def test_check_lock_on_existing_file_says_how_to_check(testbot_urdf, tmp_path):
+    (lock := tmp_path / "m.yaml").write_text("x")
+    r = runner.invoke(app, ["check", str(testbot_urdf), "--lock", str(lock)])
+    assert r.exit_code == 2 and "already exists; run `lockwire check" in plain(r.output)
+
+
+def test_check_payload_flag_loads_a_link_for_the_gravity_check(testbot_urdf):
+    args = ["check", str(testbot_urdf), "--all", "--payload", "2 kg"]
+    assert "with 2 kg payload" in plain(runner.invoke(app, [*args, "--at", "leg_link"]).output)
+    assert runner.invoke(app, args).exit_code == 2
+    bad = runner.invoke(app, [*args, "--at", "arm"])
+    assert bad.exit_code == 2 and "no link named arm; the links are: base_link" in bad.output
+
+
+def test_check_torque_flag_compares_a_joint_with_the_published_figure(testbot_urdf):
+    args = ["check", str(testbot_urdf), "--all", "--source", "u", "--torque"]
+    off = plain(runner.invoke(app, [*args, "hip=20 N*m"]).output)
+    assert "datasheet/hip/joint_torque" in off and "Δ -60.0%" in off
+    assert "datasheet/hip" not in plain(runner.invoke(app, [*args, "hip=8 N*m"]).output)
+    bad = runner.invoke(app, [*args, "knee=8 N*m"])
+    assert bad.exit_code == 2 and "no joint named knee; the joints are: hip" in bad.output
+    assert "no effort limit" in plain(runner.invoke(app, [*args, "mount_fix=8 N*m"]).output)
+    assert "above 0" in plain(runner.invoke(app, [*args, "hip=0 N*m"]).output)

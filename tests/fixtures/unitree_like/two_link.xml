@@ -1,0 +1,15 @@
+<mujoco model="two_link">
+  <compiler angle="radian"/>
+  <worldbody>
+    <body name="base" pos="0 0 0.5">
+      <inertial pos="0 0 0" mass="1.5" diaginertia="0.01 0.02 0.03"/>
+      <joint name="root" type="free"/>
+      <body name="arm" pos="0.1 0 0">
+        <inertial pos="0 0 0.05" mass="0.5" diaginertia="0.001 0.002 0.002"/>
+        <joint name="shoulder" axis="0 1 0" range="-1 1"/>
+        <geom type="mesh" mesh="arm"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator><motor name="s" joint="shoulder" ctrlrange="-5 5"/></actuator>
+</mujoco>

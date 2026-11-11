@@ -208,7 +208,7 @@ def load_catalog(path: Path | str | None = None) -> Catalog:
 
 # What a whole-robot sheet's mass figure includes; a URDF often models less.
 Scope = Literal["with_battery", "dry", "with_gripper", "with_cable", "arm_only"]
-RobotQuantity = Literal["mass_total", "dof", "reach_m", "payload_kg", "joint_speed_max"]
+RobotQuantity = Literal["mass_total", "dof", "reach_m", "payload_kg", "joint_speed_max", "joint_torque_max"]
 
 
 class RobotNumber(SourcedNumber):
@@ -252,8 +252,8 @@ class Robot(BaseModel):
     @model_validator(mode="after")
     def _required(self) -> Robot:
         mass = self.numbers.get("mass_total")
-        if mass is None or mass.scope is None or "dof" not in self.numbers:
-            raise ValueError(f"{self.id}: mass_total (with a scope) and dof are required")
+        if mass is None or mass.scope is None:
+            raise ValueError(f"{self.id}: mass_total (with a scope) is required")
         return self
 
 

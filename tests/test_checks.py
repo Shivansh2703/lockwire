@@ -4174,6 +4174,7 @@ _SLIDE = (
     _OK
     + '<joint name="s" type="prismatic"><parent link="b"/><child link="c"/><axis xyz="0 0 1"/><limit lower="-0.005" upper="0.005" effort="1" velocity="1"/></joint>'
 )
+_MIMIC = '<joint name="m" type="revolute"><parent link="b"/><child link="c"/><limit lower="-1" upper="1" effort="1" velocity="0"/><mimic joint="{}"/></joint>'
 _COM = '<origin xyz="0 0.2 0"/>'  # 1.96 N*m on a 1 N*m joint
 _DRIVEN = '<transmission><joint name="j"/><actuator><mechanicalReduction>{}</mechanicalReduction></actuator></transmission>'
 
@@ -4212,6 +4213,8 @@ def _mesh(scale):
         (_bot(_COM + _G, joint=_OK + _DRIVEN.format(0.07)), "j/limits/effort", "violation"),
         (_bot(_G.replace('"1"', '"100"')), "b/mass_vs_size", "warning"),  # B2 head_Link
         (_bot(joint=_OK.replace('velocity="1"', 'velocity="0"')), "j/velocity", "warning"),
+        (_bot(c=True, joint=_OK + _MIMIC.format("j")), "m/velocity", None),  # follower: no noise
+        (_bot(c=True, joint=_OK + _MIMIC.format("x")), "m/velocity", "warning"),  # target missing
         (_bot('<mass value="0.213"/><inertia/>'), "b/inertia", "violation"),  # Dobot elbow
         (_bot('<mass value="1e-9"/><inertia/>'), "b/inertia", None),  # SO-101 frame stand-in
     ],
@@ -4594,3 +4597,57 @@ def test_relock_command_replays_recorded_xacro_args(tmp_path):
     assert "--xacro-arg" not in _relock_command(Path("m.xacro"), lock)
     cmd = _relock_command(Path("m.xacro"), lock, {"foo": "2", "n": "a b"})
     assert "--xacro-arg foo=2 --xacro-arg 'n=a b' --force" in cmd
+
+
+@pytest.mark.parametrize(("effort", "delta"), [("35.55", "-21.0%"), ("45", ""), ("60", "+33.3%")])
+def test_datasheet_joint_torque_two_sided_at_10_percent(tmp_path, effort, delta):
+    from lockwire.checks import check_datasheet_agreement
+
+    urdf = Path(__file__).parent / "fixtures" / "unitree_like" / "go2_calf35.urdf"
+    (tmp_path / "m.urdf").write_text(urdf.read_text().replace("35.55", effort))
+    got = check_datasheet_agreement(_locked(tmp_path / "a", str(tmp_path / "m.urdf")))
+    want = [("warning", "joint_torque_max", delta)] if delta else []
+    assert [(f.severity, f.quantity.split("/")[-1], f.delta) for f in got] == want
+    assert all(f.source == "https://www.unitree.com/go2/" for f in got)
+
+
+def test_continuous_joint_inside_a_limited_chain(monkeypatch):
+    urdf = Path(__file__).parent / "fixtures" / "unitree_like" / "continuous_leg.urdf"
+    monkeypatch.chdir(urdf.parent)
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path(urdf.name)))
+    got = [f.quantity for f in run_record_checks(contract, contract_path=Path("lockwire.yaml"))]
+    assert [q for q in got if q.endswith("/continuous")] == ["model/sanity/thigh_joint/continuous"]
+
+
+def test_duplicate_inertial_across_a_fixed_joint_only(monkeypatch):
+    from lockwire.checks import check_duplicate_inertial
+
+    monkeypatch.chdir(Path(__file__).parent / "fixtures" / "unitree_like")
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("dup_inertial.urdf")))
+    got = check_duplicate_inertial(contract, contract_path=Path("lockwire.yaml"))
+    assert [(f.severity, f.quantity) for f in got] == [
+        ("warning", "model/links/thigh_protect/duplicate_inertial")
+    ]  # mirrored thigh_r hangs off a revolute joint: not flagged
+    assert "thigh" in got[0].observed and "3.591 kg" in got[0].observed
+
+
+def test_mirror_flags_a_left_right_pair_that_differs(monkeypatch):
+    from lockwire.checks import check_mirror
+
+    monkeypatch.chdir(Path(__file__).parent / "fixtures" / "unitree_like")
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("mirror.urdf")))
+    got = check_mirror(contract, contract_path=Path("lockwire.yaml"))
+    assert [f.quantity for f in got] == ["model/mirror/FL_hip"]  # RL/RR differ by 0.3%: rounding
+    assert "moment 1 0.003319 vs 0.002643" in got[0].observed
+
+
+def test_sibling_effort_flags_a_same_name_chained_pair_only(monkeypatch):
+    from lockwire.checks import check_sibling_effort
+
+    monkeypatch.chdir(Path(__file__).parent / "fixtures" / "unitree_like")
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("sibling_neck.urdf")))
+    got = check_sibling_effort(contract, contract_path=Path("lockwire.yaml"))
+    assert [(f.severity, f.quantity) for f in got] == [
+        ("not_scored", "model/sibling/head_yaw_joint")
+    ]
+    assert "0.86 vs head_pitch_joint 33" in got[0].observed  # wrist 30x away: other prefix

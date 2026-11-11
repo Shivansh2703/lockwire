@@ -1,0 +1,85 @@
+<robot name="go2_calf35">
+  <link name="base"><inertial><mass value="15"/><inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/></inertial></link>
+  <link name="Head_upper"></link>
+  <link name="Head_lower"></link>
+  <link name="FL_hip"></link>
+  <link name="FL_thigh"></link>
+  <link name="FL_calf"></link>
+  <link name="FL_foot"></link>
+  <link name="FR_hip"></link>
+  <link name="FR_thigh"></link>
+  <link name="FR_calf"></link>
+  <link name="FR_foot"></link>
+  <link name="RL_hip"></link>
+  <link name="RL_thigh"></link>
+  <link name="RL_calf"></link>
+  <link name="RL_foot"></link>
+  <link name="RR_hip"></link>
+  <link name="RR_thigh"></link>
+  <link name="RR_calf"></link>
+  <link name="RR_foot"></link>
+  <link name="FL_hip_rotor"></link>
+  <link name="FL_thigh_rotor"></link>
+  <link name="FL_calf_rotor"></link>
+  <link name="FL_calflower"></link>
+  <link name="FL_calflower1"></link>
+  <link name="FR_hip_rotor"></link>
+  <link name="FR_thigh_rotor"></link>
+  <link name="FR_calf_rotor"></link>
+  <link name="FR_calflower"></link>
+  <link name="FR_calflower1"></link>
+  <link name="RL_hip_rotor"></link>
+  <link name="RL_thigh_rotor"></link>
+  <link name="RL_calf_rotor"></link>
+  <link name="RL_calflower"></link>
+  <link name="RL_calflower1"></link>
+  <link name="RR_hip_rotor"></link>
+  <link name="RR_thigh_rotor"></link>
+  <link name="RR_calf_rotor"></link>
+  <link name="RR_calflower"></link>
+  <link name="RR_calflower1"></link>
+  <link name="imu"></link>
+  <link name="radar"></link>
+  <link name="front_camera"></link>
+  <joint name="Head_upper_fixed" type="fixed"><parent link="base"/><child link="Head_upper"/></joint>
+  <joint name="Head_lower_fixed" type="fixed"><parent link="base"/><child link="Head_lower"/></joint>
+  <joint name="FL_hip_joint" type="revolute"><parent link="base"/><child link="FL_hip"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="FL_thigh_joint" type="revolute"><parent link="FL_hip"/><child link="FL_thigh"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="FL_calf_joint" type="revolute"><parent link="FL_thigh"/><child link="FL_calf"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="35.55" velocity="30"/></joint>
+  <joint name="FL_foot_fixed" type="fixed"><parent link="base"/><child link="FL_foot"/></joint>
+  <joint name="FR_hip_joint" type="revolute"><parent link="base"/><child link="FR_hip"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="FR_thigh_joint" type="revolute"><parent link="FR_hip"/><child link="FR_thigh"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="FR_calf_joint" type="revolute"><parent link="FR_thigh"/><child link="FR_calf"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="35.55" velocity="30"/></joint>
+  <joint name="FR_foot_fixed" type="fixed"><parent link="base"/><child link="FR_foot"/></joint>
+  <joint name="RL_hip_joint" type="revolute"><parent link="base"/><child link="RL_hip"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="RL_thigh_joint" type="revolute"><parent link="RL_hip"/><child link="RL_thigh"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="RL_calf_joint" type="revolute"><parent link="RL_thigh"/><child link="RL_calf"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="35.55" velocity="30"/></joint>
+  <joint name="RL_foot_fixed" type="fixed"><parent link="base"/><child link="RL_foot"/></joint>
+  <joint name="RR_hip_joint" type="revolute"><parent link="base"/><child link="RR_hip"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="RR_thigh_joint" type="revolute"><parent link="RR_hip"/><child link="RR_thigh"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="RR_calf_joint" type="revolute"><parent link="RR_thigh"/><child link="RR_calf"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="35.55" velocity="30"/></joint>
+  <joint name="RR_foot_fixed" type="fixed"><parent link="base"/><child link="RR_foot"/></joint>
+  <joint name="FL_hip_rotor_fixed" type="fixed"><parent link="base"/><child link="FL_hip_rotor"/></joint>
+  <joint name="FL_thigh_rotor_fixed" type="fixed"><parent link="base"/><child link="FL_thigh_rotor"/></joint>
+  <joint name="FL_calf_rotor_fixed" type="fixed"><parent link="base"/><child link="FL_calf_rotor"/></joint>
+  <joint name="FL_calflower_fixed" type="fixed"><parent link="base"/><child link="FL_calflower"/></joint>
+  <joint name="FL_calflower1_fixed" type="fixed"><parent link="base"/><child link="FL_calflower1"/></joint>
+  <joint name="FR_hip_rotor_fixed" type="fixed"><parent link="base"/><child link="FR_hip_rotor"/></joint>
+  <joint name="FR_thigh_rotor_fixed" type="fixed"><parent link="base"/><child link="FR_thigh_rotor"/></joint>
+  <joint name="FR_calf_rotor_fixed" type="fixed"><parent link="base"/><child link="FR_calf_rotor"/></joint>
+  <joint name="FR_calflower_fixed" type="fixed"><parent link="base"/><child link="FR_calflower"/></joint>
+  <joint name="FR_calflower1_fixed" type="fixed"><parent link="base"/><child link="FR_calflower1"/></joint>
+  <joint name="RL_hip_rotor_fixed" type="fixed"><parent link="base"/><child link="RL_hip_rotor"/></joint>
+  <joint name="RL_thigh_rotor_fixed" type="fixed"><parent link="base"/><child link="RL_thigh_rotor"/></joint>
+  <joint name="RL_calf_rotor_fixed" type="fixed"><parent link="base"/><child link="RL_calf_rotor"/></joint>
+  <joint name="RL_calflower_fixed" type="fixed"><parent link="base"/><child link="RL_calflower"/></joint>
+  <joint name="RL_calflower1_fixed" type="fixed"><parent link="base"/><child link="RL_calflower1"/></joint>
+  <joint name="RR_hip_rotor_fixed" type="fixed"><parent link="base"/><child link="RR_hip_rotor"/></joint>
+  <joint name="RR_thigh_rotor_fixed" type="fixed"><parent link="base"/><child link="RR_thigh_rotor"/></joint>
+  <joint name="RR_calf_rotor_fixed" type="fixed"><parent link="base"/><child link="RR_calf_rotor"/></joint>
+  <joint name="RR_calflower_fixed" type="fixed"><parent link="base"/><child link="RR_calflower"/></joint>
+  <joint name="RR_calflower1_fixed" type="fixed"><parent link="base"/><child link="RR_calflower1"/></joint>
+  <joint name="imu_fixed" type="fixed"><parent link="base"/><child link="imu"/></joint>
+  <joint name="radar_fixed" type="fixed"><parent link="base"/><child link="radar"/></joint>
+  <joint name="front_camera_fixed" type="fixed"><parent link="base"/><child link="front_camera"/></joint>
+</robot>

@@ -1,0 +1,11 @@
+<robot name="mirror">
+  <link name="base"><inertial><mass value="5"/><inertia ixx="0.1" iyy="0.1" izz="0.1"/></inertial></link>
+  <link name="FL_hip"><inertial><mass value="1"/><inertia ixx="0.003319" iyy="0.004" izz="0.005"/></inertial></link>
+  <link name="FR_hip"><inertial><mass value="1"/><inertia ixx="0.002643" iyy="0.004" izz="0.005"/></inertial></link>
+  <link name="RL_hip"><inertial><mass value="1"/><inertia ixx="0.003" iyy="0.004" izz="0.005"/></inertial></link>
+  <link name="RR_hip"><inertial><mass value="1"/><inertia ixx="0.00301" iyy="0.004" izz="0.005"/></inertial></link>
+  <joint name="FL_hip_joint" type="revolute"><parent link="base"/><child link="FL_hip"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="FR_hip_joint" type="revolute"><parent link="base"/><child link="FR_hip"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="RL_hip_joint" type="revolute"><parent link="base"/><child link="RL_hip"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+  <joint name="RR_hip_joint" type="revolute"><parent link="base"/><child link="RR_hip"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="23.7" velocity="30"/></joint>
+</robot>

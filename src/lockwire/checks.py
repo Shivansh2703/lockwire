@@ -4073,7 +4073,7 @@ def check_mesh_drift(
 
 
 _SHEET_UNITS = {"kg": 1.0, "g": 1e-3, "m": 1.0, "mm": 1e-3, "count": 1.0, "rad/s": 1.0}
-_SHEET_UNITS |= {"deg/s": math.pi / 180, "rpm": math.pi / 30}
+_SHEET_UNITS |= {"deg/s": math.pi / 180, "rpm": math.pi / 30, "N*m": 1.0}
 _SCOPE_WORDS = {
     "with_battery": "includes the battery, computer and sensors",
     "with_cable": "includes the cable",
@@ -4099,6 +4099,50 @@ def _model_file_links(c: Contract, contract_path: Path | None) -> list:
         return []
 
 
+_TORQUE_TOL = 0.10  # the catalog's joint_torque_max and `check --torque` share it
+
+
+def check_torque_claims(
+    c: Contract, claims: dict[str, float], source: str, scores: _ScoreBook
+) -> list[Finding]:
+    """Each joint's URDF effort limit vs the published torque (N*m) the user typed."""
+    by_name = {j.name: j for j in (c.model.joints if c.model else [])}
+    found = []
+    for name, sheet in claims.items():
+        limit = by_name[name].limits
+        quantity = f"datasheet/{name}/joint_torque"
+        expected = f"published {sheet:g} N*m ({source})"
+        if not (limit and limit.effort_limit):
+            found.append(
+                Finding(
+                    severity="not_scored",
+                    quantity=quantity,
+                    observed="no effort limit in the model",
+                    expected=expected,
+                    action="add the joint's effort limit to the URDF to compare it",
+                )
+            )
+            continue
+        urdf = limit.effort_limit
+        delta = (urdf - sheet) / sheet
+        scores.record(quantity)
+        if abs(delta) <= _TORQUE_TOL + 1e-9:
+            scores.passed(quantity, f"URDF effort: {urdf:.4g}", expected, f"{delta:+.1%}")
+            continue
+        found.append(
+            Finding(
+                severity="warning",
+                quantity=quantity,
+                observed=f"URDF effort: {urdf:.4g}",
+                expected=expected,
+                delta=f"{delta:+.1%}",
+                source=source,
+                action="check the URDF effort limit against the published figure",
+            )
+        )
+    return found
+
+
 def check_datasheet_agreement(
     c: Contract,
     *,
@@ -4109,7 +4153,7 @@ def check_datasheet_agreement(
     """A recognised robot's URDF-derived numbers vs its vendor datasheet (catalog_robots.yaml).
 
     Mass +-5 % and dof exact are violations; payload and joint speed (the URDF allowing more
-    than the sheet) are warnings; reach (+-3 %) is passed when it agrees, else a not_scored note. A mass_total budget (`--mass`) wins over the
+    than the sheet) and largest joint torque (+-10 %) are warnings; reach (+-3 %) is passed when it agrees, else a not_scored note. A mass_total budget (`--mass`) wins over the
     row. Silent for an unrecognised robot. At most the 3 largest deltas are reported.
     """
     if c.model is None:
@@ -4148,6 +4192,11 @@ def check_datasheet_agreement(
         for j in moving
         if j.type != "prismatic" and j.limits and j.limits.velocity
     ]
+    efforts = [
+        j.limits.effort_limit
+        for j in joints
+        if j.type in ("revolute", "continuous") and j.limits and j.limits.effort_limit
+    ]
     derived = {
         "mass_total": (
             mass_sum,
@@ -4162,6 +4211,11 @@ def check_datasheet_agreement(
         ),
         "payload_kg": (sum(payloads) if payloads else None, 0.0, "payload carried on links"),
         "joint_speed_max": (max(speeds, default=None), 0.05, "fastest joint velocity limit, rad/s"),
+        "joint_torque_max": (
+            max(efforts, default=None),
+            _TORQUE_TOL,
+            "largest revolute joint effort, N*m",
+        ),
     }
     rows, who = dict(robot.numbers), {}
     declared = next((b for b in c.budgets if b.kind == "mass_total"), None)
@@ -4935,7 +4989,10 @@ def check_urdf_sanity(c: Contract, *, contract_path: Path | None = None) -> list
                 limits[name] = (lo[0], hi[0])
             # urdfdom joint.cpp: revolute/prismatic need <limit>, and a <limit> needs velocity
             # (https://raw.githubusercontent.com/ros/urdfdom/master/urdf_parser/src/joint.cpp).
-            if lim is None or lim.get("velocity") is None:
+            mimic = el.find("mimic")  # a follower takes its target's motion (urdf.py:371)
+            if mimic is not None and mimic.get("joint") in {j.get("name") for j in joints}:
+                pass
+            elif lim is None or lim.get("velocity") is None:
                 warn(
                     f"{name}/velocity",
                     f"moving joint {name} has no velocity limit",
@@ -4960,6 +5017,37 @@ def check_urdf_sanity(c: Contract, *, contract_path: Path | None = None) -> list
                 "a unit axis",
                 f"make {name}'s axis length 1",
                 severity="not_scored",
+            )
+    # a continuous joint between limited ones: climb to a limited revolute, descend to a mover
+    ends = [(j, j.find("parent"), j.find("child")) for j in joints]
+    ends = [
+        (j, a.get("link"), b.get("link")) for j, a, b in ends if a is not None and b is not None
+    ]
+    above = {b: (j, a) for j, a, b in ends}  # child link -> its joint and parent link
+
+    def _moves_below(link: str, seen: set[str]) -> bool:
+        seen.add(link)
+        return any(
+            j.get("type", "fixed") != "fixed" or (b not in seen and _moves_below(b, seen))
+            for j, a, b in ends
+            if a == link
+        )
+
+    for el, top, bottom in ends:
+        if el.get("type") != "continuous" or not _moves_below(bottom, set()):
+            continue
+        link, seen, limited = top, set(), False
+        while link in above and link not in seen and not limited:
+            seen.add(link)
+            j, link = above[link]
+            limited = j.get("type") == "revolute" and j.get("name") in limits
+        if limited:
+            name = el.get("name", "?")
+            warn(
+                f"{name}/continuous",
+                f"joint {name} is continuous (no position limit) inside a chain of limited joints",
+                "a position limit like its neighbours (or a deliberate continuous joint)",
+                f"give {name} lower/upper limits, or keep it if the maker meant it",
             )
     two_parents = sorted(link for link, js in parents.items() if len(js) > 1)
     # urdfdom initTree writes parent_link_tree[child] with no check for an existing parent,
@@ -5052,6 +5140,141 @@ def check_inertia_valid(c: Contract, *, contract_path: Path | None = None) -> li
                 )
             )
     return out
+
+
+def check_duplicate_inertial(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """A link carrying the same inertial as the link it is fixed to double-counts its mass."""
+    found = _urdf_root(c, contract_path)
+    if found is None:
+        return []
+    path, root = found
+    key = {}
+    for link in root.findall("link"):
+        i = link.find("inertial")
+        if i is None:
+            continue
+        mass, org, ten = i.find("mass"), i.find("origin"), i.find("inertia")
+        key[link.get("name")] = [
+            *_floats(mass.get("value") if mass is not None else None),
+            *_floats(org.get("xyz") if org is not None else None),
+            *_floats(org.get("rpy") if org is not None else None),
+            *(float((ten.get(k) if ten is not None else None) or 0) for k in _INERTIA_KEYS),
+        ]
+    out = []
+    for j in root.findall("joint"):
+        p_, c_ = j.find("parent"), j.find("child")
+        a, b = (key.get(e.get("link")) if e is not None else None for e in (p_, c_))
+        if j.get("type") != "fixed" or not a or a[0] <= 0 or len(a) != len(b or ()):
+            continue
+        if all(math.isclose(x, y, rel_tol=1e-9, abs_tol=1e-12) for x, y in zip(a, b)):
+            child, parent = c_.get("link"), p_.get("link")
+            out.append(
+                Finding(
+                    severity="warning",
+                    quantity=f"model/links/{child}/duplicate_inertial",
+                    observed=f"{child} has the same inertial as {parent}, fixed to it: "
+                    f"{a[0]:g} kg counted twice",
+                    expected="one inertial per rigid body",
+                    source=str(path),
+                    action=f"remove the inertial from {child} (or give it its own), then re-lock",
+                    next_command=_relock_command(path, contract_path, c.model.xacro_args),
+                )
+            )
+    return out
+
+
+def check_sibling_effort(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Consecutive moving joints of one chain named alike whose effort differs 20x: a note."""
+    if c.model is None:
+        return []
+    # ponytail: 20x keeps G1 knee 139 vs ankle 50 quiet; only joints sharing a first name token
+    # and chained child->parent are compared, so shoulder-to-wrist taper is never flagged.
+    stem = lambda j: re.sub(r"_joint$", "", j.name).split("_")[0]  # noqa: E731
+    by_parent = {j.parent: j for j in c.model.joints if j.limits and j.limits.effort_limit}
+    out = []
+    for a in c.model.joints:
+        b = by_parent.get(a.child)
+        if b is None or not (a.limits and a.limits.effort_limit) or stem(a) != stem(b):
+            continue
+        lo, hi = sorted((a, b), key=lambda j: j.limits.effort_limit)
+        if hi.limits.effort_limit >= 20 * lo.limits.effort_limit:
+            out.append(
+                Finding(
+                    severity="not_scored",
+                    quantity=f"model/sibling/{lo.name}",
+                    observed=f"{lo.name} effort {lo.limits.effort_limit:g} vs {hi.name} "
+                    f"{hi.limits.effort_limit:g} in one chain",
+                    expected="neighbouring joints of one limb within 20x of each other",
+                    action=f"check {lo.name}'s effort against the datasheet; it may be a typo",
+                )
+            )
+    return out
+
+
+SIDE = r"(?:^|_)(left|right|l|r|fl|fr|rl|rr)(?=_|$)"  # a left/right name token, shared with diff
+_OTHER_SIDE = {"left": "right", "l": "r", "fl": "fr", "rl": "rr"}
+
+
+def _mirror_values(x: Any) -> dict[str, float]:
+    if hasattr(x, "limits"):
+        lim = x.limits
+        return {"effort": lim and lim.effort or 0, "velocity": lim and lim.velocity or 0}
+    moments = x.inertia.moments_kgm2 if x.inertia else (0, 0, 0)
+    return {
+        "mass": x.mass.base() if x.mass else 0,
+        **{f"moment {i}": m for i, m in enumerate(moments, 1)},
+    }
+
+
+def check_mirror(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """Joints and links named as left/right twins must agree on effort, velocity, mass, inertia."""
+    if c.model is None:
+        return []
+    # ponytail: 10% passes rounding; real asymmetries (B2 hip ixx 0.0033 vs 0.0026) are 25%.
+    off = lambda x, y: abs(x - y) > 0.1 * max(x, y) and max(x, y) > 1e-6  # noqa: E731
+    out: list[Finding] = []
+    for items in (c.model.joints, c.model.links):
+        table = {}
+        for i in items:
+            t = re.search(SIDE, i.name.lower())
+            if t:
+                table[re.sub(SIDE, "_~", i.name.lower()), t.group(1)] = i
+        for (key, tok), a in table.items():
+            b = table.get((key, _OTHER_SIDE.get(tok, "")))
+            if b is None or (hasattr(a, "limits") and not (a.limits and b.limits)):
+                continue  # a mimic follower or fixed joint has no limits of its own
+            va, vb = _mirror_values(a), _mirror_values(b)
+            bad = [f"{k} {va[k]:g} vs {vb[k]:g}" for k in va if off(va[k], vb[k])]
+            if bad:
+                out.append(
+                    Finding(
+                        severity="warning",
+                        quantity=f"model/mirror/{a.name}",
+                        observed=f"{a.name} and {b.name} are left/right twins but differ: "
+                        + "; ".join(bad),
+                        expected="mirrored sides carry the same values (within 10%)",
+                        action=f"check {a.name} and {b.name} against the datasheet or CAD",
+                        next_command=_relock_command(
+                            Path(_urdf_path_candidate(c.model) or c.model.source),
+                            contract_path,
+                            c.model.xacro_args,
+                        ),
+                    )
+                )
+    if len(out) > 5:  # one count instead of a wall of pairs
+        out[5:] = [
+            out[5].model_copy(
+                update={
+                    "quantity": "model/mirror/more",
+                    "observed": f"{len(out) - 5} more left/right pairs differ",
+                    "action": "fix the pairs above, then re-run",
+                }
+            )
+        ]
+    return out
+
+
+_INERTIA_KEYS = ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
 
 
 def _link_primitives(
@@ -6059,6 +6282,9 @@ CHECK_PACK_1 = (
     check_urdf_sanity,
     check_link_values,
     check_inertia_valid,
+    check_duplicate_inertial,
+    check_mirror,
+    check_sibling_effort,
     check_inertia_scale,
     check_mass_vs_size,
     check_limit_unit_traps,

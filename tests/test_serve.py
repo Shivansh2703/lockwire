@@ -1762,3 +1762,9 @@ def test_robot_mode_serves_an_allowlist_of_reads(tmp_path: Path, command: str, a
     refused = f"write commands are not served on the robot: {command}"
     assert reply["refusal"] == (None if command == "check" else refused)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_serve_without_extra_tells_a_pip_user_what_to_run(monkeypatch, capsys):
+    monkeypatch.setitem(__import__("sys").modules, "uvicorn", None)
+    __import__("lockwire.cli").cli.app(["serve"], standalone_mode=False)
+    assert 'pip install "lockwire[serve]"' in capsys.readouterr().err

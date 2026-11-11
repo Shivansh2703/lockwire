@@ -21,6 +21,9 @@ A check with nothing to compare says so under "Not compared yet" instead of pass
 - **`zero_mass`**: Missing or non-positive link mass is derived from the canonical link records so a stale zero_mass_links cache cannot hide incomplete inertia.
 - **`unusable_effort`**: a model joint effort <= 0 is unset, not a limit; warn on a fresh check.
 - **`inertia_valid`**: Principal moments must be non-negative and obey a <= b + c.
+- **`duplicate_inertial`**: A link carrying the same inertial as the link it is fixed to double-counts its mass.
+- **`mirror`**: Joints and links named as left/right twins must agree on effort, velocity, mass, inertia.
+- **`sibling_effort`**: Consecutive moving joints of one chain named alike whose effort differs 20x: a note.
 - **`inertia_scale`**: Exactly equal round-number principal moments (1, 1e-4 ...): a placeholder?
 - **`mass_vs_size`**: Density, CoM and radius of gyration against the link's primitive shapes.
 - **`limit_unit_traps`**: Degrees typed as radians, and joint numbers too large for a robot (mm typed as m).
@@ -72,6 +75,7 @@ A check with nothing to compare says so under "Not compared yet" instead of pass
 - **`source_portability`**: a source is a file beside the contract, a URL or a cited title.
 - **`compared_from`**: Check a device mass copied from one concrete seeded catalog part.
 - **`datasheet_agreement`**: A recognised robot's URDF-derived numbers vs its vendor datasheet (catalog_robots.yaml).
+- **`torque_claims`**: Each joint's URDF effort limit vs the published torque (N*m) the user typed.
 - **`edge_tolerance`**: Score an edge's declared tolerance against a live current reading.
 - **`envelopes_vs_hard_limits`**: A locked envelope outside its model's hard limits means the baseline was almost certainly captured on a sick sensor (spec: baseline-on-broken-sensor trap). Hard limits win; the envelope must be re-derived.
 - **`driver_watchdog_marker`**: Actuators with no observed reset/watchdog marker: a disclosure, never a pass or fail.

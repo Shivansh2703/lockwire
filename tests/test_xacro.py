@@ -8,7 +8,7 @@ import pytest
 from lockwire.scene import SceneRefusal
 from lockwire.scene_urdf import load_robot_scene
 from lockwire.start_operation import start_contract
-from lockwire.urdf import UnresolvedXacroError, parse_urdf
+from lockwire.urdf import UnresolvedXacroError, parse_urdf, read_model_bytes
 
 FIXTURE = Path(__file__).parent / "fixtures" / "xacro" / "robot_description"
 STL = "solid s\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid s\n"
@@ -69,3 +69,27 @@ def test_start_records_mesh_in_sibling_package_folder(tmp_path):
 def test_unresolvable_package_mesh_still_refused(tmp_path):
     with pytest.raises(SceneRefusal, match="cannot resolve package://ghost"):
         load_robot_scene(_model(tmp_path, "package://ghost/m.stl"))
+
+
+def test_find_resolves_from_checkout_not_through_symlinks(tmp_path):
+    fx = Path(__file__).parent / "fixtures" / "unitree_like" / "find_pkg"
+    model = fx / "a_description" / "xacro" / "robot.xacro"
+    assert b'value="4.5"' in read_model_bytes(model)
+    out = tmp_path / "out" / "b_description"
+    out.mkdir(parents=True)
+    (out / "package.xml").write_text("<package><name>b_description</name></package>")
+    w = tmp_path / "w"
+    shutil.copytree(fx, w)
+    (w / "link").symlink_to(out.parent)
+    hostile = w / "a_description" / "xacro" / "robot.xacro"
+    hostile.write_text(model.read_text().replace("a_description", "b_description"))
+    with pytest.raises(UnresolvedXacroError):
+        read_model_bytes(hostile)
+
+
+def test_find_does_not_search_a_shared_parent_without_git(tmp_path):
+    (tmp_path / "stray" / "x").mkdir(parents=True)  # a neighbour of the model's folder, not its package
+    (tmp_path / "m").mkdir()
+    (tmp_path / "m" / "bad.urdf.xacro").write_text(ROBOT % '<a b="$(find x)"/>')
+    with pytest.raises(UnresolvedXacroError, match="needs a ROS environment"):
+        parse_urdf(tmp_path / "m" / "bad.urdf.xacro")

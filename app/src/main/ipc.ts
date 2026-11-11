@@ -44,7 +44,7 @@ import {
 import { handleTerminalKill, handleTerminalResize, handleTerminalStart, handleTerminalWrite } from "./terminal";
 import { proMain } from "./proRegistry";
 import { rendererUrl } from "./renderer-protocol";
-import { getSidecarState, onSidecarState, startSidecar, type SidecarState } from "./sidecar";
+import { callSidecar, getSidecarState, onSidecarState, startSidecar, type SidecarState } from "./sidecar";
 
 type ContractEditArgs = { path: string; contents: string };
 type ProbeArgs = { probe: string };
@@ -303,11 +303,24 @@ async function handleContractUndo(args: unknown): Promise<SidecarRunReply> {
   return reply;
 }
 
+// A Pro app on the free engine fails the Pro validators; say that, not "Reinstall the app" (no Pro label in copy: noProLabel.test).
+async function proValid<T>(validate: (p: unknown) => T, payload: unknown): Promise<T> {
+  try {
+    return validate(payload);
+  } catch (e) {
+    const hello = (await (await callSidecar("/v1/hello")).json().catch(() => null)) as { commands?: { name?: string }[] } | null;
+    if (hello?.commands && !hello.commands.some((c) => c.name === "preflight")) {
+      throw new Error("This app expects the paid engine; this engine is the free one.");
+    }
+    throw e;
+  }
+}
+
 async function handleContractPage(args: unknown): Promise<PagePayload> {
   if (!isContractPageRequest(args)) throw new Error("contract:page: invalid arguments");
   const reply = await runSidecarCommand({ command: "page", args });
   if (reply.refusal || !reply.payload) throw new Error(reply.refusal ?? "the sidecar returned no page payload");
-  return proMain ? proMain.validators.page(reply.payload) : validatePagePayload(reply.payload);
+  return proMain ? await proValid(proMain.validators.page, reply.payload) : validatePagePayload(reply.payload);
 }
 
 async function handleDeclareForm(args: unknown): Promise<DeclareFormPayload> {
@@ -322,7 +335,7 @@ async function handleWhatIf(args: unknown): Promise<WhatIfPayload> {
   if (!isContractWhatIfRequest(args)) throw new Error("contract:what-if: invalid arguments");
   const reply = await runSidecarCommand({ command: "what-if", args });
   if (reply.refusal || !reply.payload) throw new Error(reply.refusal ?? "the sidecar returned no what-if payload");
-  return proMain ? proMain.validators.whatIf(reply.payload) : validateWhatIfPayload(reply.payload);
+  return proMain ? await proValid(proMain.validators.whatIf, reply.payload) : validateWhatIfPayload(reply.payload);
 }
 
 async function handleSwapPreview(args: unknown): Promise<SwapPreviewPayload> {
@@ -458,7 +471,7 @@ async function openContract(path: string): Promise<FileOpenResult> {
   if (reply.refusal || !reply.payload) {
     return { opened: true, path, error: reply.refusal ?? "the sidecar returned no payload" };
   }
-  const checked = proMain ? proMain.validators.check(reply.payload) : validateCheckPayload(reply.payload);
+  const checked = proMain ? await proValid(proMain.validators.check, reply.payload) : validateCheckPayload(reply.payload);
   return {
     opened: true,
     path,

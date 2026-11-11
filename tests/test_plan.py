@@ -271,6 +271,7 @@ def test_two_railloads_fit_alone_but_violate_together(x500_contract):
     finding = violations[0]
     assert finding.severity == "violation"
     assert "1196.68 W" in finding.observed  # bites scoring each RailLoad step in isolation
+    assert "plus this plan" in finding.observed  # says the plan's own loads are in the total
     assert "888.00 W" in finding.expected
 
 
