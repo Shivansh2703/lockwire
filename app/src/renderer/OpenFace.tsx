@@ -90,7 +90,7 @@ export function OpenFace({
             : !connected && <p className="open-face-hint">Starting…</p>)}
           <ul>
             {failingFirst(starters).map((s) => (
-              <li key={s.name}>
+              <li key={s.name} data-result={NOTE[s.name]?.[0]}>
                 <Button variant="quiet" disabled={!connected} title={`Based on ${s.based_on}`} onClick={() => onNewRobot?.(s.name)}>
                   {LABEL[s.name] ?? s.title}
                   {(NOTE[s.name] ?? isDesign(s)) && <small className="open-face-note">{NOTE[s.name]?.[1] ?? NOT_MAKER_NOTE}</small>}

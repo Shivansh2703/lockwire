@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.1 — 2026-11-14
+
+The desktop app's look, redone. The command line and every check are the same as 0.5.0.
+
+### The app
+- The robot view has real cast shadows, crease lines on every part, a floor grid in round steps that fades with distance, and neutral studio light. Labels are small tags pinned to the robot.
+- The verdict is one decisive status with a mark and the count. An open finding is one card: the measurement first, the fix under it, the exact finding behind a fold.
+- One top bar. Panels are glass over the 3D view, and tools are grey so the selected mode and the one main button stand out.
+- The start card leads with the example built to show a catch, and every example carries a mark for what its check finds.
+- Command box on Cmd+K (Ctrl+K off the Mac): jump to any mode, fit the view, open the panels, switch theme.
+- The View menu shows what is on with a tick, lines its keys up on the right and groups its rows. Units are two small switches.
+- Plan, Declare, Docs and the data drawer (Power, Wiring, Parts, Overlaps) are tidied: sections, marked rows, a what-if slider with its own track, a drawn power tree.
+- A file that will not open gets one clear message above the start card.
+
+### Fixed
+- The keyboard focus highlight is drawn inside every control. It used to sit outside and get cut off by panels, lists and the tab bar.
+
 ## 0.5.0 — 2026-11-14
 
 ### Get your robot in

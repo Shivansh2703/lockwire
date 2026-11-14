@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import type { Card, Finding, FindingLabel, RobotJoint, RobotLink, Target } from "../../shared/api.gen";
-import { type SceneContext } from "./buildScene";
+import { aimKeyLight, partMaterial, type SceneContext } from "./buildScene";
 import { posed } from "./collide";
 
 export type Level = "warn" | "bad" | "pass" | "selected";
@@ -56,7 +56,7 @@ export function buildSkeleton(joints: RobotJoint[], links: RobotLink[]): Skeleto
 
 const Y = new THREE.Vector3(0, 1, 0);
 const Z = new THREE.Vector3(0, 0, 1);
-const tint = () => new THREE.MeshStandardMaterial({ color: 0x8899aa });
+const tint = partMaterial;
 const quatFor = (axis: V3 | THREE.Vector3, from = Y) => {
   const a = new THREE.Vector3(...(axis as V3));
   return new THREE.Quaternion().setFromUnitVectors(from, a.lengthSq() > 0 ? a.normalize() : Z);
@@ -225,6 +225,7 @@ export function paint(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolea
     mat.transparent = opacity < 1;
     mat.opacity = opacity;
     mat.depthWrite = opacity === 1 || opacity === ghost || opacity === fade;
+    m.castShadow = !m.userData.ring && opacity === 1; // a ghosted part throws no shadow: it has stepped back
     mat.wireframe = !!m.userData.wireframe && !m.userData.ring && !m.userData.bone; // ghosted parts still hide the ones behind them, or dozens of overlapping meshes stack back to solid
   }
   if (!colors) return;
@@ -242,6 +243,34 @@ export function paint(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolea
   }
   setOutlines(ctx.meshes, colors);
   setHalos(ctx.meshes, colors);
+  setEdges(ctx.meshes, colors);
+}
+
+const EDGE_ANGLE = 38; // degrees between two faces before their shared edge is drawn
+const EDGE_MAX_TRIANGLES = 40000; // ponytail: a denser mesh skips its crease lines (building them would stall the open); raise if a big CAD part looks soft
+/** Thin dark crease lines on every solid part, the way a CAD view draws them: a box reads as a box
+ * from any angle, and two grey parts that touch still show where one ends. A non-pickable child of
+ * the part, built once when the stage is dressed (`applyTheme`), then faded with the part and hidden in wireframe on every paint. */
+function setEdges(meshes: THREE.Mesh[], colors: ThemeColors, build = false): void {
+  const dark = (colors.canvas.r + colors.canvas.g + colors.canvas.b) / 3 < 0.2;
+  for (const m of meshes) {
+    if (m.userData.ring) continue;
+    const mat = m.material as THREE.MeshStandardMaterial;
+    let edges = m.userData.edges as THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | undefined;
+    if (build && edges === undefined && m.userData.edges !== null) {
+      const triangles = (m.geometry.index?.count ?? m.geometry.getAttribute("position")?.count ?? 0) / 3;
+      if (!triangles || triangles > EDGE_MAX_TRIANGLES) { m.userData.edges = null; continue; }
+      edges = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, EDGE_ANGLE), new THREE.LineBasicMaterial({ color: 0x07080b, transparent: true, depthWrite: false }));
+      edges.raycast = () => {};
+      edges.userData.edgeLines = true;
+      m.userData.edges = edges;
+      m.add(edges);
+      Object.assign(mat, { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }); // the faces sit a hair behind their own lines
+    }
+    if (!edges) continue;
+    edges.visible = !mat.wireframe;
+    edges.material.opacity = (dark ? 0.55 : 0.34) * (mat.opacity < 1 ? mat.opacity * 0.6 : 1);
+  }
 }
 
 const HALO_SMALL = 0.04; // a flagged part under this share of the robot's radius gets a halo
@@ -398,23 +427,109 @@ export function applyTheme(ctx: SceneContext): void {
   const colors = readThemeColors();
   if (!colors) return;
   ctx.scene.background = colors.canvas;
-  // Only the ground grid is rebuilt here; another decor object (the support polygon) is not ours to dispose.
-  for (const old of ctx.scene.children.filter((o): o is THREE.GridHelper => o instanceof THREE.GridHelper && !!o.userData.decor)) {
+  // Only the floor is rebuilt here; another decor object (the support polygon) is not ours to dispose.
+  for (const old of ctx.scene.children.filter((o) => !!o.userData.decor && (o instanceof THREE.GridHelper || !!o.userData.floor))) {
     ctx.scene.remove(old);
-    old.dispose();
+    const mesh = old as Partial<THREE.Mesh<THREE.BufferGeometry, THREE.Material>> & { dispose?: () => void };
+    if (mesh.dispose) mesh.dispose();
+    else { mesh.geometry?.dispose(); mesh.material?.dispose(); }
   }
   const box = new THREE.Box3();
   for (const m of ctx.meshes) box.expandByObject(m);
   if (box.isEmpty()) box.set(new THREE.Vector3(-3, -3, 0), new THREE.Vector3(3, 3, 0)); // Open: no robot yet, the same floor as the other pages
-  {
-    const size = box.getSize(new THREE.Vector3());
-    const grid = new THREE.GridHelper(Math.max(size.x, size.y, 0.1) * 1.8, 16, colors.grid, colors.grid);
-    grid.rotation.x = Math.PI / 2; // GridHelper lies in XZ; the robot is Z-up.
-    grid.position.set((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.min.z);
-    grid.userData.decor = true;
-    ctx.scene.add(grid);
-  }
+  for (const m of ctx.meshes) m.castShadow = m.receiveShadow = !m.userData.ring;
+  floorGrid(ctx, box, colors);
+  const darkStage = (colors.canvas.r + colors.canvas.g + colors.canvas.b) / 3 < 0.2;
+  aimKeyLight(ctx.scene, box, darkStage ? 1.5 : 0.95); // a dark stage needs a stronger key, or grey parts sink into it
+  ctx.scene.environmentIntensity = darkStage ? 0.34 : 0.16; // on a white stage more studio light washes grey parts out
+  floorShadow(ctx, box, colors.canvas);
+  setEdges(ctx.meshes, colors, true);
   paint(ctx, colors);
+}
+
+/** A round step size (1, 2 or 5 times a power of ten) at or under `x`, so the floor's squares are a length a person can name. */
+export const roundStep = (x: number): number => {
+  const p = 10 ** Math.floor(Math.log10(x));
+  return (x / p >= 5 ? 5 : x / p >= 2 ? 2 : 1) * p;
+};
+
+const GRID_VERTEX = "varying vec3 vWorld; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }";
+// Lines one pixel wide at any distance (screen-space derivatives), in two levels; a level fades out
+// before its squares get too small to tell apart, and the whole floor fades out away from the robot.
+const GRID_FRAGMENT = `
+varying vec3 vWorld;
+uniform vec3 uColor; uniform vec2 uCenter; uniform float uCell; uniform float uReach; uniform float uFine; uniform float uBold; uniform float uGain;
+float level(vec2 p, float cell, float strength) {
+  vec2 q = p / cell;
+  vec2 w = fwidth(q);
+  vec2 g = abs(fract(q - 0.5) - 0.5) / max(w, vec2(1e-6));
+  float line = 1.0 - min(min(g.x, g.y), 1.0);
+  return line * strength * (1.0 - smoothstep(0.12, 0.45, max(w.x, w.y)));
+}
+void main() {
+  vec2 p = vWorld.xy - uCenter;
+  float far = 1.0 - smoothstep(uReach * 0.2, uReach, length(p));
+  float a = max(level(p, uCell, uFine), level(p, uCell * 5.0, uBold)) * far;
+  if (a < 0.003) discard;
+  gl_FragColor = vec4(uColor * uGain, a);
+  #include <colorspace_fragment>
+}`;
+
+/** The floor: a grid in round steps that fades into the stage (no edge, no shimmer far away), and an
+ * unseen sheet that only shows the robot's shadow. Decor: never picked, never fitted. */
+function floorGrid(ctx: SceneContext, box: THREE.Box3, colors: ThemeColors): void {
+  const size = box.getSize(new THREE.Vector3());
+  const extent = Math.max(size.x, size.y, 0.1);
+  const at = new THREE.Vector3((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.min.z);
+  const dark = (colors.canvas.r + colors.canvas.g + colors.canvas.b) / 3 < 0.2;
+  const sheet = () => new THREE.PlaneGeometry(extent * 60, extent * 60);
+  const grid = new THREE.Mesh(sheet(), new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: colors.grid.clone() }, uCenter: { value: new THREE.Vector2(at.x, at.y) }, uCell: { value: roundStep(extent / 8) }, uReach: { value: extent * 7 }, uFine: { value: 0.5 }, uBold: { value: 1 }, uGain: { value: dark ? 1.9 : 0.94 } },
+    vertexShader: GRID_VERTEX, fragmentShader: GRID_FRAGMENT, transparent: true, depthWrite: false,
+  }));
+  const shade = new THREE.Mesh(sheet(), new THREE.ShadowMaterial({ opacity: dark ? 0.5 : 0.18, depthWrite: false }));
+  shade.receiveShadow = true;
+  for (const [o, order] of [[grid, -3], [shade, -2]] as const) {
+    o.position.copy(at);
+    o.renderOrder = order;
+    o.raycast = () => {};
+    o.userData.decor = o.userData.floor = true;
+    ctx.scene.add(o);
+  }
+  grid.userData.floorGrid = true;
+}
+
+/** A soft dark pool on the floor under the robot, so it sits on the ground instead of floating over the grid. Decor only: never picked, never fitted. */
+function floorShadow(ctx: SceneContext, box: THREE.Box3, canvasColor: THREE.Color): void {
+  for (const old of ctx.scene.children.filter((o) => o.userData.floorShadow)) {
+    ctx.scene.remove(old);
+    const mesh = old as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    mesh.geometry.dispose();
+    mesh.material.map?.dispose();
+    mesh.material.dispose();
+  }
+  if (!ctx.meshes.length || typeof document === "undefined") return;
+  const pad = document.createElement("canvas");
+  pad.width = pad.height = 128;
+  const draw = pad.getContext("2d");
+  if (!draw) return; // no 2D canvas (tests): the floor simply has no shadow
+  const dark = (canvasColor.r + canvasColor.g + canvasColor.b) / 3 < 0.5; // a dark stage needs a deeper pool to show at all
+  const fade = draw.createRadialGradient(64, 64, 0, 64, 64, 64);
+  fade.addColorStop(0, `rgba(0, 0, 0, ${dark ? 0.4 : 0.12})`); // the cast shadow does the work; this is only the soft contact under the body
+  fade.addColorStop(0.55, `rgba(0, 0, 0, ${dark ? 0.16 : 0.05})`);
+  fade.addColorStop(1, "rgba(0, 0, 0, 0)");
+  draw.fillStyle = fade;
+  draw.fillRect(0, 0, 128, 128);
+  const size = box.getSize(new THREE.Vector3());
+  const pool = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.max(size.x, 0.05) * 1.9, Math.max(size.y, 0.05) * 1.9),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(pad), transparent: true, depthWrite: false }),
+  );
+  pool.position.set((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.min.z + Math.max(size.z, 0.05) * 0.002);
+  pool.renderOrder = -1;
+  pool.userData.floorShadow = true;
+  pool.userData.decor = true;
+  ctx.scene.add(pool);
 }
 
 /** Pan toward the middle of the meshes with these ids, as far as the whole robot still fits the

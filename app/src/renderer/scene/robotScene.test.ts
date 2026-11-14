@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 
 import type { Card, Finding, RobotJoint, RobotLink } from "../../shared/api.gen";
-import { applyPose, applyDim, applyHighlight, applyIsolate, applyTheme, applyLens, buildSkeleton, declarePart, highlightsFromCards, highlightsFromFindings, jointsOfPath, checkHighlight, partsOfPath, paint, skeletonMeshes, wholeHighlight, framingDistance, zoomToCamera, type ThemeColors } from "./robotScene";
+import { applyPose, applyDim, applyHighlight, applyIsolate, applyTheme, applyLens, buildSkeleton, declarePart, highlightsFromCards, highlightsFromFindings, jointsOfPath, checkHighlight, partsOfPath, paint, skeletonMeshes, wholeHighlight, framingDistance, zoomToCamera, roundStep, type ThemeColors } from "./robotScene";
 
 const joint = (name: string, parent: string, child: string, position: number[]): RobotJoint => ({
   name, type: "revolute", parent, child, parent_name: parent, child_name: child, position, axis: [0, 0, 1], lower: null, upper: null, effort: 5,
@@ -297,7 +297,8 @@ describe("applyTheme with other decor in the scene (CAD-02)", () => {
     applyTheme({ scene, meshes: [], needsRender: false } as never);
     expect(scene.children).toContain(polygon);
     expect(scene.children).not.toContain(oldGrid);
-    expect(scene.children.filter((c) => c instanceof THREE.GridHelper)).toHaveLength(1);
+    expect(scene.children.filter((c) => c.userData.floorGrid)).toHaveLength(1); // one floor, redrawn, never stacked
+    expect([0.75, 0.031, 4.9, 5].map(roundStep)).toEqual([0.5, 0.02, 2, 5]); // its squares are a round length
   });
 });
 

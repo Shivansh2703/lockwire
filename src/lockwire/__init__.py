@@ -1,6 +1,6 @@
 """Lockwire — the physical-assumption contract for robots, enforced in CI and at preflight."""
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 
 def main() -> None:

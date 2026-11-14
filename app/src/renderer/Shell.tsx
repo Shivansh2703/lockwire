@@ -9,7 +9,9 @@ import { ThemeToggle } from "./ThemeToggle";
 import { VIEW_HINT } from "./OpenFace";
 import { ModeInfo, MoreMenu } from "./MoreMenu";
 import { ViewMenu } from "./ViewMenu";
+import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 import "./theme.css";
+import "./polish.css";
 
 // The app shell: the robot fills the window; the pages float over it.
 // Hidden Mac title bar: the top row is a drag strip, every control in it opts out.
@@ -124,9 +126,20 @@ export function Shell({
     el.querySelectorAll(".kit-slot-top, .kit-slot-right, .kit-slot-bottom, .kit-slot-left").forEach((n) => ro?.observe(n));
     return () => { window.removeEventListener("resize", update); ro?.disconnect(); };
   }, [mode, wide, bare, !!children, !!left, !!above, !!assistant?.open, !!panels?.open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Cmd+K: the same actions the buttons on screen already do, findable by typing.
+  const commands: PaletteCommand[] = [
+    ...(locked ? [] : ALL.map((t) => ({ id: `mode-${t.id}`, group: "Go to", title: t.label, run: () => onModeChange(t.id) }))),
+    ...(onFit ? [{ id: "fit", group: "View", title: "Fit the robot in view", run: onFit }] : []),
+    ...(graph ? [{ id: "graph", group: "View", title: graph.on ? "Hide the graph" : "Show the graph", run: graph.onToggle }] : []),
+    ...(locked || center ? [] : [{ id: "panels-hide", group: "View", title: bare ? "Show panels" : "Hide panels", run: () => setHide(!bare) }]),
+    { id: "theme", group: "View", title: currentTheme() === "dark" ? "Switch to the light theme" : "Switch to the dark theme", run: () => document.querySelector<HTMLButtonElement>(".theme-toggle")?.click() },
+    ...(assistant?.onToggle ? [{ id: "assistant", group: "Panels", title: assistant.open ? "Close the Assistant" : "Open the Assistant", run: assistant.onToggle }] : []),
+    ...(panels ? [{ id: "panels", group: "Panels", title: panels.open ? "Close the data panels" : "Open the data panels", run: panels.onToggle }] : []),
+  ];
   return (
     <CommandCtx.Provider value={setPageCommand}>
     <div className="shell" ref={ref} data-wide={wide || undefined}>
+      <CommandPalette commands={commands} />
       <div className="app-drag shell-drag" />
       <Workspace
         topLeft={robotName && !bare ? onRobot

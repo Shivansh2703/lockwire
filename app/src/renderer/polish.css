@@ -1,0 +1,2043 @@
+/* The polish layer, "Instrument". Loaded after theme.css. Styling only: it never
+   changes what a control does. Colours come from theme.css tokens (so the contrast
+   gate still covers them); this file only mixes them. */
+
+:root {
+  --radius: 14px;
+  --radius-sm: 9px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --glass: color-mix(in srgb, var(--panel) 82%, transparent);
+  --hair: color-mix(in srgb, var(--ink) 10%, transparent);
+  --sheen: color-mix(in srgb, var(--outline) 16%, transparent);
+  --blur: saturate(170%) blur(22px);
+}
+
+html,
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.003em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px; /* inside the control, always: see the focus rule in theme.css */
+}
+
+/* Thin overlay scrollbars that stay out of the way. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 20%, transparent);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ink) 36%, transparent);
+  background-clip: content-box;
+}
+
+/* The stage: a soft falloff toward the edges so the robot sits in light. */
+.shell-scene::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 90% 80% at 50% 46%,
+    transparent 52%,
+    color-mix(in srgb, var(--canvas-b) 82%, transparent) 100%
+  );
+}
+
+/* Floating surfaces are glass over the stage. */
+.kit-panel,
+.kit-tabs,
+.kit-toolpill,
+.shell-chip,
+.shell-hint,
+.shell-more,
+.shell-info,
+.kit-notice,
+.shell-menu-list,
+.shell-info-pop {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--sheen);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .kit-panel,
+  .kit-tabs,
+  .kit-toolpill,
+  .shell-chip,
+  .shell-hint,
+  .shell-more,
+  .shell-info,
+  .kit-notice,
+  .shell-menu-list,
+  .shell-info-pop {
+    background: var(--panel);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Panels */
+.kit-panel {
+  padding: var(--sp-4);
+}
+.kit-panel-title,
+.kit-panel-toggle {
+  font: 600 15px/1.3 var(--sans);
+  letter-spacing: -0.012em;
+}
+.kit-disclosure summary {
+  font-weight: 550;
+}
+
+/* The robot's name */
+.shell-chip {
+  padding: 7px 15px;
+  border-radius: var(--radius-pill);
+  font: 600 14px/1.3 var(--sans);
+  letter-spacing: -0.012em;
+}
+
+/* Mode switcher and other tab rows */
+.kit-tabs {
+  gap: 2px;
+  padding: 3px;
+}
+.kit-tab {
+  padding: 5px 13px;
+  font: 500 13px/1.3 var(--sans);
+  transition: background var(--motion), color var(--motion), box-shadow var(--motion);
+}
+.kit-tab:hover:not([aria-selected="true"]):not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.kit-tab[aria-selected="true"] {
+  font-weight: 600;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 45%, transparent), inset 0 1px 0 var(--sheen);
+}
+
+/* Buttons */
+.kit-btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font: 500 13px/1.3 var(--sans);
+  transition: background var(--motion), color var(--motion), box-shadow var(--motion), filter var(--motion), transform 80ms ease;
+}
+.kit-btn:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.985);
+}
+.kit-btn-primary {
+  font-weight: 600;
+  background: linear-gradient(color-mix(in srgb, var(--outline) 12%, var(--accent)), var(--accent));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 50%, transparent), inset 0 1px 0 var(--sheen);
+}
+.kit-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+.kit-btn-secondary {
+  background: var(--field);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+}
+.kit-btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 9%, var(--field));
+}
+.kit-btn-quiet:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+/* Top-right tools read as a toolbar, not as links. */
+.shell .kit-slot-topRight .kit-btn-quiet {
+  color: var(--ink);
+  font-weight: 500;
+}
+.shell .kit-slot-topRight .kit-btn-quiet:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.kit-iconbtn {
+  border-radius: 8px;
+}
+
+/* Fields */
+.kit-control {
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  transition: box-shadow var(--motion), background var(--motion);
+}
+.kit-control:hover {
+  background: color-mix(in srgb, var(--ink) 4%, var(--field));
+}
+.kit-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+/* The verdict: one decisive status. */
+.check-verdict {
+  position: relative;
+  overflow: hidden;
+  padding: 14px 14px 12px 18px;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--v) 17%, transparent),
+    color-mix(in srgb, var(--v) 5%, transparent) 65%
+  );
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--v) 42%, transparent);
+}
+.check-verdict::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--v);
+}
+.check-verdict-kicker,
+.check-section {
+  font-size: 10.5px;
+  letter-spacing: 0.085em;
+}
+.check-verdict-word {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 30px;
+  letter-spacing: -0.035em;
+}
+.check-verdict-word::before {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--v);
+  color: var(--panel);
+  font: 800 13px/1 var(--sans);
+  letter-spacing: 0;
+  content: "–" / "";
+}
+.check-verdict-go .check-verdict-word::before {
+  content: "✓" / "";
+}
+.check-verdict-warn .check-verdict-word::before {
+  content: "!" / "";
+}
+.check-verdict-bad .check-verdict-word::before {
+  content: "✕" / "";
+}
+.check-count {
+  color: var(--muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Findings: the catch reads at a glance. */
+.kit-finding,
+.kit-tree-row {
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+.kit-finding-title {
+  font-weight: 500;
+  letter-spacing: -0.006em;
+}
+.kit-finding-word {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.kit-chip {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+}
+.check-detail {
+  margin: 2px 0 8px 34px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 3.5%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  animation: polish-rise 180ms var(--ease) both;
+}
+.kit-kv dt {
+  font-size: 12px;
+}
+.kit-kv dd {
+  font-variant-numeric: tabular-nums;
+}
+.kit-link {
+  text-decoration-color: color-mix(in srgb, var(--muted) 38%, transparent);
+}
+
+/* Menus and popovers arrive, they do not pop. */
+.shell-menu-list,
+.shell-info-pop {
+  padding: 5px;
+  animation: polish-rise 140ms var(--ease) both;
+}
+
+/* The start card */
+.shell-center .open-face .kit-panel {
+  width: 468px;
+  padding: 28px;
+  border-radius: 22px;
+  animation: polish-rise 320ms var(--ease) both;
+}
+.open-face-mark {
+  width: 52px;
+  height: 52px;
+  filter: drop-shadow(0 6px 14px color-mix(in srgb, var(--accent) 38%, transparent));
+}
+.open-face-wordmark {
+  font-size: 26px;
+  letter-spacing: -0.035em;
+}
+.open-face-drop {
+  padding: 22px 16px;
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--ink) 16%, transparent);
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
+  transition: border-color var(--motion), background var(--motion);
+}
+.open-face-drop[data-drag="true"] {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.open-face-new ul {
+  gap: 8px;
+}
+.open-face-new li button {
+  height: 46px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  font-size: 12.5px;
+  font-weight: 550;
+  transition: background var(--motion), box-shadow var(--motion), transform 120ms var(--ease);
+}
+.open-face-new li button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  transform: translateY(-1px);
+}
+.open-face-label {
+  font-size: 10.5px;
+  letter-spacing: 0.085em;
+}
+
+.shell-hint {
+  font-size: 12px;
+}
+
+@keyframes polish-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .check-detail,
+  .shell-menu-list,
+  .shell-info-pop,
+  .shell-center .open-face .kit-panel {
+    animation: none;
+  }
+  .kit-btn:active:not(:disabled),
+  .open-face-new li button:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ---- Round two ---- */
+
+/* Smoother corners where the engine supports them. */
+@supports (corner-shape: squircle) {
+  .kit-panel,
+  .check-verdict,
+  .check-detail,
+  .open-face-drop,
+  .open-face-new li button {
+    corner-shape: squircle;
+  }
+}
+
+/* Numbers line up in columns everywhere they are compared. */
+.kit-panel,
+.shell-bottom,
+.kit-notice {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The chrome steps back: no divider under panel titles, no label above the verdict word. */
+.kit-panel-head {
+  border-bottom: 0;
+  padding-bottom: var(--sp-1);
+}
+.check-verdict-kicker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.check-verdict {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--v) 11%, transparent),
+    color-mix(in srgb, var(--v) 2%, transparent) 70%
+  );
+}
+.check-verdict::before {
+  width: 4px;
+}
+
+/* One toolbar row when the work area is wide: name left, modes centre, tools right.
+   Measured on the work area, not the window, so an open drawer falls back to two rows. */
+.kit-workspace {
+  container: workspace / inline-size;
+}
+@container workspace (min-width: 1360px) {
+  .shell .kit-slot {
+    --head: 62px;
+  }
+  .shell .kit-slot-top {
+    top: 9px;
+  }
+  .shell .kit-slot-topLeft {
+    max-width: calc(50% - 330px - 84px);
+  }
+  .shell .kit-slot-topLeft .shell-chip {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* Parts tree stays compact; findings keep their air. */
+.kit-tree-row {
+  padding: 5px 8px;
+  border-radius: 7px;
+}
+.kit-tree-label {
+  font-weight: 550;
+}
+
+/* Disclosures get a real chevron that turns. */
+.kit-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+}
+.kit-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.kit-disclosure > summary::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px 0 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.55;
+  transform: rotate(-45deg);
+  transition: transform var(--motion);
+}
+.kit-disclosure[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+/* Fields: upright placeholders. */
+.kit-control::placeholder,
+input[type="search"]::placeholder {
+  color: color-mix(in srgb, var(--muted) 85%, transparent);
+  font-style: normal;
+}
+
+/* The start screen: a pool of light behind the card, calmer example chips, real buttons under them. */
+.shell-center {
+  isolation: isolate;
+}
+.shell-center::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  width: 860px;
+  height: 860px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 17%, transparent), transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.open-face-new li button {
+  color: var(--ink);
+}
+.open-face-note {
+  color: var(--muted);
+}
+.open-face-blank {
+  display: inline-block;
+  margin: 12px 8px 0 0;
+}
+.open-face-blank button {
+  padding: 5px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background var(--motion);
+}
+.open-face-blank button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* The connection light is quiet until something is wrong. */
+.shell .kit-slot-bottomLeft .kit-pill {
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.shell .kit-slot-bottomLeft .kit-pill.kit-s-go {
+  background: none;
+  color: var(--muted);
+}
+.shell .kit-slot-bottomLeft .kit-pill.kit-s-go::before {
+  background: var(--go);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--go) 22%, transparent);
+}
+
+/* Segmented controls match the tabs. */
+.kit-seg {
+  padding: 3px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+}
+.kit-seg-opt {
+  border-radius: 7px;
+  font-size: 13px;
+  transition: background var(--motion), color var(--motion);
+}
+
+/* Notices */
+.kit-notice {
+  padding: 8px 8px 8px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+/* Command palette */
+.cmdk-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  padding-top: 16vh;
+  background: color-mix(in srgb, var(--canvas-b) 62%, transparent);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: cmdk-fade 120ms ease both;
+}
+.cmdk {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(440px, 64vh);
+  overflow: hidden;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  backdrop-filter: saturate(180%) blur(30px);
+  box-shadow: var(--shadow), 0 30px 80px -20px color-mix(in srgb, var(--canvas-b) 80%, transparent), inset 0 1px 0 var(--sheen);
+  color: var(--ink);
+  animation: polish-rise 160ms var(--ease) both;
+}
+.cmdk-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 16px 18px 14px;
+  border: 0;
+  border-bottom: 0.5px solid var(--hair);
+  outline: none;
+  background: none;
+  color: var(--ink);
+  font: 400 16px/1.3 var(--sans);
+  letter-spacing: -0.01em;
+}
+.cmdk-input:focus,
+.cmdk-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.cmdk-input::placeholder {
+  color: var(--muted);
+}
+.cmdk-list {
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+.cmdk-group {
+  padding: 8px 12px 4px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.085em;
+  text-transform: uppercase;
+}
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--ink);
+  font: 500 13.5px/1.3 var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+.cmdk-item[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.cmdk-item kbd,
+.cmdk-foot kbd {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--muted);
+  font: 500 11px/1.5 var(--sans);
+}
+.cmdk-foot kbd {
+  margin-left: 0;
+}
+.cmdk-empty {
+  padding: 22px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+.cmdk-foot {
+  display: flex;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 0.5px solid var(--hair);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+@keyframes cmdk-fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmdk,
+  .cmdk-veil {
+    animation: none;
+  }
+}
+
+/* The verdict word carries a little of its own light. */
+.check-verdict-word {
+  text-shadow: 0 0 26px color-mix(in srgb, var(--v) 30%, transparent);
+}
+
+/* ---- Pass 1: every model ---- */
+
+/* A saved-file notice can carry a long path: keep it a compact card that wraps, not a bar across the window. */
+.shell-notices .kit-notice {
+  max-width: min(560px, 100%);
+  align-items: flex-start;
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.shell-notices .kit-notice .kit-btn {
+  flex: none;
+  align-self: center;
+}
+
+/* ---- Pass 2: Check in every verdict state ---- */
+
+/* The verdict's actions sit on their own line, right-aligned, so the word and count never wrap around them. */
+.check-verdict {
+  row-gap: 10px;
+}
+.check-verdict .check-headline {
+  flex: 1 1 100%;
+  gap: 3px;
+}
+.check-verdict-actions {
+  align-items: center;
+}
+.check-count-note {
+  margin-top: 4px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+/* Section labels and the filter row are quiet: they frame the list, they are not the list. */
+.check-section {
+  margin: 14px 2px 6px;
+}
+.check-filter {
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.check-filter select.kit-control,
+.check-filter select {
+  padding-block: 4px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+/* Every fold inside a panel (Not compared yet, Accepted, More, Pose, Details, Edit placement) is the same quiet row. */
+.kit-panel .kit-disclosure > summary {
+  padding: 6px 8px;
+  margin-inline: -4px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+  transition: background var(--motion);
+}
+.kit-panel .kit-disclosure > summary:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.check-note {
+  margin: 4px 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Inside an open finding: plain words first, the machine text last and small. */
+.check-detail .finding-body {
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+.check-detail .kit-link {
+  text-decoration: none;
+}
+.check-detail .kit-link:hover {
+  text-decoration: underline;
+}
+.check-detail .kit-disclosure > summary {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.check-detail .finding-raw {
+  margin-top: 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  font-family: var(--mono);
+  line-height: 1.5;
+}
+.check-limit-words {
+  margin: 0 0 6px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.check-limit .conn-bar {
+  border-radius: 999px;
+}
+.finding-info {
+  transition: background var(--motion);
+}
+
+/* A finding row lifts a little under the pointer, and a selected one keeps its bar. */
+.kit-finding {
+  transition: background var(--motion), box-shadow var(--motion);
+}
+.kit-finding:hover:not(.is-selected) {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.finding-card.severity-violation > .kit-finding.is-selected,
+.finding-card.severity-warning > .kit-finding.is-selected {
+  border-radius: 4px 10px 10px 4px;
+}
+
+/* ---- Pass 3: Design ---- */
+
+/* Stacked panels on the right keep a steady rhythm and do not pad out empty space. */
+.shell .kit-slot-right,
+.shell .kit-slot-left {
+  gap: 10px;
+}
+.shell .kit-slot-right > .kit-panel:not(:only-child) {
+  padding-bottom: var(--sp-3);
+}
+.shell .kit-slot-right > .kit-panel:not(:only-child) .kit-panel-body {
+  padding-bottom: 0;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* The parts list: a search field that reads as one, rows that show where the pointer is. */
+.kit-tree {
+  gap: 6px;
+}
+.kit-tree input[type="search"] {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--field);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  color: var(--ink);
+  font: 400 13px/1.3 var(--sans);
+}
+.kit-tree input[type="search"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+.kit-tree-row {
+  font-size: 13px;
+  transition: background var(--motion);
+}
+.kit-tree-row.is-selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+  font-weight: 550;
+}
+.kit-tree-chev {
+  opacity: 0.7;
+}
+.design-legend {
+  padding-top: 8px;
+  border-top: 0.5px solid var(--hair);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.design-parts {
+  gap: 8px;
+}
+
+/* The inspector: labels above fields in one quiet style, the fields in a tidy grid. */
+.kit-field {
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.kit-field .kit-control {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.design-controls-values,
+.typed-move {
+  gap: 10px;
+}
+.add-part-help,
+.pose-hint,
+.pose-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.design-controls-refusal {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+  font-size: 12.5px;
+}
+
+/* Sliders: a thin track and a clear handle. */
+input[type="range"] {
+  accent-color: var(--accent);
+  height: 18px;
+}
+
+/* Summaries inside panels read as a headline number, not as a link. */
+.kit-panel .kit-disclosure > summary {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.006em;
+}
+
+/* The lens tabs at the bottom match the mode switcher's weight. */
+.shell-bottom .kit-tabs .kit-tab {
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+.shell-bottom .kit-toolpill {
+  padding: 3px 6px;
+  border-radius: var(--radius-pill);
+}
+
+/* ---- Pass 5: loading, empty and error states ---- */
+
+/* While the check runs: a turning ring and two soft lines where the verdict will be, never a guessed word. */
+.verdict-pending .check-verdict-word {
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-shadow: none;
+}
+.verdict-pending .check-verdict-word::before {
+  width: 16px;
+  height: 16px;
+  border: 2.5px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  border-top-color: var(--accent);
+  background: none;
+  content: "" / "";
+  animation: polish-spin 800ms linear infinite;
+}
+.check-verdict:has(.verdict-pending) {
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--ink) 6%, transparent) 50%, transparent 70%) 0 0 / 220% 100%;
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  animation: polish-shimmer 1.5s linear infinite;
+}
+.check-verdict:has(.verdict-pending)::before {
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+.check-verdict:has(.verdict-pending)::after {
+  content: "";
+  flex: 0 0 58%;
+  height: 8px;
+  margin: 2px 0 18px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  box-shadow: 0 16px 0 color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+/* A file that would not open: one clear block above the card, with a mark, not a pill that sits on the card's edge. */
+.shell-center:has(.open-face-error) {
+  align-content: center;
+  row-gap: 14px;
+}
+.shell-center .open-face-error {
+  margin-bottom: 14px;
+}
+.open-face-error .kit-notice {
+  gap: 10px;
+  padding: 10px 10px 10px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bad) 13%, var(--panel));
+  box-shadow: var(--shadow-sm), inset 0 0 0 0.5px color-mix(in srgb, var(--bad) 45%, transparent);
+  font-size: 13px;
+}
+.open-face-error .kit-notice::before {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bad);
+  color: var(--panel);
+  font: 800 12px/1 var(--sans);
+  content: "!" / "";
+}
+
+/* Empty states say it quietly. */
+.kit-empty,
+.open-face-recents-empty,
+.design-face-empty {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ---- Pass 6: motion ---- */
+
+/* The verdict arrives; the findings follow it in, one after another. */
+.check-verdict {
+  animation: polish-rise 260ms var(--ease) both;
+}
+.check-list > * {
+  animation: polish-rise 280ms var(--ease) both;
+}
+.check-list > :nth-child(2) { animation-delay: 35ms; }
+.check-list > :nth-child(3) { animation-delay: 70ms; }
+.check-list > :nth-child(4) { animation-delay: 105ms; }
+.check-list > :nth-child(5) { animation-delay: 140ms; }
+.check-list > :nth-child(n + 6) { animation-delay: 175ms; }
+.kit-notice {
+  animation: polish-rise 220ms var(--ease) both;
+}
+.kit-tab,
+.kit-seg-opt,
+.kit-iconbtn {
+  transition: background 160ms var(--ease), color 160ms var(--ease), box-shadow 160ms var(--ease), transform 80ms ease;
+}
+.kit-tab:active:not(:disabled),
+.kit-iconbtn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+@keyframes polish-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes polish-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .check-verdict,
+  .check-list > *,
+  .kit-notice,
+  .check-verdict:has(.verdict-pending),
+  .verdict-pending .check-verdict-word::before {
+    animation: none;
+  }
+  .kit-tab:active:not(:disabled),
+  .kit-iconbtn:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ---- Pass 7: the side drawer and the data panels ---- */
+
+/* The drawer is one glass sheet; what is inside it is content, not a second card. */
+.shell-drawer {
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow), inset 0.5px 0 0 var(--hair);
+}
+.drawer-head {
+  border-bottom: 0.5px solid var(--hair);
+}
+.shell-drawer .kit-panel {
+  padding: 4px 4px 12px;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.shell-drawer .kit-tabs {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+}
+
+/* Tables: quiet headers, hairlines, numbers in columns, the row under the pointer marked. */
+.kit-panel table,
+.shell-drawer table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.kit-panel th,
+.shell-drawer th {
+  padding: 6px 8px;
+  border-bottom: 0.5px solid var(--hair);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.kit-panel td,
+.shell-drawer td {
+  padding: 6px 8px;
+  border-bottom: 0.5px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  vertical-align: top;
+}
+.kit-panel tbody tr:hover td,
+.shell-drawer tbody tr:hover td {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+.kit-panel tr:last-child td,
+.shell-drawer tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Power stages and wiring devices are cards of the same family as an open finding. */
+.power-stage,
+.wiring-device {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  transition: background var(--motion), box-shadow var(--motion);
+}
+.power-stage {
+  padding: 10px 12px;
+}
+.power-stage:hover,
+.power-stage:focus-visible {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.wiring-legend {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---- Pass 8: Plan, Test, Run, Declare, Docs ---- */
+
+/* A page with little in it still looks composed: the panel hugs its content. */
+.shell .kit-slot-right > .kit-panel:only-child .kit-panel-body:not(:has(.check-verdict)) {
+  padding-bottom: var(--sp-2);
+}
+/* Status pills inside rows are small and even. */
+.kit-panel .kit-pill {
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+/* Command lines read as code, in a well. */
+.kit-cli {
+  border-radius: 8px;
+}
+.kit-cli-text,
+.finding-path,
+code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+/* The declare form: the value being edited is the headline. */
+.declare-review,
+.add-part-numbers {
+  gap: 10px;
+}
+.kit-panel-footer {
+  padding-top: 10px;
+  margin-top: 6px;
+  border-top: 0.5px solid var(--hair);
+}
+.shell-drawer details > summary,
+.kit-panel details:not(.kit-disclosure) > summary {
+  padding: 4px 0;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+/* ---- Pass 9: small windows ---- */
+
+/* On a small work area the side panels give the robot room: narrower, and the parts list slimmer. */
+@container workspace (max-width: 1200px) {
+  .shell .kit-slot-right {
+    --panel-w-max: 400px;
+    --panel-w-min: 300px;
+  }
+  .shell .kit-slot-left {
+    width: clamp(214px, 19%, 236px);
+  }
+  .check-verdict-word {
+    font-size: 26px;
+  }
+}
+
+/* ---- Pass 11: one top bar, quieter stage furniture, labels that belong to the robot ---- */
+
+/* The top pieces share one height; on a wide work area they also share one line, so they read as one bar.
+   (On a narrow one the modes keep their own second row: moving them up there would put them under the tools.) */
+.shell .kit-slot-topLeft,
+.shell .kit-slot-topRight {
+  top: 10px;
+}
+.shell-chip,
+.shell .kit-slot-top .kit-tabs,
+.shell .kit-slot-topRight .kit-toolpill {
+  box-sizing: border-box;
+  height: 36px;
+  align-items: center;
+}
+.shell .kit-slot-top .shell-tabs {
+  align-items: center;
+}
+.shell .kit-slot-top .kit-tab,
+.shell .kit-slot-topRight .kit-btn,
+.shell .kit-slot-topRight .kit-iconbtn {
+  height: 28px;
+}
+.shell-chip {
+  display: inline-flex;
+  padding-block: 0;
+}
+@container workspace (min-width: 1360px) {
+  .shell .kit-slot-top {
+    top: 10px;
+  }
+  .shell .shell-notices {
+    top: 58px;
+  }
+}
+
+/* The example line is a slim strip under the bar, not a card in the middle of the stage. */
+.shell-notices .start-note .kit-notice {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 3px 4px 3px 13px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--panel) 62%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.shell-notices .start-note .kit-notice .kit-btn {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 12px;
+}
+.shell-notices .start-note .kit-notice .kit-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* The orbit hint is a caption on the floor, read once: no pill, and it steps back after a while. */
+.shell-hint {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 10px var(--canvas-b);
+  animation: polish-hint 14s ease-in 1 both;
+}
+@keyframes polish-hint {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+/* A label on the robot: a small glass tag with a pin at the point it names. */
+.callout-layer .callout {
+  padding: 3px 9px 3px 8px !important;
+  border: 0 !important;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent) !important;
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-sm), inset 0 0 0 0.5px var(--hair);
+  font: 550 11.5px/1.45 var(--sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+  transition: background 140ms var(--ease), box-shadow 140ms var(--ease);
+}
+.callout-layer .callout::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  vertical-align: 1px;
+}
+.callout-layer .callout[data-kind="declared"]::before {
+  background: var(--ink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 16%, transparent);
+}
+.callout-layer .callout:hover {
+  background: var(--panel) !important;
+  box-shadow: var(--shadow), inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* The verdict is the biggest thing on the panel, with its own light. */
+.check-verdict {
+  padding: 16px 16px 14px 20px;
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--v) 20%, transparent), transparent 62%),
+    color-mix(in srgb, var(--v) 5%, transparent);
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, var(--v) 46%, transparent),
+    0 10px 30px -18px color-mix(in srgb, var(--v) 70%, transparent);
+}
+.check-verdict-word {
+  gap: 12px;
+  font-size: 36px;
+  font-weight: 750;
+  line-height: 1.05;
+}
+.check-verdict-word::before {
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--v) 20%, transparent);
+}
+.check-verdict .check-count {
+  font-size: 13px;
+}
+
+/* An example says what its check finds before it is opened: a mark in the result's colour, on the line that says it. */
+.open-face-new li[data-result] .open-face-note::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  vertical-align: 1px;
+}
+.open-face-new li[data-result="fails"] .open-face-note::before {
+  background: var(--bad);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--bad) 22%, transparent);
+}
+.open-face-new li[data-result="clean"] .open-face-note::before {
+  background: var(--go);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--go) 22%, transparent);
+}
+.open-face-new li[data-result="warns"] .open-face-note::before {
+  background: var(--warn);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+/* The first example is the one built to show a catch: it gets the accent edge. */
+.open-face-new li[data-result="fails"]:first-child button {
+  background: color-mix(in srgb, var(--bad) 7%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--bad) 40%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-hint {
+    animation: none;
+  }
+}
+
+/* ---- Pass 12: the command box ---- */
+
+/* The base field rule is more specific than a single class, so it was giving this input a filled
+   background, its own corners and a focus ring that ran outside the box's rounded top. The caret and
+   the lit row show where the keyboard is; the field itself is just the top of the sheet. */
+.cmdk {
+  position: relative;
+  width: min(600px, calc(100vw - 48px));
+  border-radius: 16px;
+}
+.cmdk input.cmdk-input,
+.cmdk input.cmdk-input:hover,
+.cmdk input.cmdk-input:focus,
+.cmdk input.cmdk-input:focus-visible {
+  min-height: 0;
+  padding: 17px 18px 15px 46px;
+  border: 0;
+  border-bottom: 0.5px solid var(--hair);
+  border-radius: 0;
+  outline: none;
+  background: none;
+  box-shadow: none;
+  font: 400 16.5px/1.3 var(--sans);
+}
+/* A small magnifier drawn in CSS (no image to load). */
+.cmdk::before,
+.cmdk::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+.cmdk::before {
+  left: 19px;
+  top: 19px;
+  width: 10px;
+  height: 10px;
+  border: 1.6px solid var(--muted);
+  border-radius: 50%;
+}
+.cmdk::after {
+  left: 30px;
+  top: 30px;
+  width: 6px;
+  height: 1.6px;
+  border-radius: 1px;
+  background: var(--muted);
+  transform: rotate(45deg);
+  transform-origin: 0 50%;
+}
+.cmdk-list {
+  padding: 6px 8px 8px;
+  scroll-padding-block: 8px;
+}
+.cmdk-group {
+  padding: 10px 10px 4px;
+}
+.cmdk-item {
+  position: relative;
+  box-sizing: border-box;
+  padding: 8px 10px 8px 14px;
+  border-radius: 9px;
+  transition: background 90ms ease;
+}
+.cmdk-item[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.cmdk-item[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.cmdk-foot {
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+
+/* ---- Pass 13: an open finding is one card: what is wrong, then what to do ---- */
+
+/* The open finding, its chips and its detail read as one unit, not a row with a box hanging under it. */
+.check-list .finding-card:has(> .check-detail) {
+  margin: 2px 0 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ink) 3.5%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  overflow: hidden;
+}
+.check-list .finding-card:has(> .check-detail) > .kit-finding.is-selected,
+.check-list .finding-card:has(> .check-detail) > .kit-finding.is-selected:focus-visible {
+  border-radius: 12px 12px 0 0; /* the card's own top corners, so the row's ring fits inside them */
+}
+.check-list .finding-card:has(> .check-detail) > .kit-chips {
+  padding: 8px 12px 0 38px;
+}
+.check-list .finding-card > .check-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px 12px 38px;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+/* First what was measured, in full ink: that is the finding. */
+.check-list .check-detail > .finding-body {
+  order: 1;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+/* Then what to do about it, set apart as the one call to action in the card. */
+.check-list .check-detail > .kit-kv {
+  order: 2;
+  margin: 0;
+  padding: 9px 11px 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.check-list .check-detail > .kit-kv .kit-kv-row {
+  display: block;
+}
+.check-list .check-detail > .kit-kv dt {
+  margin-bottom: 3px;
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.085em;
+  text-transform: uppercase;
+}
+.check-list .check-detail > .kit-kv dd {
+  margin: 0;
+}
+.check-list .check-detail > .kit-kv .kit-link {
+  padding: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+}
+.check-list .check-detail > .kit-disclosure {
+  order: 3;
+}
+.check-list .check-detail > :not(.finding-body):not(.kit-kv):not(.kit-disclosure) {
+  order: 2;
+}
+.check-list .check-detail .kit-disclosure > summary {
+  margin-top: 0;
+}
+/* Rows in the list: one quiet hairline between findings, none around the open card. */
+.check-list > .finding-card + .finding-card:not(:has(> .check-detail)) {
+  box-shadow: 0 -0.5px 0 var(--hair);
+}
+.check-list > .finding-card:has(> .check-detail) + .finding-card {
+  box-shadow: none;
+}
+.check-list .kit-finding {
+  padding: 9px 10px;
+}
+.check-list .check-detail > .kit-kv .finding-fix {
+  color: var(--ink);
+}
+
+/* ---- Pass 14: Design, the tree and the side cards ---- */
+
+/* A side card that holds one fold says its name once: the fold's own line is the card's headline
+   (the heading stays for a screen reader). "Pose" over "Pose" was the same word twice. */
+.shell .kit-slot-right > .kit-panel:has(> .kit-panel-body > details.kit-disclosure:only-child) > .kit-panel-head,
+.shell .kit-slot-right > .kit-panel:has(> .kit-panel-body > :only-child > details.kit-disclosure:only-child) > .kit-panel-head {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.shell .kit-slot-right > .kit-panel:has(> .kit-panel-body > details.kit-disclosure:only-child),
+.shell .kit-slot-right > .kit-panel:has(> .kit-panel-body > :only-child > details.kit-disclosure:only-child) {
+  padding: 8px 12px;
+}
+.shell .kit-slot-right > .kit-panel > .kit-panel-body > details.kit-disclosure:only-child > summary,
+.shell .kit-slot-right > .kit-panel > .kit-panel-body > :only-child > details.kit-disclosure:only-child > summary {
+  min-height: 34px;
+  font: 600 14px/1.3 var(--sans);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.shell .kit-slot-right > .kit-panel > .kit-panel-body > details.kit-disclosure[open]:only-child > summary,
+.shell .kit-slot-right > .kit-panel > .kit-panel-body > :only-child > details.kit-disclosure[open]:only-child > summary {
+  margin-bottom: 8px;
+}
+
+/* Key and value rows: the key is a quiet label, the value carries the weight. */
+.kit-panel .kit-kv dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.kit-panel .kit-kv dd {
+  color: var(--ink);
+}
+.kit-num {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.kit-kind {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+}
+.mass-part {
+  padding: 10px 0;
+  border-top: 0.5px solid var(--hair);
+}
+
+/* The parts tree: group heads are section labels, rows are the content. */
+.kit-tree-head .kit-tree-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.kit-tree-head .kit-tree-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+}
+.kit-tree-group + .kit-tree-group {
+  margin-top: 2px;
+}
+.kit-tree-group > ul {
+  margin-left: 10px;
+}
+.kit-tree-chev {
+  opacity: 0.7;
+}
+/* Add part and Add shape are a pair: one filled, one outlined, same height. */
+.design-parts > .kit-btn-quiet {
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  color: var(--ink);
+}
+.design-parts > .kit-btn-quiet:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* ---- One focus ring (his "blue highlight out of bounds") ----
+   Cause, measured with scripts/focus-audit.mjs on every screen: the base rule drew every ring 2 px
+   OUTSIDE its control, and only text fields had been moved inside. So 743 of 889 control visits had a
+   ring hanging outside, and wherever the control sat in a panel that scrolls, a list, a pill of tabs
+   or a rounded sheet, the ring was cut off or ran past the edge. Now every ring is inside its control. */
+
+/* On a control filled with the accent, an accent ring would vanish: use the colour of its text. */
+.kit-btn-primary:focus-visible,
+.kit-tab[aria-selected="true"]:focus-visible,
+.kit-seg-opt:has(input:checked):has(input:focus-visible),
+.shell-more[data-active]:focus-visible {
+  outline-color: var(--on-accent);
+}
+/* The 3D view fills the window: its ring is a quiet inner line, not a blue frame around everything. */
+.shell-scene canvas:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -1px;
+}
+/* A selected row already has a filled bar: its ring follows its corners. */
+.kit-finding:focus-visible,
+.kit-tree-row:focus-visible {
+  border-radius: 8px;
+}
+
+/* ---- Pass 16: the bottom bar and its menus ---- */
+
+/* The bottom tools are a toolbar like the top ones: grey ink. Blue only says "the view is changed". */
+.view-menu > .kit-btn-quiet,
+.shell .kit-slot-bottomRight .kit-btn-quiet {
+  color: var(--ink);
+  font-weight: 500;
+}
+.view-menu > .kit-btn-quiet:hover:not(:disabled),
+.shell .kit-slot-bottomRight .kit-btn-quiet:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.view-menu > .kit-btn-quiet[data-active] {
+  color: var(--accent);
+}
+
+/* The View menu reads like a native menu: a tick column, the name, the key on the right edge, a hairline
+   between the groups (what is shown / how it is drawn / where the camera sits / the rest). */
+.view-menu-list {
+  min-width: 264px;
+  padding: 6px;
+  gap: 1px;
+}
+.shell-menu-list .view-row {
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px 5px 28px;
+  border-radius: 7px;
+  position: relative;
+  font-size: 13px;
+}
+.shell-menu-list .view-row[aria-checked="true"] {
+  background: none;
+  color: var(--ink);
+}
+.shell-menu-list .view-row[aria-checked="true"]::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 9px;
+  height: 5px;
+  margin-top: -5px;
+  border-left: 1.75px solid var(--accent);
+  border-bottom: 1.75px solid var(--accent);
+  transform: rotate(-45deg);
+}
+.shell-menu-list .view-row[aria-checked="true"]:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.view-row kbd {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  color: var(--muted);
+  font: 500 11px/1.5 var(--mono, ui-monospace, monospace);
+  text-align: center;
+}
+.view-menu-list > .view-row:nth-child(3),
+.view-menu-list > .view-row:nth-child(6),
+.view-menu-list > .view-reset,
+.view-menu-list > .view-units {
+  margin-top: 5px;
+  border-top: 0;
+}
+.view-menu-list > .view-row:nth-child(3)::after,
+.view-menu-list > .view-row:nth-child(6)::after,
+.view-menu-list > .view-reset::after,
+.view-menu-list > .view-units::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: -3px;
+  height: 0.5px;
+  background: var(--hair);
+}
+/* Units: two separate pairs (length, angle), each a small switch. */
+.shell-menu-list .view-units {
+  padding: 6px 8px 4px 28px;
+}
+.view-units > span:first-child {
+  color: var(--muted);
+  font-size: 12px;
+}
+.view-units > span:last-child {
+  gap: 0;
+}
+.view-units .kit-tab {
+  height: 24px;
+  min-width: 38px;
+  padding: 0 9px;
+  justify-content: center;
+  border-radius: 0;
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  color: var(--muted);
+  font-size: 12px;
+}
+.view-units .kit-tab:nth-child(odd) { border-radius: 7px 0 0 7px; }
+.view-units .kit-tab:nth-child(even) { border-radius: 0 7px 7px 0; }
+.view-units .kit-tab:nth-child(3) { margin-left: 8px; }
+.view-units .kit-tab[aria-checked="true"] {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Parts: the two buttons sit on one line with air under them; the tree and the legend take the full width. */
+.design-parts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.design-parts > * {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.design-parts > .kit-btn {
+  flex: 0 0 auto;
+}
+
+/* ---- Pass 17: the start card leads with the one example built to show a catch ----
+   Nine chips in two columns left one orphan and gave the "see a catch" example the same weight as the
+   rest. It now takes the full row, a little taller, with an arrow: one tap from here to the first catch. */
+.open-face-new li:first-child {
+  grid-column: 1 / -1;
+}
+.open-face-new li[data-result="fails"]:first-child button {
+  position: relative;
+  height: 58px;
+  padding: 8px 44px 8px 14px;
+  border-radius: 12px;
+  background: linear-gradient(100deg, color-mix(in srgb, var(--bad) 14%, transparent), color-mix(in srgb, var(--bad) 4%, transparent) 72%);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--bad) 46%, transparent);
+  font-size: 14px;
+  font-weight: 600;
+}
+.open-face-new li[data-result="fails"]:first-child .open-face-note {
+  font-size: 12px;
+}
+.open-face-new li[data-result="fails"]:first-child button::after {
+  content: "";
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -4px;
+  border-top: 1.75px solid var(--ink);
+  border-right: 1.75px solid var(--ink);
+  transform: rotate(45deg);
+  opacity: 0.7;
+  transition: transform 160ms var(--ease), opacity 160ms var(--ease);
+}
+.open-face-new li[data-result="fails"]:first-child button:hover:not(:disabled) {
+  background: linear-gradient(100deg, color-mix(in srgb, var(--bad) 20%, transparent), color-mix(in srgb, var(--bad) 7%, transparent) 72%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 60%, transparent);
+}
+.open-face-new li[data-result="fails"]:first-child button:hover:not(:disabled)::after {
+  transform: translateX(3px) rotate(45deg);
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .open-face-new li[data-result="fails"]:first-child button::after {
+    transition: none;
+  }
+}
+/* On a short window (the default size) the whole card fits without scrolling. */
+@media (max-height: 820px) {
+  .shell-center .open-face .kit-panel {
+    padding: 18px 24px;
+  }
+  .open-face-mark {
+    width: 40px;
+    height: 40px;
+  }
+  .open-face-wordmark {
+    font-size: 22px;
+  }
+  .open-face-drop {
+    padding: 12px 16px;
+  }
+  .open-face-new ul {
+    gap: 6px;
+  }
+  .open-face-new li button {
+    height: 40px;
+  }
+  .open-face-new li[data-result="fails"]:first-child button {
+    height: 48px;
+  }
+  .open-face-blank {
+    margin-top: 8px;
+  }
+}
+
+/* ---- Pass 18: Plan, Declare and Docs ---- */
+
+/* Declare: the button, then the "what if" slider on its own full line, then Compare. The slider was
+   floating beside its sentence, off the text line. */
+.declare-actions {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+.measure-slider-label {
+  align-self: stretch;
+  display: grid;
+  gap: 8px;
+  padding: 12px 0 2px;
+  border-top: 0.5px solid var(--hair);
+  color: var(--muted);
+  font-size: 12px;
+}
+.measure-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+}
+.measure-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
+}
+.measure-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent), 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+/* A panel's own action (Add part on Values) is a small outlined button, not a blue link. */
+.kit-panel-head > .kit-btn-quiet {
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.kit-panel-head > .kit-btn-quiet:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Plan: each step is a full row, its result on the right edge, a hairline between rows. */
+.plan-outcome-row,
+.plan-outcome-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border-radius: 8px;
+}
+.plan-outcome-row + .plan-outcome-row {
+  box-shadow: 0 -0.5px 0 var(--hair);
+}
+.plan-total {
+  padding-top: 8px;
+  border-top: 0.5px solid var(--hair);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Docs: the power tree is drawn as a tree (an elbow before every fed item), figures in even columns. */
+.reference-tree {
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.reference-tree li:not([style*="padding-left: 0px"])::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 6px 3px -14px;
+  border-left: 1px solid color-mix(in srgb, var(--ink) 28%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 28%, transparent);
+  border-radius: 0 0 0 3px;
+}
+.reference-sheet-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Pass 19: the data drawer reads as sections ---- */
+
+/* Folds in the drawer turn the same chevron as every other fold, not the browser's black triangle. */
+.shell-drawer details:not(.kit-disclosure) > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+}
+.shell-drawer details:not(.kit-disclosure) > summary::-webkit-details-marker {
+  display: none;
+}
+.shell-drawer details:not(.kit-disclosure) > summary::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px 0 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.55;
+  transform: rotate(-45deg);
+  transition: transform var(--motion);
+}
+.shell-drawer details:not(.kit-disclosure)[open] > summary::before {
+  transform: rotate(45deg);
+}
+/* Power: the table, the pack and the what-if are three sections with a hairline between them. */
+.shell-drawer .power-columns,
+.shell-drawer .power-pack,
+.shell-drawer .power-whatif {
+  padding-top: 10px;
+  border-top: 0.5px solid var(--hair);
+}
+.power-columns > .assistant-note {
+  display: block;
+  margin-top: 8px;
+  line-height: 1.45;
+}
+.power-pack > div {
+  padding: 2px 0 2px 17px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Wiring: a pin finding is a note card with a warn edge, not a wall of small text. */
+.wiring-findings > .assistant-note {
+  display: block;
+  margin-top: 6px;
+  padding: 9px 11px 9px 13px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+  box-shadow: inset 2px 0 0 var(--warn);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  line-height: 1.5;
+}
+.wiring-findings > .assistant-note > strong {
+  color: var(--ink);
+}
+/* Overlaps: every joint's result is a row with a mark (clear, or a hit), then the method in small print. */
+.shell-drawer .kit-panel-body > p[style*="var(--ink)"],
+.shell-drawer .kit-panel-body > p[style*="var(--warn)"] {
+  position: relative;
+  margin: 6px 0 !important;
+  padding: 8px 11px 8px 30px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  font-variant-numeric: tabular-nums;
+}
+.shell-drawer .kit-panel-body > p[style*="var(--ink)"]::before,
+.shell-drawer .kit-panel-body > p[style*="var(--warn)"]::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 14px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--go);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--go) 22%, transparent);
+}
+.shell-drawer .kit-panel-body > p[style*="var(--warn)"] {
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.shell-drawer .kit-panel-body > p[style*="var(--warn)"]::before {
+  background: var(--warn);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.shell-drawer .kit-panel-body > p.assistant-note {
+  margin: 10px 0 0;
+  line-height: 1.5;
+}
+.shell-drawer .kit-panel-body > .assistant-note[role="status"] {
+  display: block;
+  margin-top: 10px;
+}
+
+/* Pass 20: when a file will not open, the start card moves down so the message sits above it, never on its logo. */
+.shell:has(.open-face-error) .shell-center {
+  padding-top: 120px;
+}

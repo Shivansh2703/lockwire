@@ -12,6 +12,7 @@ import { typing } from "../shortcuts";
 import { getViewState } from "./viewState";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 import type { RobotLink } from "../../shared/api.gen";
 import {
@@ -300,6 +301,9 @@ function measurePaintedSilhouette(
   };
 }
 
+/** The one part material: matte with a little sheen, so a face reads as a solid surface under the key light and the shadows. */
+export const partMaterial = () => new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.62, metalness: 0.08 });
+
 /** One mesh for one decoded part (TEAM-02's ghost of an older revision is built through the same door). */
 export function partMesh(part: ScenePart): THREE.Mesh {
   const positions = decodePartPositions(part);
@@ -315,7 +319,8 @@ export function partMesh(part: ScenePart): THREE.Mesh {
   }
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x8899aa }));
+  const mesh = new THREE.Mesh(geometry, partMaterial());
+  mesh.castShadow = mesh.receiveShadow = true;
   mesh.userData.partId = part.id ?? null;
   return mesh;
 }
@@ -339,6 +344,10 @@ export function buildScene(
   // Capped at 2: uncapped, a 4x-DPR machine pays 4x the fragments for no visible gain.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(width, height, false);
+  if (renderer.shadowMap) { // absent under a stubbed renderer (tests)
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  }
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; // zoom stays on for touch pinch; attachWheel takes the wheel first
@@ -357,15 +366,54 @@ export function buildScene(
   meshes.push(...extraMeshes);
 
   // Light is neutral by design (not a themed colour): white sky, cool-grey bounce.
-  scene.add(new THREE.HemisphereLight(LIGHT_SKY, LIGHT_GROUND, 1.0));
-  const directional = new THREE.DirectionalLight(LIGHT_SKY, 0.6);
-  directional.position.set(5, 10, 7);
-  scene.add(directional);
+  scene.add(new THREE.HemisphereLight(LIGHT_SKY, LIGHT_GROUND, 0.62));
+  // A soft studio around the robot: faces pick up a little light from every side, so a flat grey
+  // panel has a gradient across it instead of one flat tone. Neutral (no colour cast), and only
+  // where there is a real GL context (a stubbed renderer in tests has no capabilities).
+  if ((renderer as { capabilities?: unknown }).capabilities) {
+    try {
+      const studio = new THREE.PMREMGenerator(renderer);
+      scene.environment = studio.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.42;
+      studio.dispose();
+    } catch { /* no studio light: the hemisphere and key lights still light the robot */ }
+  }
+  // The key comes from in front of the home view, high and to the left, and casts the shadows
+  // (`aimKeyLight` fits its shadow box to the robot). It is found again by `userData.key`.
+  const key = new THREE.DirectionalLight(LIGHT_SKY, 0.95);
+  key.position.copy(KEY_FROM);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.userData.key = true;
+  scene.add(key, key.target);
+  // A soft light from behind: edges facing away from the key still separate from the floor.
+  const rim = new THREE.DirectionalLight(LIGHT_SKY, 0.4);
+  rim.position.set(5, 10, 7);
+  scene.add(rim);
 
   const ctx: SceneContext = { scene, camera, controls, renderer, resolution, meshes, needsRender: true };
   applyViewInset(ctx, inset, width, height);
   refit(ctx);
   return ctx;
+}
+
+const KEY_FROM = new THREE.Vector3(-3.2, -5.5, 8.5);
+/** Point the key light at the robot and fit its shadow box around it, with room for the shadow the robot throws on the floor. */
+export function aimKeyLight(scene: THREE.Scene, box: THREE.Box3, intensity = 0.95): void {
+  const key = scene.children.find((o): o is THREE.DirectionalLight => !!o.userData.key);
+  if (!key || box.isEmpty()) return;
+  key.intensity = intensity;
+  const ball = box.getBoundingSphere(new THREE.Sphere());
+  const r = Math.max(ball.radius, 0.05);
+  key.target.position.copy(ball.center);
+  key.position.copy(ball.center).addScaledVector(KEY_FROM.clone().normalize(), r * 4);
+  const cam = key.shadow.camera;
+  Object.assign(cam, { left: -r * 2.4, right: r * 2.4, top: r * 2.4, bottom: -r * 2.4, near: r * 0.5, far: r * 8 });
+  cam.updateProjectionMatrix();
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = r * 0.006; // about two shadow texels: no banding on faces that graze the light
+  key.shadow.radius = 5;
+  key.shadow.needsUpdate = true;
 }
 
 /** Arrow-key walk: hold the arrows to move camera and target together over the ground plane (Z-up),
@@ -489,13 +537,29 @@ export function pickHit(ctx: SceneContext, ndcX: number, ndcY: number): SceneHit
 
 export interface SceneHit { id: string; point: number[] }
 
+/** Free a part's crease lines (`robotScene.setEdges` draws them as a child of the part). */
+export function disposeEdges(mesh: THREE.Mesh): void {
+  const edges = mesh.userData.edges as THREE.LineSegments<THREE.BufferGeometry, THREE.Material> | undefined;
+  if (!edges) return;
+  mesh.remove(edges);
+  edges.geometry.dispose();
+  edges.material.dispose();
+  delete mesh.userData.edges;
+}
+
 export function disposeScene(ctx: SceneContext): void {
-  for (const o of ctx.scene.children.filter((c) => c.userData.decor)) (o as THREE.GridHelper).dispose();
+  for (const o of ctx.scene.children.filter((c) => c.userData.decor)) {
+    const d = o as Partial<THREE.Mesh<THREE.BufferGeometry, THREE.Material>> & { dispose?: () => void };
+    if (d.dispose) d.dispose(); // a helper disposes itself
+    else { d.geometry?.dispose(); d.material?.dispose(); } // the floor and its shadow are plain meshes
+  }
   ctx.controls.dispose();
   for (const mesh of ctx.meshes) {
     mesh.geometry.dispose();
     (mesh.material as THREE.Material).dispose();
+    disposeEdges(mesh);
   }
+  ctx.scene.environment?.dispose();
   ctx.renderer.dispose();
 }
 
@@ -551,7 +615,8 @@ export function primitiveMeshes(links: readonly RobotLink[]): THREE.Mesh[] {
       const geometry = shape.kind === "box" ? new THREE.BoxGeometry(a, b, c)
         : shape.kind === "cylinder" ? new THREE.CylinderGeometry(a, a, b, 32).rotateX(Math.PI / 2)
           : new THREE.SphereGeometry(a, 32, 16);
-      const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x8899aa }));
+      const mesh = new THREE.Mesh(geometry, partMaterial());
+      mesh.castShadow = mesh.receiveShadow = true;
       const r = shape.rotation;
       mesh.setRotationFromMatrix(new THREE.Matrix4().set(r[0]!, r[1]!, r[2]!, 0, r[3]!, r[4]!, r[5]!, 0, r[6]!, r[7]!, r[8]!, 0, 0, 0, 0, 1));
       mesh.position.set(shape.position[0]!, shape.position[1]!, shape.position[2]!);
@@ -570,6 +635,7 @@ export function syncPrimitives(ctx: SceneContext, next: THREE.Mesh[]): void {
     ctx.scene.remove(old);
     old.geometry.dispose();
     (old.material as THREE.Material).dispose();
+    disposeEdges(old);
   }
   ctx.meshes = ctx.meshes.filter((m) => !m.userData.primitive);
   for (const m of next) ctx.scene.add(m);

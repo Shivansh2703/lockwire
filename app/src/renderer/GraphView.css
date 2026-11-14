@@ -8,7 +8,7 @@
 .gv-key span { display: inline-flex; align-items: center; gap: var(--sp-15); }
 .gv-tip { position: absolute; margin: 0; font-size: var(--fs-md); color: var(--ink); min-height: 1.2em; }
 .gv-node { cursor: pointer; }
-.gv-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gv-node:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .gv-node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
 .gv-node text { fill: var(--ink); font-size: var(--fs-sm); pointer-events: none; }
 .gv-k-device rect { stroke: var(--chart-4); }
