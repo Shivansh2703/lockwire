@@ -1,0 +1,335 @@
+# Two-joint desk arm with its power and wiring declared: the one bundled example that makes the 0.5.0 power, wiring and pin checks fire.
+# As shipped it has three real problems; README.md names each one and the single change that fixes it:
+#   1. wire w.pack is 22 AWG behind a 9 A resettable fuse: the fuse cannot protect the wire (fuse over wire, a ruled NO-GO).
+#   2. wire w.servo-feed is a 28 AWG, 0.6 m lead on the 5 V servo rail: with both servos stalled the rail sags below the
+#      Jetson's 4.75 V minimum (all-servo brownout, a ruled NO-GO); the same thin lead is far over its ampacity.
+#   3. the Dynamixel data wire w.bus-data is on ESP32 pin IO12, a strapping pin the pin card marks reserved (pin rules).
+# Every spec number is copied from a catalog row or a pin card, with its source named in a comment on the line that uses it.
+# Anything marked "design choice" (lengths, gauges, which part, gains) is mine, not a maker spec.
+# Parts: Gens ace 3S 2200 mAh 35C pack (catalog pack.gensace.3s-2200-35c-bashing) -> Bourns MF-R900 resettable fuse (catalog
+# ptc.bourns.mf-r900) -> Pololu D36V50F5 5 V 5.5 A buck (catalog pololu.d36v50f5) -> a 5 V rail with two ROBOTIS Dynamixel
+# XL330-M288 servos (catalog dynamixel.xl330-m288) and an NVIDIA Jetson Nano Developer Kit (catalog nvidia.jetson-nano-devkit).
+# An ESP32-DevKitC (pin card esp32-devkitc-wroom-32) is the servo-bus bridge; its power is not modelled (no cited draw).
+# The two links are solid 6061-T6 aluminium bars, so their masses are derived from the shapes and the cited density (catalog
+# material row "Aluminium 6061-T6"). The only declared masses are the cited servo and pack masses.
+schema_version: '0.2'
+robot:
+  name: Two-joint desk arm
+  id: arm-power
+servo: dynamixel.xl330-m288  # catalog id of the servo on both joints (design choice of part; its numbers are the catalog row's)
+edges: []
+assumptions: []
+families:
+- id: fam.servo.smart
+  name: Smart servo
+- id: fam.compute
+  name: Compute and control boards
+device_models:
+- id: mdl.servo.xl330
+  family: fam.servo.smart
+  provenance:
+    witness: w1
+    source: https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/
+    locked_at: '2026-11-13'
+    note: "Catalog row dynamixel.xl330-m288: operating voltage 3.7-6 V, stall current 1.47 A and stall torque 0.52 N*m, both at 5 V."
+  input_voltage_range:  # catalog dynamixel.xl330-m288 input_voltage_min / input_voltage_max
+    min:
+      value: 3.7
+      unit: V
+    max:
+      value: 6
+      unit: V
+  actuator:
+    stall_current_a: 1.47  # catalog dynamixel.xl330-m288 stall_current, at 5 V
+    torque_peak: 0.52  # catalog dynamixel.xl330-m288 stall_torque, at 5 V
+- id: mdl.jetson-nano
+  family: fam.compute
+  provenance:
+    witness: w1
+    source: https://developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf
+    locked_at: '2026-11-13'
+    note: "Catalog row nvidia.jetson-nano-devkit: module requires at least 4.75 V; 5.25 V is the output of the supply NVIDIA names (no maximum is published); draw_max 11.25 W."
+  input_voltage_range:  # catalog nvidia.jetson-nano-devkit input_voltage_min / input_voltage_max
+    min:
+      value: 4.75
+      unit: V
+    max:
+      value: 5.25
+      unit: V
+- id: esp32-devkitc-wroom-32
+  family: fam.compute
+- id: mdl.pack
+  family: fam.compute
+devices:
+- id: dev.servo.shoulder
+  model: mdl.servo.xl330
+  drives_joint: shoulder
+  power:
+    rail: rail.5v
+    draw:
+      value: 7.35
+      unit: W
+    modes:
+    - name: stall
+      draw:
+        value: 7.35
+        unit: W
+  physical:
+    mass:
+      value: 18
+      unit: g
+    mount_frame: base
+  owner: you
+  connectors:
+  - id: BUS
+    pins:
+    - number: 1
+      name: DATA
+  provenance:
+    witness: w1
+    source: https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/
+    locked_at: '2026-11-13'
+    note: "Catalog dynamixel.xl330-m288: mass 18 g; stall current 1.47 A at 5 V, so stall draw = 1.47 A x 5 V = 7.35 W. The catalog carries no no-load current, so the nominal draw is also the stall figure (the worst case, a design choice)."
+- id: dev.servo.elbow
+  model: mdl.servo.xl330
+  drives_joint: elbow
+  power:
+    rail: rail.5v
+    draw:
+      value: 7.35
+      unit: W
+    modes:
+    - name: stall
+      draw:
+        value: 7.35
+        unit: W
+  physical:
+    mass:
+      value: 18
+      unit: g
+    mount_frame: upper-arm
+  owner: you
+  connectors:
+  - id: BUS
+    pins:
+    - number: 1
+      name: DATA
+  provenance:
+    witness: w1
+    source: https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/
+    locked_at: '2026-11-13'
+    note: "Catalog dynamixel.xl330-m288: mass 18 g; stall current 1.47 A at 5 V, so stall draw = 1.47 A x 5 V = 7.35 W. The catalog carries no no-load current, so the nominal draw is also the stall figure (the worst case, a design choice)."
+- id: dev.jetson
+  model: mdl.jetson-nano
+  power:
+    rail: rail.5v
+    draw:
+      value: 11.25
+      unit: W
+  physical:
+    mount_frame: base
+  owner: you
+  provenance:
+    witness: w1
+    source: https://developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf
+    locked_at: '2026-11-13'
+    note: "Catalog nvidia.jetson-nano-devkit draw_max 11.25 W (10 W module budget + 1.25 W carrier board, no peripherals)."
+- id: dev.esp32
+  model: esp32-devkitc-wroom-32
+  physical:
+    mount_frame: base
+  owner: you
+  provenance:
+    witness: w1
+    source: https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html
+    locked_at: '2026-11-13'
+    note: "Board identity is the pin card esp32-devkitc-wroom-32; no power draw is declared (the catalog has no cited ESP32 draw)."
+- id: dev.battery
+  model: mdl.pack
+  physical:
+    mass:
+      value: 143
+      unit: g
+    mount_frame: base
+  owner: you
+  provenance:
+    witness: w1
+    source: https://genstattu.com/gens-ace-2200mah-3s-35c-11-1v-g-tech-bashing-lipo-battery-pack-with-xt60-plug/
+    locked_at: '2026-11-13'
+    note: "Catalog pack.gensace.3s-2200-35c-bashing: net weight 143 g (+/-20 g where stated)."
+budgets: []
+gearboxes: []
+fitted_band_allocations: []
+actuator_cases: []
+controllers:
+# Design choice, not a maker spec: PD gains and the 1 kHz position-loop rate are mine, sized only so the Pro tuner has a loop to read.
+- joint: shoulder
+  kp: 4.0
+  kd: 0.05
+  loop_rate_hz: 1000
+- joint: elbow
+  kp: 2.0
+  kd: 0.03
+  loop_rate_hz: 1000
+model:
+  source: lockfile
+  source_sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  structure_hash: '0'
+  links:
+  - name: base
+    geometry:
+    - kind: box
+      size: [0.12, 0.12, 0.01]
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: upper-arm
+    geometry:
+    - kind: box  # design choice: 120 mm x 10 mm x 10 mm bar, origin at the shoulder, centred along +x
+      size: [0.12, 0.01, 0.01]
+      origin:
+        xyz: [0.06, 0, 0]
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: forearm
+    geometry:
+    - kind: box  # design choice: 100 mm x 10 mm x 10 mm bar, origin at the elbow, centred along +x
+      size: [0.1, 0.01, 0.01]
+      origin:
+        xyz: [0.05, 0, 0]
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: tip
+    geometry:
+    - kind: box  # design choice: 20 mm x 10 mm x 10 mm fingertip block at the forearm end
+      size: [0.02, 0.01, 0.01]
+      origin:
+        xyz: [0.01, 0, 0]
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  joints:
+  - name: shoulder
+    type: revolute
+    parent: base
+    child: upper-arm
+    origin:
+      xyz: [0, 0, 0.01]
+    axis: [0, 1, 0]
+    # effort 0.52 N*m = catalog dynamixel.xl330-m288 stall_torque (0.52 N*m at 5 V). lower/upper -pi..+pi = the catalog
+    # rotation_range 360 deg, centred on zero (a design choice: the maker states a span, no mechanical stops).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 0.52
+  - name: elbow
+    type: revolute
+    parent: upper-arm
+    child: forearm
+    origin:
+      xyz: [0.12, 0, 0]
+    axis: [0, 1, 0]
+    # effort 0.52 N*m = catalog dynamixel.xl330-m288 stall_torque (0.52 N*m at 5 V); range as above.
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 0.52
+  - name: tip-block
+    type: fixed
+    parent: forearm
+    child: tip
+    origin:
+      xyz: [0.1, 0, 0]
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+  zero_mass_links: []
+topology:
+  rails:
+  - id: rail.battery
+    voltage:
+      value: 11.1
+      unit: V
+    capacity:
+      value: 854.7
+      unit: W
+    # 9 A = catalog ptc.bourns.mf-r900 hold_current (the maker's rating for continuous current; it trips at 18 A). The fuse
+    # is a design choice, picked to cover the 35C pack, not the wire (problem 1).
+    current_limit:
+      value: 9
+      unit: A
+    current_limit_enforced_by: fuse
+    provenance:
+      witness: w1
+      source: https://genstattu.com/gens-ace-2200mah-3s-35c-11-1v-g-tech-bashing-lipo-battery-pack-with-xt60-plug/
+      locked_at: '2026-11-13'
+      note: "Gens ace 2200mAh 3S 35C pack (catalog pack.gensace.3s-2200-35c-bashing): 35C x 2.2 Ah = 77 A, 77 A x 11.1 V = 854.7 W (the pack's own capability); the rail current limit is the series fuse, Bourns MF-R900 hold current 9 A (catalog ptc.bourns.mf-r900). 11.1 V is the maker's stated nominal 3S voltage, not a catalog number."
+  - id: rail.5v
+    voltage:
+      value: 5
+      unit: V
+    capacity:
+      value: 27.5
+      unit: W
+    upstream: rail.battery
+    regulator_kind: buck
+    min_input_v: 5.5  # catalog pololu.d36v50f5 input_voltage_min
+    efficiency: 0.8  # catalog pololu.d36v50f5 efficiency_min 80 %
+    provenance:
+      witness: w1
+      source: https://www.pololu.com/product/4091
+      locked_at: '2026-11-13'
+      note: "Pololu D36V50F5 (catalog pololu.d36v50f5): 5 V output, 5.5 A maximum so 27.5 W capacity, 5.5 V minimum input, typical efficiency 80-95 % (low end used)."
+  wires:
+  # design choice: gauge, length and installation of every wire below are mine, not maker specs.
+  - id: w.pack
+    awg: 22
+    installation: free_air
+    rail: rail.battery
+    length_m: 0.3
+    owner: you
+  - id: w.servo-feed
+    awg: 28
+    installation: free_air
+    rail: rail.5v
+    length_m: 0.6
+    owner: you
+  - id: w.bus-data
+    owner: you
+    from:
+      device: dev.esp32
+      connector: J2
+      pin: IO12
+    to:
+      device: dev.servo.shoulder
+      connector: BUS
+      pin: 1
+  battery:
+    capacity:
+      value: 24.42
+      unit: Wh
+    voltage:
+      value: 11.1
+      unit: V
+    chemistry: lipo
+    cells_series: 3
+    c_rate_continuous: 35
+    c_rate_burst: 70
+    mass:
+      value: 143
+      unit: g

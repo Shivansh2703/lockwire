@@ -1,0 +1,8 @@
+.find-part { position: fixed; z-index: 20; top: 64px; left: 50%; transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: var(--sp-2, 8px); padding: var(--sp-3, 12px); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); color: var(--ink); }
+.find-part input { font: inherit; padding: 8px 10px; border-radius: var(--radius-sm, 6px); border: 1px solid var(--line); background: var(--bg, var(--panel)); color: var(--ink); }
+.find-part input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.find-part ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.find-part li { display: flex; justify-content: space-between; gap: var(--sp-3, 12px); padding: 6px 10px; border-radius: var(--radius-sm, 6px); cursor: pointer; }
+.find-part li.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.find-part li small { color: var(--muted); }
+.find-part-none { margin: 0; color: var(--muted); }

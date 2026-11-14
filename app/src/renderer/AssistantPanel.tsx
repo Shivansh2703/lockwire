@@ -26,7 +26,7 @@ export function AllowScreen({ contract, hasKey, onSaved }: { contract: string; h
   return (
     <div className="assistant-col">
       {!hasKey && <Field label="Paste your Anthropic key" type="password" value={key} onChange={(e: { target: { value: string } }) => setKey(e.target.value)} />}
-      {!hasKey && <span className="assistant-note">Get one at console.anthropic.com.</span>}
+      {!hasKey && <span className="assistant-note">The Assistant reads your robot and proposes edits you sign. It needs your own Anthropic key (get one at console.anthropic.com). The key is saved encrypted on this computer and sent only to Anthropic.</span>}
       <span className="assistant-note">Your robot's contract is sent to Anthropic with your key.</span>
       {error && <Notice kind="error">{error}</Notice>}
       <Button variant="primary" disabled={!hasKey && !key.trim()} onClick={() => void allow()}>{hasKey ? "Allow for this robot" : "Save key and allow for this robot"}</Button>
@@ -100,7 +100,7 @@ export function AssistantPanel({ contract, revision, mode, witness, chat, onChat
         {busy !== null && <span className="assistant-note" role="status">{busy ? `Working: ${busy}` : "Thinking"}</span>}
         {cards.map((c) => (
           <div key={c.id} className="assistant-card">
-            <span>The Assistant proposes <strong>{c.command}</strong>. Nothing changes until you sign. The diff's witness line will carry the name you sign with.</span>
+            <span>The Assistant proposes <strong>{c.command}</strong>. Nothing changes until you sign. The diff's Checked by line will carry the name you sign with.</span>
             <Diff diff={c.diff} />
             {c.result ? <span className="assistant-note">{c.result}</span> : (
               <>

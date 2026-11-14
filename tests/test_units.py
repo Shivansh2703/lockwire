@@ -1,5 +1,8 @@
+import math
+
 import pytest
 
+from lockwire import edit
 from lockwire.units import UnitError, convert, dimension, known, to_base
 
 
@@ -58,3 +61,23 @@ def test_db_gain_not_convertible_to_linear():
         convert(1, "dBi", "1")
     with pytest.raises(UnitError):
         convert(1, "dB", "dBm")
+
+
+def test_oz_in_to_newton_metres():
+    assert convert(50, "oz*in", "N*m") == pytest.approx(0.353, abs=5e-4)
+
+
+def test_mn_m_to_newton_metres():
+    assert convert(250, "mN*m", "N*m") == pytest.approx(0.25)
+
+
+def test_rpm_to_rad_per_s():
+    assert convert(60, "rpm", "rad/s") == pytest.approx(2 * math.pi)
+
+
+def test_deg_per_s_to_rad_per_s():
+    assert convert(180, "deg/s", "rad/s") == pytest.approx(math.pi)
+
+
+def test_edit_field_accepts_oz_in():
+    assert edit.parse_value("50 oz*in", field_name="torque") == {"value": 50.0, "unit": "oz*in"}

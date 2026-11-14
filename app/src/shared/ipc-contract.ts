@@ -11,6 +11,11 @@ export const SIDECAR_STATE_CHANGED_CHANNEL = "lockwire:sidecar-state-changed";
 
 // main -> renderer: File > Open Robot... finished; payload { result: StartUrdfResult } | { error }.
 export const MENU_OPENED_CHANNEL = "lockwire:opened-from-menu";
+// File > Close robot: main tells the window to go back to the start screen.
+export const CLOSE_ROBOT_CHANNEL = "lockwire:close-robot";
+export const SHORTCUTS_CHANNEL = "lockwire:show-shortcuts";
+// View > Toggle Light/Dark: main tells the window to flip its theme.
+export const THEME_CHANNEL = "lockwire:toggle-theme";
 
 // main -> renderer push: Assistant tool-call progress ({ type: "tool", name }) and the final
 // message ({ type: "done", turn }). Same shape as the pushes above.
@@ -42,6 +47,8 @@ export const PERMITTED_COMMAND_CLASSES = [
   "file:new-robot",
   "file:starters",
   "file:choose-plan",
+  "file:save-picture",
+  "file:print-part",
   "file:choose-package-folder",
   "sidecar:state",
   "sidecar:restart",
@@ -55,6 +62,7 @@ export const PERMITTED_COMMAND_CLASSES = [
   "terminal:resize",
   "terminal:kill",
   "agent:start",
+  "agent:power-design",
   "agent:stop",
 ] as const;
 
@@ -80,7 +88,7 @@ type MountShape = {
 export type ContractWriteRequest =
   | {
       command: "declare";
-      args: Provenance & { contract: string; path: string; value: unknown };
+      args: Omit<Provenance, "witness"> & { witness?: string | null; formal?: boolean; contract: string; path: string; value: unknown };
     }
   | {
       command: "add";
@@ -123,6 +131,13 @@ export type ContractWriteRequest =
       command: "mount-shape";
       args: Provenance & { contract: string; target: string; shape: MountShape };
     }
+  | {
+      command: "delete";
+      args: Provenance & { contract: string; kind: "link" | "joint" | "device"; name: string };
+    }
+  /** One step of the engine's edit journal (not the old whole-file undo): exactly the last write goes back or forward. */
+  | { command: "undo-edit" | "redo-edit"; args: { contract: string } }
+  | { command: "set-witness"; args: { name: string } }
   | {
       command: "swap-apply";
       args: { contract: string; joint: string; part_id: string; expected_revision: string };
@@ -176,9 +191,11 @@ export type AssistantEvent = { type: "tool"; name: string } | { type: "done"; tu
 
 // The Agent tab (main/agent.ts): reads and proposes, streamed; `tools` is the session's live tool list.
 // `proposal` is held in the Assistant's store: "Review and sign" hands it to the Assistant tab's card. `usage` is the plain cost line.
+export type AssemblyScene = { index: number; title: string; links: string[]; newLink: string | null; parts?: string[] };
 export type AgentEvent =
   | { type: "text"; text: string } | { type: "tool"; name: string } | { type: "tools"; tools: string[] }
-  | { type: "proposal"; proposal: AssistantProposal; check: string } | { type: "done"; error?: string; usage?: string };
+  | { type: "proposal"; proposal: AssistantProposal; check: string } | { type: "done"; error?: string; usage?: string }
+  | { type: "steps"; steps: AssemblyScene[] }; // Pro build instructions: each step's scene, root first; the renderer draws the picture
 export type AgentPush = { contract: string; event: AgentEvent };
 
 export type TerminalStartRequest = { cols: number; rows: number; /** The open robot's folder; main falls back to home. */ cwd?: string };

@@ -55,7 +55,7 @@ export function SwapPanel({ contract, revision, joint, onClose, onApplied }: {
       {weak.length > 0 && <Notice kind="error">Warning: {weak.join(" and ")} would be too weak with this servo. Pick a stronger one, or expect it to fail under load.</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
       {list && list.candidates.some((c) => c.flags.includes("different bus")) && <p className="check-note">"Different bus" means the servo needs a different cable or adapter, and a different protocol, than the current servo.</p>}
-      {list && list.candidates.length === 0 && <EmptyState title="no cited alternatives yet" />}
+      {list && list.candidates.length === 0 && <EmptyState title="No alternatives with a source yet. Keep the current servo for now." />}
       {list && GROUPS.map(([status, word, pill]) => {
         const rows = list.candidates.filter((c) => c.status === status);
         return rows.length > 0 && (

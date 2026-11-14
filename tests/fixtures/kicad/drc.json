@@ -1,0 +1,6 @@
+{"$schema": "https://schemas.kicad.org/drc.v1.json", "coordinate_units": "mm", "kicad_version": "9.0.0",
+ "violations": [{"type": "clearance", "description": "Clearance violation (min 0.2 mm; actual 0.1 mm)", "severity": "error",
+   "items": [{"description": "Track [GND] on F.Cu", "pos": {"x": 5, "y": 5}}, {"description": "Via [VCC]", "pos": {"x": 5, "y": 5}}]}],
+ "unconnected_items": [{"type": "unconnected_items", "description": "Missing connection between items", "severity": "error",
+   "items": [{"description": "Pad 1 [SIG] of J1", "pos": {"x": 0, "y": 0}}]}],
+ "schematic_parity": []}

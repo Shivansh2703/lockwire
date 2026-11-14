@@ -1,0 +1,371 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: arduino-uno-r3
+name: Arduino UNO R3
+maker: Arduino
+numbers:
+  gpio_per_pin:
+    value: 20
+    unit: mA
+    kind: datasheet
+    source: 'https://docs.arduino.cc/resources/pinouts/A000066-full-pinout.pdf (Arduino UNO R3 Full Pinout (last update 6 Oct 2022): "MAXIMUM current per I/O pin is 20mA"; as stated), read 2026-11-13'
+  gpio_per_pin_abs_max:
+    value: 40.0
+    unit: mA
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "DC Current per I/O Pin 40.0mA"; ATmega328P chip absolute maximum (stress rating), Table 29.1; not a design limit; Arduino''s 20 mA is the board limit), read 2026-11-13'
+  gpio_total_abs_max:
+    value: 200
+    unit: mA
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "DC Current VCC and GND Pins 200.0mA"; chip VCC/GND pin total, absolute maximum), read 2026-11-13'
+  gpio_group_source_pc0_5_pd0_4_adc7_reset:
+    value: 150
+    unit: mA
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "should not exceed 150mA"; Table 30-1 note 3), read 2026-11-13'
+  gpio_group_source_pb0_5_pd5_7_adc6_xtal:
+    value: 150
+    unit: mA
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "should not exceed 150mA"; as stated), read 2026-11-13'
+  gpio_group_sink_pc0_5_adc7_adc6:
+    value: 100
+    unit: mA
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "should not exceed 100mA"; Table 30-1 note 4), read 2026-11-13'
+  gpio_group_sink_pb0_5_pd5_7_xtal:
+    value: 100
+    unit: mA
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "should not exceed 100mA"; as stated), read 2026-11-13'
+  gpio_group_sink_pd0_4_reset:
+    value: 100
+    unit: mA
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "should not exceed 100mA"; as stated), read 2026-11-13'
+  vol_max:
+    value: 0.9
+    unit: V
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "IOL = 20mA, VCC = 5V ... 0.9"; TA=85 C), read 2026-11-13'
+  voh_min:
+    value: 4.2
+    unit: V
+    kind: datasheet
+    source: 'https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf (ATmega48A/PA/88A/PA/168A/PA/328/P megaAVR
+      Data Sheet (DS40002061B): "IOH = -20mA, VCC = 5V ... 4.2"; TA=85 C), read 2026-11-13'
+  v3v3_pin_max:
+    value: 0.05
+    unit: A
+    kind: datasheet
+    source: 'https://docs.arduino.cc/resources/pinouts/A000066-full-pinout.pdf (Arduino UNO R3 Full Pinout (last update 6 Oct 2022): "MAXIMUM current per +3.3V pin is 50mA"; as stated), read 2026-11-13'
+  vin_min:
+    value: 6
+    unit: V
+    kind: datasheet
+    source: 'https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf (Arduino UNO R3 User Manual, SKU A000066 (modified 12/11/2026): "Maximum input voltage from VIN pad 6 20 V"; datasheet table
+      VINMax 6..20 V; pinout PDF: ''VIN 6-20V input to the board''), read 2026-11-13'
+  vin_max:
+    value: 20
+    unit: V
+    kind: datasheet
+    source: 'https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf (Arduino UNO R3 User Manual, SKU A000066 (modified 12/11/2026): "Maximum input voltage from VIN pad 6 20 V"; datasheet table
+      VINMax 6..20 V; pinout PDF: ''VIN 6-20V input to the board''), read 2026-11-13'
+  usb_max:
+    value: 5.5
+    unit: V
+    kind: datasheet
+    source: 'https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf (Arduino UNO R3 User Manual, SKU A000066 (modified 12/11/2026): "Maximum input voltage from USB connector 5.5 V"; as stated),
+      read 2026-11-13'
+note: VIH min = 0.7*VCC for general I/O at VCC 2.4-5.5 V; 0.6*VCC applies only to XTAL1 and RESET pins. VIL max = 0.3*VCC, pin abs max = VCC+0.5 V (not single numbers).
+connectors:
+- id: JDIGITAL
+  source: 'https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf (Arduino UNO R3 User Manual, SKU A000066 (modified 12/11/2026): section 5.2)'
+  type: header-2.54-1x18
+  pins:
+  - number: 1
+    name: D0
+    aliases:
+    - RX
+    - PD0
+    functions:
+    - gpio
+    - uart_rx
+    type: bidirectional
+  - number: 2
+    name: D1
+    aliases:
+    - TX
+    - PD1
+    functions:
+    - gpio
+    - uart_tx
+    type: bidirectional
+  - number: 3
+    name: D2
+    aliases:
+    - PD2
+    functions:
+    - gpio
+    - interrupt
+    type: bidirectional
+  - number: 4
+    name: D3
+    aliases:
+    - PD3
+    functions:
+    - gpio
+    - pwm
+    - interrupt
+    type: bidirectional
+    capabilities:
+    - pwm
+  - number: 5
+    name: D4
+    aliases:
+    - PD4
+    functions:
+    - gpio
+    type: bidirectional
+  - number: 6
+    name: D5
+    aliases:
+    - PD5
+    functions:
+    - gpio
+    - pwm
+    type: bidirectional
+    capabilities:
+    - pwm
+  - number: 7
+    name: D6
+    aliases:
+    - PD6
+    functions:
+    - gpio
+    - pwm
+    type: bidirectional
+    capabilities:
+    - pwm
+  - number: 8
+    name: D7
+    aliases:
+    - PD7
+    functions:
+    - gpio
+    type: bidirectional
+  - number: 9
+    name: D8
+    aliases:
+    - PB0
+    functions:
+    - gpio
+    type: bidirectional
+  - number: 10
+    name: D9
+    aliases:
+    - PB1
+    functions:
+    - gpio
+    - pwm
+    type: bidirectional
+    capabilities:
+    - pwm
+  - number: 11
+    name: D10
+    aliases:
+    - SS
+    - PB2
+    functions:
+    - gpio
+    - pwm
+    - spi_cs
+    type: bidirectional
+    capabilities:
+    - pwm
+  - number: 12
+    name: D11
+    aliases:
+    - MOSI
+    - COPI
+    - PB3
+    functions:
+    - gpio
+    - pwm
+    - spi_mosi
+    type: bidirectional
+    capabilities:
+    - pwm
+  - number: 13
+    name: D12
+    aliases:
+    - MISO
+    - CIPO
+    - PB4
+    functions:
+    - gpio
+    - spi_miso
+    type: bidirectional
+  - number: 14
+    name: D13
+    aliases:
+    - SCK
+    - PB5
+    functions:
+    - gpio
+    - spi_sck
+    type: bidirectional
+  - number: 15
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 16
+    name: AREF
+    functions:
+    - analog_reference
+    type: input
+  - number: 17
+    name: SDA
+    aliases:
+    - A4
+    - PC4
+    functions:
+    - i2c_sda
+    - adc
+    - gpio
+    type: bidirectional
+  - number: 18
+    name: SCL
+    aliases:
+    - A5
+    - PC5
+    functions:
+    - i2c_scl
+    - adc
+    - gpio
+    type: bidirectional
+- id: JANALOG
+  source: 'https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf (Arduino UNO R3 User Manual, SKU A000066 (modified 12/11/2026): section 5.1)'
+  type: header-2.54-1x14
+  pins:
+  - number: 1
+    name: NC
+    type: no_connect
+  - number: 2
+    name: IOREF
+    functions:
+    - logic_reference
+    type: power_out
+    voltage_v: 5
+  - number: 3
+    name: RESET
+    functions:
+    - reset
+    type: input
+  - number: 4
+    name: 3V3
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 3.3
+  - number: 5
+    name: 5V
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 6
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 7
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 8
+    name: VIN
+    functions:
+    - power_in
+    - power_out
+    type: power_in
+  - number: 9
+    name: A0
+    aliases:
+    - PC0
+    - D14
+    functions:
+    - adc
+    - gpio
+    type: bidirectional
+    capabilities:
+    - adc
+  - number: 10
+    name: A1
+    aliases:
+    - PC1
+    - D15
+    functions:
+    - adc
+    - gpio
+    type: bidirectional
+    capabilities:
+    - adc
+  - number: 11
+    name: A2
+    aliases:
+    - PC2
+    - D16
+    functions:
+    - adc
+    - gpio
+    type: bidirectional
+    capabilities:
+    - adc
+  - number: 12
+    name: A3
+    aliases:
+    - PC3
+    - D17
+    functions:
+    - adc
+    - gpio
+    type: bidirectional
+    capabilities:
+    - adc
+  - number: 13
+    name: A4
+    aliases:
+    - SDA
+    - PC4
+    - D18
+    functions:
+    - adc
+    - gpio
+    - i2c_sda
+    type: bidirectional
+    capabilities:
+    - adc
+  - number: 14
+    name: A5
+    aliases:
+    - SCL
+    - PC5
+    - D19
+    functions:
+    - adc
+    - gpio
+    - i2c_scl
+    type: bidirectional
+    capabilities:
+    - adc

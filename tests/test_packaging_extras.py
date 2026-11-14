@@ -1,6 +1,6 @@
 """The build refuses to freeze a binary that cannot do what its CLI offers.
 
-Box E6-MX. The defect these tests hold shut, measured 2026-09-08: every extra in
+The defect these tests hold shut, measured 2026-09-08: every extra in
 `packaging/lockwire.spec` failed OPEN. `collect_submodules` returns `[]` for a package
 that is not installed rather than raising, so a build host without `--extra mcp` produced
 a green, plausible 39 MB binary (the good one is 56 MB) whose PYZ carried `uvicorn 0 ·
@@ -125,7 +125,7 @@ def test_the_gate_runs_in_the_spec_before_analysis():
 
 def test_the_spec_keeps_no_fail_open_extras_helper():
     """No `_optional`-style helper survives in the spec: returning [] for an absent package
-    is the fail-open this box exists to remove, and it looks like prudence."""
+    is the fail-open this change exists to remove, and it looks like prudence."""
     spec = SPEC.read_text(encoding="utf-8")
     assert "def _optional" not in spec
     assert "return []" not in spec

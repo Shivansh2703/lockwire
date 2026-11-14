@@ -243,11 +243,26 @@ topology:
     notes: OpenCR 1.0
   - id: companion-computer
     notes: Jetson Nano
+  # Design choices below (not maker specs): the battery lead (0.25 m, 18 AWG).
+  wires:
+  - id: wire.battery-feed
+    rail: rail.battery-input
+    awg: 18
+    length_m: 0.25
+    installation: enclosed
+    net_class: power
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: short 18 AWG battery lead"
+      locked_at: 2026-11-13
+      note: "Design choice: 0.25 m of 18 AWG on the 10 A input fuse (enclosed rating 14 A in lockwire's NEC table)."
   rails:
   - id: rail.battery-input
     voltage: {value: 11.1, unit: V}
     capacity: {value: 111, unit: W}
     current_limit: {value: 10, unit: A}
+    current_limit_enforced_by: fuse
     upstream: battery
     provenance:
       witness: w0

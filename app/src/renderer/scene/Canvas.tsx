@@ -18,6 +18,7 @@
  * shared selection store (`./selectionStore`). Nothing else: no highlight, no detail panel, no
  * camera-fly-to; those are other boxes.
  */
+import type { Vector3 } from "three";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { PART_MIME } from "./placeOnBody";
@@ -27,6 +28,7 @@ import {
   applyViewInset,
   attachWasd,
   attachWheel,
+  activeCamera,
   handleResize,
   refit,
   pickHit,
@@ -36,8 +38,10 @@ import {
   type SceneContext,
   type ViewInset,
 } from "./buildScene";
-import { setSelectedPartId } from "./selectionStore";
-import { applyLens, applyTheme, skeletonMeshes, type Skeleton } from "./robotScene";
+import { getSelectedGroup, getSelectedPartId, setSelectedPartId } from "./selectionStore";
+import { typing, viewKey, VIEW_DIRECTION, type CameraView } from "../shortcuts";
+import { applyLens, applyTheme, skeletonMeshes, zoomToCamera, type Skeleton } from "./robotScene";
+import { CAMERA_VIEW_EVENT, viewAction, useViewState, type ViewAction } from "./viewState";
 import { partsForLens, type LensId, type LensedPart } from "./lenses";
 
 const SceneReactContext = createContext<SceneContext | null>(null);
@@ -86,6 +90,10 @@ export function Canvas({
   onDropRef.current = onDropPart;
   const insetRef = useRef(inset);
   insetRef.current = inset;
+  // The camera of the scene torn down last, so an edit to the same robot (a new hash, same contract) keeps the user's view.
+  const keptView = useRef<{ robot: string; position: Vector3; target: Vector3; near: number; far: number } | null>(null);
+  // sceneKey is "<contract path>:<hash>" (App.tsx, DesignPanel.tsx); the hash moves with every nudge, the path only with a new robot.
+  const robot = sceneKey.slice(0, sceneKey.lastIndexOf(":"));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -102,6 +110,15 @@ export function Canvas({
       skeletonRef.current ? skeletonMeshes(skeletonRef.current) : [],
       insetRef.current,
     );
+    const kept = keptView.current;
+    if (kept && kept.robot === robot) {
+      sceneCtx.camera.position.copy(kept.position);
+      sceneCtx.controls.target.copy(kept.target);
+      sceneCtx.camera.near = kept.near;
+      sceneCtx.camera.far = kept.far;
+      sceneCtx.camera.updateProjectionMatrix();
+      sceneCtx.controls.update();
+    }
     applyTheme(sceneCtx);
     // The theme toggle flips data-theme: repaint (ponytail: an OS-scheme flip with no override repaints on next mount) from the new tokens.
     const retheme = () => applyTheme(sceneCtx);
@@ -121,7 +138,7 @@ export function Canvas({
       sceneCtx.controls.update();
       if (sceneCtx.needsRender) {
         sceneCtx.needsRender = false;
-        sceneCtx.renderer.render(sceneCtx.scene, sceneCtx.camera);
+        sceneCtx.renderer.render(sceneCtx.scene, activeCamera(sceneCtx));
       }
       raf = requestAnimationFrame(tick);
     };
@@ -176,7 +193,24 @@ export function Canvas({
     canvas.addEventListener("dragover", allow);
     canvas.addEventListener("drop", handleDrop);
 
+    // F zoom to the selection (the whole robot with none), 1/3/7 front/side/top, Esc clear: only with the view focused.
+    const lookFrom = (v: CameraView) => refit(sceneCtx, VIEW_DIRECTION[v]);
+    const viewKeys = (e: KeyboardEvent) => {
+      const act = viewKey(e);
+      if (!act || document.activeElement !== canvas || typing(document.activeElement)) return;
+      e.preventDefault();
+      if (act === "clear") return setSelectedPartId(null);
+      if (act !== "zoom") return act in VIEW_DIRECTION ? lookFrom(act as CameraView) : viewAction(act as ViewAction);
+      const ids = getSelectedGroup()?.members ?? (getSelectedPartId() ? [getSelectedPartId()!] : []);
+      if (ids.length) zoomToCamera(sceneCtx, ids); else refit(sceneCtx);
+    };
+    window.addEventListener("keydown", viewKeys);
+    const onCameraView = (e: Event) => lookFrom((e as CustomEvent<CameraView>).detail);
+    window.addEventListener(CAMERA_VIEW_EVENT, onCameraView);
+
     return () => {
+      window.removeEventListener("keydown", viewKeys);
+      window.removeEventListener(CAMERA_VIEW_EVENT, onCameraView);
       cancelAnimationFrame(raf);
       wasd.dispose();
       unwheel();
@@ -186,10 +220,16 @@ export function Canvas({
       canvas.removeEventListener("pointerdown", handlePick);
       canvas.removeEventListener("dragover", allow);
       canvas.removeEventListener("drop", handleDrop);
+      const { camera, controls } = sceneCtx;
+      keptView.current = { robot, position: camera.position.clone(), target: controls.target.clone(), near: camera.near, far: camera.far };
       disposeScene(sceneCtx);
       setCtx(null);
     };
   }, [sceneKey]);
+
+  // The orthographic switch changes what is drawn without moving anything else: draw one new frame.
+  const { ortho } = useViewState();
+  useEffect(() => { if (ctx) ctx.needsRender = true; }, [ctx, ortho]);
 
   // A new inset (panel opened, wider panel) re-frames the robot in the open area.
   const insetKey = inset ? `${inset.top},${inset.right},${inset.bottom},${inset.left}` : "";
@@ -210,7 +250,7 @@ export function Canvas({
 
   return (
     <div ref={containerRef} style={{ width: "100%", height: "100%" }}>
-      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
+      <canvas ref={canvasRef} tabIndex={0} style={{ width: "100%", height: "100%", display: "block" }} />
       {ctx ? <SceneReactContext.Provider value={ctx}>{children}</SceneReactContext.Provider> : null}
     </div>
   );

@@ -170,7 +170,7 @@ def numeric_fields(members: tuple[type[BaseModel], ...] = ALL_MEMBERS) -> dict[s
 #:  * **producer-owned prose** — the number is assembled with words inside
 #:    ``checks.py`` / ``report.py`` / ``report_html.py``. Typing it means
 #:    rewriting a producer, which is the re-implementation this module forbids this
-#:    file. Named, so the box that owns that producer can close it.
+#:    file. Named, so the change that owns that producer can close it.
 #:  * **a sentence that opens with a count** — "1 cable has no speed written
 #:    down" is prose, not a figure; there is no value/unit to type.
 #:  * **a date** — not a magnitude.
@@ -226,11 +226,12 @@ STRING_FIGURE_EXEMPTIONS: dict[str, str] = {
     "ScenePayload.expected_asset_sha256": "a declared root-file sha256, not a magnitude",
     "SceneUnchanged.asset_sha256": "sha256 of selected root-file bytes, not a magnitude or bundle identity",
     "SceneUnchanged.expected_asset_sha256": "a declared root-file sha256, not a magnitude",
-    "ScenePayload.hash": "sha256 of the scene's geometry (e1-b2) — an identifier, not a magnitude",
+    "ScenePayload.hash": "sha256 of the scene's geometry — an identifier, not a magnitude",
     "StartPayload.revision": "sha256 of the exact lockfile bytes — an identifier, not a magnitude",
     "ArtifactRef.sha256": "sha256 pin for admitted artifact bytes — an identifier, not a magnitude",
     # an identifier that happens to open with a digit — the guard's one class of
     # false positive, named rather than quietly special-cased in the regex
+    "RobotGraphNode.label": "a graph node's display name; a rail named 5V is a name, not a magnitude",
     "DesignFacePart.rail": "a rail's short name ('5v') — an identifier, not a magnitude",
     # dates and versions, which are not magnitudes
     "BudgetRow.locked_at": "an ISO date, not a magnitude",
@@ -243,9 +244,10 @@ STRING_FIGURE_EXEMPTIONS: dict[str, str] = {
     "_Document.schema_version": "a version, not a magnitude",
     # prose: schema.Provenance.note is a witness's free-text note (schema.py's
     # own docstring: "no checker reads it") that reaches the union for the
-    # first time through DeclareRow.provenance (E4-df) — a sentence that can
+    # first time through DeclareRow.provenance — a sentence that can
     # happen to open with a digit ("610 g is the published dry frame-kit
     # weight..."), not a magnitude to compare, add or plot.
+    "KitOption.name": "a maker's product name that opens with its series number ('1120 Series U-Channel'), not a magnitude",
     "Provenance.note": "schema.Provenance's free-text note — prose, not a magnitude (schema.py: 'no checker reads it')",
 }
 

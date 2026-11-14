@@ -128,7 +128,7 @@ describe("DeclareFace", () => {
   it("test_source_and_witness_inputs_have_placeholders", () => {
     render(PAYLOAD, vi.fn());
     expect(container.querySelector('input[aria-label="source"]')!.getAttribute("placeholder")).toBe("e.g. datasheet p.12");
-    expect(container.querySelector('input[aria-label="witness"]')!.getAttribute("placeholder")).toBe("Who checked it");
+    expect(container.querySelector('input[aria-label="checked by"]')!.getAttribute("placeholder")).toBe("Who checked it");
   });
 
   it("test_copy_command_button_has_an_accessible_name_once_value_and_source_are_set", () => {
@@ -176,12 +176,12 @@ describe("DeclareFace", () => {
 
   it("test_the_witness_is_visible_changeable_and_marked_when_defaulted", () => {
     render(PAYLOAD, vi.fn());
-    const input = container.querySelector('input[aria-label="witness"]') as HTMLInputElement;
+    const input = container.querySelector('input[aria-label="checked by"]') as HTMLInputElement;
     expect(input.value).toBe(PAYLOAD.witness.prefill);
     expect(input.readOnly).toBe(false);
     expect(input.closest("label")?.getAttribute("title")).toBe("Who checked it (default)");
     act(() => setInput(input, "someone else"));
-    expect(container.querySelector('input[aria-label="witness"]')!.closest("label")?.getAttribute("title")).toBe("Who checked it");
+    expect(container.querySelector('input[aria-label="checked by"]')!.closest("label")?.getAttribute("title")).toBe("Who checked it");
   });
 
   it("test_an_untouched_prefill_submits_the_exact_value_not_a_rounded_one", async () => {
@@ -214,6 +214,7 @@ describe("DeclareFace", () => {
       value: "0.5 kg",
       source: "",
       witness: PAYLOAD.witness.prefill,
+      formal: true,
     });
     expect(container.querySelector(".kit-notice-info")?.textContent).toBe("Written");
 
@@ -260,7 +261,7 @@ describe("DeclareFace", () => {
     expect(record().disabled).toBe(true);
     act(() => {
       setInput(container.querySelector('textarea[aria-label="Review note"]')!, "verify the mass source");
-      setInput(container.querySelector('input[aria-label="witness"]')!, "Casey");
+      setInput(container.querySelector('input[aria-label="checked by"]')!, "Casey");
     });
     expect(record().disabled).toBe(false);
     await act(async () => record().click());
@@ -278,16 +279,28 @@ describe("DeclareFace", () => {
     expect(onReview).toHaveBeenCalledTimes(1);
   });
 
+  it("Declare still needs a typed Checked by: blank blocks the declare and nothing is submitted", async () => {
+    const onSubmit = vi.fn(async (): Promise<DeclareSubmitResult> => ({ written: true }));
+    render(PAYLOAD, onSubmit);
+    pick("contract · revision");
+    await act(async () => { setInput(container.querySelector('input[aria-label="value"]')!, "610"); setInput(container.querySelector('input[aria-label="checked by"]')!, ""); });
+    expect(declareButton().disabled).toBe(true);
+    await act(async () => declareButton().click());
+    expect(onSubmit).not.toHaveBeenCalled();
+    await act(async () => setInput(container.querySelector('input[aria-label="checked by"]')!, "Casey"));
+    expect(declareButton().disabled).toBe(false);
+  });
+
   it("asks Checked by once, filled from the last name used", async () => {
     render(PAYLOAD, vi.fn(async () => ({ written: true })));
-    expect(container.querySelectorAll('input[aria-label*="itness"]')).toHaveLength(1);
-    expect(container.querySelector('input[aria-label="witness"]')!.closest("label")?.textContent).toContain("Checked by");
-    act(() => setInput(container.querySelector('input[aria-label="witness"]')!, "Casey"));
+    expect(container.querySelectorAll('input[aria-label*="checked by"]')).toHaveLength(1);
+    expect(container.querySelector('input[aria-label="checked by"]')!.closest("label")?.textContent).toContain("Checked by");
+    act(() => setInput(container.querySelector('input[aria-label="checked by"]')!, "Casey"));
     await act(async () => declareButton().click());
     act(() => root.unmount());
     root = createRoot(container);
     render(PAYLOAD, vi.fn());
-    expect((container.querySelector('input[aria-label="witness"]') as HTMLInputElement).value).toBe("Casey");
+    expect((container.querySelector('input[aria-label="checked by"]') as HTMLInputElement).value).toBe("Casey");
   });
 
   it("test_approval_records_the_selected_value_without_inventing_a_note", async () => {

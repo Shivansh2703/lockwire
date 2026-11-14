@@ -25,11 +25,14 @@ export interface AddPartOption {
   name: string;
   numbers: (AddPartNumber)[];
   fits: (string)[];
+  frames?: (string)[];
 }
 
 export interface AddPartPayload {
   rails: (string)[];
   parts: (AddPartOption)[];
+  stock?: (StockOption)[];
+  kit?: (KitOption)[];
 }
 
 export interface AddsUpRow {
@@ -109,6 +112,16 @@ export interface Card {
   quantity?: string | null;
   owner?: string | null;
   cluster_root?: string | null;
+  involves?: (string)[];
+}
+
+export interface CardPin {
+  number: string;
+  name?: string | null;
+  functions?: (string)[];
+  aliases?: (string)[];
+  capabilities?: (string)[];
+  os_device?: string | null;
 }
 
 export interface CheckPayload {
@@ -131,6 +144,12 @@ export interface CheckPayload {
   revision?: string | null;
 }
 
+export interface CollisionPairRow {
+  link1: string;
+  link2: string;
+  reason: string;
+}
+
 export interface Constraint {
   id: string;
   label: string;
@@ -144,6 +163,31 @@ export interface Constraint {
   limit_kind: "declared" | "measured" | "derived" | "catalog" | "projected" | null;
   parts: (string)[];
   components: (string)[];
+}
+
+export interface ControlsFact {
+  label: string;
+  value: number;
+  unit: string;
+}
+
+export interface ControlsJoint {
+  joint: string;
+  label: string;
+  facts: (ControlsFact)[];
+  t_s: (number)[];
+  position: (number)[];
+  advice: (string)[];
+}
+
+export interface ControlsMotor {
+  id: string;
+  label: string;
+  facts: (ControlsFact)[];
+  torque_nm: (number)[];
+  speed_rad_s: (number)[];
+  efficiency_pct: (number)[];
+  advice: (string)[];
 }
 
 export interface Counts {
@@ -272,6 +316,7 @@ export interface Finding {
   cluster_members?: (string)[];
   stage?: number | null;
   alternatives?: (Alternative)[];
+  advice_unsourced?: boolean;
 }
 
 export interface FindingLabel {
@@ -291,6 +336,7 @@ export interface ForceDocument {
   gravity: ForceFigure;
   mass_total: ForceFigure;
   cg: ForceFigure;
+  inertia?: ForceFigure | null;
   masses: (ForceFigure)[];
   mounts: (ForceFigure)[];
   mount_shapes: (ForceMountShape)[];
@@ -311,6 +357,9 @@ export interface ForceFigure {
   reaction_n?: number | null;
   moment_nm?: number | null;
   span_axis?: string | null;
+  mass_kind?: string | null;
+  material?: string | null;
+  mass_note?: string | null;
 }
 
 export interface ForceMountShape {
@@ -349,6 +398,8 @@ export interface GraphNode {
   kind: "link" | "device" | "rail" | "source" | "host" | "bus";
   value?: number | null;
   limit?: number | null;
+  nominal_v?: number | null;
+  sweep?: (RailSweepPoint)[] | null;
 }
 
 export interface Instead {
@@ -356,6 +407,27 @@ export interface Instead {
   kind: string;
   rail?: string | null;
   device?: string | null;
+}
+
+export interface JointHeadroom {
+  needed_nm: number;
+  available_nm: number;
+  ratio: number;
+}
+
+export interface KitOption {
+  id: string;
+  name: string;
+  outline_only: boolean;
+}
+
+export interface LinkSolid {
+  kind: "box" | "cylinder" | "sphere";
+  size?: (number)[] | null;
+  radius?: number | null;
+  length?: number | null;
+  position: (number)[];
+  rotation: (number)[];
 }
 
 export interface LogEntry {
@@ -369,10 +441,53 @@ export interface LogEntry {
 
 export type LogPayload = (LogEntry)[];
 
+export interface MaterialCompare {
+  link: string;
+  rows: (MaterialCompareRow)[];
+  note?: string | null;
+}
+
+export interface MaterialCompareRow {
+  material: string;
+  density_kg_m3: number;
+  link_mass_kg: number;
+  total_mass_kg: number;
+  worst_margin_nm?: number | null;
+  worst_joint?: string | null;
+  delta_mass_kg?: number | null;
+  delta_margin_nm?: number | null;
+  current: boolean;
+  printed: boolean;
+}
+
+export interface MaterialOption {
+  name: string;
+  density_kg_m3: number;
+  source: string;
+  source_label: string;
+  source_url?: string | null;
+  caveat?: string | null;
+}
+
 export interface MeshGap {
   missing: number;
   total: number;
   example: string;
+}
+
+export interface MotionJoint {
+  name: string;
+  velocity: (number)[];
+  acceleration: (number)[];
+  torque: (number)[];
+  velocity_limit?: number | null;
+  acceleration_limit?: number | null;
+  torque_limit?: number | null;
+}
+
+export interface MotionPreview {
+  time_s: (number)[];
+  joints: (MotionJoint)[];
 }
 
 export interface NotCompared {
@@ -410,10 +525,28 @@ export interface PagePayload {
   model_changed?: boolean;
   joints: (RobotJoint)[];
   links: (RobotLink)[];
+  collision_pairs?: (CollisionPairRow)[];
+  params?: (RobotParam)[];
+  forces?: ForceDocument | null;
+  materials?: (MaterialOption)[];
+  material_compare?: (MaterialCompare)[];
+  support_polygon?: SupportPolygon | null;
   graph: Graph;
+  robot_graph?: RobotGraph | null;
   budgets: (BudgetRow)[];
+  power_stages?: (PowerStage)[];
+  power_columns?: (PowerColumn)[];
+  power_stress?: (PowerStress)[];
+  power_pack?: PowerPack | null;
+  wiring_devices?: (WiringDevice)[];
+  wiring_wires?: (WiringWire)[];
+  wiring_pins?: (WiringPinFact)[];
+  wiring_findings?: (WiringFinding)[];
+  controls_motors?: (ControlsMotor)[];
+  controls_joints?: (ControlsJoint)[];
   constraints: (Constraint)[];
   setup: (SetupGap)[];
+  requirements?: (RequirementRow)[];
   scene: ScenePayload | null;
   modes: (string)[];
   mode_labels: Record<string, string>;
@@ -445,6 +578,7 @@ export interface PlanPayload {
   outcomes?: (AssertionOutcome)[] | null;
   steps?: (PlanStepPayload)[];
   finding_labels?: (FindingLabel)[];
+  motion?: MotionPreview | null;
 }
 
 export interface PlanStepPayload {
@@ -454,8 +588,58 @@ export interface PlanStepPayload {
   targets?: (Target)[];
 }
 
+export interface PowerColumn {
+  rail: string;
+  label: string;
+  light_w: number;
+  typical_w: number;
+  max_w: number;
+  typical_from_plan: boolean;
+}
+
+export interface PowerLoad {
+  id: string;
+  watts: number | null;
+}
+
+export interface PowerPack {
+  voltage_v: number | null;
+  capacity_wh: number;
+  reserve_pct: number | null;
+  usable_wh: number;
+  plan_need_wh: number | null;
+}
+
+export interface PowerStage {
+  rail: string;
+  label: string;
+  depth: number;
+  fed_by: string | null;
+  volts_in: number | null;
+  volts_out: number | null;
+  amps_out: number | null;
+  efficiency: number;
+  watts_out: number;
+  watts_in: number;
+  watts_lost: number;
+  capacity_w: number;
+  unknown_loads: number;
+  loads: (PowerLoad)[];
+}
+
+export interface PowerStress {
+  part: string;
+  quantity: string;
+  value: number;
+  rating: number;
+  unit: string;
+  pct: number;
+  source: string;
+  over_advice: boolean;
+}
+
 export interface Provenance {
-  witness: string;
+  witness?: string | null;
   source: string;
   locked_at: string;
   bag_sha256?: string | null;
@@ -469,6 +653,11 @@ export interface Quantity {
   value: number;
   unit: string;
   frame?: string | null;
+}
+
+export interface RailSweepPoint {
+  load: number;
+  volts: number;
 }
 
 export interface RecordComparison {
@@ -506,6 +695,15 @@ export interface ReferenceFaceDevice {
   id: string;
   name: string;
   text: string;
+  mount_mm?: (number)[] | null;
+}
+
+export interface RequirementRow {
+  id: string;
+  text: string;
+  check: string;
+  status: "proven" | "unproven" | "failing";
+  why: string;
 }
 
 export interface ReviewNote {
@@ -513,6 +711,23 @@ export interface ReviewNote {
   witness: string;
   at: string;
   note?: string | null;
+}
+
+export interface RobotGraph {
+  nodes: (RobotGraphNode)[];
+  edges: (RobotGraphEdge)[];
+}
+
+export interface RobotGraphEdge {
+  from: string;
+  to: string;
+  kind: "structure" | "drives" | "mounts" | "power" | "signal" | "depends";
+}
+
+export interface RobotGraphNode {
+  id: string;
+  kind: "link" | "joint" | "device" | "connector" | "host" | "bus" | "rail" | "battery" | "wire" | "code";
+  label: string;
 }
 
 export interface RobotJoint {
@@ -524,14 +739,26 @@ export interface RobotJoint {
   child_name: string;
   position: (number)[];
   axis: (number)[];
+  rpy?: (number)[];
+  origin_mm?: (number)[];
   lower: number | null;
   upper: number | null;
   effort: number | null;
+  headroom?: JointHeadroom | null;
+  tip?: TipReadout | null;
 }
 
 export interface RobotLink {
   name: string;
   position: (number)[];
+  solids?: (LinkSolid)[];
+  mass_note?: string | null;
+}
+
+export interface RobotParam {
+  name: string;
+  value: number;
+  unit?: string | null;
 }
 
 export interface SceneGroup {
@@ -562,6 +789,8 @@ export interface ScenePart {
   lenses: ("off" | "mechanical" | "power" | "data" | "health")[];
   group: SceneGroup;
   mount_frame?: string | null;
+  triangles_original?: number;
+  triangles_shown?: number;
 }
 
 export interface ScenePayload {
@@ -578,6 +807,9 @@ export interface ScenePayload {
   triangles: number;
   vertices: number;
   display_triangles: number;
+  triangles_original?: number;
+  triangles_shown?: number;
+  simplified?: boolean;
   honesty: string;
 }
 
@@ -624,6 +856,19 @@ export interface StartersPayload {
   starters: (Starter)[];
 }
 
+export interface StockOption {
+  id: string;
+  name: string;
+  dimensions: (string)[];
+  mass_from: "material" | "mass_per_length";
+  outline_only: boolean;
+}
+
+export interface SupportPolygon {
+  z: number;
+  points: ((number)[])[];
+}
+
 export interface SwapCandidate {
   id: string;
   name: string;
@@ -663,6 +908,11 @@ export interface Target {
   parts?: (string)[];
 }
 
+export interface TipReadout {
+  xyz: (number)[];
+  per_unit: (number)[];
+}
+
 export interface WhatIfFact {
   quantity: string;
   kind: "finding" | "passed_comparison";
@@ -680,6 +930,50 @@ export interface WhatIfPayload {
   current: RecordComparison;
   proposed: RecordComparison;
   diff: string;
+}
+
+export interface WiringConnector {
+  name: string;
+  pins: (WiringPin)[];
+  card?: (CardPin)[];
+  type?: string | null;
+}
+
+export interface WiringDevice {
+  id: string;
+  name: string;
+  connectors: (WiringConnector)[];
+}
+
+export interface WiringFinding {
+  wire: string;
+  wire_name: string;
+  problem: string;
+  limit: string;
+}
+
+export interface WiringPin {
+  key: string;
+  label: string;
+}
+
+export interface WiringPinFact {
+  key: string;
+  level_v?: number | null;
+  limit_v?: number | null;
+  drives?: boolean;
+  receives?: boolean;
+}
+
+export interface WiringWire {
+  id: string;
+  name: string;
+  from_pin: string;
+  to_pin: string;
+  rail: string | null;
+  rail_label: string | null;
+  net: string | null;
+  awg?: number | null;
 }
 
 export const VERDICT_EXIT_CODES = {

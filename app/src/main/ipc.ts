@@ -23,10 +23,13 @@ import {
   type ContractUndoRequest,
   type ContractWriteRequest,
 } from "../shared/ipc-contract";
-import { handleAgentStart, handleAgentStop } from "./agent";
+import { handleAgentStart, handleAgentStop, handlePowerDesign } from "./agent";
 import { handleApply, handleCancel, handleSend, handleSettingsGet, handleSettingsSet } from "./assistant";
 import { checkPayloadToFace } from "./checkPayload";
 import { pickNewRobotLocation, pickRobot } from "./dialogs";
+import { savePicture } from "./exports";
+import { printPart } from "./printPart";
+import { asRequest, currentRobot, noteOpened, setCurrentRobot } from "./menuState";
 import { hasOnlyKeys, hasStrings, isRecord, isStringArray, runSidecarCommand, type SidecarRunReply } from "./ipcKit";
 import {
   validateCheckPayload,
@@ -78,8 +81,10 @@ function hasExpectedRevision(value: Record<string, unknown>): boolean {
 
 function isDeclareArgs(value: Record<string, unknown>): boolean {
   return (
-    hasOnlyKeys(value, ["contract", "path", "value", "source", "witness", "note", "locked_at", "dry_run", "expected_revision"]) &&
-    hasStrings(value, ["contract", "path", "source", "witness"]) &&
+    hasOnlyKeys(value, ["contract", "path", "value", "source", "witness", "formal", "note", "locked_at", "dry_run", "expected_revision"]) &&
+    hasStrings(value, ["contract", "path", "source"]) &&
+    (value.witness === undefined || value.witness === null || typeof value.witness === "string") &&
+    (value.formal === undefined || typeof value.formal === "boolean") &&
     Object.hasOwn(value, "value") &&
     value.value !== undefined &&
     hasOptionalFields(value) && hasExpectedRevision(value)
@@ -195,6 +200,13 @@ function isContractWriteRequest(value: unknown): value is ContractWriteRequest {
       return isReparentArgs(value.args);
     case "mount-shape":
       return isMountShapeArgs(value.args);
+    case "delete":
+      return hasOnlyKeys(value.args, ["contract", "kind", "name", "source", "witness", "note", "locked_at", "dry_run", "expected_revision"]) && hasStrings(value.args, ["contract", "name", "source", "witness"]) && (value.args.kind === "link" || value.args.kind === "joint" || value.args.kind === "device") && hasOptionalFields(value.args) && hasExpectedRevision(value.args);
+    case "undo-edit":
+    case "redo-edit":
+      return hasOnlyKeys(value.args, ["contract"]) && hasStrings(value.args, ["contract"]);
+    case "set-witness":
+      return hasOnlyKeys(value.args, ["name"]) && hasStrings(value.args, ["name"]);
     case "swap-apply":
       return hasOnlyKeys(value.args, ["contract", "joint", "part_id", "expected_revision"]) && hasStrings(value.args, ["contract", "joint", "part_id", "expected_revision"]);
     default:
@@ -286,10 +298,22 @@ function isUndoPayload(value: unknown): boolean {
 }
 
 
+// A free save with no saved name records no name: the blank witness is dropped, so the engine stamps nothing.
+// Declare and review are sign-offs: a blank name goes through and the engine refuses it.
+const ANONYMOUS_OK = new Set(["add", "place", "move", "rotate", "reparent", "mount-shape", "declare", "delete"]);
+function withoutBlankWitness(request: ContractWriteRequest): ContractWriteRequest {
+  const { witness, ...rest } = request.args as { witness?: string | null; formal?: boolean };
+  if (!ANONYMOUS_OK.has(request.command) || (request.args as { formal?: boolean }).formal) return request; // the Declare form's name is required: the engine refuses a blank one
+  if (witness === null || (typeof witness === "string" && !witness.trim())) return { ...request, args: rest } as ContractWriteRequest;
+  return request;
+}
+
 async function handleContractWrite(args: unknown): Promise<SidecarRunReply> {
   if (!isContractWriteRequest(args)) throw new Error("contract:write: invalid arguments");
-  const reply = await runSidecarCommand(args);
-  if (!reply.refusal && args.command !== "commit") validateEditPayload(reply.payload);
+  const reply = await runSidecarCommand(withoutBlankWitness(args));
+  if (!reply.refusal && (args.command === "undo-edit" || args.command === "redo-edit")) {
+    if (!isRecord(reply.payload) || (reply.payload.undone !== true && reply.payload.redone !== true)) throw new Error(`contract:write: invalid ${args.command} payload`);
+  } else if (!reply.refusal && args.command !== "commit" && args.command !== "set-witness") validateEditPayload(reply.payload);
   if (!reply.refusal && args.command === "commit" && !isCommitPayload(reply.payload)) {
     throw new Error("contract:write: invalid commit payload");
   }
@@ -318,6 +342,7 @@ async function proValid<T>(validate: (p: unknown) => T, payload: unknown): Promi
 
 async function handleContractPage(args: unknown): Promise<PagePayload> {
   if (!isContractPageRequest(args)) throw new Error("contract:page: invalid arguments");
+  setCurrentRobot(args.contract); // the window loads its robot's page on every open: main's current robot follows it
   const reply = await runSidecarCommand({ command: "page", args });
   if (reply.refusal || !reply.payload) throw new Error(reply.refusal ?? "the sidecar returned no page payload");
   return proMain ? await proValid(proMain.validators.page, reply.payload) : validatePagePayload(reply.payload);
@@ -389,6 +414,18 @@ async function handleChoosePlan(_args: unknown): Promise<string | null> {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 }
 
+
+/** Save picture: the renderer sends the 3D view's PNG (base64) and a name; the path comes from a native save dialog. True when written. */
+async function handleSavePicture(args: unknown): Promise<boolean> {
+  if (!isRecord(args) || !hasOnlyKeys(args, ["name", "png"]) || !hasStrings(args, ["name", "png"])) throw new Error("file:save-picture: invalid arguments");
+  return savePicture(args.name as string, Buffer.from(args.png as string, "base64"));
+}
+
+/** Print this part: the selected link's STL (mm) goes to the system's default .stl app. Returns one plain line. */
+async function handlePrintPart(args: unknown): Promise<string> {
+  if (!isRecord(args) || !hasOnlyKeys(args, ["contract", "link"]) || !hasStrings(args, ["contract", "link"])) throw new Error("file:print-part: invalid arguments");
+  return printPart(args.contract as string, args.link as string);
+}
 
 // These legacy preload methods have no implementation or renderer caller. Keep their API shape
 // for compatibility, but fail closed until a real handler and supported operation are defined.
@@ -472,6 +509,7 @@ async function openContract(path: string): Promise<FileOpenResult> {
     return { opened: true, path, error: reply.refusal ?? "the sidecar returned no payload" };
   }
   const checked = proMain ? await proValid(proMain.validators.check, reply.payload) : validateCheckPayload(reply.payload);
+  noteOpened(path, checked.robot);
   return {
     opened: true,
     path,
@@ -560,7 +598,7 @@ async function handleNewRobot(args: unknown): Promise<StartUrdfResult> {
   return { started: false, opened: await openContract(path), ...(args.copy ? {} : { example: dirname(path) }) };
 }
 
-const DROPPABLE = /\.(urdf|sdf|xacro|ya?ml)$/i;
+const DROPPABLE = /\.(urdf|sdf|xacro|xml|mjcf|wbt|proto|ya?ml)$/i;
 
 async function handleOpenDropped(args: unknown): Promise<StartUrdfResult> {
   if (!isRecord(args) || !hasOnlyKeys(args, ["path"]) || !hasStrings(args, ["path"])) {
@@ -568,7 +606,7 @@ async function handleOpenDropped(args: unknown): Promise<StartUrdfResult> {
   }
   const path = args.path as string;
   if (!DROPPABLE.test(path)) {
-    throw new Error("Can't open that file. Drop a .urdf, .sdf, .xacro or .yaml robot file.");
+    throw new Error("Can't open that file. Drop a .urdf, .sdf, .xacro, .xml, .mjcf, .wbt, .proto or .yaml robot file.");
   }
   let isFile = false;
   try {
@@ -580,15 +618,40 @@ async function handleOpenDropped(args: unknown): Promise<StartUrdfResult> {
   return startFromPath(path);
 }
 
-/** File > Open Robot...: the same flow as the Open robot button, result pushed to the window. */
-export async function openRobotFromMenu(win: Pick<BrowserWindow, "isDestroyed" | "webContents">): Promise<void> {
+/** A menu action that opens a robot: the result (or error) is pushed to the window. */
+async function pushOpened(win: Pick<BrowserWindow, "isDestroyed" | "webContents">, open: () => Promise<StartUrdfResult>): Promise<void> {
   let payload: { result: StartUrdfResult } | { error: string };
   try {
-    payload = { result: await handleStartUrdf(undefined) };
+    payload = { result: await asRequest(open) };
   } catch (error) {
     payload = { error: error instanceof Error ? error.message : String(error) };
   }
   if (!win.isDestroyed()) win.webContents.send(MENU_OPENED_CHANNEL, payload);
+}
+
+type MenuWindow = Pick<BrowserWindow, "isDestroyed" | "webContents">;
+
+/** File > Open Robot...: the same flow as the Open robot button, result pushed to the window. */
+export const openRobotFromMenu = (win: MenuWindow) => pushOpened(win, () => handleStartUrdf(undefined));
+
+/** File > Open Recent > a robot. */
+export const openRecentFromMenu = (win: MenuWindow, path: string) => pushOpened(win, () => startFromPath(path));
+
+/** Edit > Undo / Redo: the sidecar steps the open lockfile, then the window refreshes it in place (APP-3: no reopen, no tab change). */
+export async function stepFromMenu(win: MenuWindow, command: "undo-edit" | "redo-edit"): Promise<void> {
+  const contract = currentRobot();
+  if (contract === null) return;
+  try {
+    const reply = await runSidecarCommand({ command, args: { contract } });
+    if (reply.refusal) throw new Error(reply.refusal);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const verb = command === "undo-edit" ? "undo" : "redo";
+    // "Nothing to undo" only when the engine says its journal is empty; any other refusal or failure is passed through.
+    await dialog.showMessageBox({ type: "info", message: new RegExp(`^nothing to ${verb}`, "i").test(detail) ? `Nothing to ${verb}` : `Could not ${verb}`, detail });
+    return;
+  }
+  if (!win.isDestroyed()) win.webContents.send(MENU_OPENED_CHANNEL, { stepped: contract });
 }
 
 async function handleStartUrdf(args: unknown): Promise<StartUrdfResult> {
@@ -707,6 +770,8 @@ const HANDLERS = {
   "file:new-robot": handleNewRobot,
   "file:starters": handleStarters,
   "file:choose-plan": handleChoosePlan,
+  "file:save-picture": handleSavePicture,
+  "file:print-part": handlePrintPart,
   "file:choose-package-folder": handleChoosePackageFolder,
   "sidecar:state": handleSidecarState,
   "sidecar:restart": handleSidecarRestart,
@@ -720,6 +785,7 @@ const HANDLERS = {
   "terminal:resize": handleTerminalResize,
   "terminal:kill": handleTerminalKill,
   "agent:start": handleAgentStart,
+  "agent:power-design": handlePowerDesign,
   "agent:stop": handleAgentStop,
 } satisfies Record<CommandClass, (args: unknown) => Promise<unknown>>;
 
@@ -779,7 +845,7 @@ export async function dispatch(event: IpcMainInvokeEvent, commandClass: string, 
   if (!isPermittedCommand(commandClass)) {
     throw new Error(`permission denied: unknown command "${commandClass}"`);
   }
-  return REGISTERED[commandClass]!(args);
+  return asRequest(() => REGISTERED[commandClass]!(args));
 }
 
 export function registerIpc(): void {

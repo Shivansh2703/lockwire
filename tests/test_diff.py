@@ -1,4 +1,4 @@
-"""`lockwire diff` — the fact diff, and the git door underneath it (E0-34).
+"""`lockwire diff` — the fact diff, and the git door underneath it.
 
 Every path `diff` can take is named here: no repository, an unknown ref, a ref
 where the contract did not exist yet, nothing changed, and a dirty working
@@ -217,7 +217,7 @@ def test_diff_missing_contract_file(tmp_path):
 
 
 def test_diff_ref_side_refuses_an_unsupported_schema_version(tmp_path):
-    """The git-ref path refuses too — not just the on-disk path (E0-65 R2).
+    """The git-ref path refuses too — not just the on-disk path.
 
     Base regressed to a bare "diff failed:" line with no REFUSED word when the
     bad version came in over a ref rather than a file on disk. Commit a bad

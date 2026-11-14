@@ -42,12 +42,17 @@ def starter_problems(folder: Path) -> list[str]:
         (folder / n).is_file() for n in ("NOTICE", "LICENSE")
     ):
         bad.append("NOTICE or LICENSE file needed for a licence other than " + OWN_LICENCE)
+    contract = YAML(typ="safe").load((folder / "contract.yaml").read_text())
     glb = folder / "scene.glb"
+    shapes = any(
+        k.get("geometry") or k.get("collision")
+        for k in (contract.get("model") or {}).get("links", [])
+    )
     if not glb.is_file():
-        bad.append("scene.glb missing")
+        if not shapes:  # a shape-based starter is drawn from its lockfile, with no scene file
+            bad.append("scene.glb missing")
     elif glb.stat().st_size > MAX_GLB:
         bad.append("scene.glb is over 2 MB")
-    contract = YAML(typ="safe").load((folder / "contract.yaml").read_text())
     if not all(str(s or "").strip() for s in _sources(contract)):
         bad.append("a provenance block has no source")
     name = str((contract.get("robot") or {}).get("name") or "")

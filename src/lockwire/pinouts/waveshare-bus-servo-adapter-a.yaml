@@ -1,0 +1,21 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: waveshare-bus-servo-adapter-a
+name: Waveshare Bus Servo Adapter (A)
+maker: Waveshare
+numbers:
+  input_min:
+    value: 9
+    unit: V
+    kind: datasheet
+    source: 'https://www.waveshare.com/wiki/Bus_Servo_Adapter_(A) (Bus Servo Adapter (A), Waveshare Wiki: "Input voltage: 9~12.6V (should match servo voltage)"; range 9 to 12.6 V stated by page; the quote
+      only supports ''match servo voltage''; the numeric range wording not captured verbatim -> treat as unverified until re-read), read 2026-11-13'
+  input_max:
+    value: 12.6
+    unit: V
+    kind: datasheet
+    source: 'https://www.waveshare.com/wiki/Bus_Servo_Adapter_(A) (Bus Servo Adapter (A), Waveshare Wiki: "Input voltage: 9~12.6V (should match servo voltage)"; range 9 to 12.6 V stated by page; the quote
+      only supports ''match servo voltage''; the numeric range wording not captured verbatim -> treat as unverified until re-read), read 2026-11-13'
+connectors:
+- id: POWER
+  source: 'https://www.waveshare.com/wiki/Bus_Servo_Adapter_(A) (Bus Servo Adapter (A), Waveshare Wiki: POWER)'
+  type: dc-5.5x2.1 + screw terminal

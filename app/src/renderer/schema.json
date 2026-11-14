@@ -87,6 +87,14 @@
             "title": "Fits",
             "type": "array"
           },
+          "frames": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Frames",
+            "type": "array"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -115,6 +123,14 @@
       "AddPartPayload": {
         "additionalProperties": false,
         "properties": {
+          "kit": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/KitOption"
+            },
+            "title": "Kit",
+            "type": "array"
+          },
           "parts": {
             "items": {
               "$ref": "#/components/schemas/AddPartOption"
@@ -127,6 +143,14 @@
               "type": "string"
             },
             "title": "Rails",
+            "type": "array"
+          },
+          "stock": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StockOption"
+            },
+            "title": "Stock",
             "type": "array"
           }
         },
@@ -558,6 +582,14 @@
             "title": "Instead",
             "type": "array"
           },
+          "involves": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Involves",
+            "type": "array"
+          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -660,9 +692,72 @@
         "title": "Card",
         "type": "object"
       },
+      "CardPin": {
+        "additionalProperties": false,
+        "description": "One declared pin as the lockfile states it, for a device's pin card.",
+        "properties": {
+          "aliases": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "capabilities": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "functions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Functions",
+            "type": "array"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "os_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Os Device"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "title": "CardPin",
+        "type": "object"
+      },
       "CheckPayload": {
         "additionalProperties": false,
-        "description": "``api.check`` / ``lockwire check --json``.\n\n``scene`` is a sidecar-only addition (e1-b2, not a CLI field \u2014 T2 keeps\n``lockwire check`` scene-free by design, ``cli.py:454``): present only on\nthe ``/v1/run`` reply, and only when a scene sits beside the contract.\n``None`` when there is no scene to offer; ``SceneUnchanged`` when the\ncaller's ``scene.have`` already matches the current hash.\n\n``headline`` (E2-hl) is the plain-words sentence for the verdict --\n``api.check``'s own field, not shared with ``PlanPayload``\n(its door does not fill it), computed once by ``report.verdict_headline``\nand reused, never re-derived by a consumer.\n\n``graph`` rides beside ``scene`` for the same reason and on the same\ncondition (E2-j2): the app's Design tab needs the lens bar's words\n(``GraphLens.label``/``.caption``) next to the scene it labels, and\n``report_html._graph`` already computes exactly this dict for the page\npayload (``gui.py:1019``) \u2014 this is the same call, not a second one.\n``None`` when there is no contract to derive it from (a refusal never\nreaches this far) or no scene sits beside the contract, matching\n``scene``'s own condition so the two never disagree about whether a\nDesign tab has anything to show.",
+        "description": "``api.check`` / ``lockwire check --json``.\n\n``scene`` is a sidecar-only addition (not a CLI field \u2014 scene discovery keeps\n``lockwire check`` scene-free by design, ``cli.py:454``): present only on\nthe ``/v1/run`` reply, and only when a scene sits beside the contract.\n``None`` when there is no scene to offer; ``SceneUnchanged`` when the\ncaller's ``scene.have`` already matches the current hash.\n\n``headline`` is the plain-words sentence for the verdict --\n``api.check``'s own field, not shared with ``PlanPayload``\n(its door does not fill it), computed once by ``report.verdict_headline``\nand reused, never re-derived by a consumer.\n\n``graph`` rides beside ``scene`` for the same reason and on the same\ncondition: the app's Design tab needs the lens bar's words\n(``GraphLens.label``/``.caption``) next to the scene it labels, and\n``report_html._graph`` already computes exactly this dict for the page\npayload (``gui.py:1019``) \u2014 this is the same call, not a second one.\n``None`` when there is no contract to derive it from (a refusal never\nreaches this far) or no scene sits beside the contract, matching\n``scene``'s own condition so the two never disagree about whether a\nDesign tab has anything to show.",
         "properties": {
           "accepted": {
             "anyOf": [
@@ -816,6 +911,31 @@
         "title": "CheckPayload",
         "type": "object"
       },
+      "CollisionPairRow": {
+        "additionalProperties": false,
+        "description": "Two links the owner told Lockwire not to check against each other, and why.",
+        "properties": {
+          "link1": {
+            "title": "Link1",
+            "type": "string"
+          },
+          "link2": {
+            "title": "Link2",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link1",
+          "link2",
+          "reason"
+        ],
+        "title": "CollisionPairRow",
+        "type": "object"
+      },
       "Constraint": {
         "additionalProperties": false,
         "description": "one constraint instance the engine evaluates, for badges and margin bars\n(``constraints.constraint_rows``). ``domain`` maps the graph lenses: mechanical ->\nmechanical, power -> electrical, data -> data, health -> health, plus thermal (no lens).\n``used``/``limit`` are null when the engine has no number (status \"unset\"); each carries\nits number-kind in ``used_kind``/``limit_kind`` (per row; NUMBER_KINDS is per field).",
@@ -954,6 +1074,143 @@
         "title": "Constraint",
         "type": "object"
       },
+      "ControlsFact": {
+        "additionalProperties": false,
+        "description": "One labelled number on a Controls card, in the unit it names (a Figure-like readout).",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "label",
+          "value",
+          "unit"
+        ],
+        "title": "ControlsFact",
+        "type": "object"
+      },
+      "ControlsJoint": {
+        "additionalProperties": false,
+        "description": "One joint's closed-loop step (position as a fraction of the step, against time in s).",
+        "properties": {
+          "advice": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Advice",
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/ControlsFact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "joint": {
+            "title": "Joint",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Position",
+            "type": "array"
+          },
+          "t_s": {
+            "items": {
+              "type": "number"
+            },
+            "title": "T S",
+            "type": "array"
+          }
+        },
+        "required": [
+          "joint",
+          "label",
+          "facts",
+          "t_s",
+          "position",
+          "advice"
+        ],
+        "title": "ControlsJoint",
+        "type": "object"
+      },
+      "ControlsMotor": {
+        "additionalProperties": false,
+        "description": "One motor card plus its modelled curves; the lists run in step, torque in N*m on x.",
+        "properties": {
+          "advice": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Advice",
+            "type": "array"
+          },
+          "efficiency_pct": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Efficiency Pct",
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/ControlsFact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "speed_rad_s": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Speed Rad S",
+            "type": "array"
+          },
+          "torque_nm": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Torque Nm",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "facts",
+          "torque_nm",
+          "speed_rad_s",
+          "efficiency_pct",
+          "advice"
+        ],
+        "title": "ControlsMotor",
+        "type": "object"
+      },
       "Counts": {
         "additionalProperties": false,
         "properties": {
@@ -1002,7 +1259,7 @@
       },
       "DeclareFormPayload": {
         "additionalProperties": false,
-        "description": "``gui.build_declare_form`` \u2014 every declarable quantity plus the witness\nbox (E4-df). Unenveloped like the page (seam 1): this box's face render is\nthe app's own, not this door's, so there is no ``artifact_type`` to\ndiscriminate on yet.",
+        "description": "``gui.build_declare_form`` \u2014 every declarable quantity plus the witness\nbox. Unenveloped like the page (seam 1): this form's face render is\nthe app's own, not this door's, so there is no ``artifact_type`` to\ndiscriminate on yet.",
         "properties": {
           "add_part": {
             "$ref": "#/components/schemas/AddPartPayload"
@@ -1039,7 +1296,7 @@
       },
       "DeclareRow": {
         "additionalProperties": false,
-        "description": "One quantity ``lockwire declare`` could write, present or not (E4-df).\n\nWalked from ``schema.Contract``'s own models (nothing here re-derives\na value or invents a path) \u2014 ``path`` is the exact ``/``-separated string\n``declare``'s own ``path`` argument takes. ``kind`` is always ``\"declared\"``:\nevery one of these is, by definition, a fact the contract itself would\nhold (the own example row is ``Quantity.value`` -> ``declared``). Scoped\nto ``schema.Quantity``-typed fields only \u2014 a bare unitless number\n(``efficiency``, ``gear_ratio``) is not a \"quantity\" in the sense and is\nout of this box's charter.\n\n``value``/``unit`` are ``None`` when the fact has never been declared;\n``provenance`` is the nearest ancestor block's own ``provenance`` (schema's\nper-block provenance, same rule ``edit.provenance_owner_path`` already\nencodes), ``None`` when nothing has stamped one yet.",
+        "description": "One quantity ``lockwire declare`` could write, present or not.\n\nWalked from ``schema.Contract``'s own models (nothing here re-derives\na value or invents a path) \u2014 ``path`` is the exact ``/``-separated string\n``declare``'s own ``path`` argument takes. ``kind`` is always ``\"declared\"``:\nevery one of these is, by definition, a fact the contract itself would\nhold (the own example row is ``Quantity.value`` -> ``declared``). Scoped\nto ``schema.Quantity``-typed fields only \u2014 a bare unitless number\n(``efficiency``, ``gear_ratio``) is not a \"quantity\" in the sense and is\nout of this change's charter.\n\n``value``/``unit`` are ``None`` when the fact has never been declared;\n``provenance`` is the nearest ancestor block's own ``provenance`` (schema's\nper-block provenance, same rule ``edit.provenance_owner_path`` already\nencodes), ``None`` when nothing has stamped one yet.",
         "properties": {
           "group": {
             "title": "Group",
@@ -1312,7 +1569,7 @@
       },
       "EditPayload": {
         "additionalProperties": false,
-        "description": "``api.declare`` \u2014 the write door's document. This is the member that\ncarries a diff; ``written`` is False under ``--dry-run``.\n\n``contract_sha`` is ``None`` with ``contract_sha_error`` set (E5-D3, same\nshape as e5-d-r2's fix on ``api.add``) when the write landed but the\npost-write disk re-read that names its sha then faulted \u2014 ``written``\nstill reports what the writer did, never the re-read's outcome.",
+        "description": "``api.declare`` \u2014 the write door's document. This is the member that\ncarries a diff; ``written`` is False under ``--dry-run``.\n\n``contract_sha`` is ``None`` with ``contract_sha_error`` set (same\nshape as the fix on ``api.add``) when the write landed but the\npost-write disk re-read that names its sha then faulted \u2014 ``written``\nstill reports what the writer did, never the re-read's outcome.",
         "properties": {
           "artifact_type": {
             "const": "lockwire-edit-result",
@@ -1552,6 +1809,11 @@
           "action": {
             "title": "Action",
             "type": "string"
+          },
+          "advice_unsourced": {
+            "default": false,
+            "title": "Advice Unsourced",
+            "type": "boolean"
           },
           "alternatives": {
             "default": [],
@@ -1814,6 +2076,17 @@
           "gravity": {
             "$ref": "#/components/schemas/ForceFigure"
           },
+          "inertia": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForceFigure"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "mass_total": {
             "$ref": "#/components/schemas/ForceFigure"
           },
@@ -1913,6 +2186,42 @@
             ],
             "default": null,
             "title": "Limitation"
+          },
+          "mass_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mass Kind"
+          },
+          "mass_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mass Note"
+          },
+          "material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Material"
           },
           "moment_nm": {
             "anyOf": [
@@ -2193,9 +2502,36 @@
             "default": null,
             "title": "Limit"
           },
+          "nominal_v": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Nominal V"
+          },
           "sub": {
             "title": "Sub",
             "type": "string"
+          },
+          "sweep": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RailSweepPoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sweep"
           },
           "value": {
             "anyOf": [
@@ -2263,6 +2599,131 @@
         "title": "Instead",
         "type": "object"
       },
+      "JointHeadroom": {
+        "additionalProperties": false,
+        "description": "Torque to spare at one joint, the engine's own numbers (``page._headroom``).",
+        "properties": {
+          "available_nm": {
+            "title": "Available Nm",
+            "type": "number"
+          },
+          "needed_nm": {
+            "title": "Needed Nm",
+            "type": "number"
+          },
+          "ratio": {
+            "title": "Ratio",
+            "type": "number"
+          }
+        },
+        "required": [
+          "needed_nm",
+          "available_nm",
+          "ratio"
+        ],
+        "title": "JointHeadroom",
+        "type": "object"
+      },
+      "KitOption": {
+        "additionalProperties": false,
+        "description": "One kit structure part (channel, plate, standoff) the Structure tab can attach.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outline_only": {
+            "title": "Outline Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "outline_only"
+        ],
+        "title": "KitOption",
+        "type": "object"
+      },
+      "LinkSolid": {
+        "additionalProperties": false,
+        "description": "One box, cylinder or sphere on a link, sizes in metres with named dimensions\nalready resolved, for the overlap check. Meshes are not listed.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "box",
+              "cylinder",
+              "sphere"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "length": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Length"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Position",
+            "type": "array"
+          },
+          "radius": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Radius"
+          },
+          "rotation": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Rotation",
+            "type": "array"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Size"
+          }
+        },
+        "required": [
+          "kind",
+          "position",
+          "rotation"
+        ],
+        "title": "LinkSolid",
+        "type": "object"
+      },
       "LogEntry": {
         "additionalProperties": false,
         "description": "One git-backed contract-history row from ``api.log``.",
@@ -2324,6 +2785,183 @@
         "title": "LogPayload",
         "type": "array"
       },
+      "MaterialCompare": {
+        "additionalProperties": false,
+        "description": "One link's Compare materials table; no rows (and a note) when its mass is declared.",
+        "properties": {
+          "link": {
+            "title": "Link",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialCompareRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "link",
+          "rows"
+        ],
+        "title": "MaterialCompare",
+        "type": "object"
+      },
+      "MaterialCompareRow": {
+        "additionalProperties": false,
+        "description": "CADN-matpanel: one link in one catalog material (`material_compare.compare_materials`).",
+        "properties": {
+          "current": {
+            "title": "Current",
+            "type": "boolean"
+          },
+          "delta_margin_nm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Delta Margin Nm"
+          },
+          "delta_mass_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Delta Mass Kg"
+          },
+          "density_kg_m3": {
+            "title": "Density Kg M3",
+            "type": "number"
+          },
+          "link_mass_kg": {
+            "title": "Link Mass Kg",
+            "type": "number"
+          },
+          "material": {
+            "title": "Material",
+            "type": "string"
+          },
+          "printed": {
+            "title": "Printed",
+            "type": "boolean"
+          },
+          "total_mass_kg": {
+            "title": "Total Mass Kg",
+            "type": "number"
+          },
+          "worst_joint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Worst Joint"
+          },
+          "worst_margin_nm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Worst Margin Nm"
+          }
+        },
+        "required": [
+          "material",
+          "density_kg_m3",
+          "link_mass_kg",
+          "total_mass_kg",
+          "current",
+          "printed"
+        ],
+        "title": "MaterialCompareRow",
+        "type": "object"
+      },
+      "MaterialOption": {
+        "additionalProperties": false,
+        "description": "One cited catalog material the Mass and balance picker offers.",
+        "properties": {
+          "caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Caveat"
+          },
+          "density_kg_m3": {
+            "title": "Density Kg M3",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_label": {
+            "title": "Source Label",
+            "type": "string"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Url"
+          }
+        },
+        "required": [
+          "name",
+          "density_kg_m3",
+          "source",
+          "source_label"
+        ],
+        "title": "MaterialOption",
+        "type": "object"
+      },
       "MeshGap": {
         "additionalProperties": false,
         "description": "Mesh files `start` could not find inside the robot's package folder.",
@@ -2347,6 +2985,107 @@
           "example"
         ],
         "title": "MeshGap",
+        "type": "object"
+      },
+      "MotionJoint": {
+        "additionalProperties": false,
+        "description": "One joint's absolute speed, acceleration and torque per sample, with its own limits.",
+        "properties": {
+          "acceleration": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Acceleration",
+            "type": "array"
+          },
+          "acceleration_limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Acceleration Limit"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "torque": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Torque",
+            "type": "array"
+          },
+          "torque_limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Torque Limit"
+          },
+          "velocity": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Velocity",
+            "type": "array"
+          },
+          "velocity_limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Velocity Limit"
+          }
+        },
+        "required": [
+          "name",
+          "velocity",
+          "acceleration",
+          "torque"
+        ],
+        "title": "MotionJoint",
+        "type": "object"
+      },
+      "MotionPreview": {
+        "additionalProperties": false,
+        "description": "The plan's fastest moves, sampled (``page.motion_preview``); sidecar-only like finding_labels.",
+        "properties": {
+          "joints": {
+            "items": {
+              "$ref": "#/components/schemas/MotionJoint"
+            },
+            "title": "Joints",
+            "type": "array"
+          },
+          "time_s": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Time S",
+            "type": "array"
+          }
+        },
+        "required": [
+          "time_s",
+          "joints"
+        ],
+        "title": "MotionPreview",
         "type": "object"
       },
       "NotCompared": {
@@ -2495,6 +3234,14 @@
             ],
             "title": "Cli Line"
           },
+          "collision_pairs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CollisionPairRow"
+            },
+            "title": "Collision Pairs",
+            "type": "array"
+          },
           "command_modes": {
             "additionalProperties": {
               "type": "string"
@@ -2513,12 +3260,39 @@
             "title": "Contract Id",
             "type": "string"
           },
+          "controls_joints": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ControlsJoint"
+            },
+            "title": "Controls Joints",
+            "type": "array"
+          },
+          "controls_motors": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ControlsMotor"
+            },
+            "title": "Controls Motors",
+            "type": "array"
+          },
           "document_identity": {
             "title": "Document Identity",
             "type": "string"
           },
           "faces": {
             "$ref": "#/components/schemas/Faces"
+          },
+          "forces": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForceDocument"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "graph": {
             "$ref": "#/components/schemas/Graph"
@@ -2541,6 +3315,22 @@
             "title": "Links",
             "type": "array"
           },
+          "material_compare": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MaterialCompare"
+            },
+            "title": "Material Compare",
+            "type": "array"
+          },
+          "materials": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MaterialOption"
+            },
+            "title": "Materials",
+            "type": "array"
+          },
           "mode_labels": {
             "additionalProperties": {
               "type": "string"
@@ -2560,9 +3350,60 @@
             "title": "Modes",
             "type": "array"
           },
+          "params": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RobotParam"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "power_columns": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PowerColumn"
+            },
+            "title": "Power Columns",
+            "type": "array"
+          },
+          "power_pack": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PowerPack"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "power_stages": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PowerStage"
+            },
+            "title": "Power Stages",
+            "type": "array"
+          },
+          "power_stress": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PowerStress"
+            },
+            "title": "Power Stress",
+            "type": "array"
+          },
           "qualifier": {
             "title": "Qualifier",
             "type": "string"
+          },
+          "requirements": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RequirementRow"
+            },
+            "title": "Requirements",
+            "type": "array"
           },
           "revision": {
             "anyOf": [
@@ -2579,6 +3420,17 @@
           "robot": {
             "title": "Robot",
             "type": "string"
+          },
+          "robot_graph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RobotGraph"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "scene": {
             "anyOf": [
@@ -2618,6 +3470,17 @@
             "title": "State",
             "type": "string"
           },
+          "support_polygon": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupportPolygon"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "unchecked": {
             "title": "Unchecked",
             "type": "integer"
@@ -2629,6 +3492,38 @@
           "warnings": {
             "title": "Warnings",
             "type": "integer"
+          },
+          "wiring_devices": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/WiringDevice"
+            },
+            "title": "Wiring Devices",
+            "type": "array"
+          },
+          "wiring_findings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/WiringFinding"
+            },
+            "title": "Wiring Findings",
+            "type": "array"
+          },
+          "wiring_pins": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/WiringPinFact"
+            },
+            "title": "Wiring Pins",
+            "type": "array"
+          },
+          "wiring_wires": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/WiringWire"
+            },
+            "title": "Wiring Wires",
+            "type": "array"
           }
         },
         "required": [
@@ -2756,6 +3651,17 @@
             "title": "Format Version",
             "type": "string"
           },
+          "motion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MotionPreview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "not_compared": {
             "default": [],
             "items": {
@@ -2878,6 +3784,289 @@
         "title": "PlanStepPayload",
         "type": "object"
       },
+      "PowerColumn": {
+        "additionalProperties": false,
+        "description": "One rail's load in W at three operating points (``power_budget.rail_columns``).",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "light_w": {
+            "title": "Light W",
+            "type": "number"
+          },
+          "max_w": {
+            "title": "Max W",
+            "type": "number"
+          },
+          "rail": {
+            "title": "Rail",
+            "type": "string"
+          },
+          "typical_from_plan": {
+            "title": "Typical From Plan",
+            "type": "boolean"
+          },
+          "typical_w": {
+            "title": "Typical W",
+            "type": "number"
+          }
+        },
+        "required": [
+          "rail",
+          "label",
+          "light_w",
+          "typical_w",
+          "max_w",
+          "typical_from_plan"
+        ],
+        "title": "PowerColumn",
+        "type": "object"
+      },
+      "PowerLoad": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "watts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watts"
+          }
+        },
+        "required": [
+          "id",
+          "watts"
+        ],
+        "title": "PowerLoad",
+        "type": "object"
+      },
+      "PowerPack": {
+        "additionalProperties": false,
+        "description": "The declared battery pack and the energy left after its reserve (Wh).",
+        "properties": {
+          "capacity_wh": {
+            "title": "Capacity Wh",
+            "type": "number"
+          },
+          "plan_need_wh": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Need Wh"
+          },
+          "reserve_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserve Pct"
+          },
+          "usable_wh": {
+            "title": "Usable Wh",
+            "type": "number"
+          },
+          "voltage_v": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voltage V"
+          }
+        },
+        "required": [
+          "voltage_v",
+          "capacity_wh",
+          "reserve_pct",
+          "usable_wh",
+          "plan_need_wh"
+        ],
+        "title": "PowerPack",
+        "type": "object"
+      },
+      "PowerStage": {
+        "additionalProperties": false,
+        "description": "One rail seen as a stage of the power chain (``checks.power_rollup`` values).\nVolts are V, amps A, watts W; ``efficiency`` is a 0..1 fraction.",
+        "properties": {
+          "amps_out": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amps Out"
+          },
+          "capacity_w": {
+            "title": "Capacity W",
+            "type": "number"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "efficiency": {
+            "title": "Efficiency",
+            "type": "number"
+          },
+          "fed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fed By"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "loads": {
+            "items": {
+              "$ref": "#/components/schemas/PowerLoad"
+            },
+            "title": "Loads",
+            "type": "array"
+          },
+          "rail": {
+            "title": "Rail",
+            "type": "string"
+          },
+          "unknown_loads": {
+            "title": "Unknown Loads",
+            "type": "integer"
+          },
+          "volts_in": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volts In"
+          },
+          "volts_out": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volts Out"
+          },
+          "watts_in": {
+            "title": "Watts In",
+            "type": "number"
+          },
+          "watts_lost": {
+            "title": "Watts Lost",
+            "type": "number"
+          },
+          "watts_out": {
+            "title": "Watts Out",
+            "type": "number"
+          }
+        },
+        "required": [
+          "rail",
+          "label",
+          "depth",
+          "fed_by",
+          "volts_in",
+          "volts_out",
+          "amps_out",
+          "efficiency",
+          "watts_out",
+          "watts_in",
+          "watts_lost",
+          "capacity_w",
+          "unknown_loads",
+          "loads"
+        ],
+        "title": "PowerStage",
+        "type": "object"
+      },
+      "PowerStress": {
+        "additionalProperties": false,
+        "description": "One part against one rating (``stress.stress_list``). ``pct`` is percent of the rating;\n``over_advice`` is set above the unsourced 80 percent convention (advice, not a verdict).",
+        "properties": {
+          "over_advice": {
+            "title": "Over Advice",
+            "type": "boolean"
+          },
+          "part": {
+            "title": "Part",
+            "type": "string"
+          },
+          "pct": {
+            "title": "Pct",
+            "type": "number"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "rating": {
+            "title": "Rating",
+            "type": "number"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "part",
+          "quantity",
+          "value",
+          "rating",
+          "unit",
+          "pct",
+          "source",
+          "over_advice"
+        ],
+        "title": "PowerStress",
+        "type": "object"
+      },
       "Provenance": {
         "additionalProperties": false,
         "properties": {
@@ -2957,12 +4146,19 @@
             "type": "string"
           },
           "witness": {
-            "title": "Witness",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Witness"
           }
         },
         "required": [
-          "witness",
           "source",
           "locked_at"
         ],
@@ -2998,6 +4194,26 @@
           "unit"
         ],
         "title": "Quantity",
+        "type": "object"
+      },
+      "RailSweepPoint": {
+        "additionalProperties": false,
+        "description": "One point of `checks.rail_sweep`: the volts at the servos at a share of stall load.",
+        "properties": {
+          "load": {
+            "title": "Load",
+            "type": "number"
+          },
+          "volts": {
+            "title": "Volts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "load",
+          "volts"
+        ],
+        "title": "RailSweepPoint",
         "type": "object"
       },
       "RecordComparison": {
@@ -3201,6 +4417,21 @@
             "title": "Id",
             "type": "string"
           },
+          "mount_mm": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mount Mm"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -3216,6 +4447,45 @@
           "text"
         ],
         "title": "ReferenceFaceDevice",
+        "type": "object"
+      },
+      "RequirementRow": {
+        "additionalProperties": false,
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "proven",
+              "unproven",
+              "failing"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "check",
+          "status",
+          "why"
+        ],
+        "title": "RequirementRow",
         "type": "object"
       },
       "ReviewNote": {
@@ -3260,6 +4530,100 @@
         "title": "ReviewNote",
         "type": "object"
       },
+      "RobotGraph": {
+        "additionalProperties": false,
+        "description": "What is connected to what (`robot_graph`), drawn by the graph view.",
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/RobotGraphEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/RobotGraphNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "edges"
+        ],
+        "title": "RobotGraph",
+        "type": "object"
+      },
+      "RobotGraphEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "structure",
+              "drives",
+              "mounts",
+              "power",
+              "signal",
+              "depends"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "kind"
+        ],
+        "title": "RobotGraphEdge",
+        "type": "object"
+      },
+      "RobotGraphNode": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "link",
+              "joint",
+              "device",
+              "connector",
+              "host",
+              "bus",
+              "rail",
+              "battery",
+              "wire",
+              "code"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label"
+        ],
+        "title": "RobotGraphNode",
+        "type": "object"
+      },
       "RobotJoint": {
         "additionalProperties": false,
         "description": "A model joint with its frame in the single robot frame (parent chain composed).",
@@ -3290,6 +4654,17 @@
             ],
             "title": "Effort"
           },
+          "headroom": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JointHeadroom"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "lower": {
             "anyOf": [
               {
@@ -3305,6 +4680,14 @@
             "title": "Name",
             "type": "string"
           },
+          "origin_mm": {
+            "default": [],
+            "items": {
+              "type": "number"
+            },
+            "title": "Origin Mm",
+            "type": "array"
+          },
           "parent": {
             "title": "Parent",
             "type": "string"
@@ -3319,6 +4702,25 @@
             },
             "title": "Position",
             "type": "array"
+          },
+          "rpy": {
+            "default": [],
+            "items": {
+              "type": "number"
+            },
+            "title": "Rpy",
+            "type": "array"
+          },
+          "tip": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TipReadout"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "type": {
             "enum": [
@@ -3364,6 +4766,18 @@
       "RobotLink": {
         "additionalProperties": false,
         "properties": {
+          "mass_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mass Note"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -3374,6 +4788,14 @@
             },
             "title": "Position",
             "type": "array"
+          },
+          "solids": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LinkSolid"
+            },
+            "title": "Solids",
+            "type": "array"
           }
         },
         "required": [
@@ -3381,6 +4803,38 @@
           "position"
         ],
         "title": "RobotLink",
+        "type": "object"
+      },
+      "RobotParam": {
+        "additionalProperties": false,
+        "description": "A named design number (`schema.Param`) a link shape can be sized by.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "RobotParam",
         "type": "object"
       },
       "SceneGroup": {
@@ -3559,6 +5013,16 @@
             },
             "title": "Translation",
             "type": "array"
+          },
+          "triangles_original": {
+            "default": 0,
+            "title": "Triangles Original",
+            "type": "integer"
+          },
+          "triangles_shown": {
+            "default": 0,
+            "title": "Triangles Shown",
+            "type": "integer"
           }
         },
         "required": [
@@ -3666,12 +5130,27 @@
             "title": "Scene Only",
             "type": "array"
           },
+          "simplified": {
+            "default": false,
+            "title": "Simplified",
+            "type": "boolean"
+          },
           "source": {
             "title": "Source",
             "type": "string"
           },
           "triangles": {
             "title": "Triangles",
+            "type": "integer"
+          },
+          "triangles_original": {
+            "default": 0,
+            "title": "Triangles Original",
+            "type": "integer"
+          },
+          "triangles_shown": {
+            "default": 0,
+            "title": "Triangles Shown",
             "type": "integer"
           },
           "vertices": {
@@ -3697,7 +5176,7 @@
       },
       "SceneUnchanged": {
         "additionalProperties": false,
-        "description": "The sidecar's reply when a caller's ``scene.have`` already matches \u2014\nships no geometry (e1-b2). ``unchanged`` is always ``True``; the shape\nexists so ``{\"unchanged\": true}`` is a typed member, not a bare dict.",
+        "description": "The sidecar's reply when a caller's ``scene.have`` already matches \u2014\nships no geometry. ``unchanged`` is always ``True``; the shape\nexists so ``{\"unchanged\": true}`` is a typed member, not a bare dict.",
         "properties": {
           "asset_path": {
             "anyOf": [
@@ -3944,6 +5423,74 @@
           "starters"
         ],
         "title": "StartersPayload",
+        "type": "object"
+      },
+      "StockOption": {
+        "additionalProperties": false,
+        "description": "One stock shape the Structure tab can size by typing its dimensions (typed in mm, the engine takes metres).",
+        "properties": {
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mass_from": {
+            "enum": [
+              "material",
+              "mass_per_length"
+            ],
+            "title": "Mass From",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outline_only": {
+            "title": "Outline Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "dimensions",
+          "mass_from",
+          "outline_only"
+        ],
+        "title": "StockOption",
+        "type": "object"
+      },
+      "SupportPolygon": {
+        "additionalProperties": false,
+        "description": "The tip-over check's support polygon at the zero pose, robot frame (``page._support_polygon``).",
+        "properties": {
+          "points": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "z": {
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "z",
+          "points"
+        ],
+        "title": "SupportPolygon",
         "type": "object"
       },
       "SwapCandidate": {
@@ -4210,6 +5757,32 @@
         "title": "Target",
         "type": "object"
       },
+      "TipReadout": {
+        "additionalProperties": false,
+        "description": "Where the tool tip is at the zero pose and how this joint moves it (``page._tip_readout``).",
+        "properties": {
+          "per_unit": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Per Unit",
+            "type": "array"
+          },
+          "xyz": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Xyz",
+            "type": "array"
+          }
+        },
+        "required": [
+          "xyz",
+          "per_unit"
+        ],
+        "title": "TipReadout",
+        "type": "object"
+      },
       "WhatIfFact": {
         "additionalProperties": false,
         "properties": {
@@ -4327,6 +5900,251 @@
         ],
         "title": "WhatIfPayload",
         "type": "object"
+      },
+      "WiringConnector": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CardPin"
+            },
+            "title": "Card",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pins": {
+            "items": {
+              "$ref": "#/components/schemas/WiringPin"
+            },
+            "title": "Pins",
+            "type": "array"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Type"
+          }
+        },
+        "required": [
+          "name",
+          "pins"
+        ],
+        "title": "WiringConnector",
+        "type": "object"
+      },
+      "WiringDevice": {
+        "additionalProperties": false,
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/WiringConnector"
+            },
+            "title": "Connectors",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "connectors"
+        ],
+        "title": "WiringDevice",
+        "type": "object"
+      },
+      "WiringFinding": {
+        "additionalProperties": false,
+        "description": "One finding from the engine's pin rules (voltage, output clash, current, special pins).",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "string"
+          },
+          "problem": {
+            "title": "Problem",
+            "type": "string"
+          },
+          "wire": {
+            "title": "Wire",
+            "type": "string"
+          },
+          "wire_name": {
+            "title": "Wire Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wire",
+          "wire_name",
+          "problem",
+          "limit"
+        ],
+        "title": "WiringFinding",
+        "type": "object"
+      },
+      "WiringPin": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "WiringPin",
+        "type": "object"
+      },
+      "WiringPinFact": {
+        "additionalProperties": false,
+        "description": "One pin's electrical facts as the pin rules read them, so the panel can flag a short before saving.",
+        "properties": {
+          "drives": {
+            "default": false,
+            "title": "Drives",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "level_v": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Level V"
+          },
+          "limit_v": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Limit V"
+          },
+          "receives": {
+            "default": false,
+            "title": "Receives",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "WiringPinFact",
+        "type": "object"
+      },
+      "WiringWire": {
+        "additionalProperties": false,
+        "description": "One pin-to-pin wire. ``rail`` is set only for a power wire; a signal wire has none.",
+        "properties": {
+          "awg": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Awg"
+          },
+          "from_pin": {
+            "title": "From Pin",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "net": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net"
+          },
+          "rail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rail"
+          },
+          "rail_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rail Label"
+          },
+          "to_pin": {
+            "title": "To Pin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "from_pin",
+          "to_pin",
+          "rail",
+          "rail_label",
+          "net"
+        ],
+        "title": "WiringWire",
+        "type": "object"
       }
     }
   },
@@ -4376,6 +6194,30 @@
       "by": "constraints.constraint_rows",
       "kind": "derived"
     },
+    "ControlsFact.value": {
+      "by": "page._controls_joints",
+      "kind": "derived"
+    },
+    "ControlsJoint.position": {
+      "by": "controls.joint_step",
+      "kind": "derived"
+    },
+    "ControlsJoint.t_s": {
+      "by": "controls.joint_step",
+      "kind": "derived"
+    },
+    "ControlsMotor.efficiency_pct": {
+      "by": "page._motor_curves",
+      "kind": "derived"
+    },
+    "ControlsMotor.speed_rad_s": {
+      "by": "page._motor_curves",
+      "kind": "derived"
+    },
+    "ControlsMotor.torque_nm": {
+      "by": "page._motor_curves",
+      "kind": "derived"
+    },
     "Counts.not_scored": {
       "by": "report.verdict",
       "kind": "derived"
@@ -4412,9 +6254,75 @@
       "by": "schema.Contract",
       "kind": "declared"
     },
+    "GraphNode.nominal_v": {
+      "by": "schema.Rail",
+      "kind": "declared"
+    },
     "GraphNode.value": {
       "by": "report_html._graph",
       "kind": "derived"
+    },
+    "JointHeadroom.available_nm": {
+      "by": "page._headroom",
+      "kind": "derived"
+    },
+    "JointHeadroom.needed_nm": {
+      "by": "page._headroom",
+      "kind": "derived"
+    },
+    "JointHeadroom.ratio": {
+      "by": "page._headroom",
+      "kind": "derived"
+    },
+    "LinkSolid.length": {
+      "by": "schema.Shape",
+      "kind": "declared"
+    },
+    "LinkSolid.position": {
+      "by": "gui._robot_model",
+      "kind": "derived"
+    },
+    "LinkSolid.radius": {
+      "by": "schema.Shape",
+      "kind": "declared"
+    },
+    "LinkSolid.rotation": {
+      "by": "gui._robot_model",
+      "kind": "derived"
+    },
+    "LinkSolid.size": {
+      "by": "schema.Shape",
+      "kind": "declared"
+    },
+    "MaterialCompareRow.delta_margin_nm": {
+      "by": "page._material_compare",
+      "kind": "derived"
+    },
+    "MaterialCompareRow.delta_mass_kg": {
+      "by": "page._material_compare",
+      "kind": "derived"
+    },
+    "MaterialCompareRow.density_kg_m3": {
+      "by": "catalog.materials",
+      "kind": "catalog",
+      "mark": "catalog"
+    },
+    "MaterialCompareRow.link_mass_kg": {
+      "by": "material_compare.compare_materials",
+      "kind": "derived"
+    },
+    "MaterialCompareRow.total_mass_kg": {
+      "by": "material_compare.compare_materials",
+      "kind": "derived"
+    },
+    "MaterialCompareRow.worst_margin_nm": {
+      "by": "material_compare.compare_materials",
+      "kind": "derived"
+    },
+    "MaterialOption.density_kg_m3": {
+      "by": "catalog.materials",
+      "kind": "catalog",
+      "mark": "catalog"
     },
     "MeshGap.missing": {
       "by": "start_operation._find_meshes",
@@ -4422,6 +6330,34 @@
     },
     "MeshGap.total": {
       "by": "start_operation._find_meshes",
+      "kind": "derived"
+    },
+    "MotionJoint.acceleration": {
+      "by": "page.motion_preview",
+      "kind": "derived"
+    },
+    "MotionJoint.acceleration_limit": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "MotionJoint.torque": {
+      "by": "page.motion_preview",
+      "kind": "derived"
+    },
+    "MotionJoint.torque_limit": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "MotionJoint.velocity": {
+      "by": "page.motion_preview",
+      "kind": "derived"
+    },
+    "MotionJoint.velocity_limit": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "MotionPreview.time_s": {
+      "by": "page.motion_preview",
       "kind": "derived"
     },
     "PackedVectors.offset": {
@@ -4448,12 +6384,113 @@
       "by": "report.verdict",
       "kind": "derived"
     },
+    "PowerColumn.light_w": {
+      "by": "power_budget.rail_columns",
+      "kind": "derived"
+    },
+    "PowerColumn.max_w": {
+      "by": "power_budget.rail_columns",
+      "kind": "derived"
+    },
+    "PowerColumn.typical_w": {
+      "by": "power_budget.rail_columns",
+      "kind": "derived"
+    },
+    "PowerLoad.watts": {
+      "by": "schema.Device",
+      "kind": "declared"
+    },
+    "PowerPack.capacity_wh": {
+      "by": "schema.Battery",
+      "kind": "declared"
+    },
+    "PowerPack.plan_need_wh": {
+      "by": "battery.plan_energy_wh",
+      "kind": "derived"
+    },
+    "PowerPack.reserve_pct": {
+      "by": "schema.Battery",
+      "kind": "declared"
+    },
+    "PowerPack.usable_wh": {
+      "by": "page._power_pack",
+      "kind": "derived"
+    },
+    "PowerPack.voltage_v": {
+      "by": "schema.Battery",
+      "kind": "declared"
+    },
+    "PowerStage.amps_out": {
+      "by": "page._power_stages",
+      "kind": "derived"
+    },
+    "PowerStage.capacity_w": {
+      "by": "schema.Rail",
+      "kind": "declared"
+    },
+    "PowerStage.depth": {
+      "by": "page._power_stages",
+      "kind": "derived"
+    },
+    "PowerStage.efficiency": {
+      "by": "schema.Rail",
+      "kind": "declared"
+    },
+    "PowerStage.unknown_loads": {
+      "by": "checks.power_rollup",
+      "kind": "derived"
+    },
+    "PowerStage.volts_in": {
+      "by": "schema.Rail",
+      "kind": "declared"
+    },
+    "PowerStage.volts_out": {
+      "by": "schema.Rail",
+      "kind": "declared"
+    },
+    "PowerStage.watts_in": {
+      "by": "checks.power_rollup",
+      "kind": "derived"
+    },
+    "PowerStage.watts_lost": {
+      "by": "checks.power_rollup",
+      "kind": "derived"
+    },
+    "PowerStage.watts_out": {
+      "by": "checks.power_rollup",
+      "kind": "derived"
+    },
+    "PowerStress.pct": {
+      "by": "stress.stress_list",
+      "kind": "derived"
+    },
+    "PowerStress.rating": {
+      "by": "stress.stress_list",
+      "kind": "catalog",
+      "mark": "catalog"
+    },
+    "PowerStress.value": {
+      "by": "stress.stress_list",
+      "kind": "derived"
+    },
     "Provenance.conditions": {
       "by": "schema.Provenance (env channel at lock time)",
       "kind": "measured"
     },
     "Quantity.value": {
       "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "RailSweepPoint.load": {
+      "by": "checks.rail_sweep",
+      "kind": "derived"
+    },
+    "RailSweepPoint.volts": {
+      "by": "checks.rail_sweep",
+      "kind": "derived"
+    },
+    "ReferenceFaceDevice.mount_mm": {
+      "by": "schema.Physical",
       "kind": "declared"
     },
     "RobotJoint.axis": {
@@ -4468,9 +6505,17 @@
       "by": "schema.Joint",
       "kind": "declared"
     },
+    "RobotJoint.origin_mm": {
+      "by": "schema.Joint",
+      "kind": "declared"
+    },
     "RobotJoint.position": {
       "by": "gui._robot_model",
       "kind": "derived"
+    },
+    "RobotJoint.rpy": {
+      "by": "schema.Joint",
+      "kind": "declared"
     },
     "RobotJoint.upper": {
       "by": "schema.Joint",
@@ -4480,11 +6525,23 @@
       "by": "gui._robot_model",
       "kind": "derived"
     },
+    "RobotParam.value": {
+      "by": "schema.Param",
+      "kind": "declared"
+    },
     "ScenePart.color": {
       "by": "gui._scene_payload",
       "kind": "derived"
     },
     "ScenePart.translation": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "ScenePart.triangles_original": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "ScenePart.triangles_shown": {
       "by": "scene.load_scene",
       "kind": "measured"
     },
@@ -4500,9 +6557,25 @@
       "by": "scene.load_scene",
       "kind": "measured"
     },
+    "ScenePayload.triangles_original": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
+    "ScenePayload.triangles_shown": {
+      "by": "scene.load_scene",
+      "kind": "measured"
+    },
     "ScenePayload.vertices": {
       "by": "scene.load_scene",
       "kind": "measured"
+    },
+    "SupportPolygon.points": {
+      "by": "page._support_polygon",
+      "kind": "derived"
+    },
+    "SupportPolygon.z": {
+      "by": "page._support_polygon",
+      "kind": "derived"
     },
     "SwapCandidate.mass_g": {
       "by": "swap.preview",
@@ -4537,6 +6610,26 @@
     "SwapPreviewPayload.load_nm": {
       "by": "checks.gravity_loads",
       "kind": "derived"
+    },
+    "TipReadout.per_unit": {
+      "by": "page._tip_readout",
+      "kind": "derived"
+    },
+    "TipReadout.xyz": {
+      "by": "page._tip_readout",
+      "kind": "derived"
+    },
+    "WiringPinFact.level_v": {
+      "by": "page._wiring_live",
+      "kind": "declared"
+    },
+    "WiringPinFact.limit_v": {
+      "by": "pins.check_voltage",
+      "kind": "derived"
+    },
+    "WiringWire.awg": {
+      "by": "schema.Wire",
+      "kind": "declared"
     },
     "_VerdictDocument.exit_code": {
       "by": "report.verdict",

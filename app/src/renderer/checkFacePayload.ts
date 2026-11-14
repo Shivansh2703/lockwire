@@ -13,7 +13,7 @@
 // Anything the optional pro/ folder shows on the Check page reads the page payload itself.
 
 export type { Card } from "../shared/api.gen";
-import type { AcceptedRow, Card, Finding } from "../shared/api.gen";
+import type { AcceptedRow, AddsUpRow, Card, Finding, RequirementRow } from "../shared/api.gen";
 
 /** Also `CheckPayload["verdict"]` in `../shared/api.gen` -- spelled out again here
  * so this file does not have to import `CheckPayload`'s whole wrapped-document
@@ -31,7 +31,11 @@ export interface CheckFacePayload {
   unchecked: number;
   findings: Finding[];
   cards: Card[];
+  /** Page payload: one row per passed comparison; empty means nothing was compared. Absent until the page read lands. */
+  adds_up?: AddsUpRow[];
   /** Findings the lockfile accepted on record (page payload); shown muted, never hidden. */
   accepted?: AcceptedRow[];
+  /** Pro: each plan requirement and the check that proves it; empty (or absent) in the free app. */
+  requirements?: RequirementRow[];
   cli_line: string | null;
 }

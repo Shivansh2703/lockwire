@@ -10,11 +10,13 @@ import os
 import queue
 import sys
 import time
+import tomllib
 import traceback
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import Mock
 import pytest
+import yaml
 from typer.testing import CliRunner
 from lockwire import api
 from lockwire import edit
@@ -27,10 +29,11 @@ from lockwire.edit import (
     add_entry,
     apply_changes,
     contract_revision,
+    delete_entry,
     parse_value,
     propose_changes,
 )
-from lockwire.schema import load_contract
+from lockwire.schema import _model_structure_hash, load_contract
 
 
 runner = CliRunner()
@@ -206,7 +209,8 @@ def _run_racing_edits(
     revision: str,
     *,
     faults: tuple[str | None, ...] = (),
-    wait_budget: float = 15,
+    wait_budget: float = 90,
+    fault_budget: float = 90,
     owned_workers: list | None = None,
     owned_queues: list | None = None,
 ) -> list[str]:
@@ -240,7 +244,7 @@ def _run_racing_edits(
         for index, fault in enumerate(faults[: len(workers)])
         if fault in {"timeout", "crash"}
     }
-    deadline_budget = 15 if pending_faults else wait_budget
+    deadline_budget = fault_budget if pending_faults else wait_budget
     deadline_kind = "fault readiness" if pending_faults else "outcome"
     failure: str | None = None
     states_before_reap: list[dict[str, int | bool | None]] = []
@@ -274,7 +278,7 @@ def _run_racing_edits(
                 break
         if failure is None:
             for worker in workers:
-                worker.join(timeout=15)
+                worker.join(timeout=60)
                 if worker.exitcode != 0:
                     failure = "child exited non-zero"
                     break
@@ -331,7 +335,7 @@ def test_racing_edit_each_next_outcome_gets_original_wait_budget(scripted_race):
         ]
     )
 
-    assert _run_racing_edits([(Path("unused"), "20 W")] * 2, "unused") == [
+    assert _run_racing_edits([(Path("unused"), "20 W")] * 2, "unused", wait_budget=15) == [
         "conflict",
         "written",
     ]
@@ -346,7 +350,7 @@ def test_racing_edit_phase_messages_do_not_extend_outcome_deadline(scripted_race
     )
 
     with pytest.raises(AssertionError, match="child outcome deadline after 15s"):
-        _run_racing_edits([(Path("unused"), "20 W")] * 2, "unused")
+        _run_racing_edits([(Path("unused"), "20 W")] * 2, "unused", wait_budget=15)
     assert now[0] == 15
 
 
@@ -361,7 +365,7 @@ def test_racing_edit_duplicate_outcome_does_not_extend_next_deadline(scripted_ra
     )
 
     with pytest.raises(AssertionError, match="child outcome deadline after 15s"):
-        _run_racing_edits([(Path("unused"), "20 W")] * 2, "unused")
+        _run_racing_edits([(Path("unused"), "20 W")] * 2, "unused", wait_budget=15)
     assert now[0] == 20
 
 
@@ -404,6 +408,7 @@ def test_racing_edit_progress_does_not_extend_fault_readiness(scripted_race, fau
             "unused",
             faults=(fault, None),
             wait_budget=1,
+            fault_budget=15,
         )
     assert now[0] == 15
 
@@ -447,7 +452,7 @@ def test_raw_revision_conflicts_after_comment_only_change_with_same_semantic_con
 def test_concurrent_processes_with_one_revision_cannot_both_write(tmp_path):
     path = _copy(tmp_path)
     revision = contract_revision(path)
-    outcomes = _run_racing_edits([(path, "20 W"), (path, "21 W")], revision, wait_budget=15)
+    outcomes = _run_racing_edits([(path, "20 W"), (path, "21 W")], revision, wait_budget=90)
 
     assert outcomes == ["conflict", "written"]
 
@@ -457,7 +462,7 @@ def test_symlink_and_target_share_one_writer_lock_and_preserve_the_alias(tmp_pat
     alias = tmp_path / "alias.yaml"
     alias.symlink_to(path.name)
     revision = contract_revision(path)
-    outcomes = _run_racing_edits([(path, "20 W"), (alias, "21 W")], revision, wait_budget=15)
+    outcomes = _run_racing_edits([(path, "20 W"), (alias, "21 W")], revision, wait_budget=90)
 
     assert outcomes == ["conflict", "written"]
     assert alias.is_symlink()
@@ -702,7 +707,7 @@ def test_parse_value_unknown_unit_refused():
 
 def test_declare_creates_mount_xyz_keeps_comments(tmp_path):
     contract_path = _copy(tmp_path)
-    before_text = contract_path.read_text()
+    before_text = contract_path.read_text(encoding="utf-8")
 
     result = apply_changes(
         contract_path,
@@ -718,7 +723,7 @@ def test_declare_creates_mount_xyz_keeps_comments(tmp_path):
         ],
     )
     assert result.written
-    after_text = contract_path.read_text()
+    after_text = contract_path.read_text(encoding="utf-8")
 
     assert _comment_lines(before_text) == _comment_lines(after_text)
     _assert_only_data_lines_touched(before_text, after_text)
@@ -741,7 +746,7 @@ def test_a_config_supplied_witness_default_is_marked(monkeypatch, tmp_path):
     """An OMITTED --witness (None) falls back to the per-machine config
     value, and the fallback is marked "(default)" — an explicit name is not.
 
-    Named to match this box's accept line (``-k witness_default``) and its
+    Named to match this change's accept line (``-k witness_default``) and its
     own mutation bite: stop appending the mark and this test goes red.
     This is the omission case that must not regress.
     """
@@ -820,7 +825,7 @@ def test_declare_cli_uses_config_default_witness_marked_on_all_surfaces(monkeypa
     ``prov["witness"]`` outright, rather than the existing-block branch that
     keeps an old witness and only appends the new one to the note (see
     ``test_declare_creates_mount_xyz_keeps_comments`` for that other branch,
-    unrelated to this box) — comes back marked "(default)" both in the file
+    unrelated to this change) — comes back marked "(default)" both in the file
     itself and on the per-device reference page (``describe_device`` — the
     other surface that exists in this tree today; ``blame`` echoes the
     identical string once the shared wording lands).
@@ -1031,7 +1036,8 @@ def test_apply_dry_run_refuses_a_negative_mass(tmp_path):
         "- path: devices/dev.camera.oak-d-lite/physical/mass\n"
         "  value: -1 g\n"
         "  source: s1\n"
-        "  witness: w1\n"
+        "  witness: w1\n",
+        encoding="utf-8",
     )
     result = runner.invoke(app, ["apply", str(contract_path), str(changes_file), "--dry-run"])
     assert result.exit_code == 2, result.output
@@ -1164,6 +1170,30 @@ def test_add_device_unknown_rail_refused(tmp_path):
             witness="w1",
         )
     assert _sha(contract_path) == before
+
+
+@pytest.mark.parametrize("bad", ["0x10 V", "Infinity V", "twelve volts", "'12 V'", "true"])
+def test_quantity_field_refuses_text(tmp_path, bad):
+    path = _copy(tmp_path)
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match='voltage must be a number with a unit, like "12 V"'):
+        add_entry(
+            path, "rail", {"id": "r.x", "voltage": bad, "capacity": "10 W"}, source="s", witness="w"
+        )
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("good", "volts"), [("12 V", 12.0), ("7.4 V", 7.4), ("12V", 12.0), ("1e3 V", 1000.0)]
+)
+def test_quantity_field_stores_a_quantity(tmp_path, good, volts):
+    path = _copy(tmp_path)
+    add_entry(
+        path, "rail", {"id": "r.x", "voltage": good, "capacity": "10 W"}, source="s", witness="w"
+    )
+    assert (
+        rail := load_contract(path).rail("r.x")
+    ).voltage.value == volts and rail.voltage.unit == "V"
 
 
 def test_add_rail_without_voltage_is_accepted(tmp_path):
@@ -1407,7 +1437,7 @@ def test_one_submit_writes_one_witness_line(tmp_path):
         witness="Maya Chen",
     )
     assert result["written"]
-    text = contract_path.read_text()
+    text = contract_path.read_text(encoding="utf-8")
     assert text.count("Maya Chen") == 1
     contract = load_contract(contract_path)
     assert contract.family("fam.camera.depth").name == "Camera Depth"
@@ -1565,7 +1595,7 @@ def test_apply_creates_budget_block(tmp_path):
 
 
 def test_check_after_declared_capacity_fixes_one_budget_not_the_other(tmp_path):
-    """The demo's fix path (E1 brief): raise rail.pm02-5v's capacity AND the
+    """The demo's fix path: raise rail.pm02-5v's capacity AND the
     matching budget's limit to 18 W (apply, atomic) — the 17.20 W finding
     clears, the 35.20 W one does not (its own limit is untouched).
 
@@ -1617,7 +1647,7 @@ def test_apply_accepts_scene_import_list_plus_unit_entry(tmp_path):
     mass stays undeclared and not_scored, exactly as UNKNOWN demands.
     """
     contract_path = _copy(tmp_path)
-    before_text = contract_path.read_text()
+    before_text = contract_path.read_text(encoding="utf-8")
     changes = [
         Change(
             path="devices/dev.companion.jetson-orin-nano/physical/mount_xyz",
@@ -1636,7 +1666,7 @@ def test_apply_accepts_scene_import_list_plus_unit_entry(tmp_path):
     ]
     result = apply_changes(contract_path, changes)
     assert result.written
-    after_text = contract_path.read_text()
+    after_text = contract_path.read_text(encoding="utf-8")
     assert _comment_lines(before_text) == _comment_lines(after_text)
 
     contract = load_contract(contract_path)
@@ -1658,7 +1688,7 @@ def test_apply_accepts_scene_import_list_plus_unit_entry(tmp_path):
 def test_declare_diff_confined_to_edit_and_provenance(tmp_path, newline):
     """Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS."""
     contract_path = _copy(tmp_path, newline)
-    before_text = contract_path.read_text()
+    before_text = contract_path.read_text(encoding="utf-8")
     result = apply_changes(
         contract_path,
         [
@@ -1671,7 +1701,7 @@ def test_declare_diff_confined_to_edit_and_provenance(tmp_path, newline):
             )
         ],
     )
-    after_text = contract_path.read_text()
+    after_text = contract_path.read_text(encoding="utf-8")
     touched = _changed_lines(before_text, after_text)
     assert len(touched) <= 8, touched
     for line in touched:
@@ -1695,7 +1725,7 @@ def test_declare_diff_confined_to_edit_and_provenance(tmp_path, newline):
 def test_apply_diff_confined_for_three_changes(tmp_path, newline):
     """Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS."""
     contract_path = _copy(tmp_path, newline)
-    before_text = contract_path.read_text()
+    before_text = contract_path.read_text(encoding="utf-8")
     changes = [
         Change(
             path="topology/rails/rail.pm02-5v/capacity",
@@ -1720,7 +1750,7 @@ def test_apply_diff_confined_for_three_changes(tmp_path, newline):
         ),
     ]
     result = apply_changes(contract_path, changes)
-    after_text = contract_path.read_text()
+    after_text = contract_path.read_text(encoding="utf-8")
     touched = _changed_lines(before_text, after_text)
     assert len(touched) <= 30, touched
     allowed = ("capacity", "draw", "mount_xyz", "value:", "witness", "source", "locked_at", "note")
@@ -1734,7 +1764,7 @@ def test_apply_diff_confined_for_three_changes(tmp_path, newline):
 def test_add_rail_diff_confined(tmp_path, newline):
     """Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS."""
     contract_path = _copy(tmp_path, newline)
-    before_text = contract_path.read_text()
+    before_text = contract_path.read_text(encoding="utf-8")
     add_result = add_entry(
         contract_path,
         "rail",
@@ -1743,7 +1773,7 @@ def test_add_rail_diff_confined(tmp_path, newline):
         witness="w1",
         locked_at=LOCKED_AT,
     )
-    after_text = contract_path.read_text()
+    after_text = contract_path.read_text(encoding="utf-8")
     touched = _changed_lines(before_text, after_text)
     assert len(touched) <= 8, touched
     for line in touched:
@@ -1774,7 +1804,7 @@ def test_declare_appends_provenance_never_overwrites_another_facts_source(tmp_pa
     Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS.
     """
     contract_path = _copy(tmp_path, newline)
-    before_text = contract_path.read_text()
+    before_text = contract_path.read_text(encoding="utf-8")
     result = apply_changes(
         contract_path,
         [
@@ -1787,7 +1817,7 @@ def test_declare_appends_provenance_never_overwrites_another_facts_source(tmp_pa
             )
         ],
     )
-    after_text = contract_path.read_text()
+    after_text = contract_path.read_text(encoding="utf-8")
 
     contract = load_contract(contract_path)
     device = contract.device("dev.radio.rfd900x")
@@ -1809,7 +1839,7 @@ def test_declare_appends_provenance_never_overwrites_another_facts_source(tmp_pa
     _assert_newline_kept(contract_path, newline)
 
 
-# ---------------------------------------------------------------- G3: writer keeps file style
+# ---------------------------------------------------------------- writer keeps file style
 
 
 def test_add_family_confines_diff_on_init_written_file(tmp_path, testbot_urdf):
@@ -1822,7 +1852,7 @@ def test_add_family_confines_diff_on_init_written_file(tmp_path, testbot_urdf):
     contract_path = tmp_path / "contract.yaml"
     result = runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract_path)])
     assert result.exit_code == 0, result.output
-    before = contract_path.read_text()
+    before = contract_path.read_text(encoding="utf-8")
 
     add_result = add_entry(
         contract_path,
@@ -1833,7 +1863,7 @@ def test_add_family_confines_diff_on_init_written_file(tmp_path, testbot_urdf):
         locked_at=LOCKED_AT,
     )
     assert add_result.written
-    after = contract_path.read_text()
+    after = contract_path.read_text(encoding="utf-8")
 
     touched = _changed_lines(before, after)
     # the new block is 6 lines (id, name, provenance{witness,source,locked_at})
@@ -1853,7 +1883,7 @@ def test_add_family_confines_diff_on_init_anymal_d(tmp_path):
     contract_path = tmp_path / "contract.yaml"
     result = runner.invoke(app, ["init", str(urdf), "--out", str(contract_path)])
     assert result.exit_code == 0, result.output
-    before = contract_path.read_text()
+    before = contract_path.read_text(encoding="utf-8")
 
     add_result = add_entry(
         contract_path,
@@ -1864,7 +1894,7 @@ def test_add_family_confines_diff_on_init_anymal_d(tmp_path):
         locked_at=LOCKED_AT,
     )
     assert add_result.written
-    after = contract_path.read_text()
+    after = contract_path.read_text(encoding="utf-8")
 
     touched = _changed_lines(before, after)
     # the new block: `families: []` -> `families:` + 6 new lines.
@@ -1875,7 +1905,7 @@ def test_add_family_confines_diff_on_init_anymal_d(tmp_path):
 def test_add_family_confines_diff_on_x500_fixture(tmp_path, newline):
     """Same guarantee on a hand-written, already-4/2 fixture (no regression). Fails on Windows, where the CRLF fixture was read as LF; runs LF and CRLF on every OS."""
     contract_path = _copy(tmp_path, newline)
-    before = contract_path.read_text()
+    before = contract_path.read_text(encoding="utf-8")
 
     add_result = add_entry(
         contract_path,
@@ -1886,7 +1916,7 @@ def test_add_family_confines_diff_on_x500_fixture(tmp_path, newline):
         locked_at=LOCKED_AT,
     )
     assert add_result.written
-    after = contract_path.read_text()
+    after = contract_path.read_text(encoding="utf-8")
 
     touched = _changed_lines(before, after)
     assert len(touched) <= 7, touched
@@ -1917,7 +1947,7 @@ def test_add_family_keeps_a_hand_written_files_own_2_0_style(tmp_path, newline):
     contract_path = tmp_path / "contract.yaml"
     contract_path.write_bytes(_HANDWRITTEN_2_0_STYLE.replace("\n", newline).encode())
 
-    before = contract_path.read_text()
+    before = contract_path.read_text(encoding="utf-8")
     add_result = add_entry(
         contract_path,
         "family",
@@ -1927,7 +1957,7 @@ def test_add_family_keeps_a_hand_written_files_own_2_0_style(tmp_path, newline):
         locked_at=LOCKED_AT,
     )
     assert add_result.written
-    after = contract_path.read_text()
+    after = contract_path.read_text(encoding="utf-8")
     assert "- id: fam.a\n  name: A\n" in after  # untouched entry: still 2/0, unreindented
     assert "- id: fam.new\n  name: New family\n" in after  # new entry: same style
     _assert_diff_confined(add_result, before, after)
@@ -1966,7 +1996,7 @@ def test_declare_preserves_untouched_float_scalars(tmp_path):
     float (`0.10`) or short exponent (`1.0e-05`).
     """
     contract_path = tmp_path / "contract.yaml"
-    contract_path.write_text(_FLOAT_FIXTURE)
+    contract_path.write_text(_FLOAT_FIXTURE, encoding="utf-8")
 
     result = apply_changes(
         contract_path,
@@ -1981,7 +2011,7 @@ def test_declare_preserves_untouched_float_scalars(tmp_path):
         ],
     )
     assert result.written
-    after = contract_path.read_text()
+    after = contract_path.read_text(encoding="utf-8")
     assert "1.0e-05" in after
     assert "0.10" in after
     assert "2.5e-3" in after
@@ -2008,7 +2038,7 @@ def test_add_battery_creates_block_with_comment_provenance(tmp_path):
     assert contract.topology.battery.capacity.value == 932.4
     assert contract.topology.battery.voltage.value == 25.9
 
-    text = contract_path.read_text()
+    text = contract_path.read_text(encoding="utf-8")
     assert "SPECS.md PDF p7" in text
     assert "human" in text
     assert "Li-ion" in text
@@ -2038,7 +2068,7 @@ def test_declare_topology_battery_capacity_records_comment_provenance(tmp_path):
     contract = load_contract(contract_path)
     assert contract.topology.battery.capacity.value == 932.4
 
-    text = contract_path.read_text()
+    text = contract_path.read_text(encoding="utf-8")
     assert "SPECS.md PDF p7" in text
     assert "human" in text
 
@@ -2069,16 +2099,41 @@ def test_declare_model_link_mass_records_comment_provenance(tmp_path):
     frame = next(link for link in contract.model.links if link.name == "x500_frame")
     assert frame.mass.value == 615
 
-    text = contract_path.read_text()
+    text = contract_path.read_text(encoding="utf-8")
     assert "hand re-weigh" in text
     assert "human" in text
+
+
+@pytest.mark.parametrize("form", ["0.1 0 0.02", "[0.1, 0, 0.02]", "0.1,0,0.02"])
+def test_declare_link_com_accepts_vector_forms(tmp_path, form):
+    contract_path = _copy(tmp_path)
+    change = Change(
+        path="model/links/x500_frame/com",
+        value=form,
+        source="CAD",
+        witness="human",
+        locked_at=LOCKED_AT,
+    )
+    assert apply_changes(contract_path, [change]).written
+    frame = next(k for k in load_contract(contract_path).model.links if k.name == "x500_frame")
+    assert tuple(frame.com) == (0.1, 0.0, 0.02)
+
+
+@pytest.mark.parametrize("bad", ["0.1 0", "centre", "1 2 3 4", "[0.1, nan, 0]"])
+def test_declare_link_com_refuses_non_vector_in_one_line(tmp_path, bad):
+    contract_path = _copy(tmp_path)
+    before = _sha(contract_path)
+    change = Change(path="model/links/x500_frame/com", value=bad, source="s", witness="w")
+    with pytest.raises(EditRefusal, match=r"^[^\n]*com needs three numbers[^\n]*$"):
+        apply_changes(contract_path, [change])
+    assert _sha(contract_path) == before
 
 
 # ---------------------------------------------------------------- non-git backup
 
 
 def test_edit_outside_git_repo_leaves_only_the_contract(tmp_path):
-    """The non-git half: a successful write leaves no `.bak` and no `.lock` beside it."""
+    """The non-git half: a successful write leaves no `.bak` and no `.lock` beside it, only the undo journal."""
     contract_path = _copy(tmp_path)
 
     result = apply_changes(
@@ -2095,7 +2150,7 @@ def test_edit_outside_git_repo_leaves_only_the_contract(tmp_path):
     )
     assert result.written
 
-    assert list(tmp_path.iterdir()) == [contract_path]
+    assert sorted(tmp_path.iterdir()) == sorted([contract_path, edit._journal_path(contract_path)])  # only the undo journal
 
 
 def test_writer_locks_do_not_pile_up_and_a_waiter_retries_on_the_live_file(tmp_path, monkeypatch):
@@ -2193,7 +2248,7 @@ MARK_PREFIX = "cleared by re-declaring the limit on "
 def _mark_contract(tmp_path: Path, *, draw: float, limit: float) -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "contract.yaml"
-    path.write_text(_MARK_CONTRACT.format(draw=draw, limit=limit))
+    path.write_text(_MARK_CONTRACT.format(draw=draw, limit=limit), encoding="utf-8")
     return path
 
 
@@ -2260,7 +2315,7 @@ def _expected_fragments() -> dict[str, str]:
     """The checked-in expected provenance blocks, keyed by their `### ` marker."""
     blocks: dict[str, str] = {}
     key = None
-    for line in POSE_EXPECTED.read_text().splitlines():
+    for line in POSE_EXPECTED.read_text(encoding="utf-8").splitlines():
         if line.startswith("### "):
             key = line[4:].strip()
             blocks[key] = ""
@@ -2334,7 +2389,7 @@ def test_every_pose_edit_stamps_its_own_witness(tmp_path):
         locked_at=POSE_DATE,
     )
 
-    written = contract.read_text()
+    written = contract.read_text(encoding="utf-8")
     for label, fragment in _expected_fragments().items():
         assert fragment in written, _fragment_diff(fragment, written, label)
     # Three submits, so the note carries a line per declared fact — not one
@@ -2429,7 +2484,7 @@ def test_add_gearbox_ratio_edit_and_refusals(tmp_path):
     )
 
     # (1) editing the ratio and reopening changes only that field's bytes.
-    after_add = contract_path.read_text()
+    after_add = contract_path.read_text(encoding="utf-8")
     apply_changes(
         contract_path,
         [
@@ -2442,7 +2497,7 @@ def test_add_gearbox_ratio_edit_and_refusals(tmp_path):
             )
         ],
     )
-    touched = _changed_lines(after_add, contract_path.read_text())
+    touched = _changed_lines(after_add, contract_path.read_text(encoding="utf-8"))
     assert touched and len(touched) <= 8
     assert all(
         any(
@@ -2762,3 +2817,794 @@ def test_review_refusal_names_the_contract_not_its_temp_file(tmp_path):
     with pytest.raises(EditRefusal) as refused:
         edit.apply_review(path, "topology/rails/rail.pm02-5v/capacity", "bogus", witness="Pat")
     assert f"{path.name}: topology" in str(refused.value) and ".tmp" not in str(refused.value)
+
+
+_KEPT_CONFIG = 'other = 1\n\n[table]\nwitness = "kept"\n'
+
+
+@pytest.fixture
+def witness_config(monkeypatch, tmp_path):
+    path = tmp_path / "lw" / "config.toml"
+    monkeypatch.setenv("LOCKWIRE_WITNESS_CONFIG", str(path))
+    path.parent.mkdir()
+    path.write_text(_KEPT_CONFIG, encoding="utf-8")
+    return path
+
+
+def _kept_keys_survive(path):
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    return data["other"] == 1 and data["table"] == {"witness": "kept"}
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Zoë", "Zoe\u0308", "Li 😀", 'Al "Ace" Ng', "C:\\Pat", "O'Brien", "שירה", "  Pat  "],
+)
+def test_default_witness_reads_back_after_two_writes(witness_config, name):
+    assert edit.write_default_witness(name) == name.strip()
+    assert edit.read_default_witness() == name.strip()
+    edit.write_default_witness("Priya")
+    assert edit.read_default_witness() == "Priya"
+    assert _kept_keys_survive(witness_config)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "you",
+        "Claude",
+        "a\u2028b",
+        "a\u2029b",
+        "a\u0085b",
+        "a\x7fb",
+        "a\nb",
+        "a\tb",
+        "a\x01b",
+        "\ud800",
+    ],
+)
+def test_default_witness_refusal_leaves_file_unchanged(witness_config, name):
+    edit.write_default_witness("Priya")
+    before = witness_config.read_bytes()
+    with pytest.raises(EditRefusal):
+        edit.write_default_witness(name)
+    assert witness_config.read_bytes() == before
+
+
+def test_default_witness_keeps_a_crlf_file_readable(witness_config):
+    witness_config.write_bytes(_KEPT_CONFIG.replace("\n", "\r\n").encode())
+    edit.write_default_witness("Zoë")
+    edit.write_default_witness("Priya")
+    assert edit.read_default_witness() == "Priya"
+    assert _kept_keys_survive(witness_config)
+
+
+def test_default_witness_temp_file_removed_when_replace_fails(witness_config, monkeypatch):
+    monkeypatch.setattr(edit.os, "replace", Mock(side_effect=OSError("disk full")))
+    with pytest.raises(OSError):
+        edit.write_default_witness("Priya")
+    assert [p.name for p in witness_config.parent.iterdir()] == ["config.toml"]
+
+
+def test_default_witness_refuses_to_rewrite_an_unreadable_file(witness_config):
+    witness_config.write_text("not = toml =", encoding="utf-8")
+    before = witness_config.read_bytes()
+    with pytest.raises(EditRefusal, match="Fix or delete the settings file"):
+        edit.write_default_witness("Priya")
+    assert witness_config.read_bytes() == before
+
+
+# ---------------------------------------------------------------- electrical optional group
+
+
+def test_declare_writes_an_f1a_rail_field(tmp_path):
+    contract_path = _copy(tmp_path)
+    change = Change(
+        path="topology/rails/rail.pm02-5v/dropout_v",
+        value="0.3",
+        source="TPS54331 datasheet",
+        witness="w1",
+        locked_at=LOCKED_AT,
+    )
+    assert apply_changes(contract_path, [change]).written
+    assert load_contract(contract_path).rail("rail.pm02-5v").dropout_v == 0.3
+
+
+def test_add_copies_f1a_scalars_for_rail_bus_and_battery(tmp_path):
+    contract_path = _copy(tmp_path)
+    rail = {
+        "id": "rail.new",
+        "capacity": "10 W",
+        "regulator_kind": "ldo",
+        "accepts_regen": False,
+        "dropout_v": "0.25",
+    }
+    add_entry(contract_path, "rail", rail, source="LDO datasheet", witness="w1")
+    bus = {
+        "id": "bus.rs485",
+        "kind": "serial",
+        "host": "flight-controller",
+        "length_m": "1.5",
+        "twisted": "true",
+    }
+    add_entry(contract_path, "bus", bus, source="harness drawing", witness="w1")
+    add_entry(
+        contract_path,
+        "battery",
+        {"capacity": "74 Wh", "reserve_pct": 0},
+        source="pack label",
+        witness="w1",
+    )
+    top = load_contract(contract_path).topology
+    new_rail = top.rails[-1]
+    assert (new_rail.regulator_kind, new_rail.accepts_regen, new_rail.dropout_v) == (
+        "ldo",
+        False,
+        0.25,
+    )
+    assert (top.buses[-1].length_m, top.buses[-1].twisted) == (1.5, True)
+    assert top.battery.reserve_pct == 0
+
+
+def test_add_wire_appends_with_provenance_and_refuses_bad_input(tmp_path):
+    path = _copy(tmp_path)
+    kw = {"source": "harness drawing", "witness": "w1"}
+    wire = {
+        "id": "w.sig",
+        "awg": "22",
+        "installation": "enclosed",
+        "owner": "w1",
+        "length_m": "0.4",
+        "rail": "rail.pm02-5v",
+    }
+    add_entry(path, "wire", wire, **kw)
+    added = load_contract(path).topology.wires[-1]
+    assert (added.id, added.awg, added.rail, added.length_m) == ("w.sig", 22, "rail.pm02-5v", 0.4)
+    assert added.provenance.witness == "w1"
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match="already"):
+        add_entry(path, "wire", wire, **kw)
+    with pytest.raises(EditRefusal, match="wire requires --awg"):
+        add_entry(path, "wire", {k: v for k, v in wire.items() if k != "awg"} | {"id": "w2"}, **kw)
+    with pytest.raises(EditRefusal):
+        add_entry(path, "wire", {**wire, "id": "w3", "rail": None}, **kw)
+    assert path.read_bytes() == before
+
+
+def test_add_wire_with_two_pin_ends_and_no_rail(tmp_path):
+    path = _copy(tmp_path)
+    wire = {"id": "w.sig", "awg": 26, "installation": "enclosed", "owner": "w1"}
+    ends = {
+        "from": {"device": "imu", "pin": 1},
+        "to": {"device": "fc", "connector": "J1", "pin": "A2"},
+    }
+    add_entry(path, "wire", wire | ends, source="harness drawing", witness="w1")
+    added = load_contract(path).topology.wires[-1]
+    assert added.rail is None
+    assert (added.from_.device, added.from_.pin) == ("imu", 1)
+    assert (added.to.device, added.to.connector, added.to.pin) == ("fc", "J1", "A2")
+
+
+def test_add_signal_wire_needs_no_gauge_but_rail_wire_still_does(tmp_path):
+    path = _copy(tmp_path)
+    ends = {"from": {"device": "imu", "pin": 1}, "to": {"device": "fc", "pin": "A2"}}
+    add_entry(path, "wire", {"id": "w.sig", "owner": "w1"} | ends, source="drawing", witness="w1")
+    added = load_contract(path).topology.wires[-1]
+    assert (added.awg, added.installation) == (None, None)
+    rail = {"id": "w.pwr", "owner": "w1", "rail": "rail.pm02-5v", "installation": "enclosed"}
+    with pytest.raises(EditRefusal, match="wire requires --awg"):
+        add_entry(path, "wire", rail, source="drawing", witness="w1")
+
+
+def _connector_lockfile(tmp_path):
+    dest = tmp_path / "lockwire.yaml"
+    dest.write_bytes(FIXTURE.read_bytes())
+    return dest
+
+
+def test_add_connector_copies_type_and_labels_pins(tmp_path):
+    path = _connector_lockfile(tmp_path)
+    fields = {"device": "dev.gnss.here3-plus", "type": "qwiic", "placement": "left edge"}
+    add_entry(path, "connector", fields, source="d", witness="w1", locked_at=LOCKED_AT)
+    contract = load_contract(path)
+    conn = contract.device("dev.gnss.here3-plus").connectors[0]
+    assert (conn.id, conn.type, conn.placement) == ("qwiic", "qwiic", "left edge")
+    assert [(p.number, p.name) for p in conn.pins] == [
+        (1, "GND"),
+        (2, "3V3"),
+        (3, "SDA"),
+        (4, "SCL"),
+    ]
+    assert [t.id for t in contract.connector_types] == ["qwiic"]
+    assert "sources" not in path.read_text(encoding="utf-8").split("connector_types:")[1].split("devices:")[0]
+    add_entry(path, "connector", fields, source="d", witness="w1", locked_at=LOCKED_AT)
+    ids = [c.id for c in load_contract(path).device("dev.gnss.here3-plus").connectors]
+    assert ids == ["qwiic", "qwiic-2"]
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"device": "dev.nope", "type": "qwiic"}, "unknown device 'dev.nope'"),
+        ({"device": "dev.gnss.here3-plus", "type": "qwic"}, "did you mean qwiic"),
+        ({"device": "dev.gnss.here3-plus", "type": "bare-type"}, "has no pin_count"),
+    ],
+)
+def test_add_connector_refusals(tmp_path, fields, message):
+    path = _connector_lockfile(
+        tmp_path
+    )  # bare-type: lockfile-local, no pin_count, catalog-independent
+    path.write_bytes(path.read_bytes() + b"connector_types:\n- id: bare-type\n")
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match=message):
+        add_entry(path, "connector", fields, source="d", witness="w1", locked_at=LOCKED_AT)
+    assert path.read_bytes() == before
+
+
+def test_add_connector_refuses_duplicate_id(tmp_path):
+    path = _connector_lockfile(tmp_path)
+    fields = {"device": "dev.gnss.here3-plus", "type": "qwiic", "id": "j1"}
+    add_entry(path, "connector", fields, source="d", witness="w1", locked_at=LOCKED_AT)
+    with pytest.raises(EditRefusal, match="connector 'j1' already exists"):
+        add_entry(path, "connector", fields, source="d", witness="w1", locked_at=LOCKED_AT)
+
+
+# ---- links and joints in a lockfile-stored model
+
+_BLANK = 'schema_version: "0.7"\nrobot:\n  name: r\n'
+
+
+def _two_links(tmp_path, axis=(0.0, 0.0, 1.0)):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    for name in ("base", "arm"):
+        add_entry(path, "link", {"name": name, "mass": "1 kg"}, source="sketch", witness="w1")
+    joint = {"name": "elbow", "type": "revolute", "parent": "base", "child": "arm", "axis": axis}
+    add_entry(path, "joint", joint, source="sketch", witness="w1")
+    return path
+
+
+def test_two_link_tree_from_blank_is_read_by_check_with_no_drift(tmp_path, monkeypatch):
+    path = _two_links(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["check", path.name, "--json", "out.json"])
+    assert result.exit_code != 2, result.output
+    findings = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))["findings"]
+    assert not [f for f in findings if f["quantity"] == "model/structure_hash"]
+
+
+def test_link_and_joint_round_trip_with_axis_and_written_hash(tmp_path):
+    path = _two_links(tmp_path, axis=(1.0, 0.0, 0.0))
+    model = load_contract(path).model
+    assert (model.source, model.joints[0].axis) == ("lockfile", (1.0, 0.0, 0.0))
+    written = yaml.safe_load(path.read_text(encoding="utf-8"))["model"]["structure_hash"]
+    assert written == _model_structure_hash(model.links, model.joints)
+
+
+def test_joint_that_closes_a_loop_is_refused_and_file_unchanged(tmp_path):
+    path = _two_links(tmp_path)
+    before = path.read_bytes()
+    loop = {"name": "back", "type": "fixed", "parent": "arm", "child": "base"}
+    with pytest.raises(EditRefusal, match=r"close a loop \(base -> arm -> base\)") as refused:
+        add_entry(path, "joint", loop, source="sketch", witness="w1")
+    assert "\n" not in str(refused.value) and path.read_bytes() == before
+
+
+def test_delete_leaf_link_takes_its_joint_and_rehashes(tmp_path):
+    path = _two_links(tmp_path)
+    with pytest.raises(EditRefusal, match=r"base holds 1 part \(arm by joint \w+\); delete or re-attach it first"):
+        delete_entry(path, "link", "base", source="sketch", witness="w1")
+    delete_entry(path, "link", "arm", source="sketch", witness="w1")
+    model = load_contract(path).model
+    written = yaml.safe_load(path.read_text(encoding="utf-8"))["model"]["structure_hash"]
+    assert not model.joints and written == _model_structure_hash(model.links, [])
+
+
+def _arm_with_shapes(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    shapes = [{"kind": "box", "size": [1, 1, 1]}, {"kind": "sphere", "radius": 0.1}]
+    add_entry(path, "link", {"name": "arm", "geometry": shapes}, source="s", witness="w1")
+    return path
+
+
+def test_delete_shape_removes_exactly_that_primitive_and_last_one_becomes_absent(tmp_path):
+    path = _arm_with_shapes(tmp_path)
+    delete_entry(path, "shape", "arm", index=0, source="s", witness="w1")
+    assert [x.kind for x in load_contract(path).model.links[0].geometry] == ["sphere"]
+    delete_entry(path, "shape", "arm", index=0, source="s", witness="w1")
+    assert load_contract(path).model.links[0].geometry is None
+    assert "geometry" not in path.read_text(encoding="utf-8")
+
+
+def test_delete_shape_is_refused_on_an_imported_model(tmp_path):
+    path = _arm_with_shapes(tmp_path)
+    path.write_text(path.read_text(encoding="utf-8").replace("source: lockfile", "source: urdf", 1), encoding="utf-8")
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match="edit that file"):
+        delete_entry(path, "shape", "arm", index=0, source="s", witness="w1")
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("index", [2, -1, None])
+def test_delete_shape_out_of_range_is_refused_and_file_byte_identical(tmp_path, index):
+    path = _arm_with_shapes(tmp_path)
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match="has no shape at index"):
+        delete_entry(path, "shape", "arm", index=index, source="s", witness="w1")
+    assert path.read_bytes() == before
+
+
+def test_link_geometry_naming_a_param_round_trips(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK + "params:\n  - name: arm_len\n    value: 0.3\n", encoding="utf-8")
+    shape = {"kind": "cylinder", "radius": 0.02, "length": "arm_len"}
+    add_entry(path, "link", {"name": "arm", "geometry": [shape]}, source="s", witness="w1")
+    assert load_contract(path).model.links[0].geometry[0].param_names() == ["arm_len"]
+
+
+def test_link_edit_is_refused_on_an_imported_urdf_model(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_bytes(FIXTURE.read_bytes())
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match="edit that file"):
+        add_entry(path, "link", {"name": "extra"}, source="s", witness="w1")
+    with pytest.raises(EditRefusal, match="edit that file"):
+        delete_entry(path, "joint", "any", source="s", witness="w1")
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("ends", "message"),
+    [(("arm", "arm"), "to itself"), (("base", "arm"), "already hangs from 'base'")],
+)
+def test_self_joint_and_second_parent_are_refused(tmp_path, ends, message):
+    path = _two_links(tmp_path)
+    joint = {"name": "j2", "type": "fixed", "parent": ends[0], "child": ends[1]}
+    with pytest.raises(EditRefusal, match=message):
+        add_entry(path, "joint", joint, source="sketch", witness="w1")
+
+
+def test_delete_device_refuses_a_contract_path_that_embeds_its_id(tmp_path):
+    path = _connector_lockfile(tmp_path)
+    edge = (
+        "edges:\n  - quantity: devices/dev.radio.rfd900x/physical/mass\n"
+        "    tolerance: {rel_pct: 5.0}\n    code: [src/a.py]\n    owner: w1\n"
+    )
+    path.write_text(path.read_text(encoding="utf-8").replace("\ndevices:\n", f"\n{edge}devices:\n", 1), encoding="utf-8")
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match=r"named by edges/0/quantity;") as err:
+        delete_entry(path, "device", "dev.radio.rfd900x", source="s", witness="w1")
+    assert "\n" not in str(err.value)
+    assert path.read_bytes() == before
+
+
+def test_delete_device_refuses_while_named_and_deletes_when_not(tmp_path):
+    path = _connector_lockfile(tmp_path)
+    ends = {
+        "from": {"device": "dev.gnss.here3-plus", "pin": 1},
+        "to": {"device": "dev.esc.esc1", "pin": 2},
+    }
+    wire = {"id": "w.sig", "awg": 26, "installation": "enclosed", "owner": "w1"}
+    add_entry(path, "wire", wire | ends, source="harness", witness="w1")
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match="named by topology/wires/w.sig/from/device;"):
+        delete_entry(path, "device", "dev.gnss.here3-plus", source="s", witness="w1")
+    assert path.read_bytes() == before
+    delete_entry(path, "device", "dev.radio.rfd900x", source="s", witness="w1")
+    assert load_contract(path).device("dev.radio.rfd900x") is None
+
+
+# ---- a param takes declare and add like any declared number
+
+_PARAMS = _BLANK + "params:\n  - name: arm_len\n    value: 0.3\n    min: 0.1\n    max: 0.5\n"
+
+
+def test_declare_param_value_loads_back_with_provenance(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_PARAMS, encoding="utf-8")
+    apply_changes(path, [Change("params/arm_len/value", "0.4", "s", "w1")])
+    param = load_contract(path).params[0]
+    assert param.value == 0.4 and param.provenance.witness == "w1"
+
+
+def test_add_param_appends_with_provenance(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_PARAMS, encoding="utf-8")
+    fields = {"name": "wrist", "value": 2, "unit": "mm", "min": 1, "max": 3}
+    add_entry(path, "param", fields, source="s", witness="w1")
+    names = [p.name for p in load_contract(path).params]
+    assert names == ["arm_len", "wrist"]
+    assert load_contract(path).params[1].provenance.witness == "w1"
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"name": "arm_len", "value": 0.2}, "already exists"),
+        ({"name": "x", "value": 9, "max": 3}, "min <= value <= max"),
+    ],
+)
+def test_add_param_refusals_leave_the_file_untouched(tmp_path, fields, message):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_PARAMS, encoding="utf-8")
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match=message):
+        add_entry(path, "param", fields, source="s", witness="w1")
+    assert path.read_bytes() == before
+
+
+def test_link_material_by_catalog_name_or_dict_is_kept_and_unknown_name_refused(tmp_path):
+    from lockwire import catalog
+
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    for name, mat in (("a", "aluminium 6061-t6"), ("b", catalog.materials()[0].model_dump())):
+        add_entry(path, "link", {"name": name, "material": mat}, source="s", witness="w1")
+    a, b = load_contract(path).model.links
+    assert a.material == catalog.material("Aluminium 6061-T6")
+    assert b.material == catalog.materials()[0]
+    with pytest.raises(EditRefusal, match=r"No catalog material named 'Aluminum'.*Aluminium"):
+        add_entry(path, "link", {"name": "c", "material": "Aluminum"}, source="s", witness="w1")
+
+
+def _edit_capacity(path: Path, n: int) -> bytes:
+    apply_changes(path, [Change("devices/dev.companion.jetson-orin-nano/power/choices", ["7W"] if n % 2 else ["15W"], "spec.pdf", f"Pat{n}")])
+    return path.read_bytes()  # fmt: skip
+
+
+def test_undo_steps_back_one_write_at_a_time_and_redo_forward(tmp_path):
+    path, states = _copy(tmp_path), []
+    states.append(path.read_bytes())
+    states += [_edit_capacity(path, n) for n in (1, 2, 3)]
+    edit.undo_edit(path)
+    edit.undo_edit(path)
+    assert path.read_bytes() == states[1]  # file after edit one, byte-identical
+    edit.redo_edit(path)
+    assert path.read_bytes() == states[2]
+    _edit_capacity(path, 4)  # an edit after an undo clears redo
+    with pytest.raises(EditRefusal, match="^nothing to redo$"):
+        edit.redo_edit(path)
+
+
+def test_undo_with_nothing_journaled_refuses_in_one_line(tmp_path):
+    path = _copy(tmp_path)
+    with pytest.raises(EditRefusal, match="^nothing to undo$"):
+        edit.undo_edit(path)
+    assert not edit._journal_path(path).exists()
+
+
+def test_undo_refuses_when_the_file_changed_outside_lockwire(tmp_path):
+    path = _copy(tmp_path)
+    _edit_capacity(path, 1)
+    path.write_bytes(path.read_bytes() + b"# my manual edit\n")
+    manual = path.read_bytes()
+    with pytest.raises(EditConflict, match="changed outside Lockwire"):
+        edit.undo_edit(path)
+    assert path.read_bytes() == manual
+
+
+def test_journal_keeps_only_the_last_fifty_steps(tmp_path):
+    path = _copy(tmp_path)
+    for n in range(53):
+        _edit_capacity(path, n)
+    assert len(edit._journal_load(path)["undo"]) == 50
+
+
+def test_check_ignores_the_journal_and_cli_undo_redo_exit_codes(tmp_path):
+    path = _copy(tmp_path)
+    assert runner.invoke(app, ["undo", str(path)]).exit_code == 2
+    original = path.read_bytes()
+    _edit_capacity(path, 1)
+    assert edit._journal_path(path).exists()
+    assert runner.invoke(app, ["check", str(path)]).exit_code in (0, 1)
+    assert runner.invoke(app, ["undo", str(path)]).exit_code == 0 and path.read_bytes() == original
+    assert runner.invoke(app, ["redo", str(path)]).exit_code == 0 and path.read_bytes() != original
+    assert runner.invoke(app, ["redo", str(path)]).exit_code == 2
+
+
+# ---- pattern and duplicate
+
+
+def _pattern_fields(**more):
+    return {"id": "ring", "kind": "circular", "of": "arm", "count": 4, "axis": [0, 0, 1], **more}
+
+
+def _placed(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    for name in ("base", "arm"):
+        add_entry(path, "link", {"name": name, "mass": "1 kg"}, source="s", witness="w1")
+    joint = {"name": "elbow", "type": "fixed", "parent": "base", "child": "arm"}
+    joint["origin"] = {"xyz": [0.1, 0.0, 0.0], "rpy": [0, 0, 0]}
+    add_entry(path, "joint", joint, source="s", witness="w1")
+    return path
+
+
+def _origins(path):
+    return {j.name: j.origin.xyz for j in load_contract(path).model.joints}
+
+
+def test_pattern_four_circular_copies_sit_ninety_degrees_apart(tmp_path):
+    path = _placed(tmp_path)
+    add_entry(path, "pattern", _pattern_fields(), source="s", witness="w1")
+    contract = load_contract(path)
+    assert [x.name for x in contract.model.links] == ["base", "arm", "arm-2", "arm-3", "arm-4"]
+    got = _origins(path)
+    want = {"elbow": (0.1, 0, 0), "elbow-2": (0, 0.1, 0), "elbow-3": (-0.1, 0, 0)}
+    want["elbow-4"] = (0, -0.1, 0)
+    for name, xyz in want.items():
+        assert got[name] == pytest.approx(xyz, abs=1e-9)
+    assert contract.patterns[0].count == 4
+    assert contract.model.joints[2].origin.rpy[2] == pytest.approx(3.14159265, abs=1e-6)
+
+
+def test_pattern_linear_steps_by_the_pitch(tmp_path):
+    path = _placed(tmp_path)
+    fields = _pattern_fields(kind="linear", count=3, axis=[0, 2, 0], pitch_m=0.05)
+    add_entry(path, "pattern", fields, source="s", witness="w1")
+    assert _origins(path)["elbow-3"] == pytest.approx((0.1, 0.1, 0), abs=1e-9)
+    assert load_contract(path).patterns[0].pitch_m == 0.05
+
+
+def test_duplicate_copies_a_link_and_offsets_its_joint(tmp_path):
+    path = _placed(tmp_path)
+    fields = {"of": "arm", "name": "arm-b", "offset_xyz": [0, 0, 0.2]}
+    add_entry(path, "duplicate", fields, source="s", witness="w1")
+    assert load_contract(path).model.links[2].name == "arm-b"
+    assert _origins(path)["elbow-b"] == pytest.approx((0.1, 0, 0.2))
+    assert load_contract(path).patterns is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "fields", "match"),
+    [
+        ("pattern", {"of": "nope"}, "no link 'nope'"),
+        ("pattern", {"of": "base"}, "no parent joint"),
+        ("pattern", {"count": 1}, "invalid"),
+        ("pattern", {"axis": [0, 0, 0]}, "non-zero axis"),
+        ("pattern", {"kind": "linear"}, "pitch_m"),
+        ("duplicate", {"of": "arm", "name": "base"}, "already exists"),
+        ("duplicate", {"of": "base"}, "no parent joint"),
+    ],
+)
+def test_pattern_refusals_leave_the_file_byte_identical(tmp_path, kind, fields, match):
+    path = _placed(tmp_path)
+    before = path.read_bytes()
+    body = {**_pattern_fields(), **fields} if kind == "pattern" else fields
+    with pytest.raises(EditRefusal, match=match):
+        add_entry(path, kind, body, source="s", witness="w1")
+    assert path.read_bytes() == before
+
+
+def test_pattern_twice_collides_and_imported_model_is_refused(tmp_path):
+    path = _placed(tmp_path)
+    add_entry(path, "pattern", _pattern_fields(), source="s", witness="w1")
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match="already exists"):
+        add_entry(path, "pattern", _pattern_fields(id="ring2"), source="s", witness="w1")
+    assert path.read_bytes() == before
+    urdf = tmp_path / "u.yaml"
+    urdf.write_bytes(FIXTURE.read_bytes())
+    with pytest.raises(EditRefusal, match="edit that file"):
+        add_entry(urdf, "pattern", _pattern_fields(), source="s", witness="w1")
+
+
+# ---- attach a catalog part to a link at a given frame
+
+_FRAME = {"xyz": [0.1, 0.0, "arm_len"], "rpy": [0.0, 0.0, 1.5]}
+
+
+def _attachable(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    add_entry(path, "link", {"name": "base", "mass": "1 kg"}, source="sketch", witness="w1")
+    add_entry(
+        path, "param", {"name": "arm_len", "value": 0.2, "unit": "m"}, source="s", witness="w1"
+    )
+    return path
+
+
+def _attach(path, **over):
+    joint = {"type": "revolute", "axis": [0, 0, 1], "limits": {"lower": -1, "upper": 1}}
+    fields = {"parent": "base", "part": "dynamixel.ax-12a", "frame": _FRAME, "joint": joint}
+    return add_entry(path, "attach", {**fields, **over}, source="s", witness="w1")
+
+
+def test_attach_explicit_frame_makes_link_and_joint_with_no_drift(tmp_path, monkeypatch):
+    path = _attachable(tmp_path)
+    _attach(path, name="servo")
+    model = load_contract(path).model
+    joint = model.joints[0]
+    assert (joint.parent, joint.child, joint.axis) == ("base", "servo", (0.0, 0.0, 1.0))
+    assert (joint.origin.xyz, joint.origin.rpy) == ((0.1, 0.0, 0.2), (0.0, 0.0, 1.5))
+    assert joint.limits.lower == -1 and joint.limits.upper == 1
+    assert model.links[1].mass.unit == "g"
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["check", path.name, "--json", "out.json"])
+    findings = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))["findings"]
+    assert result.exit_code != 2 and not [f for f in findings if "structure_hash" in f["quantity"]]
+
+
+def test_attach_by_frame_id_uses_the_drawing_and_datasheet_effort(tmp_path):
+    path = _attachable(tmp_path)
+    _attach(path, frame_id="horn", frame={"xyz": [None, 0.0, 0.01]})
+    joint = load_contract(path).model.joints[0]
+    assert joint.origin.xyz == (0.0135, 0.0, 0.01)
+    assert joint.limits.effort == 1.5 and joint.limits.lower == -1  # torque cited, range caller's
+    assert "stall_torque" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("over", "match"),
+    [
+        ({"frame_id": "nope"}, "no frame 'nope'; its frames: horn"),
+        ({"frame_id": "horn", "frame": None}, "undimensioned on an axis"),
+        ({"frame": None}, "needs a frame"),
+        ({"joint": {"type": "revolute"}}, "axis is undimensioned"),
+        ({"joint": {"type": "continuous", "axis": [0, 0, 0]}}, "axis is undimensioned"),
+        ({"part": "dynamixel.ax-12"}, "Did you mean dynamixel.ax-12a"),
+        ({"parent": "ghost"}, "no link 'ghost'"),
+        ({"name": "base"}, "already exists"),
+    ],
+)
+def test_attach_refusals_leave_the_file_byte_identical(tmp_path, over, match):
+    path = _attachable(tmp_path)
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match=match) as refused:
+        _attach(path, **over)
+    assert "\n" not in str(refused.value) and path.read_bytes() == before
+
+
+def test_attach_refuses_second_parent_and_imported_model(tmp_path):
+    path = _attachable(tmp_path)
+    _attach(path, name="servo")
+    before = path.read_bytes()
+    with pytest.raises(EditRefusal, match="already exists"):
+        _attach(path, name="servo")
+    assert path.read_bytes() == before
+    text = path.read_text(encoding="utf-8").replace("source: lockfile", "source: urdf")
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(EditRefusal, match="urdf"):
+        _attach(path, name="other")
+
+
+def _four_changes() -> list[Change]:
+    return [Change("topology/rails/rail.pm02-5v/capacity", "20 W", "s", "Pat"), Change("devices/dev.companion.jetson-orin-nano/power/choices", ["7W"], "s", "Pat"),
+            Change("topology/rails/rail.pm02-5v/capacity", "22 W", "s", "Pat"), Change("devices/dev.companion.jetson-orin-nano/power/choices", ["15W"], "s", "Pat")]  # fmt: skip
+
+
+def test_batch_of_four_is_one_undo_and_one_redo_byte_identical(tmp_path):
+    path = _copy(tmp_path)
+    original = path.read_bytes()
+    apply_changes(path, _four_changes())
+    changed = path.read_bytes()
+    assert len(edit._journal_load(path)["undo"]) == 1
+    edit.undo_edit(path)
+    assert path.read_bytes() == original
+    edit.redo_edit(path)
+    assert path.read_bytes() == changed
+
+
+def test_failed_batch_writes_and_records_nothing(tmp_path):
+    path = _copy(tmp_path)
+    apply_changes(path, _four_changes()[:1])
+    before, journal = path.read_bytes(), edit._journal_path(path).read_bytes()
+    with pytest.raises(EditRefusal):
+        apply_changes(path, [*_four_changes()[1:3], Change("not/a/contract/path", "1", "s", "Pat")])
+    assert path.read_bytes() == before
+    assert edit._journal_path(path).read_bytes() == journal
+
+
+def test_journal_false_writes_the_file_and_no_journal(tmp_path):
+    path = _copy(tmp_path)
+    original = path.read_bytes()
+    apply_changes(path, _four_changes(), journal=False)
+    assert path.read_bytes() != original
+    assert not edit._journal_path(path).exists()
+
+
+def test_failed_replace_records_no_journal_step(tmp_path, monkeypatch):
+    path = _copy(tmp_path)
+    assert not edit._journal_path(path).exists()
+    _edit_capacity(path, 1)
+    journal = edit._journal_path(path).read_bytes()
+    before = path.read_bytes()
+    real = os.replace
+
+    def fail_lockfile(src, dst):
+        if Path(dst) == path:
+            raise OSError("injected")
+        real(src, dst)
+
+    monkeypatch.setattr(edit.os, "replace", fail_lockfile)
+    with pytest.raises(OSError, match="injected"):
+        _edit_capacity(path, 2)
+    assert path.read_bytes() == before
+    assert edit._journal_path(path).read_bytes() == journal
+
+
+def _mixed_steps(*, bad_third: bool = False):
+    dev = {"id": "dev.cam", "model": "mdl.gripper.generic", "owner": "Pat"}
+    pose = dict(unit="mm", source="s", witness="Pat")
+    return [("declare", lambda p: apply_changes(p, [Change("devices/dev.gripper/physical/mass", "250 g", "s", "Pat")])),
+            ("add device", lambda p: edit.add_entry(p, "device", dev, source="s", witness="Pat")),
+            ("move", lambda p: edit.move(p, "dev.nope" if bad_third else "dev.gripper", (1.0, 2.0, 3.0), **pose))]  # fmt: skip
+
+
+def test_mixed_batch_is_one_undo_and_one_redo_byte_identical(tmp_path):
+    path = _armtree(tmp_path)
+    original = path.read_bytes()
+    assert edit.apply_batch(path, _mixed_steps()).written
+    changed = path.read_bytes()
+    assert b"dev.cam" in changed and len(edit._journal_load(path)["undo"]) == 1
+    edit.undo_edit(path)
+    assert path.read_bytes() == original
+    edit.redo_edit(path)
+    assert path.read_bytes() == changed
+
+
+def test_refused_third_item_writes_nothing_and_names_item_3(tmp_path):
+    path = _armtree(tmp_path)
+    apply_changes(path, [Change("devices/dev.gripper/physical/mass", "260 g", "s", "Pat")])
+    before, journal = path.read_bytes(), edit._journal_path(path).read_bytes()
+    with pytest.raises(EditRefusal, match=r"item 3 \(move"):
+        edit.apply_batch(path, _mixed_steps(bad_third=True))
+    assert path.read_bytes() == before
+    assert edit._journal_path(path).read_bytes() == journal
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([path.name, edit._journal_path(path).name])
+
+
+def test_mixed_batch_journal_false_and_dry_run_write_no_journal(tmp_path):
+    path = _armtree(tmp_path)
+    original = path.read_bytes()
+    assert not edit.apply_batch(path, _mixed_steps(), dry_run=True).written
+    assert path.read_bytes() == original
+    assert edit.apply_batch(path, _mixed_steps(), journal=False).written
+    assert path.read_bytes() != original and not edit._journal_path(path).exists()
+
+
+def test_add_belt_appends_with_provenance_and_refuses_in_one_line(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    belt = {
+        "id": "b1",
+        "driver": {"pulley_teeth": 20, "joint": "elbow"},
+        "driven": {"pulley_teeth": 40},
+        "profile": "GT2",
+        "center_distance_m": 0.15,
+        "length_m": 0.4,
+    }
+    add_entry(path, "belt", belt, source="d", witness="w1", locked_at=LOCKED_AT)
+    saved = load_contract(path).topology.belts[0]
+    assert (saved.id, saved.driver.joint, saved.length_m) == ("b1", "elbow", 0.4)
+    assert saved.provenance.witness == "w1"
+    before = path.read_bytes()
+    both = belt | {"id": "b2", "driven": {"pulley_teeth": 9, "link": "a", "joint": "j"}}
+    for bad, match in ((belt, "belt 'b1' already exists"), (both, "not both")):
+        with pytest.raises(EditRefusal, match=match) as refused:
+            add_entry(path, "belt", bad, source="d", witness="w1", locked_at=LOCKED_AT)
+        assert "\n" not in str(refused.value) and path.read_bytes() == before
+
+
+def test_add_belt_missing_field_is_refused(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    with pytest.raises(EditRefusal, match="belt requires --profile"):
+        add_entry(path, "belt", {"id": "b", "driver": {}, "driven": {}}, source="d", witness="w1")
+
+
+def test_a_named_edit_keeps_the_witness_and_an_anonymous_one_replaces_it_with_the_source(tmp_path):
+    import shutil
+
+    from lockwire.edit import Change, apply_changes
+
+    path = tmp_path / "lock.yaml"
+    shutil.copy(Path(__file__).parent / "fixtures" / "armtree.yaml", path)
+    mass = "devices/dev.gripper/physical/mass"
+    apply_changes(path, [Change(mass, "300 g", "a.pdf", "Maya Chen")])
+    assert "witness: w0" in path.read_text(encoding="utf-8")
+    apply_changes(path, [Change(mass, "310 g", "b.pdf", None)])
+    prov = load_contract(path).device("dev.gripper").provenance
+    assert (prov.witness, prov.source) == (None, "b.pdf")

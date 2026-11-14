@@ -1,0 +1,10 @@
+# Example plan for the drone starter: plug a 5 W accessory into the PM02's 5 V supply, then add a
+# 100 W payload on the motor power rail. Both fit: 5.2 W radio + 5 W = 10.2 W <= 15.6 W, and
+# motors + 100 W < 888 W. Try 15 W on the 5 V supply to see the plan refused.
+steps:
+  - kind: rail_load
+    rail: rail.supply-5v
+    draw: {value: 5, unit: W}
+  - kind: rail_load
+    rail: rail.motor-power
+    draw: {value: 100, unit: W}

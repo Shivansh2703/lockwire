@@ -1,0 +1,142 @@
+{
+ "src/lockwire/examples/arm/contract.yaml": [
+  0,
+  "GO"
+ ],
+ "src/lockwire/examples/drone/contract.yaml": [
+  0,
+  "GO"
+ ],
+ "src/lockwire/examples/humanoid/contract.yaml": [
+  0,
+  "GO"
+ ],
+ "src/lockwire/examples/quadruped/contract.yaml": [
+  0,
+  "GO_WITH_NOTES"
+ ],
+ "src/lockwire/examples/rover/contract.yaml": [
+  0,
+  "GO_WITH_NOTES"
+ ],
+ "src/lockwire/examples/servo-bench.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/actuator_review_e2e/contract.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/anymal/contract.yaml": [
+  0,
+  "GO_WITH_NOTES"
+ ],
+ "tests/fixtures/armtree.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/contract_clean.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/contract_context_mismatch.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/contract_demo.yaml": [
+  0,
+  "GO"
+ ],
+ "tests/fixtures/contract_empty.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/contract_live.yaml": [
+  0,
+  "GO"
+ ],
+ "tests/fixtures/contract_owner_only.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/contract_rate_unenveloped.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/doctor/lock.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/fivebar/lockwire.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/fly/quad-weak-esc.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/fly/quad.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/fourbar_changepoint/lockwire.yaml": [
+  0,
+  "GO_WITH_NOTES"
+ ],
+ "tests/fixtures/fourbar_float_boundary/lockwire.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/fourbar_grashof/lockwire.yaml": [
+  0,
+  "GO"
+ ],
+ "tests/fixtures/fourbar_locking/lockwire.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/fourbar_rocker_continuous/lockwire.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/fourbar_world/lockwire.yaml": [
+  0,
+  "GO"
+ ],
+ "tests/fixtures/old_ledger/c.yaml": [
+  0,
+  "GO"
+ ],
+ "tests/fixtures/print_check/arm_printed.yaml": [
+  0,
+  "GO"
+ ],
+ "tests/fixtures/review_note_expected.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/review_notes.yaml": [
+  3,
+  "NOT_SCORED"
+ ],
+ "tests/fixtures/so101/lockwire.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/twomass/lockwire.yaml": [
+  0,
+  "GO_WITH_NOTES"
+ ],
+ "tests/fixtures/twomass/three_mounts.yaml": [
+  0,
+  "GO_WITH_NOTES"
+ ],
+ "tests/fixtures/x500/contract.yaml": [
+  1,
+  "NO-GO"
+ ],
+ "tests/fixtures/x500/contract_corrected.yaml": [
+  0,
+  "GO"
+ ]
+}

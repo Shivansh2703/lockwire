@@ -17,6 +17,7 @@ from lockwire.copy import human_name, robot_title
 from lockwire.forces import force_document, render_markdown
 from lockwire.report import format_display, format_magnitude
 from lockwire.schema import (
+    mass_derivation,
     Band,
     Contract,
     DeviceInstance,
@@ -55,7 +56,7 @@ def _provenance_block(label: str, provenance: Provenance | None) -> list[str]:
         return []
     lines = [
         f"- {label}:",
-        f"  - witness: {provenance.witness}",
+        f"  - witness: {provenance.witness or "no name on record"}",
         f"  - source: {provenance.source}",
     ]
     lines.append(f"  - locked_at: {provenance.locked_at}")
@@ -338,6 +339,9 @@ def describe_device(contract: Contract, device: DeviceInstance, human: bool = Fa
     if device.identity is not None:
         lines.append(f"- identity strength: {device.identity.effective_strength()}")
         lines.append(f"- bus: {device.identity.bus_ref}")
+    for connector in device.connectors or []:
+        pins = ", ".join(f"{p.number}: {p.name or '-'}" for p in connector.pins or [])
+        lines.append(f"- connector {connector.id} ({connector.type or 'untyped'}): {pins}")
     lines.append("")
 
     lines.append("## Role")
@@ -438,6 +442,21 @@ def _joints_table(contract: Contract, human: bool = False) -> list[str]:
         lines.append("| " + " | ".join(cells) + " |")
     lines.append("")
     return lines
+
+
+def _mass_reasons(contract: Contract, human: bool = False) -> list[str]:
+    """A link with geometry but no mass says why its mass could not be derived."""
+    notes = [
+        f"- {human_name(link.name) if human else link.name}: {why}"
+        for link in (contract.model.links if contract.model else [])
+        if isinstance(why := mass_derivation(link), str)
+    ]
+    notes += [
+        f"- {human_name(link.name) if human else link.name}: {link.mass.value:.4g} kg, {link.mass_note}"
+        for link in (contract.model.links if contract.model else [])
+        if link.mass_note and link.mass
+    ]
+    return ["## Mass", "", *notes, ""] if notes else []
 
 
 def _mag(human: bool, value: float, unit: str) -> str:
@@ -640,7 +659,12 @@ def describe_system(contract: Contract, human: bool = False) -> str:
         lines.append("| id | awg | installation | rail |")
         lines.append("| --- | --- | --- | --- |")
         for wire in topology.wires:
-            lines.append(f"| {wire.id} | {wire.awg} | {wire.installation} | {wire.rail} |")
+            rail = wire.rail or (
+                f"{wire.from_.device} to {wire.to.device}" if wire.from_ and wire.to else ""
+            )
+            awg = "" if wire.awg is None else wire.awg
+            installation = wire.installation or ""
+            lines.append(f"| {wire.id} | {awg} | {installation} | {rail} |")
         lines.append("")
 
     lines.extend(_edges_table(contract))
@@ -661,6 +685,7 @@ def describe_system(contract: Contract, human: bool = False) -> str:
         lines.append("")
 
     lines.extend(_joints_table(contract, human))
+    lines.extend(_mass_reasons(contract, human))
 
     if contract.actuator_cases:
         lines.append("## Actuator cases")

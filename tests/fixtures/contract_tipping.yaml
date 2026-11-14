@@ -1,0 +1,24 @@
+# A tricycle whose 5 kg boom sits 0.5 m ahead of the wheels: the CoM projection is outside the
+# support polygon, so `lockwire check` is NO-GO. Dropping the boom's com x to 0 makes it stable.
+schema_version: "0.2"
+robot:
+  name: tippy
+model:
+  source: tippy.urdf
+  source_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  structure_hash: derived-from-recorded-structure
+  links:
+  - {name: base_link, mass: {value: 1.0, unit: kg}, com: [0.0, 0.0, 0.1], frame: base_link}
+  - {name: boom, mass: {value: 5.0, unit: kg}, com: [0.5, 0.0, 0.1], frame: boom}
+  - {name: wheel_left, mass: {value: 0.1, unit: kg}, com: [0.0, 0.0, 0.0], frame: wheel_left}
+  - {name: wheel_right, mass: {value: 0.1, unit: kg}, com: [0.0, 0.0, 0.0], frame: wheel_right}
+  - {name: caster_back, mass: {value: 0.1, unit: kg}, com: [0.0, 0.0, 0.0], frame: caster_back}
+  joints:
+  - {name: boom_j, type: fixed, parent: base_link, child: boom}
+  - {name: wl_j, type: fixed, parent: base_link, child: wheel_left, origin: {xyz: [0.1, 0.1, 0.0]}}
+  - {name: wr_j, type: fixed, parent: base_link, child: wheel_right, origin: {xyz: [0.1, -0.1, 0.0]}}
+  - {name: cb_j, type: fixed, parent: base_link, child: caster_back, origin: {xyz: [-0.1, 0.0, 0.0]}}
+  provenance:
+    witness: w0
+    source: tippy.urdf
+    locked_at: 2026-11-13

@@ -347,7 +347,7 @@ def test_no_emitted_line_in_the_cli_is_composed_without_the_shared_rebuild():
             bad.append(
                 f"{source}: literal flag(s) {sorted(unexcluded)} appended beside "
                 "argv_from_context without excluding them from it — the hybrid "
-                "this box guards against"
+                "this guard protects against"
             )
     assert not bad, bad
 

@@ -216,7 +216,7 @@ function PlanDetail({ f, label, onJump, onCitation, noEvidence, rawExact }: { f:
           ] : []),
           { label: "Path", value: linkTo(onJump, at, <code className="finding-path">{f.quantity}</code>, { path: f.quantity }) },
           { label: "Source", value: linkTo(onJump, `Go to the review of ${f.quantity}`, f.source ?? "source unknown", { path: f.quantity, review: true }) },
-          { label: "Witness", value: linkTo(onJump, `Go to the review of ${f.quantity}`, f.witness ?? "witness unknown", { path: f.quantity, review: true }) },
+          { label: "Checked by", value: linkTo(onJump, `Go to the review of ${f.quantity}`, f.witness ?? "unknown", { path: f.quantity, review: true }) },
         ]} />
         {onCitation && <Button variant="quiet" onClick={() => onCitation(f)}>View citation</Button>}
       </Disclosure>

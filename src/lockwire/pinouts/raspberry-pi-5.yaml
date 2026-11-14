@@ -1,0 +1,12 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: raspberry-pi-5
+name: Raspberry Pi 5
+maker: Raspberry Pi Ltd
+numbers:
+  usb_c_supply:
+    value: 5
+    unit: V
+    kind: datasheet
+    source: 'https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008348-DS-10-raspberry-pi-5-product-brief.pdf (Raspberry Pi 5 Product Brief: "5V/5A DC power via USB-C, with Power
+      Delivery support"; as stated), read 2026-11-13'
+note: 'Pin list awaits a readable source: the docs page is refused (403) and the product brief has no pin table. Only the USB-C supply figure is confirmed.'

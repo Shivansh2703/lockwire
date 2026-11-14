@@ -1,38 +1,54 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { explainOpenError } from "./openError";
 import { pushRecent, readRecents, removeRecent } from "./recents";
 import type { CheckFacePayload } from "./checkFacePayload";
-import { DesignLens, DesignPanel, jointsOf, DesignParts, DesignSceneExtras, DesignTools } from "./DesignPanel";
-import type { DesignEditReply, DesignEditRequest } from "./DesignControls";
-import type { AddPartSubmission } from "./AddPartForm";
-import { AddPartForm } from "./AddPartForm";
+import { DesignLens, DesignPanel, jointsOf, DesignParts, DesignSceneExtras, DesignTools, unplacedOf } from "./DesignPanel";
+import { PLACED_SOURCE, type DesignEditReply, type DesignEditRequest } from "./DesignControls";
+import type { AddPartSubmission, StructureSubmission } from "./AddPartForm";
+import { AddPartForm, attachAfterDevice, structureFields } from "./AddPartForm";
+import type { ShapeSubmission } from "./AddShapeForm";
+import { sizeEditRequest } from "./NamedSizes";
 import { DeclareFace, DeclareValues, type DeclareSubmitResult, type ReviewSubmission } from "./DeclareFace";
 import { FailureBanner } from "./FailureBanner";
-import { CheckPanel } from "./CheckPanel";
+import { CheckPanel, CheckPending } from "./CheckPanel";
 import { CompareWithDatasheet, MASS_NOMINAL, massLine } from "./MeasureCompareDeclare";
 import { Button, EmptyState, Notice, Panel } from "./kit";
 import { useDesignView } from "./scene/designView";
+import { GraphView } from "./GraphView";
+import { isolateIds } from "./graphLayout";
 import { setSelectedGroup, setSelectedPartId, setSelectionSceneKey, useSelectedGroup, useSelectedPartId } from "./scene/selectionStore";
 import { declarePathOf, type Jump } from "./jump";
 import { RobotView } from "./scene/RobotView";
+import { ViewBoundary } from "./ErrorBoundary";
 import { dropEdit, placeRequest, type Prov } from "./scene/placeOnBody";
 import type { SceneHit } from "./scene/buildScene";
 import type { ContractWriteRequest } from "../shared/ipc-contract";
 import { flagSummary } from "./FindingList";
+import { headroomHighlights } from "./scene/buildScene";
 import { declarePart, highlightsFromCards, highlightsFromFindings, partsOfPath, targetIds, checkHighlight, wholeHighlight, type Highlight } from "./scene/robotScene";
 import { Shell } from "./Shell";
+import { FindPart } from "./FindPart";
 import { toScenePart } from "./DesignPanel";
 import type { Mode } from "./Frame";
+import "./PowerPanel"; // registers the Power side panel
+import "./ControlsPanel"; // registers the Controls side panel
+import "./WiringPanel"; // registers the Wiring side panel
+import "./BomPanel"; // registers the Parts list side panel
+import "./InterferencePanel"; // registers the Overlaps and clearance side panel
+import { visiblePanels } from "./panelRegistry";
 import { SideDrawer } from "./SideDrawer";
 import { AssistantPanel, EMPTY_CHAT, type Chat } from "./AssistantPanel";
 import { DocsPanel } from "./DocsPanel";
 import { OpenFace } from "./OpenFace";
+import { ShortcutsSheet } from "./ShortcutsSheet";
+import { isHelpKey, onMac, screenKey, typing } from "./shortcuts";
 import { EmptyGeometryPanel } from "./EmptyGeometryPanel";
 import type { FileOpenResult, StartUrdfResult } from "../main/ipc";
 import { PlanInput, planName } from "./PlanInput";
 import { pro, type ProResult } from "./proRegistry";
 import { useSidecarState } from "./useSidecarState";
-import type { CheckPayload, DeclareFormPayload, DiffPayload, Finding, LogPayload, MeshGap, PagePayload, PlanPayload, Starter } from "../shared/api.gen";
+import type { CheckPayload, DeclareFormPayload, DiffPayload, Finding, LogPayload, MeshGap, PagePayload, PlanPayload, ScenePayload, Starter } from "../shared/api.gen";
 
 // The composition root (E2-j2, rebased onto e2-app-r2). Owns the mode Frame renders AND the
 // one payload BOTH the Check and Design tabs read (one source, never two).
@@ -72,11 +88,19 @@ export function App() {
   const [mode, setMode] = useState<Mode>("Check");
   const [checkState, setCheckState] = useState<CheckState>({ kind: "open" });
   const [opened, setOpened] = useState<OpenedDocument | null>(null);
+  // The check reply carries the 3D scene: drawn at once while the page (cards, Declare rows) is still being built.
+  const [early, setEarly] = useState<{ path: string; scene: ScenePayload } | null>(null);
   const [chats, setChats] = useState<Record<string, Chat>>({}); // per robot, this app run; the panel itself unmounts when closed
   const [assistantOpen, setAssistantOpen] = useState(false); // closed by default; nothing runs until first opened
   const [recents, setRecents] = useState(readRecents);
   const [openError, setOpenError] = useState<string | null>(null);
+  const [showKeys, setShowKeys] = useState(false); // the keyboard shortcuts sheet
+  const [drawerTab, setDrawerTab] = useState("assistant");
+  const [drawerWant, setDrawerWant] = useState<{ id: string } | undefined>();
+  useEffect(() => { const open = () => { setDrawerWant({ id: "agent" }); setAssistantOpen(true); }; window.addEventListener("lockwire:open-agent", open); return () => window.removeEventListener("lockwire:open-agent", open); }, []); // Pro buttons that start the agent: show its tab
   const [startNote, setStartNote] = useState<string | null>(null);
+  const [flatPath, setFlatPath] = useState<string | null>(null); // a Webots file has no 3D model: its lockfile's viewport stays empty
+  const noView = flatPath !== null && flatPath === opened?.path; // tied to that robot, so any other open shows its view again
   const [savedBeside, setSavedBeside] = useState<string | null>(null); // the lockfile just written next to its model: a line in the verdict card
   const [meshGap, setMeshGap] = useState<MeshGap | null>(null);
   // The example just opened from the app's own folder: where it lives, and "Save a copy…".
@@ -92,14 +116,16 @@ export function App() {
   const [proResult, setProResult] = useState<ProResult | null>(null);
   const [checkDoc, setCheckDoc] = useState<CheckPayload | null>(null);
   const [selectedFinding, setSelectedFinding] = useState<number | null>(null);
+  const [graphOn, setGraphOn] = useState(false); // GRAPH-1
+  const [isolate, setIsolate] = useState(false);
   const [pickedPath, setPickedPath] = useState<string | null>(null);
   const [declareReview, setDeclareReview] = useState(false);
   const [findingSel, setFindingSel] = useState<number | null>(null);
   const [fitIds, setFitIds] = useState<string[]>([]);
-  const [seen, setSeen] = useState<Mode[]>([]); // tabs this robot has been to: they stay in the nav
   const [comparing, setComparing] = useState(false); // the Compare with datasheet panel (mockup 3B)
   const documentGeneration = useRef(0);
   const documentLoad = useRef(0);
+  const shownLoad = useRef(0); // the newest load that has ended: the window shows its outcome (a robot, an error, or a cancel)
   const verdictRef = useRef<string | undefined>(undefined); // the verdict of the last opened check
   const openedPathRef = useRef<string | undefined>(undefined);
   const errorGeneration = useRef(0);
@@ -111,7 +137,42 @@ export function App() {
     if (connected) void window.lockwire.getStarters?.().then(setStarters, () => undefined);
   }, [connected]);
 
-  async function onOpenLockfile(contract: string): Promise<void> {
+  // The engine says once when a save moved an older file to the anonymous-model format; show that line as it came.
+  const [formatNote, setFormatNote] = useState<string | null>(null);
+  async function writeContract(request: ContractWriteRequest) {
+    const reply = await window.lockwire.writeContract(request);
+    const lines = Reflect.get(Reflect.get(reply ?? {}, "payload") ?? {}, "lines");
+    const moved = Array.isArray(lines) ? lines.find((l) => typeof l === "string" && l.startsWith("format moved to ")) : undefined;
+    if (moved) setFormatNote(moved);
+    return reply;
+  }
+
+  // APP-1: the one guard every late reply goes through. A write's reply acts only while the robot it was
+  // for is still the one shown and no other open is under way; a reply for robot A never lands on robot B.
+  // ponytail: an edit whose reply lands while a Re-check of the same robot runs skips its reload; that Re-check shows it.
+  const settled = (load: number) => { if (load === documentLoad.current) shownLoad.current = load; };
+  const isShown = (contract: string) => documentLoad.current === shownLoad.current && openedPathRef.current === contract;
+  async function reloadShown(contract: string): Promise<boolean> {
+    if (!isShown(contract)) return false;
+    await onOpenLockfile(contract);
+    return true;
+  }
+
+  // File > Close robot: back to the start card with its examples. A load still in flight is dropped.
+  function closeRobot(): void {
+    ++documentLoad.current; ++documentGeneration.current; ++errorGeneration.current;
+    resetPerRobot(undefined);
+    verdictRef.current = undefined;
+    setOpened(null); setEarly(null); setCheckState({ kind: "open" }); setCheckDoc(null); setPlanPayload(null); setProResult(null);
+    setExistingStart(null); setMeshGap(null); setDesignPreview(null); setOpenError(null); setStartNote(null); setRetryOpen(null);
+    setMode("Check");
+  }
+  const closeRobotRef = useRef(closeRobot);
+  closeRobotRef.current = closeRobot;
+  const menuStep = useRef(reloadShown);
+  menuStep.current = reloadShown; // the menu listener is bound once; this keeps it on the current robot
+
+  async function onOpenLockfile(contract: string, retried = false): Promise<void> {
     const load = ++documentLoad.current; // ordered by when the open began, not by when its IPC returns
     setOpenError(null);
     setStartNote(null);
@@ -125,62 +186,79 @@ export function App() {
         setRecents(removeRecent(contract));
         return;
       }
-      await loadOpened(result, load);
+      await loadOpened(result, load, retried);
     } catch (error) {
       ++errorGeneration.current;
       setOpenError(errorMessage(error));
-    }
+    } finally { settled(load); }
   }
 
   // a different robot must not inherit the last one's diff, picked value, review or plan.
   function resetPerRobot(path: string | undefined): void {
     if (path === openedPathRef.current) return; // a re-check of the same robot keeps its place
     openedPathRef.current = path;
+    pendingSelect.current = null;
     setExample(null);
-    setHistoryDiff(null); setFindingSel(null); setPickedPath(null); setDeclareReview(false); setProHighlight([]); setComparing(false); setSeen([]);
+    setHistoryDiff(null); setFindingSel(null); setPickedPath(null); setDeclareReview(false); setProHighlight([]); setComparing(false);
   }
 
   // Re-check after a swap, then tell the user what the engine said, and if the swap broke a GO.
   async function afterSwap(contract: string, lines: string[]): Promise<void> {
     const was = verdictRef.current;
-    await onOpenLockfile(contract);
+    if (!await reloadShown(contract)) return;
     const worse = verdictRef.current === "NO-GO" && (was === "GO" || was === "GO_WITH_NOTES");
     setStartNote([...lines, ...(worse ? ["The robot is now NO-GO after this swap. Open the findings, or swap again and pick another servo."] : [])].join("\n") || null);
   }
 
-  async function loadOpened(result: FileOpenResult, token?: number): Promise<void> {
+  async function loadOpened(result: FileOpenResult, token?: number, retried = false): Promise<void> {
     if (!result.opened) return; // user cancelled the dialog -- stay on OpenFace
     const load = token ?? ++documentLoad.current;
+    let moved = false;
+    try { moved = await showOpened(result, load, retried); } finally { settled(load); }
+    // The file changed while it was being checked (an edit during Re-check): check it again, once.
+    if (moved && load === documentLoad.current) await onOpenLockfile(result.path, true);
+  }
+  /** True when the check ran on an older revision than the page and was not shown, so the caller re-runs it. */
+  async function showOpened(result: FileOpenResult & { opened: true }, load: number, retried = false): Promise<boolean> {
     const errors = errorGeneration.current;
-    if (load !== documentLoad.current) return; // a newer open began meanwhile
+    if (load !== documentLoad.current) return false; // a newer open began meanwhile
     setRetryOpen(() => () => onOpenLockfile(result.path));
     if ("error" in result) {
       setRetryOpen(null); // the engine read the file and refused it: opening it again cannot help
       setOpenError(result.error);
-      return;
+      return false;
     }
     setSelectedPlanFinding(null);
     setSelectedFinding(null);
     setFitIds([]);
+    if (result.path !== openedPathRef.current) { // another robot: never show the last one's verdict while this one's page builds
+      setOpened(null); setCheckState({ kind: "open" }); setCheckDoc(null);
+      const scene = result.checkPayload?.scene;
+      setEarly(scene && "parts" in scene ? { path: result.path, scene } : null);
+    }
     try {
       const [pagePayload, declareForm] = await Promise.all([
         window.lockwire.getContractPage({ contract: result.path }),
         window.lockwire.getDeclareForm({ contract: result.path }),
       ]);
-      if (load !== documentLoad.current) return;
+      if (load !== documentLoad.current) return false;
       if (!pagePayload.revision) throw new Error("lockfile revision missing");
       const revision = pagePayload.revision;
+      const checked = result.checkPayload.revision;
+      const stale = typeof checked === "string" && checked !== revision; // the check read an older file than the page
+      if (stale && !retried) return true;
       ++documentGeneration.current;
       setPlanPayload(null);
       setProResult(null);
       resetPerRobot(result.path);
       setOpened({ path: result.path, revision, page: pagePayload, declareForm });
+      setEarly(null);
       setRecents(pushRecent({ path: result.path, name: pagePayload.robot }));
       setExistingStart((current) => current?.path === result.path ? { ...current, revision }
         : result.model ? { urdf: result.model, path: result.path, revision } : null); // opened from Recent: its model, from the lockfile
       void window.lockwire.getHistory({ contract: result.path }).then(
-        (entries) => setHistory({ available: true, entries }),
-        () => setHistory({ available: false, entries: [] }),
+        (entries) => { if (openedPathRef.current === result.path) setHistory({ available: true, entries }); },
+        () => { if (openedPathRef.current === result.path) setHistory({ available: false, entries: [] }); }, // keyed to the robot on screen, not the load counter: a later open that fails leaves this robot shown
       );
       setCheckDoc(result.checkPayload);
       verdictRef.current = result.payload.verdict;
@@ -191,12 +269,16 @@ export function App() {
           qualifier: pagePayload.qualifier,
           cards: pagePayload.cards,
           accepted: pagePayload.accepted,
+          adds_up: pagePayload.adds_up,
+          requirements: pagePayload.requirements,
           cli_line: pagePayload.cli_line,
         },
       });
       if (errors === errorGeneration.current) { setOpenError(null); setRetryOpen(null); }
+      // ponytail: one automatic re-run per open; a file still moving after it gets this line and one tap.
+      if (stale) setStartNote("The robot changed while it was being checked. Press Re-check for the current result.");
     } catch (error) {
-      if (load !== documentLoad.current) return;
+      if (load !== documentLoad.current) return false;
       // The check is still valid when the optional page read refuses. Faces whose
       // producer is absent stay explicit rather than receiving guessed data.
       ++documentGeneration.current;
@@ -204,10 +286,12 @@ export function App() {
       setProResult(null);
       resetPerRobot(undefined);
       setOpened(null);
+      setEarly(null);
       setCheckDoc(result.checkPayload);
       setCheckState({ kind: "check", payload: result.payload });
       setOpenError(`Opened the check, but document refresh failed: ${errorMessage(error)}`);
     }
+    return false;
   }
 
   // One door for every way a robot gets opened (button, File > Open Robot, drop).
@@ -224,7 +308,9 @@ export function App() {
     const beside = folder(result.start.path) === folder(result.urdf);
     if (result.start.written && beside) setSavedBeside(result.start.path);
     const saved = result.start.written && !beside && `Saved lockwire.yaml in the robot's package folder, ${folder(result.start.path)}.`;
-    setStartNote([saved, note].filter(Boolean).join(" ") || null);
+    const flat = /\.(wbt|proto)$/i.test(result.urdf);
+    setFlatPath(flat && result.opened.opened ? result.opened.path : null);
+    setStartNote([saved, note, flat && "No 3D view for this file type."].filter(Boolean).join(" ") || null);
     setExistingStart(result.start.written ? null : {
       urdf: result.urdf, path: result.start.path, revision: result.start.revision,
     });
@@ -237,6 +323,7 @@ export function App() {
 
   async function onStartFromUrdf(overwrite = false): Promise<void> {
     setOpenError(null);
+    setFormatNote(null);
     setStartNote(null);
     setRetryOpen(() => () => onStartFromUrdf(overwrite));
     const load = ++documentLoad.current;
@@ -247,32 +334,36 @@ export function App() {
       ++errorGeneration.current; // a still-running older load must not clear this
       setOpenError(errorMessage(error));
       if (overwrite && existingStart) setRetryOpen(() => () => onOpenLockfile(existingStart.path));
-    }
+    } finally { settled(load); }
   }
 
   async function onChoosePackageFolder(): Promise<void> {
     setOpenError(null);
+    const load = ++documentLoad.current;
     try {
-      await applyStart(await window.lockwire.choosePackageFolder(), ++documentLoad.current);
+      await applyStart(await window.lockwire.choosePackageFolder(), load);
     } catch (error) {
       ++errorGeneration.current;
       setOpenError(errorMessage(error));
-    }
+    } finally { settled(load); }
   }
 
-  async function onNewRobot(starter: string | null, copy?: boolean): Promise<void> {
+  async function onNewRobot(starter: string | null, copy?: boolean): Promise<boolean> {
     setOpenError(null);
+    setFormatNote(null);
     setStartNote(null);
-    setRetryOpen(() => () => onNewRobot(starter, copy));
+    setRetryOpen(() => async () => { await onNewRobot(starter, copy); });
+    const load = ++documentLoad.current;
     try {
-      const load = ++documentLoad.current;
       const result = await window.lockwire.newRobot(starter, copy);
       await applyStart(result, load);
       if (!result.started && result.opened) setExample(result.example ? { starter, dir: result.example } : null);
+      return !!result.opened;
     } catch (error) {
       ++errorGeneration.current;
       setOpenError(errorMessage(error));
-    }
+      return false;
+    } finally { settled(load); }
   }
 
   // The plan beside the lockfile loads itself, once per opened document, if none was chosen (main resolves the path,
@@ -291,7 +382,6 @@ export function App() {
       (error) => { if (documentGeneration.current === generation) setAutoPlanError(errorMessage(error)); },
     );
   }, [openedPath, planPayload]);
-  useEffect(() => setSeen((s) => s.includes(mode) ? s : [...s, mode]), [mode]);
 
   useEffect(() => {
     window.__lockwireLoadCheckPayload = (payloadJson: string) => {
@@ -306,6 +396,7 @@ export function App() {
     const api = window.lockwire;
     if (!api) return;
     const off = api.onOpenedFromMenu?.((reply) => {
+      if ("stepped" in reply) { void menuStep.current(reply.stepped); return; } // APP-3: Edit > Undo/Redo stays put and refreshes like a Design edit
       if ("error" in reply) { ++errorGeneration.current; setOpenError(reply.error); return; }
       void applyStart(reply.result).catch((error) => { ++errorGeneration.current; setOpenError(errorMessage(error)); });
     });
@@ -319,20 +410,33 @@ export function App() {
     };
     window.addEventListener("dragover", over);
     window.addEventListener("drop", drop);
-    return () => { off?.(); window.removeEventListener("dragover", over); window.removeEventListener("drop", drop); };
+    const offKeys = api.onShowShortcuts?.(() => setShowKeys(true));
+    const offClose = api.onCloseRobot?.(() => closeRobotRef.current());
+    return () => { off?.(); offKeys?.(); offClose?.(); window.removeEventListener("dragover", over); window.removeEventListener("drop", drop); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "?" opens the shortcuts sheet; Cmd/Ctrl+1/2/3 switch screen. Re-bound each render so it sees the current robot.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isHelpKey(e) && !typing(document.activeElement)) return setShowKeys(true);
+      const next = screenKey(e, onMac());
+      if (next && (opened || designPreview)) { e.preventDefault(); changeMode(next); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   const payload = checkState.kind === "check" ? checkState.payload : null;
   const page = opened?.page ?? null;
   const sceneSource = page ?? designPreview; // the preview is the hidden e2e's injected payload
-  const scenePayload = sceneSource?.scene && "parts" in sceneSource.scene ? sceneSource.scene : undefined;
+  const scenePayload = sceneSource?.scene && "parts" in sceneSource.scene ? sceneSource.scene : page ? undefined : early?.scene;
   const designPayload = opened?.page ?? designPreview;
   const { lens: designLens, hover: designHover } = useDesignView();
   const designGroup = useSelectedGroup();
   const designPart = useSelectedPartId();
   const sceneParts = useMemo(() => scenePayload?.parts.map(toScenePart) ?? [], [scenePayload]);
   // The one owner of "a new robot drops the old selection": the selection now outlives a tab.
-  const sceneKey = `${opened?.path ?? "preview"}:${scenePayload?.hash ?? "skeleton"}`;
+  const sceneKey = `${opened?.path ?? early?.path ?? "preview"}:${scenePayload?.hash ?? "skeleton"}`;
   useEffect(() => setSelectionSceneKey(sceneKey), [sceneKey]);
 
   async function submitDeclaration(submission: {
@@ -340,10 +444,11 @@ export function App() {
     value: string;
     source: string;
     witness: string;
+    formal?: boolean;
   }): Promise<DeclareSubmitResult> {
     if (!opened) return { written: false, refusal: "Open a lockfile first." };
     if (!opened.revision) return { written: false, refusal: "lockfile revision missing; reload before applying this edit" };
-    const reply = await window.lockwire.writeContract({
+    const reply = await writeContract({
       command: "declare",
       args: { contract: opened.path, expected_revision: opened.revision, ...submission },
     });
@@ -351,17 +456,34 @@ export function App() {
     const payload = Reflect.get(reply, "payload");
     const refusal = Reflect.get(reply, "refusal");
     const revision = typeof payload === "object" && payload !== null ? Reflect.get(payload, "revision") : null;
-    if (typeof revision === "string") setOpened((current) => current ? { ...current, revision } : current);
-    return {
-      written: typeof payload === "object" && payload !== null && Reflect.get(payload, "written") === true,
-      refusal: typeof refusal === "string" ? refusal : null,
-    };
+    if (typeof revision === "string") setOpened((current) => current?.path === opened.path ? { ...current, revision } : current); // APP-1: never onto another robot
+    const written = typeof payload === "object" && payload !== null && Reflect.get(payload, "written") === true;
+    if (written) await reloadShown(opened.path); // APP-4: the verdict and the Declare row follow the new value
+    return { written, refusal: typeof refusal === "string" ? refusal : null };
+  }
+
+  // The Power panel's efficiency entry: one declare, signed with the saved name (asked once if none); submitDeclaration reloads so the numbers redo.
+  function declareFromPanel(path: string, value: string, source: string, w = opened?.declareForm.witness.prefill ?? ""): Promise<string | null> {
+    return submitDeclaration({ path, value, source, witness: w }).then((r) => r.written ? null : r.refusal ?? "Not saved.");
+  }
+
+  // The Wiring panel's click-to-wire: one `add wire` with endpoints A then B, signed with the saved name, then reload so the diagram redraws.
+  // ponytail: gauge and installation are fixed defaults (22 AWG, free air); a signal wire has no rail so the ampacity check ignores them.
+  function addWireFromPanel(id: string, from: string, to: string, w = opened?.declareForm.witness.prefill ?? ""): Promise<string | null> {
+    if (!opened?.revision) return Promise.resolve("Open a lockfile first.");
+    const end = (key: string) => { const [device, connector, pin] = key.split("|"); return { device, ...(connector ? { connector } : {}), pin: /^\d+$/.test(pin ?? "") ? Number(pin) : pin }; };
+    return writeContract({ command: "add", args: { contract: opened.path, expected_revision: opened.revision, kind: "wire", id, fields: { awg: 22, installation: "free_air", owner: "you", from: end(from), to: end(to) }, source: "drawn in the app", witness: w } }).then(async (reply) => {
+      const payload = Reflect.get(reply ?? {}, "payload"), refusal = Reflect.get(reply ?? {}, "refusal");
+      const written = !!payload && typeof payload === "object" && Reflect.get(payload, "written") === true;
+      if (written) await reloadShown(opened.path);
+      return written ? null : typeof refusal === "string" ? refusal : "Not saved.";
+    }).catch(() => "The wire was not saved. Try again.");
   }
 
   async function submitReview(submission: ReviewSubmission): Promise<DeclareSubmitResult> {
     if (!opened) return { written: false, refusal: "Open a lockfile first." };
     if (!opened.revision) return { written: false, refusal: "lockfile revision missing; reload before applying this review" };
-    const reply = await window.lockwire.writeContract({
+    const reply = await writeContract({
       command: "review",
       args: { contract: opened.path, expected_revision: opened.revision, ...submission },
     });
@@ -371,7 +493,7 @@ export function App() {
     const written = typeof payload === "object" && payload !== null && Reflect.get(payload, "written") === true;
     if (written) {
       const revision = Reflect.get(payload, "revision");
-      if (typeof revision === "string") setOpened((current) => current ? { ...current, revision } : current);
+      if (typeof revision === "string") setOpened((current) => current?.path === opened.path ? { ...current, revision } : current); // APP-1: never onto another robot
     }
     return { written, refusal: typeof refusal === "string" ? refusal : null };
   }
@@ -379,30 +501,109 @@ export function App() {
   async function addPart(part: AddPartSubmission): Promise<DeclareSubmitResult> {
     if (!opened?.revision) return { written: false, refusal: "Open a lockfile first." };
     const slug = part.id.replace(/^dev\./, "");
-    const reply = await window.lockwire.writeContract({
-      command: "add",
-      args: {
-        contract: opened.path, expected_revision: opened.revision, kind: "device", id: part.id,
-        fields: { family: `fam.${slug}`, model: `mdl.${slug}`, owner: "you", power_draw: `${part.draw} W`, power_rail: part.rail },
-        source: part.source, witness: part.witness,
-      },
-    });
+    const write = async (revision: string, kind: string, id: string, fields: Record<string, unknown>, source: string) => {
+      const reply = await writeContract({ command: "add", args: { contract: opened.path, expected_revision: revision, kind, id, fields, source, witness: part.witness } });
+      const payload = Reflect.get(reply ?? {}, "payload");
+      const refusal = Reflect.get(reply ?? {}, "refusal");
+      const written = !!payload && typeof payload === "object" && Reflect.get(payload, "written") === true;
+      const next = written ? Reflect.get(payload, "revision") : null;
+      return { written, refusal: typeof refusal === "string" ? refusal : null, revision: typeof next === "string" ? next : revision };
+    };
+    let revision = opened.revision;
+    if (part.newRail) {
+      const made = await write(revision, "rail", part.newRail.id, { voltage: part.newRail.voltage, capacity: part.newRail.capacity }, "typed in the app");
+      if (!made.written) return { written: false, refusal: made.refusal };
+      revision = made.revision;
+    }
+    const done = await write(revision, "device", part.id, { family: `fam.${slug}`, model: `mdl.${slug}`, owner: "you", power_draw: `${part.draw} W`, power_rail: part.rail }, part.source);
+    // CAD-05: an attached component is still a power device. Device first, then the attach; batch-edit takes no add,
+    // so these are two writes, and a refused attach is undone step by step (the rail too when this add made it).
+    if (done.written && part.attach) {
+      const undo = async () => { const r = await window.lockwire.writeContract({ command: "undo-edit", args: { contract: opened.path } }); return Reflect.get(Reflect.get(r ?? {}, "payload") ?? {}, "undone") === true; };
+      const refusal = await attachAfterDevice({ attach: { ...part.attach, witness: part.witness }, revision: done.revision, railMade: !!part.newRail, write, undo });
+      if (refusal) { await reloadShown(opened.path); return { written: false, refusal }; }
+    }
+    if (done.written || part.newRail) await reloadShown(opened.path); // reload page, Declare rows and the check
+    return { written: done.written, refusal: done.refusal, railKept: !done.written && !!part.newRail };
+  }
+
+  // Design's Add part: the same write, then the new part is the selected one (its Inspector opens)
+  // as soon as the reloaded payload lists it; the reload's own selection reset must not undo it.
+  const pendingSelect = useRef<string | null>(null);
+  async function addAndSelect(part: AddPartSubmission): Promise<DeclareSubmitResult> {
+    // No saved name: the form waits (busy) while the name prompt is up, then shows how the resumed add went.
+    pendingSelect.current = part.id;
+    const done = await addPart(part);
+    if (!done.written) pendingSelect.current = null;
+    return done;
+  }
+  useEffect(() => {
+    const id = pendingSelect.current;
+    if (!id) return;
+    pendingSelect.current = null; // the reload has landed: found or not, the wish is spent
+    if (sceneParts.some((p) => p.id === id) || unplacedOf(designPayload).some((d) => d.id === id)) setSelectedPartId(id);
+  }, [sceneParts, designPayload]);
+
+  // Design's Structure tab: a stock shape (add stock) or a kit part (add attach), hung on a link at the typed position.
+  async function addStructure(s: StructureSubmission): Promise<DeclareSubmitResult> {
+    if (!opened?.revision) return { written: false, refusal: "Open a lockfile first." };
+    const fields = structureFields(s);
+    const reply = await window.lockwire.writeContract({ command: "add", args: { contract: opened.path, expected_revision: opened.revision, kind: s.kind, id: s.name, fields, source: "picked in the app", witness: s.witness } });
     const payload = Reflect.get(reply ?? {}, "payload");
     const refusal = Reflect.get(reply ?? {}, "refusal");
     const written = !!payload && typeof payload === "object" && Reflect.get(payload, "written") === true;
-    if (written) await onOpenLockfile(opened.path); // reload page, Declare rows and the check
-    return { written, refusal: typeof refusal === "string" ? refusal : null };
+    if (written) { pendingSelect.current = s.name; await reloadShown(opened.path); }
+    return { written, refusal: written ? null : typeof refusal === "string" ? refusal : "Not saved." };
+  }
+
+  // Design's Add shape: one `add link` carrying the shape (sizes as numbers or named sizes), then, when
+  // it hangs from a link, a fixed `add joint`; then the page reloads so the drawing and checks redo.
+  async function addShape(shape: ShapeSubmission): Promise<DeclareSubmitResult> {
+    if (!opened?.revision) return { written: false, refusal: "Open a lockfile first." };
+    let revision = opened.revision;
+    let written = false;
+    const sizes = shape.newSizes.map((n) => ({ kind: "param", fields: { name: n.name, value: n.mm, unit: "mm" } }));
+    const steps = [...sizes, { kind: "link", id: shape.name, fields: { name: shape.name, geometry: shape.geometry } }, ...(shape.attachTo ? [{ kind: "joint", id: `${shape.name}_joint`, fields: { name: `${shape.name}_joint`, type: "fixed", parent: shape.attachTo, child: shape.name } }] : [])];
+    for (const step of steps) {
+      const reply = await writeContract({ command: "add", args: { contract: opened.path, expected_revision: revision, ...step, source: "drawn in the app", witness: shape.witness } });
+      const payload = Reflect.get(reply ?? {}, "payload");
+      const refusal = Reflect.get(reply ?? {}, "refusal");
+      if (!(!!payload && typeof payload === "object" && Reflect.get(payload, "written") === true)) {
+        if (written) await reloadShown(opened.path);
+        return { written: false, refusal: typeof refusal === "string" ? refusal : "Not saved." };
+      }
+      written = true;
+      const next = Reflect.get(payload, "revision");
+      if (typeof next === "string") revision = next;
+    }
+    await reloadShown(opened.path);
+    return { written: true, refusal: null };
+  }
+
+  // Named sizes: change one number (in its own unit) through the declare path, then reload so the
+  // drawing, the torque and every derived mass follow it.
+  async function setNamedSize(name: string, value: number): Promise<DeclareSubmitResult> {
+    if (!opened?.revision) return { written: false, refusal: "Open a lockfile first." };
+    return setNamedSizeAs(name, value, opened.declareForm.witness.prefill);
+  }
+  async function setNamedSizeAs(name: string, value: number, witness: string): Promise<DeclareSubmitResult> {
+    if (!opened?.revision) return { written: false, refusal: "Open a lockfile first." };
+    const reply = await writeContract(sizeEditRequest(opened.path, opened.revision, name, value, witness));
+    const payload = Reflect.get(reply ?? {}, "payload");
+    const refusal = Reflect.get(reply ?? {}, "refusal");
+    const written = !!payload && typeof payload === "object" && Reflect.get(payload, "written") === true;
+    if (written) await reloadShown(opened.path);
+    return { written, refusal: typeof refusal === "string" ? refusal : written ? null : "Not saved." };
   }
 
   // The robot's datasheet mass, written as the same `mass_total` budget `lockwire check --mass X
   // --source S --tolerance-pct 5` writes (start_operation.add_mass_check), then re-checked.
-  async function compareMass(kg: string, source: string): Promise<string | null> {
-    const witness = opened?.declareForm.witness.prefill;
+  async function compareMass(kg: string, source: string, name?: string): Promise<string | null> {
+    const witness = name ?? opened?.declareForm.witness.prefill ?? "";
     if (!opened?.revision) return "Open a lockfile first.";
-    if (!witness) return "Set your witness name in Declare first.";
     const nominal = `${kg} kg`, limit = `${Number((Number(kg) * 1.05).toPrecision(6))} kg`;
     const send = async (request: ContractWriteRequest) => {
-      const reply = await window.lockwire.writeContract(request);
+      const reply = await writeContract(request);
       const payload = Reflect.get(reply ?? {}, "payload"), refusal = Reflect.get(reply ?? {}, "refusal");
       const done = !!payload && typeof payload === "object" && Reflect.get(payload, "written") === true;
       return { done, revision: done ? String(Reflect.get(payload, "revision")) : "", refusal: typeof refusal === "string" ? refusal : "The comparison was refused." };
@@ -415,7 +616,7 @@ export function App() {
       if (sent.done) sent = await send({ command: "declare", args: { ...prov, expected_revision: sent.revision, path: "budgets/bud.mass/limit", value: limit } });
     }
     if (!sent.done) return sent.refusal;
-    await onOpenLockfile(opened.path);
+    await reloadShown(opened.path);
     return null;
   }
 
@@ -438,15 +639,22 @@ export function App() {
 
   async function loadHistoryDiff(a: string, b?: string): Promise<void> {
     if (!opened) return;
-    setHistoryDiff(await window.lockwire.diffContract({ contract: opened.path, a, ...(b ? { b } : {}) }));
+    const contract = opened.path;
+    const diff = await window.lockwire.diffContract({ contract, a, ...(b ? { b } : {}) });
+    if (isShown(contract)) setHistoryDiff(diff); // a reply for the robot we left is dropped
   }
 
-  async function applyDesignEdit(request: DesignEditRequest): Promise<DesignEditReply> {
-    const reply = await window.lockwire.writeContract(request);
+  // The form never asks who: the saved name signs the edit; with none saved the edit records no name.
+  function applyDesignEdit(request: DesignEditRequest, w = opened?.declareForm.witness.prefill ?? ""): Promise<DesignEditReply> {
+    return writeDesignEdit(request.command === "undo-edit" || request.command === "redo-edit" ? request : { ...request, args: { ...request.args, witness: w } } as DesignEditRequest);
+  }
+  async function writeDesignEdit(request: DesignEditRequest): Promise<DesignEditReply> {
+    const reply = await writeContract(request);
     if (!reply || typeof reply !== "object") return { written: false, refusal: "Invalid write reply." };
     const result = Reflect.get(reply, "payload");
     const refusal = Reflect.get(reply, "refusal");
-    const written = !!result && typeof result === "object" && Reflect.get(result, "written") === true;
+    const stepped = request.command === "undo-edit" || request.command === "redo-edit"; // the journal step answers {undone} or {redone}
+    const written = !!result && typeof result === "object" && (stepped ? Reflect.get(result, "undone") === true || Reflect.get(result, "redone") === true : Reflect.get(result, "written") === true);
     const contractShaError = result && typeof result === "object" ? Reflect.get(result, "contract_sha_error") : null;
     return {
       written,
@@ -461,52 +669,24 @@ export function App() {
   // reloads so the check re-runs. Returns the refusal, or null when written.
   async function writePlace(request: ContractWriteRequest | null): Promise<string | null> {
     if (!request || !opened) return null;
-    const reply = await window.lockwire.writeContract(request);
+    const reply = await writeContract(request);
     const result = Reflect.get(reply ?? {}, "payload");
-    if (result && typeof result === "object" && Reflect.get(result, "written") === true) { await onOpenLockfile(opened.path); return null; }
+    if (result && typeof result === "object" && Reflect.get(result, "written") === true) { await reloadShown(opened.path); return null; }
     const refusal = Reflect.get(reply ?? {}, "refusal");
     return typeof refusal === "string" ? refusal : "The placement was refused.";
   }
-  const placeProv = (): Prov | null => opened && opened.declareForm.witness.prefill
-    ? { contract: opened.path, expected_revision: opened.revision, witness: opened.declareForm.witness.prefill, source: "placed in the app" }
+  const placeProv = (w = opened?.declareForm.witness.prefill ?? ""): Prov | null => opened
+    ? { contract: opened.path, expected_revision: opened.revision, witness: w, source: PLACED_SOURCE }
     : null;
-  function onDropPart(device: string, hit: SceneHit | null): void {
+  function onDropPart(device: string, hit: SceneHit | null, w?: string): void {
     const el = document.activeElement as HTMLElement | null;
-    if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return; // never write mid-typing
-    const prov = placeProv();
-    if (!prov) return setOpenError("Set your witness name in Declare first.");
+    if (!w && el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return; // never write mid-typing
+    const prov = placeProv(w);
+    if (!prov) return;
     const mounts = Object.fromEntries((scenePayload?.parts ?? []).flatMap((p) => p.id && p.mount_frame ? [[p.id, p.mount_frame]] : []));
     const request = sceneSource ? dropEdit(device, hit, { joints: jointsOf(sceneSource), links: "links" in sceneSource ? sceneSource.links : [], mounts }, prov) : null;
     if (!request) return setOpenError("Drop on the robot's body, or use Place on… in the part panel.");
     void writePlace(request).then((refusal) => { if (refusal) setOpenError(refusal); }).catch((error) => setOpenError(errorMessage(error)));
-  }
-
-  function replaceOpenedPage(nextPage: CheckPayload | PagePayload): void {
-    if (!("faces" in nextPage)) return;
-    setOpened((current) => current ? { ...current, revision: nextPage.revision ?? current.revision, page: nextPage } : current);
-    setCheckState((current) => current.kind === "check" ? {
-      kind: "check",
-      payload: {
-        ...current.payload,
-        robot: nextPage.robot,
-        headline: nextPage.headline,
-        qualifier: nextPage.qualifier,
-        scored: nextPage.scored,
-        violations: nextPage.violations,
-        warnings: nextPage.warnings,
-        unchecked: nextPage.unchecked,
-        cards: nextPage.cards,
-        accepted: nextPage.accepted,
-        cli_line: nextPage.cli_line,
-      },
-    } : current);
-  }
-
-  async function reopenAfterUndo(contract: string): Promise<void> {
-    setOpened((current) => current ? { ...current, revision: "" } : current);
-    const nextPage = await window.lockwire.getContractPage({ contract });
-    if (!nextPage.revision) throw new Error("lockfile revision missing");
-    replaceOpenedPage(nextPage);
   }
 
   const joints = page?.joints ?? [];
@@ -529,6 +709,7 @@ export function App() {
       const card = selectedFinding !== null ? payload.cards[selectedFinding] : undefined;
       return checkHighlight(payload.cards, card, all, joints);
     }
+    if (mode === "Design") return headroomHighlights(joints); // torque to spare, by ratio
     const sel = resultFindings && findingSel !== null ? resultFindings[findingSel] : undefined;
     const lit = sel
       ? resultLabels?.[findingSel!]?.whole ? wholeHighlight(sel.severity, all)
@@ -608,6 +789,7 @@ export function App() {
             payload ? (
               <CheckPanel
                 payload={payload}
+                graph={page?.robot_graph}
                 selected={selectedFinding}
                 onSelect={selectFinding}
                 onJump={onJump}
@@ -621,18 +803,20 @@ export function App() {
                 more={pro?.CheckMore ? <pro.CheckMore contract={opened?.path} expectedRevision={opened?.revision} check={checkDoc} /> : null}
                 notice={meshGap && <EmptyGeometryPanel gap={meshGap} onChooseFolder={() => void onChoosePackageFolder()} onSkip={() => setMeshGap(null)} />}
               />
-            ) : null
+            ) : early ? <CheckPending /> : null
           ) : mode === "Design" ? (
             <DesignPanel
               payload={designPayload}
               contract={opened?.path}
               expectedRevision={opened?.revision}
               onEdit={opened ? applyDesignEdit : undefined}
-              onReopen={opened ? (contract) => window.lockwire.getContractPage({ contract }) : undefined}
-              onPayload={opened ? replaceOpenedPage : undefined}
+              // APP-2: a Design edit refreshes through the same full reload as every other edit, so the verdict, findings,
+              // check document, Declare rows and page all come from one open together. The reload sets them; onPayload has nothing left to do.
+              onReopen={opened ? async (contract) => { await reloadShown(contract); return opened.page; } : undefined}
+              onPayload={opened ? () => undefined : undefined}
               onJump={onJump}
               onSwapped={opened ? (lines) => { setMode("Check"); void afterSwap(opened.path, lines); } : undefined}
-              onPlace={opened ? (device, frame) => { const prov = placeProv(); return prov ? writePlace(placeRequest(device, frame, [0, 0, 0], prov)) : Promise.resolve("Set your witness name in Declare first."); } : undefined}
+              onPlace={opened ? (device, frame) => { const prov = placeProv(); return prov ? writePlace(placeRequest(device, frame, [0, 0, 0], prov)) : Promise.resolve(null); } : undefined}
             />
           )
           : mode === "Plan" && opened ? (
@@ -662,7 +846,7 @@ export function App() {
               expectedRevision={opened?.revision}
               diff={historyDiff}
               onDiff={loadHistoryDiff}
-              onApplied={reopenAfterUndo}
+              onApplied={async (contract) => { await reloadShown(contract); }}
               names={nameSet}
               onJump={onJump}
             />
@@ -682,79 +866,98 @@ export function App() {
           : proMode ? null
           : <UnavailableFace>No document was returned for this mode.</UnavailableFace>
 
+  function changeMode(next: Mode): void {
+    setFindingSel(null);
+    // A part chosen elsewhere opens on its own Declare row.
+    const row = next === "Declare" && storeIds[0] ? declareRowFor(storeIds[0]) : undefined;
+    if (row) pickDeclare(row);
+    setMode(next);
+  }
+
+  const pickPart = (id: string | null) => {
+    // Check: a pick opens the card about that part. Declare: it picks that part's row
+    // (the current one when it already names the part). Elsewhere the pick stays lit.
+    if (!id) return;
+    if (mode === "Check" && payload) {
+      const hit = payload.cards.findIndex((c) => highlightsFromCards([c], joints).some((h) => h.id === id));
+      if (hit >= 0) selectFinding(hit);
+    } else if (mode === "Declare") {
+      const row = declareRowFor(id);
+      if (row) pickDeclare(row);
+    }
+  };
+  // GRAPH-1: the chosen check's graph nodes come from the payload; isolating hides the rest in 3D and in the graph.
+  const involveCard = payload && selectedFinding !== null ? payload.cards[selectedFinding] : undefined;
+  const robotGraph = page?.robot_graph ?? undefined;
+  const involves = involveCard?.involves ?? [];
+  const isoIds = isolate && involves.length ? isolateIds(involves) : null;
   const label = mode === "Reference" ? "Docs" : mode;
   // The mass budget's result: the datasheet comparison, else why the sum was not scored (massless links).
   const massCard = payload?.cards.find((c) => c.quantity === MASS_NOMINAL) ?? payload?.cards.find((c) => c.quantity === "budgets/bud.mass" && c.severity === "not_scored");
+  const panelTabs = visiblePanels(opened?.page);
+  const onPanelTab = panelTabs.some((p) => p.id === drawerTab);
   return (
+    <>
     <Shell
       robotName={page?.robot ?? payload?.robot}
       onRobot={payload && (mode !== "Design" || selectedIds.length) ? () => { showWhole(); setMode("Design"); } : undefined}
       mode={mode}
-      tabs={["Check", "Reference", ...(planPayload || autoPlanError ? ["Plan"] : []), ...seen]}
       wide={mode === "Reference" && !(assistantOpen && opened)}
-      assistant={{ open: assistantOpen && !!opened, onToggle: opened ? () => setAssistantOpen((o) => !o) : undefined }}
-      drawer={<SideDrawer open={assistantOpen && !!opened} onClose={() => setAssistantOpen(false)} cwd={assistantOpen ? opened?.path.replace(/[\\/][^\\/]*$/, "") : undefined} contract={opened?.path} revision={opened?.revision}
+      assistant={{ open: assistantOpen && !!opened && !onPanelTab, onToggle: opened ? () => { if (assistantOpen && !onPanelTab) setAssistantOpen(false); else { setDrawerWant({ id: "@assist" }); setAssistantOpen(true); } } : undefined }}
+      panels={opened && panelTabs.length ? { open: assistantOpen && onPanelTab, onToggle: () => { if (assistantOpen && onPanelTab) setAssistantOpen(false); else { setDrawerWant({ id: "@panels" }); setAssistantOpen(true); } } } : undefined}
+      drawer={<SideDrawer open={assistantOpen && !!opened} onClose={() => setAssistantOpen(false)} cwd={assistantOpen ? opened?.path.replace(/[\\/][^\\/]*$/, "") : undefined} contract={opened?.path} revision={opened?.revision} page={opened?.page} onDeclare={declareFromPanel} onAddWire={addWireFromPanel} want={drawerWant} onTab={setDrawerTab}
         onReview={(p) => opened && setChats((m) => { const c = m[opened.path] ?? EMPTY_CHAT; return c.cards.some((x) => x.id === p.id) ? m : { ...m, [opened.path]: { ...c, cards: [...c.cards, p] } }; })}
         assistant={assistantOpen && opened && (
-        <AssistantPanel contract={opened.path} revision={opened.revision} mode={mode} witness={opened.declareForm.witness.prefill} chat={chats[opened.path] ?? EMPTY_CHAT} onChat={(f) => setChats((m) => ({ ...m, [opened.path]: f(m[opened.path] ?? EMPTY_CHAT) }))} onApplied={onOpenLockfile} />
+        <AssistantPanel contract={opened.path} revision={opened.revision} mode={mode} witness={opened.declareForm.witness.prefill} chat={chats[opened.path] ?? EMPTY_CHAT} onChat={(f) => setChats((m) => ({ ...m, [opened.path]: f(m[opened.path] ?? EMPTY_CHAT) }))} onApplied={async (contract) => { await reloadShown(contract); }} />
       )} />}
-      onModeChange={(next) => {
-        setFindingSel(null);
-        // A part chosen elsewhere opens on its own Declare row.
-        const row = next === "Declare" && storeIds[0] ? declareRowFor(storeIds[0]) : undefined;
-        if (row) pickDeclare(row);
-        setMode(next);
-      }}
+      onModeChange={changeMode}
       connected={connected}
       sceneSummary={sceneSummary}
-      locked={!payload && !designPreview}
+      locked={!payload && !designPreview && !early}
+      noView={noView}
       onOverwrite={existingStart && mode === "Check" && page?.model_changed ? () => void onStartFromUrdf(true) : undefined}
       onFit={page && joints.length ? showWhole : undefined}
-      scene={(viewInset) => (
-        <RobotView
+      graph={payload && robotGraph ? { on: graphOn, onToggle: () => setGraphOn(!graphOn), isolate: involves.length ? { on: isolate, onToggle: () => setIsolate(!isolate) } : undefined } : undefined}
+      scene={(viewInset) => graphOn && robotGraph && payload ? (
+        <GraphView graph={robotGraph} cards={payload.cards} selected={selectedFinding} onSelectCard={selectFinding} isolate={isolate} selectedPart={designPart} onPick={(id) => { setSelectedPartId(id); pickPart(id); }} inset={viewInset} />
+      ) : (
+        <ViewBoundary><RobotView
           viewInset={viewInset}
-          sceneKey={`${opened?.path}:${scenePayload?.hash ?? "skeleton"}`}
-          parts={sceneParts}
-          joints={sceneSource ? jointsOf(sceneSource) : []}
-          links={sceneSource && "links" in sceneSource ? sceneSource.links : []}
+          sceneKey={`${opened?.path ?? early?.path}:${scenePayload?.hash ?? "skeleton"}`}
+          parts={noView ? [] : sceneParts}
+          joints={sceneSource && !noView ? jointsOf(sceneSource) : []}
+          links={sceneSource && !noView && "links" in sceneSource ? sceneSource.links : []}
           highlight={proMode?.highlights ? proHighlight : highlight}
           selected={mode === "Design" && designHover ? designHover : mode === "Run" && proHighlight.length ? proHighlight.map((h) => h.id) : selectedIds.length > 1 ? selectedIds : selectedIds[0] ?? null}
           dim={mode === "Reference" && !selectedIds.length}
           lens={mode === "Design" ? designLens : "off"}
           focus={fitIds.length ? fitIds : selectedIds}
           onDropPart={onDropPart}
-          onPick={(id) => {
-            // Check: a pick opens the card about that part. Declare: it picks that part's row
-            // (the current one when it already names the part). Elsewhere the pick stays lit.
-            if (!id) return;
-            if (mode === "Check" && payload) {
-              const hit = payload.cards.findIndex((c) => highlightsFromCards([c], joints).some((h) => h.id === id));
-              if (hit >= 0) selectFinding(hit);
-            } else if (mode === "Declare") {
-              const row = declareRowFor(id);
-              if (row) pickDeclare(row);
-            }
-          }}
+          onPick={pickPart}
+          isolate={isoIds}
         >
           {mode === "Design" && <DesignSceneExtras payload={sceneSource} />}
-        </RobotView>
+        </RobotView></ViewBoundary>
       )}
       notices={
         <>
           <FailureBanner />
-          {openError && <div className="open-face-error">
-            <Notice kind="error" action={retryOpen ? { label: "Retry opening", onClick: () => void retryOpen() } : { label: "Open a different robot", onClick: () => void onStartFromUrdf() }}>{openError}</Notice>
-          </div>}
+          {openError && (() => { const f = explainOpenError(openError); return <div className="open-face-error">
+            <Notice kind="error" action={retryOpen && f.retry ? { label: "Retry opening", onClick: () => void retryOpen() } : { label: "Open a different robot", onClick: () => void onStartFromUrdf() }}>
+              {f.line}{f.raw && <details><summary>Details</summary>{f.raw}</details>}
+            </Notice>
+          </div>; })()}
+          {formatNote && <div className="start-note"><Notice kind="info">{formatNote}</Notice></div>}
           {startNote && <div className="start-note"><Notice kind="info">{startNote}</Notice></div>}
-          {example && <div className="start-note"><Notice kind="info" action={{ label: "Save a copy…", onClick: () => void onNewRobot(example.starter, true) }}>This is an example robot. Save a copy to change it.</Notice></div>}
+          {example && <div className="start-note"><Notice kind="info" action={{ label: example.starter === null ? "Save…" : "Save a copy…", onClick: () => void onNewRobot(example.starter, true) }}>{example.starter === null ? "Not saved yet. Save it to keep your work." : "This is an example. Save a copy to keep your changes."}</Notice></div>}
         </>
       }
-      left={mode === "Design" ? <DesignParts payload={designPayload} />
+      left={mode === "Design" ? <DesignParts payload={designPayload} add={opened ? { witness: opened.declareForm.witness.prefill, catalog: opened.declareForm.add_part, onAdd: addAndSelect, onAddStructure: addStructure, shape: { links: sceneSource && "links" in sceneSource ? sceneSource.links : [], params: sceneSource && "params" in sceneSource ? sceneSource.params ?? [] : [], onAdd: addShape, onSize: setNamedSize } } : undefined} />
         : mode === "Check" && comparing && opened ? <CompareWithDatasheet result={massCard ? massLine(massCard) ?? massCard.title : null} onCompare={compareMass} />
         : mode === "Declare" && opened ? <DeclareValues payload={opened.declareForm} selectedPath={declareSel} onSelect={(path) => pickDeclare(path)} onAddPart={() => setAddingPart(true)} /> : undefined}
       above={mode === "Design" ? <DesignLens payload={designPayload} /> : undefined}
       tools={mode === "Design" ? <DesignTools payload={designPayload} canAnalyse={!!(opened?.path && opened.revision)} /> : undefined}
-      center={mode === "Check" && !payload ? <OpenFace connected={!(sidecarState.phase === "starting" && window.lockwire?.getSidecarState)} recent={recents} onOpenRobot={() => void onStartFromUrdf()} starters={starters} onNewRobot={(s) => void onNewRobot(s)} onOpenRecent={(p) => void onOpenLockfile(p)} /> : undefined}
+      center={mode === "Check" && !payload && !early ? <OpenFace connected={!((sidecarState.phase === "starting" || sidecarState.phase === "error") && window.lockwire?.getSidecarState)} engineError={sidecarState.phase === "error" ? sidecarState.message : undefined} recent={recents} onOpenRobot={() => void onStartFromUrdf()} starters={starters} onNewRobot={(s) => void onNewRobot(s)} onAgent={() => void onNewRobot(null).then((ok) => { if (ok) window.dispatchEvent(new Event("lockwire:open-agent")); })} onOpenRecent={(p) => void onOpenLockfile(p)} /> : undefined}
     >
       {mode === "Check" || mode === "Design" || mode === "Reference" || !body || (OWN_PANEL.has(mode) && opened) ? body : (
         <Panel title={label}>{body}</Panel>
@@ -773,5 +976,8 @@ export function App() {
         />
       )}
     </Shell>
+    {showKeys && <ShortcutsSheet onClose={() => setShowKeys(false)} />}
+    <FindPart page={page} onPick={(id) => { const again = storeIds.length === 1 && storeIds[0] === id; setSelectedPartId(id); setFitIds((f) => again && drawn.has(id) ? (f.length ? [] : [id, id]) : []); pickPart(id); }} />
+    </>
   );
 }

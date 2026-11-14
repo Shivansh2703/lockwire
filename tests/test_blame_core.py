@@ -1,4 +1,4 @@
-"""Fact-only provenance attribution: no API or CLI transport in this box."""
+"""Fact-only provenance attribution: no API or CLI transport in this change."""
 
 import json
 import os

@@ -10,7 +10,7 @@ from html import escape
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from lockwire import __version__, gitref
+from lockwire import __version__, gitref, plugins
 from lockwire.checks import power_rollup, run_record_checks, unknown_draw_message
 from lockwire.report import (
     CGReport,
@@ -291,7 +291,12 @@ def _graph(contract: Contract) -> dict[str, dict[str, Any]]:
         {
             "id": link.name,
             "label": link.name,
-            "sub": f"{link.mass.base():.3f} kg" if link.mass is not None else "mass unknown",
+            "sub": (
+                f"{link.mass.base():.3f} kg"
+                + (" (derived from its shapes)" if link.mass_note else "")
+                if link.mass is not None
+                else "mass unknown"
+            ),
             "kind": "link",
             "value": link.mass.base() if link.mass is not None else None,
         }
@@ -495,6 +500,7 @@ def _payload(
     *,
     redact_paths: bool = False,
     cli_line: str | None = None,
+    requirements: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     findings = sorted(
         report, key=lambda finding: (_SEVERITY_RANK[finding.severity], finding.quantity)
@@ -529,6 +535,7 @@ def _payload(
         # The exact command line the page was made with, so a reader can tell
         # a redacted page from a full one.
         "cli_line": cli_line,
+        "requirements": requirements or [],
     }
     if redact_paths:
         # boundary sweep — catches cli_line and the free-text
@@ -536,6 +543,231 @@ def _payload(
         # See _redact_paths_in_payload.
         payload = _redact_paths_in_payload(payload)
     return payload
+
+
+# --- Wiring build sheet (PNL-WIR2) -------------------------------------------------------------
+# Server-side SVG: the app's layout is TSX with no build step here, so this is a Python port of
+# its column rule (a device sits right of whatever feeds it). Pins carry data-pin; a tiny script
+# lights the clicked pin's net. The page stays readable (and printable) with no script at all.
+_WW, _WROW, _WHEAD, _WGAP, _WPAD = 180, 18, 26, 80, 16
+
+
+def _wiring_section(contract: Contract) -> str:
+    from lockwire.harness import wire_colour
+    from lockwire.page import _wiring
+
+    data = _wiring(contract)
+    devices, wires = data["wiring_devices"], data["wiring_wires"]
+    if not wires:
+        return ""
+    owner = {p["key"]: d["id"] for d in devices for c in d["connectors"] for p in c["pins"]}
+    col = {d["id"]: 0 for d in devices}
+    placed: set[str] = set()
+    for w in wires:
+        a, b = owner.get(w["from_pin"]), owner.get(w["to_pin"])
+        if not a or not b or a == b:
+            continue
+        placed.add(a)
+        if b not in placed:
+            col[b] = col[a] + 1
+            placed.add(b)
+    used: dict[int, int] = {}
+    pos: dict[str, tuple[int, int, int]] = {}
+    boxes = []
+    for d in devices:
+        c = col[d["id"]]
+        rows = sum(1 + len(k["pins"]) for k in d["connectors"])
+        h = _WHEAD + rows * _WROW + 8
+        x, y = _WPAD + c * (_WW + _WGAP), used.get(c, _WPAD)
+        used[c] = y + h + 16
+        boxes.append((d, x, y, h))
+        py = y + _WHEAD
+        for k in d["connectors"]:
+            py += _WROW
+            for p in k["pins"]:
+                pos[p["key"]] = (x, py + _WROW // 2, c)
+                py += _WROW
+    width = _WPAD * 2 + (max(col.values()) + 1) * (_WW + _WGAP) - _WGAP
+    height = max(used.values()) + _WPAD
+
+    def side(key: str) -> str:
+        w = next((o for o in wires if key in (o["from_pin"], o["to_pin"])), None)
+        other = pos.get(w["to_pin"] if w and w["from_pin"] == key else w["from_pin"]) if w else None
+        return "left" if other and other[2] < pos[key][2] else "right"
+
+    def dot(key: str) -> tuple[int, int]:
+        x, y, _ = pos[key]
+        return x + (0 if side(key) == "left" else _WW), y
+
+    def route(w: dict[str, Any], i: int) -> str:
+        (ax, ay), (bx, by) = dot(w["from_pin"]), dot(w["to_pin"])
+        bend = (i % 5) * 6
+        if side(w["from_pin"]) == "right" and side(w["to_pin"]) == "left" and bx > ax:
+            return f"M{ax},{ay} H{ax + _WGAP // 2 + bend - 12} V{by} H{bx}"
+        far = max(ax, bx) + 20 + bend
+        return f"M{ax},{ay} H{far} V{by} H{bx}"
+
+    svg = [
+        f'<svg id="wiringsvg" role="img" aria-label="Wiring diagram" viewBox="0 0 {width + 40} {height}"'
+        f' style="min-width:{int((width + 40) * 0.7)}px">'
+    ]
+    for i, w in enumerate(wires):
+        kind = "rail" if w["rail"] else "signal"
+        svg.append(
+            f'<path class="wire {kind}" data-from="{escape(w["from_pin"])}"'
+            f' data-to="{escape(w["to_pin"])}" data-net="{escape(w["net"] or "")}"'
+            f' d="{route(w, i)}" fill="none"/>'
+        )
+    for d, x, y, h in boxes:
+        svg.append(
+            f'<g class="wdev"><rect x="{x}" y="{y}" width="{_WW}" height="{h}" rx="6"/>'
+            f'<text class="wname" x="{x + 8}" y="{y + 17}">{escape(d["name"])}</text>'
+        )
+        py = y + _WHEAD
+        for k in d["connectors"]:
+            py += _WROW
+            svg.append(
+                f'<text class="wconn" x="{x + 8}" y="{py - 5}">{escape(k["name"] or "pins")}</text>'
+            )
+            for p in k["pins"]:
+                cx, cy = dot(p["key"])
+                svg.append(
+                    f'<g class="wpin" data-pin="{escape(p["key"])}" tabindex="0">'
+                    f'<text x="{x + 16}" y="{py + 13}">{escape(p["label"])}</text>'
+                    f'<circle cx="{cx}" cy="{cy}" r="4"/></g>'
+                )
+                py += _WROW
+        svg.append("</g>")
+    svg.append("</svg>")
+
+    label = {
+        p["key"]: (d["name"], k["name"], p["label"])
+        for d in devices
+        for k in d["connectors"]
+        for p in k["pins"]
+    }
+    by_id = {w.id: w for w in contract.topology.wires} if contract.topology else {}
+    rows = []
+    for w in wires:
+        src = by_id[w["id"]]
+
+        def end(key: str) -> str:
+            dev, conn, pin = label[key]
+            return escape(" ".join(t for t in (dev, conn, pin) if t))
+
+        spec = ", ".join(
+            t for t in (f"{src.awg} AWG" if src.awg is not None else "", wire_colour(contract, src)) if t
+        )
+        length = f"{src.length_m:g} m" if src.length_m is not None else ""
+        rows.append(
+            f'<tr data-from="{escape(w["from_pin"])}" data-to="{escape(w["to_pin"])}">'
+            f"<td>{escape(w['name'])}</td><td>{end(w['from_pin'])}</td><td>{end(w['to_pin'])}</td>"
+            f"<td>{escape(spec)}</td><td>{length}</td></tr>"
+        )
+    return (
+        '<section class="wiring" id="wiring"><h2>Wiring</h2>'
+        '<p class="wnote">Click a pin to light everything on its net.</p>'
+        f'<div class="wdiagram">{"".join(svg)}</div>'
+        '<h2 class="wbreak">Harness list</h2>'
+        '<table class="harness"><thead><tr><th>Wire</th><th>From</th><th>To</th>'
+        "<th>Wire spec</th><th>Length</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></section>"
+    )
+
+
+# --- Connections graph ---------------------------------------------------------------
+# Server-side SVG from `relevance.robot_graph`. The app's layout (graphLayout.ts) is TSX with no
+# build step here, so this is a Python port of its layered rule: links and joints run left to right
+# as a tree; every other kind gets one column to the right, each node as high as what it touches.
+_GW, _GH, _GCOL, _GROW = 160, 28, 200, 40
+_GAFTER = ("device", "connector", "wire", "rail", "battery", "host", "bus", "code")
+
+
+def _graph_layout(g: dict[str, Any]) -> dict[str, tuple[int, float]]:
+    kind = {n["id"]: n["kind"] for n in g["nodes"]}
+    kids: dict[str, list[str]] = {}
+    has_parent: set[str] = set()
+    for e in g["edges"]:
+        if e["kind"] == "structure":
+            kids.setdefault(e["from"], []).append(e["to"])
+            has_parent.add(e["to"])
+    tree = [i for i, k in kind.items() if k in ("link", "joint")]
+    grid: dict[str, list[float]] = {}
+    nxt = [0]
+
+    def place(i: str, depth: int) -> float:
+        if i in grid:
+            return grid[i][1]
+        grid[i] = [depth, 0]
+        ys = [place(k, depth + 1) for k in kids.get(i, [])]
+        if ys:
+            grid[i][1] = sum(ys) / len(ys)
+        else:
+            grid[i][1], nxt[0] = nxt[0], nxt[0] + 1
+        return grid[i][1]
+
+    for i in [t for t in tree if t not in has_parent] + tree:
+        place(i, 0)
+    pos = {i: (int(d) * _GCOL, r * _GROW) for i, (d, r) in grid.items()}
+    near: dict[str, list[str]] = {}
+    for e in g["edges"]:
+        near.setdefault(e["from"], []).append(e["to"])
+        near.setdefault(e["to"], []).append(e["from"])
+    col = int(max((d for d, _ in grid.values()), default=-1)) + 1
+    for k in _GAFTER:
+        ids = [i for i, kk in kind.items() if kk == k]
+        if not ids:
+            continue
+        want = []
+        for i in ids:
+            ys = [pos[o][1] for o in near.get(i, []) if o in pos]
+            want.append(sum(ys) / len(ys) if ys else None)
+        floor = None
+        for j in sorted(range(len(ids)), key=lambda j: (want[j] is None, want[j] or 0, j)):
+            y = max(want[j] or 0, floor + _GROW if floor is not None else 0)
+            pos[ids[j]] = (col * _GCOL, y)
+            floor = y
+        col += 1
+    return pos
+
+
+def _graph_section(contract: Contract) -> str:
+    from lockwire.relevance import robot_graph
+
+    g = robot_graph(contract)
+    if not g["edges"]:
+        return ""
+    pos = {i: (x, round(y)) for i, (x, y) in _graph_layout(g).items()}
+    width = max(x for x, _ in pos.values()) + _GW + 20
+    height = max(y for _, y in pos.values()) + _GH + 20
+    out = [
+        f'<svg id="graphsvg" role="img" aria-label="Robot graph: what is connected to what"'
+        f' viewBox="-10 -10 {width + 10} {height + 10}" style="min-width:{int(width * 0.6)}px">'
+    ]
+    for e in g["edges"]:
+        (ax, ay), (bx, by) = pos[e["from"]], pos[e["to"]]
+        fwd = bx > ax
+        sx, tx = ax + (_GW if fwd or bx == ax else 0), bx + (0 if fwd else _GW)
+        sy, ty = ay + _GH // 2, by + _GH // 2
+        d = 50 if bx == ax else max(40, abs(tx - sx) // 2) * (1 if fwd else -1)
+        d2 = 50 if bx == ax else -d
+        out.append(
+            f'<path class="gedge g-{e["kind"]}" d="M{sx} {sy} C{sx + d} {sy} {tx + d2} {ty} {tx} {ty}"'
+            f' fill="none"><title>{escape(e["kind"])}</title></path>'
+        )
+    for n in g["nodes"]:
+        x, y = pos[n["id"]]
+        text = n["label"] if len(n["label"]) <= 21 else n["label"][:20] + "\u2026"
+        out.append(
+            f'<g class="gnode g-{n["kind"]}"><rect x="{x}" y="{y}" width="{_GW}" height="{_GH}" rx="7"/>'
+            f'<text x="{x + 10}" y="{y + _GH // 2 + 4}">{escape(text)}</text></g>'
+        )
+    out.append("</svg>")
+    return (
+        '<section class="rgraph" id="robotgraph"><h2>What is connected to what</h2>'
+        '<p class="wnote">Parts left to right as they are built, then what powers and drives them.</p>'
+        f'<div class="wdiagram">{"".join(out)}</div></section>'
+    )
 
 
 def _report_identity(contract: Contract) -> str:
@@ -625,15 +857,24 @@ def render_html(
     *,
     redact_paths: bool = False,
     cli_line: str | None = None,
+    plan: Any = None,
 ) -> str:
-    """Return a byte-stable report document for ``contract``."""
+    """Return a byte-stable report document for ``contract``. A ``plan`` adds the Pro
+    requirements panel (empty in the free report)."""
     report = run_record_checks(contract, contract_path=contract_path)
-    data = _safe_json(_payload(contract, report, redact_paths=redact_paths, cli_line=cli_line))
+    plugins.ensure()
+    rows = plugins.pick("requirement_rows", lambda plan, findings, scored_records: [])(
+        plan, list(report), list(report.scored_records)
+    )
+    data = _safe_json(
+        _payload(contract, report, redact_paths=redact_paths, cli_line=cli_line, requirements=rows)
+    )
     return (
         _DOCUMENT.replace("__LOCKWIRE_DATA__", data)
         .replace("__GRAPH_LAYOUT_JS__", GRAPH_LAYOUT_JS)
         .replace("__DOCUMENT_IDENTITY__", escape(document_identity(contract_path)))
         .replace("__IDENTITY__", escape(_report_identity(contract)))
+        .replace("__WIRING__", _wiring_section(contract) + _graph_section(contract))
     )
 
 
@@ -644,10 +885,13 @@ def write_html_report(
     contract_path: Path | None = None,
     redact_paths: bool = False,
     cli_line: str | None = None,
+    plan: Any = None,
 ) -> None:
     """Write a self-contained report, replacing ``out`` if it exists."""
     out.write_text(
-        render_html(contract, contract_path, redact_paths=redact_paths, cli_line=cli_line),
+        render_html(
+            contract, contract_path, redact_paths=redact_paths, cli_line=cli_line, plan=plan
+        ),
         encoding="utf-8",
     )
 
@@ -663,7 +907,7 @@ _DOCUMENT = """<!doctype html>
 @media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0c0e12;--surface:#14181f;--ink:#e8ecf1;--muted:#8b939e;--line:#262b33;--accent:#60a5fa;--bad:#f87171;--warn:#fbbf24;--pass:#34d399;--track:#1c2129;--plan:#10141a;--node:#14181f;--edge:#5a6470}}
 :root[data-theme=light]{color-scheme:light;--bg:#fafbfc;--surface:#fff;--ink:#1b1f24;--muted:#6b737c;--line:#e2e5e9;--accent:#2563eb;--bad:#dc2626;--warn:#d97706;--pass:#059669;--track:#eef0f3;--plan:#f3f4f6;--node:#fff;--edge:#9aa3ad}
 :root[data-theme=dark]{color-scheme:dark;--bg:#0c0e12;--surface:#14181f;--ink:#e8ecf1;--muted:#8b939e;--line:#262b33;--accent:#60a5fa;--bad:#f87171;--warn:#fbbf24;--pass:#34d399;--track:#1c2129;--plan:#10141a;--node:#14181f;--edge:#5a6470}
-*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.4 var(--sans)}body{overflow-x:hidden}.mono{font-family:var(--mono)}button{font:inherit}.app{min-height:100vh}.top{height:54px;position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line)}.brand{min-width:0;flex:1}.brand b,.brand span{display:block;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.brand span{font-size:11px;color:var(--muted)}.badge{padding:4px 8px;background:var(--plan);border:1px solid var(--line);font:700 10px var(--mono);letter-spacing:.08em}.status{padding:9px 12px;border:1px solid;color:var(--pass);font:700 12px var(--mono)}.status.bad{color:var(--bad)}.status.warn{color:var(--warn)}.theme{min-width:44px;height:44px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}.shell{display:flex;flex-direction:column}.tree,.side{background:var(--surface);padding:12px}.tree{border-bottom:1px solid var(--line)}.side{background:var(--bg);display:flex;flex-direction:column;gap:12px}.head{display:flex;justify-content:space-between;color:var(--muted);font:700 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}.tree ul{list-style:none;padding:0;margin:0}.tree li{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:6px;padding:7px 5px;border-left:3px solid transparent;font:11px var(--mono)}.tree li span:nth-child(2){overflow:hidden;text-overflow:ellipsis}.tree li.bad{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent)}.mark{color:var(--pass);font-weight:800}.bad .mark{color:var(--bad)}.stage{min-width:0;padding:12px}.plan{background:var(--plan);border:1px solid var(--line);padding:10px 12px;margin-bottom:10px;overflow:auto;font:11px/1.55 var(--mono)}.plan b{display:block;color:var(--ink);margin-bottom:4px}.plan .bad{color:var(--bad)}.plan .warn{color:var(--warn)}.plan .note{color:var(--muted)}.plan .ok{color:var(--pass)}.tabs{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);margin-bottom:8px}.tabs button{height:40px;border:0;border-right:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer}.tabs button:last-child{border:0}.tabs button[aria-pressed=true]{background:var(--ink);color:var(--bg);font-weight:700}.graphbox,.panel{background:var(--surface);border:1px solid var(--line);overflow:hidden}.caption,.panelhead{display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--line);font:11px var(--mono);color:var(--muted)}.caption b{color:var(--ink)}svg{display:block;width:100%;height:460px;min-width:0}.edge{fill:none;stroke:var(--edge);stroke-width:1.25}.edge.hit{stroke:var(--accent);stroke-width:2}.node rect{fill:var(--node);stroke:var(--line);stroke-width:1.2}.node text{fill:var(--ink);font:600 10px var(--mono)}.node text.sub{fill:var(--muted);font-size:8.5px;font-weight:400}.node.hit rect{stroke:var(--accent);stroke-width:2.5}.node.breach rect{stroke:var(--bad);stroke-width:2}.dim{opacity:.16}.budget{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:4px 8px;padding:11px;border-top:1px solid var(--line);font:11px var(--mono)}.budget:first-child{border:0}.budget.breach{padding-top:15px;padding-bottom:15px;background:color-mix(in srgb,var(--bad) 8%,transparent)}.budget .sign{color:var(--pass);font-weight:800}.budget.breach .sign{color:var(--bad)}.budget.not_scored .sign{color:var(--muted)}.budget.not_scored .fill{background:var(--muted)}.budget .raised{grid-column:1/4;color:var(--warn)}.bar{grid-column:2/4;height:6px;background:var(--track);overflow:hidden}.fill{height:100%;background:var(--pass)}.breach .fill{background:var(--bad)}.empty,.info{padding:12px;color:var(--muted);font:11px/1.5 var(--mono)}.empty b{display:block;color:var(--pass)}.finding{width:100%;text-align:left;padding:12px;border:0;border-top:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}.finding:first-child{border-top:0}.finding[aria-pressed=true]{box-shadow:inset 3px 0 var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}.finding h3{margin:0 0 5px;font:700 11px var(--mono);color:var(--bad)}.finding.warning h3{color:var(--warn)}.finding.not_scored h3{color:var(--muted)}.finding p{margin:3px 0;font:11px/1.45 var(--mono);overflow-wrap:anywhere}.finding .meta{color:var(--muted)}.finding .hint{color:var(--accent);margin-top:8px;font-weight:700}.info b{color:var(--ink)}.identity{padding:8px 12px;border-top:1px solid var(--line);color:var(--muted);font:11px var(--mono);overflow-wrap:anywhere}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.4 var(--sans)}body{overflow-x:hidden}.mono{font-family:var(--mono)}button{font:inherit}.app{min-height:100vh}.top{height:54px;position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line)}.brand{min-width:0;flex:1}.brand b,.brand span{display:block;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.brand span{font-size:11px;color:var(--muted)}.badge{padding:4px 8px;background:var(--plan);border:1px solid var(--line);font:700 10px var(--mono);letter-spacing:.08em}.status{padding:9px 12px;border:1px solid;color:var(--pass);font:700 12px var(--mono)}.status.bad{color:var(--bad)}.status.warn{color:var(--warn)}.theme{min-width:44px;height:44px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}.shell{display:flex;flex-direction:column}.tree,.side{background:var(--surface);padding:12px}.tree{border-bottom:1px solid var(--line)}.side{background:var(--bg);display:flex;flex-direction:column;gap:12px}.head{display:flex;justify-content:space-between;color:var(--muted);font:700 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}.tree ul{list-style:none;padding:0;margin:0}.tree li{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:6px;padding:7px 5px;border-left:3px solid transparent;font:11px var(--mono)}.tree li span:nth-child(2){overflow:hidden;text-overflow:ellipsis}.tree li.bad{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent)}.mark{color:var(--pass);font-weight:800}.bad .mark{color:var(--bad)}.stage{min-width:0;padding:12px}.plan{background:var(--plan);border:1px solid var(--line);padding:10px 12px;margin-bottom:10px;overflow:auto;font:11px/1.55 var(--mono)}.plan b{display:block;color:var(--ink);margin-bottom:4px}.plan .bad{color:var(--bad)}.plan .warn{color:var(--warn)}.plan .note{color:var(--muted)}.plan .ok{color:var(--pass)}.tabs{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);margin-bottom:8px}.tabs button{height:40px;border:0;border-right:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer}.tabs button:last-child{border:0}.tabs button[aria-pressed=true]{background:var(--ink);color:var(--bg);font-weight:700}.graphbox,.panel{background:var(--surface);border:1px solid var(--line);overflow:hidden}.caption,.panelhead{display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--line);font:11px var(--mono);color:var(--muted)}.caption b{color:var(--ink)}svg{display:block;width:100%;height:460px;min-width:0}.edge{fill:none;stroke:var(--edge);stroke-width:1.25}.edge.hit{stroke:var(--accent);stroke-width:2}.node rect{fill:var(--node);stroke:var(--line);stroke-width:1.2}.node text{fill:var(--ink);font:600 10px var(--mono)}.node text.sub{fill:var(--muted);font-size:8.5px;font-weight:400}.node.hit rect{stroke:var(--accent);stroke-width:2.5}.node.breach rect{stroke:var(--bad);stroke-width:2}.dim{opacity:.16}.rbar{margin:4px 0}.rtrack{height:6px;border-radius:2px;background:var(--track)}.budget{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:4px 8px;padding:11px;border-top:1px solid var(--line);font:11px var(--mono)}.budget:first-child{border:0}.budget.breach{padding-top:15px;padding-bottom:15px;background:color-mix(in srgb,var(--bad) 8%,transparent)}.budget .sign{color:var(--pass);font-weight:800}.budget.breach .sign{color:var(--bad)}.budget.not_scored .sign{color:var(--muted)}.budget.not_scored .fill{background:var(--muted)}.budget .raised{grid-column:1/4;color:var(--warn)}.bar{grid-column:2/4;height:6px;background:var(--track);overflow:hidden}.fill{height:100%;background:var(--pass)}.breach .fill{background:var(--bad)}.empty,.info{padding:12px;color:var(--muted);font:11px/1.5 var(--mono)}.empty b{display:block;color:var(--pass)}.finding{width:100%;text-align:left;padding:12px;border:0;border-top:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}.finding:first-child{border-top:0}.finding[aria-pressed=true]{box-shadow:inset 3px 0 var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}.finding h3{margin:0 0 5px;font:700 11px var(--mono);color:var(--bad)}.finding.warning h3{color:var(--warn)}.finding.not_scored h3{color:var(--muted)}.finding p{margin:3px 0;font:11px/1.45 var(--mono);overflow-wrap:anywhere}.finding .meta{color:var(--muted)}.finding .hint{color:var(--accent);margin-top:8px;font-weight:700}.info b{color:var(--ink)}.identity{padding:8px 12px;border-top:1px solid var(--line);color:var(--muted);font:11px var(--mono);overflow-wrap:anywhere}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(min-width:1000px){.shell{display:grid;grid-template-columns:260px minmax(0,1fr) 320px;min-height:calc(100vh - 54px)}.tree{border:0;border-right:1px solid var(--line)}.stage{padding:14px 16px}.side{border-left:1px solid var(--line);padding:14px}.tree,.stage,.side{overflow-y:auto;max-height:calc(100vh - 54px)}}
 @media(max-width:420px){.badge{display:none}.top{gap:6px}.status{padding:8px}.stage,.tree,.side{padding-left:8px;padding-right:8px}svg{height:390px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
@@ -671,7 +915,9 @@ _DOCUMENT = """<!doctype html>
 .budget .meta{grid-column:2/4;color:var(--muted);overflow-wrap:anywhere}
 .footer{padding:9px 12px;border-top:1px solid var(--line);color:var(--muted);font:11px var(--mono);overflow-wrap:anywhere}
 .provenance-bar{padding:6px 16px;color:var(--muted);font:10px var(--mono);border-top:1px solid var(--line)}
-@media print{.top{position:static}.budget,.plan,.tree,.stage,.side{overflow:visible}svg{height:auto;max-height:none}.provenance-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface)}}
+.wiring{padding:14px 16px;border-top:1px solid var(--line)}.wiring h2{font:600 14px var(--sans);margin:0 0 6px}.wnote{color:var(--muted);margin:0 0 8px}.wdiagram{overflow-x:auto}#wiringsvg{width:100%;height:auto;font:12px var(--sans)}#wiringsvg .wdev rect{fill:var(--node);stroke:var(--edge)}#wiringsvg text{fill:var(--ink)}#wiringsvg .wname{font-weight:600}#wiringsvg .wconn{fill:var(--muted);font-size:11px}#wiringsvg .wire{stroke:var(--accent);stroke-width:1.5}#wiringsvg .wire.rail{stroke:var(--warn);stroke-width:2.5}#wiringsvg .wpin{cursor:pointer}#wiringsvg .wpin circle{fill:var(--edge)}#wiringsvg .dim{opacity:.18}#wiringsvg .wpin.on text{font-weight:700}#wiringsvg .wpin.on circle{fill:var(--accent)}.harness{width:100%;border-collapse:collapse;margin-top:6px}.harness th{text-align:left;color:var(--muted);font-weight:600}.harness th,.harness td{padding:3px 10px 3px 0;border-top:1px solid var(--line)}.harness tr.dim{opacity:.35}
+.rgraph{padding:14px 16px;border-top:1px solid var(--line)}.rgraph h2{font:600 14px var(--sans);margin:0 0 6px}#graphsvg{width:100%;height:auto;font:12px var(--sans)}#graphsvg .gnode rect{fill:var(--node);stroke:var(--edge)}#graphsvg .gnode text{fill:var(--ink)}#graphsvg .gedge{stroke:var(--muted);stroke-width:1.5}#graphsvg .g-power{stroke:var(--warn);stroke-width:2.2}#graphsvg .g-signal{stroke:var(--accent);stroke-dasharray:5 4}#graphsvg .g-drives{stroke:var(--accent);stroke-dasharray:2 3}#graphsvg .g-mounts{stroke-dasharray:8 3}#graphsvg .g-depends{stroke-dasharray:1 4}
+@media print{:root,:root[data-theme]{color-scheme:light;--bg:#fff;--surface:#fff;--ink:#000;--muted:#444;--line:#999;--accent:#1d4ed8;--warn:#b45309;--node:#fff;--edge:#555}.top,.tabs,.theme,.shell,.footer{display:none}.wiring{border:0}.wnote{display:none}.wbreak{break-before:page}.harness tr{break-inside:avoid}#wiringsvg .dim,.harness tr.dim{opacity:1}.top{position:static}.budget,.plan,.tree,.stage,.side{overflow:visible}svg{height:auto;max-height:none}.provenance-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface)}}
 </style>
 </head>
 <body>
@@ -687,10 +933,12 @@ _DOCUMENT = """<!doctype html>
   <aside class="side">
    <section class="panel"><div class="panelhead"><b>Budgets</b><span id="budgetCount"></span></div><div id="budgets"></div></section>
    <section class="panel"><div class="panelhead"><b>Findings</b><span id="findingCount"></span></div><div id="findings"></div></section>
+   <section class="panel" id="reqpanel" hidden><div class="panelhead"><b>Requirements</b><span id="reqCount"></span></div><div id="requirements"></div></section>
    <section class="panel"><div class="panelhead"><b>What adds up</b><span id="addsUpCount"></span></div><div id="addsup"></div></section>
    <section class="panel"><div class="panelhead"><b>Derived information</b><span>honest lane</span></div><div id="information"></div></section>
   </aside>
  </div>
+ __WIRING__
  <footer class="identity" id="identity">__DOCUMENT_IDENTITY__</footer>
  <footer class="footer">ran: <span id="cliline" class="mono"></span></footer>
  <footer class="provenance-bar mono">source: __IDENTITY__</footer>
@@ -707,17 +955,25 @@ function findingMark(s){return s==="violation"?"✗ ":s==="warning"?"~ ":"○ "}
 function findingCls(s){return s==="violation"?"bad":s==="warning"?"warn":"note"}
 function renderOutline(){const ul=$("outline");ul.replaceChildren();DATA.outline.forEach(row=>{const bad=DATA.findings.some(f=>f.severity==="violation"&&implicated(f).has(row.id));const li=document.createElement("li");if(bad)li.className="bad";li.append(text("span",bad?"!":"+", "mark"),text("span",row.id),text("span",row.type));ul.append(li)});$("treeCount").textContent=DATA.outline.length+" entries"}
 function renderPlan(){const box=$("plan");box.replaceChildren();box.append(text("b","lockwire plan · "+DATA.headline.adds_up+" add up · "+DATA.headline.does_not_add_up+" do not add up · "+DATA.headline.not_checked+" not checked"));if(!DATA.findings.length)box.append(text("div","✓ records agree · no findings","ok"));DATA.findings.forEach(f=>box.append(text("div",findingMark(f.severity)+f.quantity+"  "+f.observed+"  /  "+f.expected,findingCls(f.severity))))}
+function barOf(f){const rd=t=>{const m=/^(?:<=\\s*)?(\\d+(?:\\.\\d+)?)\\s+([^\\s,;]+)/.exec(t||"");return m?{value:Number(m[1]),unit:m[2]}:null};const o=f.observed_quantity||rd(f.observed),e=f.expected_quantity||rd(f.expected);if(!o||!e||o.unit!==e.unit||!(e.value>0)||!(o.value>=0))return null;const fl=/^>=/.test(f.expected||"");if(fl&&!(o.value>0))return null;const r=fl?e.value/o.value:o.value/e.value,c=Math.min(r,2),good=r>1?1/c:r,fill=r>1?1:r,n=v=>String(+v.toPrecision(3));const box=document.createElement("div");box.className="rbar"+(r>1?" over":"");box.dataset.ratio=r.toFixed(3);box.append(text("p",n(o.value)+" "+o.unit+(fl?" available against "+n(e.value)+" "+e.unit+" needed":" against a limit of "+n(e.value)+" "+e.unit)+(r>1?(fl?", short by "+Math.round((1-1/r)*100):", over by "+Math.round((r-1)*100))+"%":""),"meta"));const bar=document.createElement("div");bar.className="rtrack";bar.setAttribute("aria-hidden","true");bar.style.background="linear-gradient(to right,var(--pass) "+good*100+"%,var(--bad) 0 "+fill*100+"%,var(--track) 0)";box.append(bar);return box}
 function fmt(v){return v===null?"not computable":Number(v).toFixed(2)}
 function renderBudgets(){const root=$("budgets");root.replaceChildren();let pass=0,notScored=0;DATA.budgets.forEach(b=>{if(b.state==="pass")pass++;if(b.state==="not_scored")notScored++;const row=document.createElement("div");row.className="budget "+b.state;const ratio=b.value===null?0:(b.direction==="max"?b.value/b.limit:b.limit/b.value);const sign=b.state==="breach"?"!":b.state==="not_scored"?"·":"✓";row.append(text("span",sign,"sign"),text("b",b.id),text("span",b.note||(fmt(b.value)+" / "+fmt(b.limit)+" "+b.unit)));const bar=document.createElement("div");bar.className="bar";const fill=document.createElement("div");fill.className="fill";fill.style.width=Math.min(100,Math.max(0,ratio*100))+"%";bar.append(fill);row.append(bar);if(b.limit_raised)row.append(text("span",b.limit_raised,"raised"));const prov=[["witness",b.witness],["source",b.source],["locked_at",b.locked_at]].filter(([,v])=>v).map(([k,v])=>k+": "+v).join(" · ");row.append(text("span",prov||"limit has no provenance","meta"));root.append(row)});if(!DATA.budgets.length)root.append(text("div","No budgets declared.","empty"));const scoredTotal=DATA.budgets.length-notScored;$("budgetCount").textContent=pass+" / "+scoredTotal+" pass"+(notScored?" · "+notScored+" not scored":"")}
-function renderFindings(){const root=$("findings");root.replaceChildren();$("findingCount").textContent=DATA.findings.length;if(!DATA.findings.length){const e=text("div","","empty");e.append(text("b","✓ GO — records agree"),text("span","No findings."));root.append(e);return}DATA.findings.forEach((f,i)=>{const b=document.createElement("button");b.type="button";b.className="finding "+f.severity;b.setAttribute("aria-pressed",String(active===i));const clustered=f.cluster_root&&f.cluster_members&&f.cluster_members.length>1;b.append(text("h3",findingMark(f.severity)+(clustered?f.cluster_root+" subsystem: "+f.cluster_members.length+" members affected — "+f.cluster_members.join(", "):f.quantity)));if(clustered)f.member_findings.forEach(m=>b.append(text("p",m.quantity+": observed "+m.observed+", expected "+m.expected,"meta")));else b.append(text("p","observed "+f.observed+", expected "+f.expected+(f.delta?" (Δ "+f.delta+")":"")));[["dependent",f.dependent],["owner",f.owner],["source",f.source],["witness",f.witness],["locked_at",f.locked_at],["action",f.action]].forEach(([k,v])=>{if(v)b.append(text("p",k+": "+v,"meta"))});b.append(text("p",active===i?"Highlighting · tap again to clear":"Tap to highlight on graph","hint"));b.onclick=()=>{active=active===i?null:i;renderFindings();renderGraph()};root.append(b)})}
+function renderFindings(){const root=$("findings");root.replaceChildren();$("findingCount").textContent=DATA.findings.length;if(!DATA.findings.length){const e=text("div","","empty");e.append(text("b","✓ GO — records agree"),text("span","No findings."));root.append(e);return}DATA.findings.forEach((f,i)=>{const b=document.createElement("button");b.type="button";b.className="finding "+f.severity;b.setAttribute("aria-pressed",String(active===i));const clustered=f.cluster_root&&f.cluster_members&&f.cluster_members.length>1;b.append(text("h3",findingMark(f.severity)+(clustered?f.cluster_root+" subsystem: "+f.cluster_members.length+" members affected — "+f.cluster_members.join(", "):f.quantity)));if(clustered)f.member_findings.forEach(m=>b.append(text("p",m.quantity+": observed "+m.observed+", expected "+m.expected,"meta")));else{b.append(text("p","observed "+f.observed+", expected "+f.expected+(f.delta?" (Δ "+f.delta+")":"")));const rb=barOf(f);if(rb)b.append(rb)}[["dependent",f.dependent],["owner",f.owner],["source",f.source],["witness",f.witness],["locked_at",f.locked_at],["action",f.action]].forEach(([k,v])=>{if(v)b.append(text("p",k+": "+v,"meta"))});b.append(text("p",active===i?"Highlighting · tap again to clear":"Tap to highlight on graph","hint"));b.onclick=()=>{active=active===i?null:i;renderFindings();renderGraph()};root.append(b)})}
+function renderReqs(){const rows=DATA.requirements||[];if(!rows.length)return;$("reqpanel").hidden=false;$("reqCount").textContent=rows.length;const root=$("requirements");rows.forEach(r=>{const row=text("div","","info");row.append(text("b",r.text),text("div",({proven:"Proven",unproven:"Unproven: no check proves it yet",failing:"Failing"})[r.status]+" ("+r.check+")"));row.title=r.why;root.append(row)})}
 function renderAddsUp(){const root=$("addsup");root.replaceChildren();$("addsUpCount").textContent=DATA.adds_up.length;if(!DATA.adds_up.length){root.append(text("div","Nothing scored yet.","empty"));return}DATA.adds_up.forEach(r=>{const row=text("div","","info");row.append(text("b",r.quantity),text("div","observed "+r.observed+", expected "+r.expected),text("div","margin: "+r.margin));root.append(row)})}
 function renderInfo(){const root=$("information");root.replaceChildren();if(!DATA.information.length){root.append(text("div","No derived information.","empty"));return}DATA.information.forEach(i=>{const row=text("div","","info");row.append(text("b",i.quantity+" — "+i.result),text("div","frame: "+i.frame+" · sources: "+i.sources),text("div",i.mass));if(i.limitation)row.append(text("div","limitation: "+i.limitation));root.append(row)})}
 __GRAPH_LAYOUT_JS__
 function svgEl(tag,attrs){const e=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));return e}
 function renderGraph(){const source=DATA.graph[lens],svg=$("graph"),box=svg.getBoundingClientRect();const W=Math.max(560,box.width||900),H=Math.max(320,box.height||460);const graph=layout({nodes:source.nodes.map(n=>({...n})),edges:source.edges},W,H);svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.replaceChildren();const hit=active===null?null:implicated(DATA.findings[active]);graph.edges.forEach(e=>{const a=graph.byId[e.from],b=graph.byId[e.to];if(!a||!b)return;const yes=hit&&(hit.has(a.id)||hit.has(b.id));const path=svgEl("path",{d:edgePath(a,b,graph.nodes),class:"edge"+(yes?" hit":"")+(hit&&!yes?" dim":"")});svg.append(path)});graph.nodes.forEach(n=>{const yes=hit&&hit.has(n.id);const g=svgEl("g",{class:"node "+(yes?"hit ":"")+(hit&&!yes?"dim ":"")+(DATA.findings.some(f=>f.severity==="violation"&&implicated(f).has(n.id))?"breach":"")});g.append(svgEl("rect",{x:n.x-n.w/2,y:n.y-n.h/2,width:n.w,height:n.h,rx:4}));const label=svgEl("text",{x:n.x,y:n.y-2,"text-anchor":"middle"});label.textContent=n.label;g.append(label);const sub=svgEl("text",{x:n.x,y:n.y+13,"text-anchor":"middle",class:"sub"});sub.textContent=n.sub;g.append(sub);svg.append(g)})}
 function setLens(value){lens=value;document.querySelectorAll("[data-lens]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.lens===lens)));const meta={mechanical:["Mechanical","links · joints · mounts"],power:["Power","battery → rails → devices · watts"],data:["Data","hosts · buses · devices"]}[lens];$("lensTitle").textContent=meta[0];$("lensDesc").textContent=meta[1];renderGraph()}
-$("subtitle").textContent=DATA.contract_id+" · "+DATA.robot;$("cliline").textContent=DATA.cli_line||"(no CLI line recorded)";$("status").textContent=DATA.verdict;if(DATA.verdict==="NO-GO")$("status").classList.add("bad");else if(DATA.verdict==="NOT SCORED")$("status").classList.add("warn");document.querySelectorAll("[data-lens]").forEach(b=>b.onclick=()=>setLens(b.dataset.lens));$("theme").onclick=()=>{const r=document.documentElement,c=r.getAttribute("data-theme");r.setAttribute("data-theme",c==="dark"?"light":c==="light"?"dark":matchMedia("(prefers-color-scheme: dark)").matches?"light":"dark")};renderOutline();renderPlan();renderBudgets();renderFindings();renderAddsUp();renderInfo();setLens("power");
+$("subtitle").textContent=DATA.contract_id+" · "+DATA.robot;$("cliline").textContent=DATA.cli_line||"(no CLI line recorded)";$("status").textContent=DATA.verdict;if(DATA.verdict==="NO-GO")$("status").classList.add("bad");else if(DATA.verdict==="NOT SCORED")$("status").classList.add("warn");document.querySelectorAll("[data-lens]").forEach(b=>b.onclick=()=>setLens(b.dataset.lens));$("theme").onclick=()=>{const r=document.documentElement,c=r.getAttribute("data-theme");r.setAttribute("data-theme",c==="dark"?"light":c==="light"?"dark":matchMedia("(prefers-color-scheme: dark)").matches?"light":"dark")};renderOutline();renderPlan();renderBudgets();renderFindings();renderReqs();renderAddsUp();renderInfo();setLens("power");
 })();
+</script>
+<script>
+(function(){var svg=document.getElementById("wiringsvg");if(!svg)return;var wires=[].map.call(svg.querySelectorAll(".wire"),function(w){return{e:w,a:w.dataset.from,b:w.dataset.to,n:w.dataset.net}});var rows=[].slice.call(document.querySelectorAll(".harness tbody tr"));
+function net(pin){var s=new Set([pin]);for(var g=true;g;){g=false;wires.forEach(function(w){var hit=s.has(w.a)||s.has(w.b)||wires.some(function(o){return o.n&&o.n===w.n&&(s.has(o.a)||s.has(o.b))});if(hit)[w.a,w.b].forEach(function(k){if(!s.has(k)){s.add(k);g=true}})})}return s}
+var cur=null;function show(pin){cur=pin===cur?null:pin;var s=cur&&net(cur);wires.forEach(function(w){w.e.classList.toggle("dim",!!s&&!(s.has(w.a)&&s.has(w.b)))});rows.forEach(function(r){r.classList.toggle("dim",!!s&&!(s.has(r.dataset.from)&&s.has(r.dataset.to)))});svg.querySelectorAll(".wpin").forEach(function(p){p.classList.toggle("on",!!s&&s.has(p.dataset.pin))})}
+svg.querySelectorAll(".wpin").forEach(function(p){p.addEventListener("click",function(){show(p.dataset.pin)});p.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();show(p.dataset.pin)}})})})();
 </script>
 </body>
 </html>

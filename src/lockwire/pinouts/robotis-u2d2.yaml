@@ -1,0 +1,50 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: robotis-u2d2
+name: ROBOTIS U2D2
+maker: ROBOTIS
+numbers:
+  max_baud:
+    value: 6000000
+    unit: baud
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2/ (U2D2 (ROBOTIS e-Manual): "Maximum baud rate: 6Mbps"; as stated), read 2026-11-13'
+note: No voltage or current rating is published; the U2D2 does not power the Dynamixel.
+connectors:
+- id: TTL
+  source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2/ (U2D2 (ROBOTIS e-Manual): TTL port)'
+  type: jst-eh-3
+  pins:
+  - number: 1
+    name: GND
+    type: power_in
+  - number: 2
+    name: VDD
+    type: passive
+  - number: 3
+    name: DATA
+    functions:
+    - dynamixel_ttl_data
+    type: bidirectional
+- id: RS485
+  source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2/ (U2D2 (ROBOTIS e-Manual): RS485 port)'
+  type: jst-eh-4
+  pins:
+  - number: 1
+    name: GND
+    type: power_in
+  - number: 2
+    name: VDD
+    type: passive
+  - number: 3
+    name: DATA+
+    functions:
+    - rs485_a
+    type: bidirectional
+  - number: 4
+    name: DATA-
+    functions:
+    - rs485_b
+    type: bidirectional
+- id: USB
+  source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2/ (U2D2 (ROBOTIS e-Manual): USB port)'
+  type: usb-c

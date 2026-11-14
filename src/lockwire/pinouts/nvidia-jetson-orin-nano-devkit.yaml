@@ -1,0 +1,354 @@
+# Pin facts converted by script from the checked staging file; no document text.
+id: nvidia-jetson-orin-nano-devkit
+name: NVIDIA Jetson Orin Nano Developer Kit
+maker: NVIDIA
+numbers:
+  header_logic_level:
+    value: 3.3
+    unit: V
+    kind: datasheet
+    source: https://developer.nvidia.com/downloads/assets/embedded/secure/jetson/orin_nano/docs/jetson_orin_nano_devkit_carrier_board_specification_sp.pdf (NVIDIA SP-11324-001 v1.3, page 25), read 2026-11-13
+  power_pin_max_current:
+    value: 1000
+    unit: mA
+    kind: datasheet
+    source: https://developer.nvidia.com/downloads/assets/embedded/secure/jetson/orin_nano/docs/jetson_orin_nano_devkit_carrier_board_specification_sp.pdf (NVIDIA SP-11324-001 v1.3, page 26), read 2026-11-13
+  dc_jack_min:
+    value: 9
+    unit: V
+    kind: datasheet
+    source: https://developer.nvidia.com/downloads/assets/embedded/secure/jetson/orin_nano/docs/jetson_orin_nano_devkit_carrier_board_specification_sp.pdf (NVIDIA SP-11324-001 v1.3, page 7), read 2026-11-13
+  dc_jack_max:
+    value: 20
+    unit: V
+    kind: datasheet
+    source: https://developer.nvidia.com/downloads/assets/embedded/secure/jetson/orin_nano/docs/jetson_orin_nano_devkit_carrier_board_specification_sp.pdf (NVIDIA SP-11324-001 v1.3, page 7), read 2026-11-13
+note: Values are facts read from NVIDIA document SP-11324-001 v1.3 (Jetson Orin Nano Developer Kit carrier board specification), pages 7 and 25-27; no tables, figures or wording are reproduced.
+connectors:
+- id: J12
+  source: https://developer.nvidia.com/downloads/assets/embedded/secure/jetson/orin_nano/docs/jetson_orin_nano_devkit_carrier_board_specification_sp.pdf (NVIDIA SP-11324-001 v1.3, pages 26-27), read 2026-11-13
+  type: header-2.54-2x20
+  pins:
+  - number: 1
+    name: 3V3
+    functions:
+    - power
+    voltage_v: 3.3
+    max_current_ma: 1000
+  - number: 2
+    name: 5V
+    functions:
+    - power
+    voltage_v: 5
+    max_current_ma: 1000
+  - number: 3
+    name: I2C1_SDA
+    aliases:
+    - GP16_I2C8_DAT
+    functions:
+    - i2c_sda
+    - gpio
+    type: open_collector
+    max_current_ma: 2
+  - number: 4
+    name: 5V
+    functions:
+    - power
+    voltage_v: 5
+    max_current_ma: 1000
+  - number: 5
+    name: I2C1_SCL
+    aliases:
+    - GP15_I2C8_CLK
+    functions:
+    - i2c_scl
+    - gpio
+    type: open_collector
+    max_current_ma: 2
+  - number: 6
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 7
+    name: GPIO09
+    aliases:
+    - GP167
+    functions:
+    - gpio
+    - audio_clk
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 8
+    name: UART1_TXD
+    aliases:
+    - GP70_UART1_TXD_BOOT2_STRAP
+    functions:
+    - uart_tx
+    - gpio
+    type: output
+    direction: out
+    max_current_ma: 0.02
+  - number: 9
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 10
+    name: UART1_RXD
+    aliases:
+    - GP71_UART1_RXD
+    functions:
+    - uart_rx
+    - gpio
+    type: input
+    direction: in
+    max_current_ma: 0.02
+  - number: 11
+    name: UART1_RTS*
+    aliases:
+    - GP72_UART1_RTS_N
+    functions:
+    - uart_rts
+    - gpio
+    type: output
+    max_current_ma: 0.02
+  - number: 12
+    name: I2S0_SCLK
+    aliases:
+    - GP122
+    functions:
+    - i2s_sclk
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 13
+    name: SPI1_SCK
+    aliases:
+    - GP36_SPI3_CLK
+    functions:
+    - spi_sck
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 14
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 15
+    name: GPIO12
+    aliases:
+    - GP88_PWM1
+    functions:
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 16
+    name: SPI1_CS1*
+    aliases:
+    - GP40_SPI3_CS1_N
+    - SPI1_CSI1*
+    functions:
+    - spi_cs
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 17
+    name: 3V3
+    functions:
+    - power
+    voltage_v: 3.3
+    max_current_ma: 1000
+  - number: 18
+    name: SPI1_CS0*
+    aliases:
+    - GP39_SPI3_CS0_N
+    - SPI1_CSI0*
+    functions:
+    - spi_cs
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 19
+    name: SPI0_MOSI
+    aliases:
+    - GP49_SPI1_MOSI
+    functions:
+    - spi_mosi
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 20
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 21
+    name: SPI0_MISO
+    aliases:
+    - GP48_SPI1_MISO
+    functions:
+    - spi_miso
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 22
+    name: SPI1_MISO
+    aliases:
+    - GP37_SPI3_MISO
+    functions:
+    - spi_miso
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 23
+    name: SPI0_SCK
+    aliases:
+    - GP47_SPI1_CLK
+    functions:
+    - spi_sck
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 24
+    name: SPI0_CS0*
+    aliases:
+    - GP50_SPI1_CS0_N
+    functions:
+    - spi_cs
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 25
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 26
+    name: SPI0_CS1*
+    aliases:
+    - GP51_SPI1_CS1_N
+    functions:
+    - spi_cs
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 27
+    name: I2C0_SDA
+    aliases:
+    - GP14_I2C2_DAT
+    functions:
+    - i2c_sda
+    - gpio
+    type: open_collector
+    max_current_ma: 2
+  - number: 28
+    name: I2C0_SCL
+    aliases:
+    - GP13_I2C2_CLK
+    functions:
+    - i2c_scl
+    - gpio
+    type: open_collector
+    max_current_ma: 2
+  - number: 29
+    name: GPIO01
+    aliases:
+    - GP65
+    functions:
+    - gpio
+    - gpclk0
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 30
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 31
+    name: GPIO11
+    aliases:
+    - GP66
+    functions:
+    - gpio
+    - gpclk1
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 32
+    name: GPIO07
+    aliases:
+    - GP113_PWM7
+    functions:
+    - gpio
+    - pwm
+    type: bidirectional
+    max_current_ma: 0.02
+    capabilities:
+    - pwm
+  - number: 33
+    name: GPIO13
+    aliases:
+    - GP115
+    functions:
+    - gpio
+    - pwm
+    type: bidirectional
+    max_current_ma: 0.02
+    capabilities:
+    - pwm
+  - number: 34
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 35
+    name: I2S0_FS
+    aliases:
+    - GP125
+    functions:
+    - i2s_fs
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 36
+    name: UART1_CTS*
+    aliases:
+    - GP73_UART1_CTS_N
+    functions:
+    - uart_cts
+    - gpio
+    type: input
+    max_current_ma: 0.02
+  - number: 37
+    name: SPI1_MOSI
+    aliases:
+    - GP38_SPI3_MOSI
+    functions:
+    - spi_mosi
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 38
+    name: I2S0_DIN
+    aliases:
+    - GP124
+    functions:
+    - i2s_din
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02
+  - number: 39
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 40
+    name: I2S0_DOUT
+    aliases:
+    - GP123
+    functions:
+    - i2s_dout
+    - gpio
+    type: bidirectional
+    max_current_ma: 0.02

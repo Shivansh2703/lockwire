@@ -106,11 +106,31 @@ export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+// Per-command answer limits. The first picture on the big robot measures about 17 s, so check, page and the
+// other commands that load or build a full model (incl. start, wiring-*, assembly-steps) get 5 minutes; limits are chosen, not measured per command, and everything else 2. Analysis jobs have no limit: they run as long as the physics needs.
+const SLOW_MS = 300_000;
+const DEFAULT_MS = 120_000;
+const SLOW = new Set(["check", "page", "start", "export", "plan", "what-if", "swap-preview", "batch-edit", "diff", "log", "sweep-dimension", "contract-at", "start-from-urdf", "wiring-erc", "wiring-plan", "wiring-auto", "assembly-steps"]);
+const NO_LIMIT = new Set(["preflight", "autotune"]);
+export function limitFor(request: unknown): number | undefined {
+  const name = isRecord(request) && typeof request.command === "string" ? request.command : "";
+  return NO_LIMIT.has(name) ? undefined : SLOW.has(name) ? SLOW_MS : DEFAULT_MS;
+}
+
 export async function runSidecarCommand(request: unknown): Promise<SidecarRunReply> {
-  const response = await callSidecar("/v1/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
+  const limit = limitFor(request);
+  const call = (async () => {
+    const response = await callSidecar("/v1/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return parseSidecarRunReply(await response.json());
+  })();
+  if (limit === undefined) return call;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Lockwire's engine did not answer in ${Math.ceil(limit / 1000)} s. Try again.`)), limit);
   });
-  return parseSidecarRunReply(await response.json());
+  return Promise.race([call, late]).finally(() => clearTimeout(timer));
 }

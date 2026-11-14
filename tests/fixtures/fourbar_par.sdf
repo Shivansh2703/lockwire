@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!-- Synthetic: a parallelogram four-bar. Two 0.05 m cranks hang from pivots 0.1 m apart and carry
+     a 0.1 m coupler; the only mass is 1 kg at the coupler's middle. The coupler never tilts, so
+     the driven crank holds m g L sin(q). At q = 90 deg the cranks lie flat along the coupler and
+     the linkage can flip to its crossed assembly: a locking pose. The drive's 0.1 N*m limit is far
+     too small, so the check reports it and its text can be read (tests/test_checks.py). -->
+<sdf version="1.7">
+  <model name="fourbar_par">
+    <link name="base"/>
+    <link name="crank_a"/>
+    <link name="crank_b"><pose>0.1 0 0 0 0 0</pose></link>
+    <link name="coupler"><pose>0 0 -0.05 0 0 0</pose><inertial><pose>0.05 0 0 0 0 0</pose><mass>1</mass></inertial></link>
+    <joint name="drive" type="revolute">
+      <parent>base</parent><child>crank_a</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-2</lower><upper>2</upper><effort>0.1</effort><velocity>8</velocity></limit></axis>
+    </joint>
+    <joint name="follow" type="revolute">
+      <parent>base</parent><child>crank_b</child>
+      <axis><xyz>0 1 0</xyz></axis>
+    </joint>
+    <joint name="wrist" type="revolute">
+      <parent>crank_a</parent><child>coupler</child>
+      <axis><xyz>0 1 0</xyz></axis>
+    </joint>
+    <joint name="closure" type="revolute">
+      <parent>crank_b</parent><child>coupler</child>
+      <pose>0.1 0 0 0 0 0</pose>
+      <axis><xyz>0 1 0</xyz></axis>
+    </joint>
+  </model>
+</sdf>

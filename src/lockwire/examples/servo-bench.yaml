@@ -70,6 +70,8 @@ device_models:
     source: "towerpro.com.tw/product/mg996r"
     locked_at: 2026-10-15
     note: "Operating voltage 4.8 to 6.6 V; stall current draw 1400 mA (page does not state the test voltage; 5 V x 1.4 A = 7 W used). Hobby servos stall when a joint is blocked or overloaded."
+  actuator:
+    stall_current_a: 1.4  # towerpro.com.tw/product/mg996r stall draw, cited in this model's note above; no cited controller gains exist, so no controllers[]
 - id: mdl.regulator.ubec-5v-3a
   family: fam.regulator
   provenance:
@@ -134,10 +136,27 @@ devices:
     locked_at: 2026-10-15
     note: "Stall draw: 1.4 A x 5 V = 7 W."
 topology:
+  # Design choices below (not maker specs): a 10 A fuse sits above the 6.42 A computed servo draw and under
+  # the 18 AWG lead's ampacity, and the 0.3 m lead is a short bench run.
+  wires:
+  - id: wire.servo-feed
+    rail: rail.servo-5v
+    awg: 18
+    length_m: 0.3
+    installation: free_air
+    net_class: power
+    owner: you
+    provenance:
+      witness: human
+      source: "author-chosen: short 18 AWG lead from the BEC to the servo rail"
+      locked_at: 2026-11-13
+      note: "Design choice: 0.3 m of 18 AWG behind a 10 A fuse. Ampacity comes from the NEC table in lockwire, not from this file."
   rails:
   - id: rail.servo-5v
     voltage: {value: 5, unit: V}
     capacity: {value: 15, unit: W}
+    current_limit: {value: 10, unit: A}  # design choice: fuse between the BEC and the servo rail
+    current_limit_enforced_by: fuse
     provenance:
       witness: human
       source: "author-chosen: typical 5 V / 3 A BEC"

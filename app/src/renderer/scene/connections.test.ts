@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { Graph } from "../../shared/api.gen";
 import X500 from "./fixtures/x500-check-payload.json";
-import { connectionRows, connectionTubes, type Vec3 } from "./connections";
+import { swept } from "./sweptFixture";
+import { connectionRows, connectionTubes, DASH_RATE, sagHeat, sagRows, type Vec3 } from "./connections";
 
 const graph = X500.graph as Graph;
 const at = (id: string): Vec3 | undefined => (id.startsWith("battery") || id.endsWith("-computer") || id === "flight-controller" ? undefined : [id.length, 0, 0]);
@@ -35,5 +36,39 @@ describe("connection tubes", () => {
   });
   it("an edge with an end the robot does not draw gets no tube", () => {
     expect(connectionTubes(graph.data, at, 1)).toHaveLength(5); // bus -> device only; hosts have no part
+  });
+});
+
+const tube = (g: Graph["power"], to: string) => connectionTubes(g, at, 1).find((t) => t.to === to)!;
+
+describe("voltage colours and current flow (PWR-15u)", () => {
+  it("a swept rail's wires carry the payload's sagged fraction of nominal, never the nominal itself", () => {
+    expect(tube(swept(9), "dev.motor.m1").sag).toBeCloseTo(0.75);
+    expect(tube(swept(11.4), "dev.motor.m1").sag).toBeCloseTo(0.95);
+    expect(sagRows(swept(9)).find((r) => r.id === "rail.servo-motor")).toMatchObject({ nominal: 12, volts: 9, sag: 0.75 });
+  });
+  it("the colour scale runs from nominal (0) to a quarter low (1): more sag is hotter", () => {
+    expect(sagHeat(tube(swept(12), "dev.motor.m1").sag!)).toBe(0);
+    expect(sagHeat(tube(swept(9), "dev.motor.m1").sag!)).toBe(1);
+    expect(sagHeat(tube(swept(10.8), "dev.motor.m1").sag!)).toBeGreaterThan(sagHeat(tube(swept(11.4), "dev.motor.m1").sag!));
+  });
+  it("dashes go faster for more current, inside the rate range", () => {
+    const g = swept();
+    const [motor, radio] = [tube(g, "dev.motor.m1").rate!, tube(g, "dev.radio.rfd900x").rate!];
+    expect(motor).toBeGreaterThan(radio); // 61.67 W at 12 V against 5.2 W at 5 V
+    expect(motor).toBe(DASH_RATE[1]);
+    expect(radio).toBeGreaterThan(DASH_RATE[0]);
+  });
+  it("rails with no sweep are as before: no sag, no dashes, nothing in the legend", () => {
+    const plain = connectionTubes(graph.power, at, 1);
+    expect(plain.every((t) => t.sag === undefined && t.rate === undefined)).toBe(true);
+    const g = swept();
+    expect(tube(g, "dev.camera.oak-d-lite")).toEqual(plain.find((t) => t.to === "dev.camera.oak-d-lite"));
+    expect(sagRows(g).map((r) => r.id).sort()).toEqual(["rail.pixhawk-telem1-5v", "rail.servo-motor"]);
+    expect(sagRows(graph.power)).toEqual([]);
+  });
+  it("the colour does not depend on where the parts are (posed or not)", () => {
+    const moved = connectionTubes(swept(9), (id) => (at(id) ? [1, 2, 3] : undefined), 1).find((t) => t.to === "dev.motor.m1")!;
+    expect(moved.sag).toBe(tube(swept(9), "dev.motor.m1").sag);
   });
 });

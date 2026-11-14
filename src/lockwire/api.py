@@ -39,7 +39,8 @@ from typing import Any
 from ruamel.yaml import YAMLError
 
 from lockwire import blame as blame_history
-from lockwire import gitref
+from lockwire import gitref, units
+from lockwire.catalog import load_catalog
 from lockwire.checks import check_urdf_drift, run_record_checks
 from lockwire.describe import describe_all
 from lockwire.edit import (
@@ -143,7 +144,7 @@ def api_schema(out: Path | str) -> None:
 
 
 def api_types(out: Path | str) -> None:
-    """Write the payload union's TypeScript types — ``emit_ts.write`` (e1-d3).
+    """Write the payload union's TypeScript types — ``emit_ts.write``.
 
     ``emit_ts`` is imported here rather than at module scope for the same
     reason ``api_schema`` imports ``api_payload`` locally:
@@ -156,12 +157,12 @@ def api_types(out: Path | str) -> None:
 
 
 def declare_form(contract: Path | str | Contract) -> dict[str, Any]:
-    """The Declare form's payload (E4-df): every quantity ``declare`` could
+    """The Declare form's payload: every quantity ``declare`` could
     write in `contract` — present or not — plus a pre-filled witness box.
     ``page.build_declare_form`` — read-only, nothing here writes.
 
     Not in ``FUNCTIONS``: there is no ``lockwire declare-form`` command, only
-    the three face boxes (e4-b/c/d) reading this document (same "not a
+    the three face boxes reading this document (same "not a
     seventh operation" reasoning as ``health_document`` above).
     """
     loaded = contract if isinstance(contract, Contract) else load(contract)
@@ -198,7 +199,7 @@ def page(
     cli_line: str | None = None,
 ) -> dict[str, Any]:
     """The page dict ``page.build_payload`` computes, wrapped unchanged —
-    the root gap e1-pg closes: ``PagePayload`` (``api_payload.py``) was
+    the root gap this closes: ``PagePayload`` (``api_payload.py``) was
     defined with nothing behind it. This does not recompute anything
     ``build_payload`` does not already compute; it only loads the contract the
     way every other door in this file does.
@@ -240,6 +241,27 @@ def page(
     if resolved_path is not None:
         document["revision"] = contract_revision(resolved_path)
     return document
+
+
+def contract_at(contract: Path | str, ref: str) -> dict[str, Any]:
+    """The lockfile text and its page as of git ``ref``; read-only (``git show``,
+    parsed from memory, nothing written under the repo)."""
+    if ref.startswith("-"):
+        raise ValueError("a ref cannot start with '-'")
+    contract_path = Path(contract)
+    repo = gitref.repo_root(contract_path if contract_path.exists() else Path.cwd())
+    if repo is None:
+        raise ValueError("not a git repository, nothing to read an older revision from")
+    sha = gitref.rev_parse(ref, repo=repo)
+    if sha is None:
+        raise ValueError(f"no such ref {ref!r}")
+    relpath = gitref.relpath_in_repo(contract_path, repo)
+    if relpath is None:
+        raise ValueError(f"{contract_path} is outside the repository at {repo}")
+    text = gitref.show(sha, relpath, repo=repo)
+    if text is None:
+        raise FileNotFoundError(f"{contract_path.name} did not exist at {ref}")
+    return {"ref": ref, "commit": sha, "lockfile": text, "page": page(load_contract_text(text))}
 
 
 #: The free library operations. Every name here has a CLI command of the same
@@ -297,6 +319,157 @@ __all__ = [
 ]
 
 
+BOM_COLUMNS = (
+    "item", "quantity", "part", "maker", "kind",
+    "unit_mass_kg", "total_mass_kg", "voltage", "source", "datasheet", "notes",
+)  # fmt: skip
+
+
+def _g(x: float) -> str:
+    return f"{x:.6g}"
+
+
+def _same_mass_devices(contract: Contract) -> list[str]:
+    """Device ids that declare exactly the battery's mass (a coincidence until a link proves it)."""
+    bat = contract.topology.battery if contract.topology else None
+    m = bat.mass.base() if bat and bat.mass else None
+    return [
+        d.id
+        for d in contract.devices
+        if m is not None and d.physical and d.physical.mass and d.physical.mass.base() == m
+    ]
+
+
+def _pack_device(contract: Contract) -> str | None:
+    """The device that is the battery pack, proven only by a declared link.
+
+    The link: a rail the battery feeds directly (upstream "battery" or none, as the rail rollup
+    reads it) names the device as its source_device, and that device declares the pack's mass.
+    The mass guard keeps a regulator named on a battery-fed rail from being taken for the pack.
+    """
+    rails = contract.topology.rails if contract.topology else []
+    same = _same_mass_devices(contract)
+    return next(
+        (r.source_device for r in rails if r.upstream in (None, "battery") and r.source_device in same),
+        None,
+    )
+
+
+def bom_rows(contract: Contract) -> list[dict[str, Any]]:
+    """Parts list: one row per distinct declared part (same model, mass, source), plus the pack.
+
+    Empty string means the lockfile does not hold it. A part with no declared mass takes the
+    catalog's mass when exactly one catalog part has the same last id word and the same family,
+    and the source cell says so. ``maker`` is the matched catalog part's maker, empty when the
+    catalog has none (the first word of a part name is not always one: "Pixhawk 6C", "Generic ...").
+    """
+    parts = None
+    groups: dict[tuple, list] = {}
+    for dev in contract.devices:
+        mass = dev.physical.mass.base() if dev.physical and dev.physical.mass else None
+        model = contract.device_model(dev.model)
+        prov = dev.provenance or (model.provenance if model else None)
+        key = (dev.model, mass, prov.source if prov else "")
+        groups.setdefault(key, [model]).append(dev)
+    rows = []
+    for (model_id, mass, source), (model, *devs) in groups.items():
+        fam = contract.family(model.family) if model else None
+        vr = model.input_voltage_range if model else None
+        url = next((w for w in source.replace(";", " ").split() if w.startswith("http")), "")
+        unverified = ""
+        maker = ""
+        if model:
+            parts = parts if parts is not None else load_catalog().parts
+            tail = model_id.rsplit(".", 1)[-1].lower()
+            hit = [
+                p for p in parts
+                if p.id.rsplit(".", 1)[-1].lower() == tail and p.family == model.family
+            ]  # fmt: skip
+            if len(hit) == 1:
+                maker = hit[0].maker or ""
+            if mass is None and len(hit) == 1 and "mass" in hit[0].numbers:
+                n = hit[0].numbers["mass"]
+                mass = units.to_base(n.value, n.unit)
+                source = f"{source}; " if source else ""
+                source += f"catalog: {hit[0].id} ({hit[0].label})"
+                unverified = "1" if hit[0].label == "unverified" else ""
+        rows.append(
+            {
+                "part": model_id,
+                "quantity": str(len(devs)),
+                "maker": maker,
+                "kind": (fam.name if fam else model.family if model else ""),
+                "unit_mass_kg": "" if mass is None else _g(mass),
+                "total_mass_kg": "" if mass is None else _g(mass * len(devs)),
+                "voltage": f"{vr.min.value:g}-{vr.max.value:g} {vr.max.unit}" if vr else "",
+                "source": source,
+                "datasheet": url,
+                "_unverified": unverified,  # internal flag, not a CSV column
+            }
+        )
+    bat = contract.topology.battery if contract.topology else None
+    m = bat.mass.base() if bat and bat.mass else None
+    if bat and not _pack_device(contract):
+        rows.append(
+            {
+                "part": "battery",
+                "quantity": "1",
+                "maker": "",
+                "kind": bat.chemistry or "battery",
+                "unit_mass_kg": "" if m is None else _g(m),
+                "total_mass_kg": "" if m is None else _g(m),
+                "voltage": str(bat.voltage) if bat.voltage else "",
+                "source": "",
+                "datasheet": "",
+            }
+        )
+    twice = {
+        r["part"]
+        for r in rows
+        if r["part"] != "battery" and sum(x["part"] == r["part"] for x in rows) > 1
+    }
+    for r in rows:
+        r["notes"] = [
+            n
+            for n, hit in (
+                (
+                    "no cited mass",
+                    not r["unit_mass_kg"] or (not r["source"] and r["part"] != "battery"),
+                ),  # a battery has no source field
+                ("mass from an unverified catalog entry", bool(r.get("_unverified"))),
+                ("listed twice: merge into one row with qty 2", r["part"] in twice),
+            )
+            if hit
+        ]
+    return [{"item": str(n), **r} for n, r in enumerate(rows, 1)]
+
+
+def bom_mass_note(contract: Contract, rows: list[dict[str, Any]]) -> str | None:
+    """One sentence: listed part mass against the robot model's link-mass sum; None if either is unknown."""
+    listed = sum(float(r["total_mass_kg"]) for r in rows if r["total_mass_kg"])
+    links = contract.model.links if contract.model else []
+    robot = sum(link.mass.base() for link in links if link.mass)
+    twice = _same_mass_devices(contract) if not _pack_device(contract) else []
+    pair = (
+        f"The battery and {', '.join(twice)} declare the same mass; if they are the same pack, the parts"
+        f" total counts it twice: link them with source_device: {twice[0]} on the battery's rail to count it once."
+        if twice and any(r["part"] == "battery" for r in rows)
+        else None
+    )
+    if not listed or not robot:
+        return pair
+    gap = robot - listed
+    tail = (
+        f"{gap:.2f} kg is not in the parts list (frame, wires, fasteners)."
+        if gap >= 0
+        else f"The parts list is {-gap:.2f} kg over the model; check for masses counted twice."
+    )
+    note = f"Parts listed weigh {listed:.2f} kg; the robot model weighs {robot:.2f} kg. {tail}"
+    if any(r.get("_unverified") for r in rows):
+        note += " Some part masses are unverified catalog figures."
+    return f"{note} {pair}" if pair else note
+
+
 def verdict_document(
     contract: Contract, findings: list[Finding], artifact_type: str
 ) -> dict[str, Any]:
@@ -338,7 +511,25 @@ def verdict_document(
         # figure on the panel has a CLI twin. The CG is reused, never recomputed
         # `information` is exactly what compute_system_cg returned.
         document["forces"] = force_document(contract, getattr(findings, "information", []))
+        _tag_mass_rows(contract, document["forces"]["masses"])
     return document
+
+
+def _tag_mass_rows(contract: Contract, rows: list[dict[str, Any]]) -> None:
+    """Say each mass's maturity (and a link's material) so the panel can show its band."""
+    links = {link.name: link for link in contract.model.links} if contract.model else {}
+    devices = {device.id: device for device in contract.devices if device.physical}
+    for row in rows:
+        parts = (row.get("id") or "").split("/")
+        if parts[:2] == ["model", "links"] and parts[2] in links:
+            link = links[parts[2]]
+            row["mass_kind"] = link.effective_mass_kind
+            if link.mass_note:
+                row["mass_note"] = link.mass_note
+            if link.material:
+                row["material"] = link.material.name
+        elif parts[:1] == ["devices"] and parts[1] in devices:
+            row["mass_kind"] = devices[parts[1]].physical.effective_mass_kind  # type: ignore[union-attr]
 
 
 def load(contract: Path | str) -> Contract:
@@ -437,11 +628,11 @@ def _actuator_claim_document(
         else ()
     )
     sources = {
-        (row.provenance.source, row.provenance.witness)
+        (row.provenance.source, row.provenance.witness or "")
         for row in (admitted.signals if admitted is not None else ())
         if row.provenance is not None
         and row.provenance.source.strip()
-        and row.provenance.witness.strip()
+        and (row.provenance.witness is None or row.provenance.witness.strip())
     }
     evidence_class = "unverified"
     if admitted is not None and decision.scored and evidence is not None:
@@ -1195,8 +1386,10 @@ def upgrade(
         raise ValueError("legacy contract changed since its revision was selected")
     upgraded = upgrade_contract_text(raw.decode("utf-8")).encode("utf-8")
     legacy = load_contract_bytes(raw, upgrading=True, name=contract_path.name)
-    if legacy.schema_version not in {"0.2", "0.3", "0.4", "0.5"}:
-        raise ValueError("upgrade requires an explicit legacy schema_version 0.2, 0.3, 0.4 or 0.5")
+    if legacy.schema_version not in {"0.2", "0.3", "0.4", "0.5", "0.6"}:
+        raise ValueError(
+            "upgrade requires an explicit legacy schema_version 0.2, 0.3, 0.4, 0.5 or 0.6"
+        )
     load_contract_bytes(upgraded)
     if contract_path.read_bytes() != raw:
         raise ValueError("legacy contract changed during upgrade")
@@ -1260,6 +1453,56 @@ def _selected_external_meshes(
     return declared_assets
 
 
+def _with_declared_shapes(contract: Contract, scene: Any) -> Any:
+    """A mesh scene keeps its parts; each link's declared shapes are drawn with them (in addition,
+    as parts claiming that link). Same world poses the shapes-only path draws."""
+    from dataclasses import replace  # noqa: PLC0415
+
+    from lockwire.page import _robot_model  # noqa: PLC0415 - deferred, as the other lazy imports
+    from lockwire.scene import ScenePart  # noqa: PLC0415
+    from lockwire.scene_urdf import _box_mesh, _cylinder_mesh, _rotate, _sphere_mesh  # noqa: PLC0415
+
+    def mesh(row: dict[str, Any]) -> Any:
+        if row["kind"] == "box":
+            return _box_mesh(*row["size"])
+        if row["kind"] == "cylinder":
+            return _cylinder_mesh(row["radius"], row["length"])
+        return _sphere_mesh(row["radius"])
+
+    def to_scene_up(flat: tuple[float, ...]) -> tuple[float, ...]:  # z-up world -> glb y-up
+        return tuple(v for x, y, z in zip(*[iter(flat)] * 3, strict=True) for v in (x, z, -y))
+
+    parts = []
+    for link in _robot_model(contract)["links"]:
+        for i, row in enumerate(link["solids"]):
+            rot = tuple(tuple(row["rotation"][r * 3 : r * 3 + 3]) for r in range(3))
+            positions, normals, indices = mesh(row)
+            world = _rotate(rot, positions, tuple(row["position"]))
+            norms = _rotate(rot, normals)
+            if scene.up == "y":
+                world, norms = to_scene_up(world), to_scene_up(norms)
+            parts.append(
+                ScenePart(
+                    f"{link['name']}_shape{i}",
+                    link["name"],
+                    (link["name"],),
+                    world,
+                    norms,
+                    indices,
+                    (0.62, 0.64, 0.7, 1.0),
+                    (0.0, 0.0, 0.0),
+                )
+            )
+    if not parts:
+        return scene
+    return replace(
+        scene,
+        parts=(*scene.parts, *parts),
+        triangles=scene.triangles + sum(len(p.indices) // 3 for p in parts),
+        vertices=scene.vertices + sum(len(p.positions) // 3 for p in parts),
+    )
+
+
 def load_scene(
     contract_path: Path | str, scene: Path | str | None, package_root: Iterable[Path | str] = ()
 ) -> tuple[Any, str | None]:
@@ -1286,6 +1529,8 @@ def load_scene(
     from lockwire.scene_view import scene_asset_identity
 
     scene_asset_identity(loaded_contract, loaded_scene, Path(contract_path))
+    if scene_path.suffix.lower() in (".glb", ".gltf"):
+        loaded_scene = _with_declared_shapes(loaded_contract, loaded_scene)
     if discovered:
         return loaded_scene, f"{scene_path.name} (found beside the contract)"
     return loaded_scene, f"{scene_path.name} (given)"

@@ -13,6 +13,7 @@ from pydantic import Field
 
 from lockwire import fieldpath, units
 from lockwire.advice import Alternative
+from lockwire.controls import reach_findings
 from lockwire.copy import human_name
 from lockwire.checks import (
     _worst_rail_power,
@@ -77,8 +78,112 @@ Step = Annotated[
 ]
 
 
+class Segment(Base):
+    """One stretch of a mission: how long, what pose, which devices run at what duty."""
+
+    name: str = "plan"
+    duration_s: Annotated[float, Field(gt=0)] | None = None  # absent -> unknown, never 0 s
+    pose: dict[str, float] = {}  # joint -> target position (rad or m)
+    device_modes: dict[str, Annotated[float, Field(ge=0, le=1)]] = {}  # device id -> duty
+    payload_kg: Annotated[float, Field(ge=0)] | None = None
+    slope_deg: float | None = None
+
+
+class Requirement(Base):
+    id: str
+    text: str
+    target: str | None = None
+    reach_m: tuple[float, float, float] | None = (
+        None  # tip x, y, z in the model root frame
+    )
+
+
 class Plan(Base):
     steps: list[Step] = []
+    segments: list[Segment] = []
+    ambient_c: float = 25.0
+    requirements: list[Requirement] = []
+
+
+DURATION_NOT_GIVEN = "duration not given"
+
+
+def plan_segments(plan: Plan) -> list[Segment]:
+    """The plan's segments; an old plan (steps only) is one segment of unknown duration."""
+    return plan.segments or [Segment()]
+
+
+def total_time(plan: Plan) -> float | str:
+    """Seconds over all segments, or 'duration not given' if any segment lacks one."""
+    durations = [seg.duration_s for seg in plan_segments(plan)]
+    if any(d is None for d in durations):
+        return DURATION_NOT_GIVEN
+    return sum(durations)
+
+
+def trapezoid_time(distance: float, vmax: float, amax: float) -> float:
+    """Fastest rest-to-rest move: trapezoid, or a triangle when vmax is never reached."""
+    d = abs(distance)
+    if d <= vmax * vmax / amax:
+        return 2 * (d / amax) ** 0.5
+    return d / vmax + vmax / amax
+
+
+def segment_min_times(model, plan: Plan) -> list[float | None]:
+    """Per segment, the slowest joint's minimum time from the previous pose (None if unknown)."""
+    limits = {j.name: j.limits for j in model.joints if j.limits} if model is not None else {}
+    out: list[float | None] = []
+    # Segment 0 has no known start: Plan carries no start pose, steps are targets, and joint zero
+    # is not the robot's start. So it is None (missing input -> nothing).
+    prev: dict[str, float] = {}
+    for seg in plan.segments:
+        times = []
+        for name, target in seg.pose.items():
+            lim = limits.get(name)
+            if name in prev and lim and lim.velocity and lim.acceleration:
+                times.append(trapezoid_time(target - prev[name], lim.velocity, lim.acceleration))
+        out.append(max(times) if times else None)
+        prev = seg.pose
+    return out
+
+
+def trapezoid_findings(model, plan: Plan) -> list[Finding]:
+    """A warning per segment whose given duration is shorter than its minimum feasible time.
+
+    Nothing when limits, durations or poses are missing.
+    """
+    return [
+        Finding(
+            severity="warning",
+            quantity=f"plan/segments/{i}/duration_s",
+            observed=f"segment {seg.name} takes {seg.duration_s:g} s but needs at least {t:.2f} s",
+            expected="a duration the joints can move in, inside their speed and acceleration limits",
+            action="allow more time, or move a shorter distance",
+        )
+        for i, (seg, t) in enumerate(zip(plan.segments, segment_min_times(model, plan)))
+        if t is not None and seg.duration_s is not None and seg.duration_s < t - 1e-9
+    ]
+
+
+def duty_weighted_current(contract: Contract, plan: Plan) -> dict[str, float]:
+    """Time-averaged amps per device: sum(duty * seconds) / total * draw W / rail V.
+
+    A device with no declared draw or rail voltage is left out, never guessed.
+    Needs every segment duration; returns {} otherwise.
+    """
+    total = total_time(plan)
+    if isinstance(total, str):
+        return {}
+    out: dict[str, float] = {}
+    for dev_id in {d for seg in plan.segments for d in seg.device_modes}:
+        dev = contract.device(dev_id)
+        power = dev.power if dev is not None else None
+        rail = contract.rail(power.rail) if power is not None else None
+        if power is None or power.draw is None or rail is None or rail.voltage is None:
+            continue
+        duty_s = sum(seg.device_modes.get(dev_id, 0.0) * seg.duration_s for seg in plan.segments)
+        out[dev_id] = duty_s / total * power.draw.base() / rail.voltage.base()
+    return out
 
 
 class AssertionOutcome(Base):
@@ -297,7 +402,9 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                     observed="no steps",
                     expected="at least one step",
                     action="add steps to the plan before validating",
-                )
+                ),
+                *reach_findings(contract.model, plan),
+                *trapezoid_findings(contract.model, plan),
             ],
             [AssertionOutcome(path="plan/steps", status="UNSCORED")],
         )
@@ -857,7 +964,7 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                     )
                 previous_published[key] = converted
 
-    if contract.model is not None:
+    if contract.model is not None and contract.model.provenance is not None:
         provenance = contract.model.provenance
         for finding in out:
             if "/joint_target/" in finding.quantity and finding.quantity.rsplit("/", 1)[-1] in {
@@ -870,4 +977,6 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                 finding.witness = provenance.witness
                 finding.locked_at = provenance.locked_at
 
+    out += reach_findings(contract.model, plan)
+    out += trapezoid_findings(contract.model, plan)
     return PlanReport(out, outcomes)

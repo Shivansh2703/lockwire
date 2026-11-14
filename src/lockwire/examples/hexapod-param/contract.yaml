@@ -1,0 +1,1373 @@
+# Power-focused hexapod: a body plate and six 3-joint legs (coxa, femur, tibia) stored in this lockfile, sized by the
+# named numbers under `params:`. Change a leg length (`coxa_length`, `femur_length`, `tibia_length`) and the derived
+# link masses and the joint torques move; change a `body_*` size and the plate mass follows its volume.
+# Every size and position is a design choice, not a maker spec. Links are solid 6061-T6 aluminium boxes, so every link
+# mass is derived from the shapes and the cited density in `material.source` (lockwire.catalog row "Aluminium 6061-T6").
+# Power: 18 Feetech ST3215 servos (catalog feetech.st3215) on one Gens ace 2200 mAh 3S 35C pack
+# (catalog pack.gensace.3s-2200-35c-bashing). Servo mass, stall and no-load currents, torques and the pack's
+# mAh, cell count, C ratings and mass are copied from those catalog rows with their sources.
+# The pack's 11.1 V nominal and the Wh and W derived from it are the maker's product-title figure, not a catalog number.
+# Each servo joint carries the catalog's peak stall torque as its effort limit and the catalog's 360 deg rotation_range as its
+# lower/upper span (centred on zero; the maker states no stops). Velocity is left out.
+schema_version: '0.2'
+robot:
+  name: Power-focused hexapod
+  id: hexapod-param
+edges: []
+assumptions: []
+families:
+- id: fam.servo.smart
+  name: Smart servo
+device_models:
+- id: mdl.servo.st3215
+  family: fam.servo.smart
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215 (Feetech ST-3215-C018 spec): operating voltage 4-14 V, stall current
+      2.7 A@12V, no-load current 180 mA@12V, peak stall torque 30 kg.cm@12V = 2.942 N*m, rated torque
+      10 kg.cm@12V = 0.981 N*m.'
+  input_voltage_range:
+    min:
+      value: 4
+      unit: V
+    max:
+      value: 14
+      unit: V
+  actuator:
+    stall_current_a: 2.7
+    no_load_current_a: 0.18
+    torque_peak: 2.942
+    torque_continuous: 0.981
+devices:
+- id: dev.servo.front-left-coxa
+  model: mdl.servo.st3215
+  drives_joint: front-left-coxa-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: body
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.front-left-femur
+  model: mdl.servo.st3215
+  drives_joint: front-left-femur-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: front-left-coxa
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.front-left-tibia
+  model: mdl.servo.st3215
+  drives_joint: front-left-tibia-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: front-left-femur
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.mid-left-coxa
+  model: mdl.servo.st3215
+  drives_joint: mid-left-coxa-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: body
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.mid-left-femur
+  model: mdl.servo.st3215
+  drives_joint: mid-left-femur-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: mid-left-coxa
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.mid-left-tibia
+  model: mdl.servo.st3215
+  drives_joint: mid-left-tibia-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: mid-left-femur
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.rear-left-coxa
+  model: mdl.servo.st3215
+  drives_joint: rear-left-coxa-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: body
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.rear-left-femur
+  model: mdl.servo.st3215
+  drives_joint: rear-left-femur-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: rear-left-coxa
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.rear-left-tibia
+  model: mdl.servo.st3215
+  drives_joint: rear-left-tibia-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: rear-left-femur
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.front-right-coxa
+  model: mdl.servo.st3215
+  drives_joint: front-right-coxa-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: body
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.front-right-femur
+  model: mdl.servo.st3215
+  drives_joint: front-right-femur-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: front-right-coxa
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.front-right-tibia
+  model: mdl.servo.st3215
+  drives_joint: front-right-tibia-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: front-right-femur
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.mid-right-coxa
+  model: mdl.servo.st3215
+  drives_joint: mid-right-coxa-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: body
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.mid-right-femur
+  model: mdl.servo.st3215
+  drives_joint: mid-right-femur-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: mid-right-coxa
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.mid-right-tibia
+  model: mdl.servo.st3215
+  drives_joint: mid-right-tibia-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: mid-right-femur
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.rear-right-coxa
+  model: mdl.servo.st3215
+  drives_joint: rear-right-coxa-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: body
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.rear-right-femur
+  model: mdl.servo.st3215
+  drives_joint: rear-right-femur-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: rear-right-coxa
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+- id: dev.servo.rear-right-tibia
+  model: mdl.servo.st3215
+  drives_joint: rear-right-tibia-servo
+  power:
+    rail: rail.battery
+    draw:
+      value: 2.16
+      unit: W
+    modes:
+    - name: no-load
+      draw:
+        value: 2.16
+        unit: W
+    - name: stall
+      draw:
+        value: 32.4
+        unit: W
+  physical:
+    mass:
+      value: 55
+      unit: g
+    mount_frame: rear-right-femur
+  owner: you
+  provenance:
+    witness: w1
+    source: https://www.feetechrc.com/525603.html
+    locked_at: '2026-11-13'
+    note: 'Catalog row feetech.st3215: mass 55 g; stall 2.7 A and no-load 0.18 A are both stated at 12
+      V, so draw is 0.18 A x 12 V = 2.16 W and 2.7 A x 12 V = 32.4 W at that voltage (the pack is 11.1
+      V nominal, so these are the maker''s figures, not rescaled).'
+budgets:
+- id: bud.battery-stall
+  kind: rail_power
+  rail: rail.battery
+  limit:
+    value: 854.7
+    unit: W
+  draw_mode: stall
+  owner: you
+  provenance:
+    witness: w1
+    source: https://genstattu.com/gens-ace-2200mah-3s-35c-11-1v-g-tech-bashing-lipo-battery-pack-with-xt60-plug/
+    locked_at: '2026-11-13'
+    note: Budget equals the pack's continuous power, 35C x 2.2 Ah x 11.1 V = 854.7 W; scored in the servos'
+      stall mode (18 servos).
+- id: bud.battery-no-load
+  kind: rail_power
+  rail: rail.battery
+  limit:
+    value: 854.7
+    unit: W
+  draw_mode: no-load
+  owner: you
+  provenance:
+    witness: w1
+    source: https://genstattu.com/gens-ace-2200mah-3s-35c-11-1v-g-tech-bashing-lipo-battery-pack-with-xt60-plug/
+    locked_at: '2026-11-13'
+    note: Budget equals the pack's continuous power, 35C x 2.2 Ah x 11.1 V = 854.7 W; scored in the servos'
+      no-load mode (18 servos).
+gearboxes: []
+fitted_band_allocations: []
+actuator_cases: []
+params:
+- name: body_length
+  value: 0.25
+  min: 0.005
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: body_width
+  value: 0.12
+  min: 0.005
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: body_thickness
+  value: 0.005
+  min: 0.005
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: coxa_length
+  value: 0.04
+  min: 0.005
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: femur_length
+  value: 0.08
+  min: 0.005
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: tibia_length
+  value: 0.12
+  min: 0.005
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: hip_front_x
+  value: 0.1
+  min: -1.0
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: hip_rear_x
+  value: -0.1
+  min: -1.0
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: hip_left_y
+  value: 0.06
+  min: -1.0
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+- name: hip_right_y
+  value: -0.06
+  min: -1.0
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+model:
+  source: lockfile
+  source_sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  structure_hash: 68aaa5b8236d879e1882a8032e445361256c11c46abd24b69a3f90a78dccb847
+  links:
+  - name: body
+    geometry:
+    - kind: box
+      size:
+      - body_length
+      - body_width
+      - body_thickness
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: front-left-coxa
+    geometry:
+    - kind: box
+      size:
+      - coxa_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: front-left-femur
+    geometry:
+    - kind: box
+      size:
+      - femur_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: front-left-tibia
+    geometry:
+    - kind: box
+      size:
+      - tibia_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: mid-left-coxa
+    geometry:
+    - kind: box
+      size:
+      - coxa_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: mid-left-femur
+    geometry:
+    - kind: box
+      size:
+      - femur_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: mid-left-tibia
+    geometry:
+    - kind: box
+      size:
+      - tibia_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: rear-left-coxa
+    geometry:
+    - kind: box
+      size:
+      - coxa_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: rear-left-femur
+    geometry:
+    - kind: box
+      size:
+      - femur_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: rear-left-tibia
+    geometry:
+    - kind: box
+      size:
+      - tibia_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: front-right-coxa
+    geometry:
+    - kind: box
+      size:
+      - coxa_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: front-right-femur
+    geometry:
+    - kind: box
+      size:
+      - femur_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: front-right-tibia
+    geometry:
+    - kind: box
+      size:
+      - tibia_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: mid-right-coxa
+    geometry:
+    - kind: box
+      size:
+      - coxa_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: mid-right-femur
+    geometry:
+    - kind: box
+      size:
+      - femur_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: mid-right-tibia
+    geometry:
+    - kind: box
+      size:
+      - tibia_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: rear-right-coxa
+    geometry:
+    - kind: box
+      size:
+      - coxa_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: rear-right-femur
+    geometry:
+    - kind: box
+      size:
+      - femur_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  - name: rear-right-tibia
+    geometry:
+    - kind: box
+      size:
+      - tibia_length
+      - 0.02
+      - 0.02
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx (Aalco datasheet,
+        Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions (HTML page; no revision shown; distributor
+        datasheet): "Density 2.70 g/cm³"), read 2026-11-13'
+  joints:
+  - name: front-left-coxa-servo
+    type: revolute
+    parent: body
+    child: front-left-coxa
+    origin:
+      xyz:
+      - hip_front_x
+      - hip_left_y
+      - 0
+      rpy:
+      - 0
+      - 0
+      - 1.5707963
+    axis:
+    - 0
+    - 0
+    - 1
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: front-left-femur-servo
+    type: revolute
+    parent: front-left-coxa
+    child: front-left-femur
+    origin:
+      xyz:
+      - coxa_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: front-left-tibia-servo
+    type: revolute
+    parent: front-left-femur
+    child: front-left-tibia
+    origin:
+      xyz:
+      - femur_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: mid-left-coxa-servo
+    type: revolute
+    parent: body
+    child: mid-left-coxa
+    origin:
+      xyz:
+      - 0
+      - hip_left_y
+      - 0
+      rpy:
+      - 0
+      - 0
+      - 1.5707963
+    axis:
+    - 0
+    - 0
+    - 1
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: mid-left-femur-servo
+    type: revolute
+    parent: mid-left-coxa
+    child: mid-left-femur
+    origin:
+      xyz:
+      - coxa_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: mid-left-tibia-servo
+    type: revolute
+    parent: mid-left-femur
+    child: mid-left-tibia
+    origin:
+      xyz:
+      - femur_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: rear-left-coxa-servo
+    type: revolute
+    parent: body
+    child: rear-left-coxa
+    origin:
+      xyz:
+      - hip_rear_x
+      - hip_left_y
+      - 0
+      rpy:
+      - 0
+      - 0
+      - 1.5707963
+    axis:
+    - 0
+    - 0
+    - 1
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: rear-left-femur-servo
+    type: revolute
+    parent: rear-left-coxa
+    child: rear-left-femur
+    origin:
+      xyz:
+      - coxa_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: rear-left-tibia-servo
+    type: revolute
+    parent: rear-left-femur
+    child: rear-left-tibia
+    origin:
+      xyz:
+      - femur_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: front-right-coxa-servo
+    type: revolute
+    parent: body
+    child: front-right-coxa
+    origin:
+      xyz:
+      - hip_front_x
+      - hip_right_y
+      - 0
+      rpy:
+      - 0
+      - 0
+      - -1.5707963
+    axis:
+    - 0
+    - 0
+    - 1
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: front-right-femur-servo
+    type: revolute
+    parent: front-right-coxa
+    child: front-right-femur
+    origin:
+      xyz:
+      - coxa_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: front-right-tibia-servo
+    type: revolute
+    parent: front-right-femur
+    child: front-right-tibia
+    origin:
+      xyz:
+      - femur_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: mid-right-coxa-servo
+    type: revolute
+    parent: body
+    child: mid-right-coxa
+    origin:
+      xyz:
+      - 0
+      - hip_right_y
+      - 0
+      rpy:
+      - 0
+      - 0
+      - -1.5707963
+    axis:
+    - 0
+    - 0
+    - 1
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: mid-right-femur-servo
+    type: revolute
+    parent: mid-right-coxa
+    child: mid-right-femur
+    origin:
+      xyz:
+      - coxa_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: mid-right-tibia-servo
+    type: revolute
+    parent: mid-right-femur
+    child: mid-right-tibia
+    origin:
+      xyz:
+      - femur_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: rear-right-coxa-servo
+    type: revolute
+    parent: body
+    child: rear-right-coxa
+    origin:
+      xyz:
+      - hip_rear_x
+      - hip_right_y
+      - 0
+      rpy:
+      - 0
+      - 0
+      - -1.5707963
+    axis:
+    - 0
+    - 0
+    - 1
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: rear-right-femur-servo
+    type: revolute
+    parent: rear-right-coxa
+    child: rear-right-femur
+    origin:
+      xyz:
+      - coxa_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  - name: rear-right-tibia-servo
+    type: revolute
+    parent: rear-right-femur
+    child: rear-right-tibia
+    origin:
+      xyz:
+      - femur_length
+      - 0
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+    # effort 2.942 N*m = catalog feetech.st3215 (https://www.feetechrc.com/525603.html) stall_torque: "Peak stall torque: 30kg.cm@12V" (30 kgf*cm x 0.0980665); the pack is 11.1 V nominal, so this is the maker's 12 V figure.
+    # lower/upper -pi..+pi = the catalog rotation_range 360 deg ("Running degree: 360 deg (when 0~4096); Limit angle: NO limit"); the maker states a span, no mechanical stops, so the span is centred on zero (a design choice, not a maker spec).
+    limits:
+      lower: -3.1415926
+      upper: 3.1415926
+      effort: 2.942
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: '2026-11-13'
+  zero_mass_links: []
+topology:
+  rails:
+  - id: rail.battery
+    voltage:
+      value: 11.1
+      unit: V
+    capacity:
+      value: 854.7
+      unit: W
+    current_limit:
+      value: 77
+      unit: A
+    provenance:
+      witness: w1
+      source: https://genstattu.com/gens-ace-2200mah-3s-35c-11-1v-g-tech-bashing-lipo-battery-pack-with-xt60-plug/
+      locked_at: '2026-11-13'
+      note: 'Gens ace 2200mAh 3S 35C pack (catalog pack.gensace.3s-2200-35c-bashing): 35C continuous x
+        2.2 Ah = 77 A; 77 A x 11.1 V = 854.7 W. 11.1 V is the maker''s stated nominal 3S voltage (in the
+        product title), not a catalog number.'
+  battery:
+    capacity:
+      value: 24.42
+      unit: Wh
+    voltage:
+      value: 11.1
+      unit: V
+    chemistry: lipo
+    cells_series: 3
+    c_rate_continuous: 35
+    c_rate_burst: 70
+    mass:
+      value: 143
+      unit: g

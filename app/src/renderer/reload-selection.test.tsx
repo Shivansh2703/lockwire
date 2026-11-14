@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import type { PagePayload } from "../shared/api.gen";
+import { goMode } from "./App.testkit";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
 import { getSelectedPartId, setSelectedPartId } from "./scene/selectionStore";
 
@@ -57,9 +58,7 @@ function clickOpenRobot() {
 }
 
 function clickModeTab(name: string) {
-  act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click()); 
-  const button = Array.from(container.querySelectorAll('button[role="tab"]')).find((b) => b.textContent === name)!;
-  act(() => button.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  goMode(container, name);
 }
 
 const EMPTY_GRAPH = {
@@ -100,7 +99,8 @@ function page(overrides: { revision: string; hash: string; parts: ReturnType<typ
     unchecked: 0,
     adds_up: [],
     cards: X500_CHECK_PAYLOAD.cards,
-    joints: [],
+    // `move` sets a position, so the part needs a joint that says where it sits (DesignControls refuses otherwise).
+    joints: [{ name: "frame_joint", type: "fixed", parent: "world", child: "frame", parent_name: "world", child_name: "frame", position: [0], axis: [0, 0, 1], origin_mm: [0, 0, 0], lower: null, upper: null, effort: null }],
     links: [],
     graph: EMPTY_GRAPH,
     budgets: [],
@@ -154,6 +154,7 @@ async function openSelectEditAndReopen(
 ) {
   (window as unknown as { lockwire: object }).lockwire = {
     startFromUrdf: vi.fn().mockResolvedValue(picked({ opened: true, path: "/tmp/x500/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD })),
+    openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/tmp/x500/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }), // the reopen after a design edit
     getContractPage: vi.fn().mockResolvedValueOnce(firstPage).mockResolvedValueOnce(nextPage),
     getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM),
     getHistory: vi.fn().mockResolvedValue([]),
@@ -170,15 +171,6 @@ async function openSelectEditAndReopen(
   act(() => partButton.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   expect(getSelectedPartId()).toBe(partId);
 
-  const sourceInput = container.querySelector('input[aria-label="Source"]') as HTMLInputElement;
-  const witnessInput = container.querySelector('input[aria-label="Witness"]') as HTMLInputElement;
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-  act(() => {
-    setter.call(sourceInput, "measurement-log");
-    sourceInput.dispatchEvent(new Event("input", { bubbles: true }));
-    setter.call(witnessInput, "Maya");
-    witnessInput.dispatchEvent(new Event("input", { bubbles: true }));
-  });
   const form = container.querySelector("form.design-controls") as HTMLFormElement;
   act(() => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
   await act(async () => {});
@@ -205,31 +197,18 @@ describe("E2.2 -- selection survives a reopen that keeps the part, and is cleare
 });
 
 describe("E2.2 -- a stale/missing revision refuses an edit and writes nothing", () => {
-  it("shows the reload refusal on Declare and never calls the write IPC for it", async () => {
+  it("shows the reload refusal and never calls the write IPC for it", async () => {
     const writeContract = vi.fn().mockResolvedValue({ payload: { written: true, revision: "revision" } });
     const firstPage = page({ revision: "revision", hash: "hash", parts: [scenePart("frame")] });
-    // The reopened page comes back with an empty revision -- `replaceOpenedPage` (App.tsx:291-311)
-    // takes it verbatim (`nextPage.revision ?? current.revision`; "" is not nullish), so
-    // `opened.revision` is now falsy exactly as it would be after a stale/expired read.
+    // The reopened page comes back with an empty revision, as after a stale/expired read: showOpened refuses it.
     const staleRevisionPage = page({ revision: "", hash: "hash", parts: [scenePart("frame")] });
     await openSelectEditAndReopen(writeContract, firstPage, staleRevisionPage, "frame");
 
     expect(writeContract).toHaveBeenCalledTimes(1); // only the design edit above
 
-    clickModeTab("Declare");
-    const valueInput = container.querySelector('input[aria-label="value"]') as HTMLInputElement;
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-    act(() => {
-      setter.call(valueInput, "3");
-      valueInput.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    const declareButton = Array.from(container.querySelectorAll(".declare-face button")).find((b) => b.textContent === "Declare")!;
-    act(() => declareButton.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    await act(async () => {});
-
-    expect(container.querySelector(".kit-notice-error")?.textContent).toBe(
-      "lockfile revision missing; reload before applying this edit",
-    );
-    expect(writeContract).toHaveBeenCalledTimes(1); // still just the design edit -- Declare wrote nothing
+    // The reopen refuses the page: the app says so and keeps no editable document, so nothing more can be written.
+    expect(container.textContent).toContain("document refresh failed: lockfile revision missing");
+    expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent === "Retry opening")).toBe(true);
+    expect(writeContract).toHaveBeenCalledTimes(1); // still just the design edit -- the refusal wrote nothing
   });
 });

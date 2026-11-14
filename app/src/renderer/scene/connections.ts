@@ -23,7 +23,36 @@ export interface ConnRow {
 }
 
 export type Vec3 = [number, number, number];
-export interface Tube { from: string; to: string; a: Vec3; b: Vec3; radius: number; over: boolean }
+export interface Tube {
+  from: string; to: string; a: Vec3; b: Vec3; radius: number; over: boolean;
+  /** Power only, a rail with `sweep` in the payload: its volts at full servo load over its nominal volts, 0..1. */
+  sag?: number;
+  /** Same rails: dash cycles per second, faster for more current. Unset: no moving dashes. */
+  rate?: number;
+}
+
+/** The payload's own sagged figure for a rail, as a fraction of nominal (never computed here): the
+ * volts at the heaviest load point of `rail_sweep` over the rail's declared volts. */
+export function railSag(n?: GraphNode): number | undefined {
+  if (n?.kind !== "rail" || !n.sweep?.length || !n.nominal_v) return undefined;
+  const worst = n.sweep.reduce((a, b) => (b.load > a.load ? b : a));
+  return Math.max(0, Math.min(1, worst.volts / n.nominal_v));
+}
+
+/** 0 at nominal volts, 1 at a quarter or more below: the position on the colour scale. */
+export const sagHeat = (sag: number) => Math.max(0, Math.min(1, (1 - sag) / 0.25));
+
+/** Dash cycles per second at the least and the most current on the robot. */
+export const DASH_RATE: readonly [number, number] = [0.3, 2];
+
+export interface SagRow { id: string; name: string; nominal: number; volts: number; sag: number }
+/** The legend's rails: only those the payload swept. */
+export function sagRows(g: GraphLens, names: ReadonlyMap<string, string> = new Map()): SagRow[] {
+  return g.nodes.flatMap((n) => {
+    const sag = railSag(n);
+    return sag === undefined ? [] : [{ id: n.id, name: names.get(n.id) ?? n.label.replace(/^rail\./, "").replace(/[-_.]+/g, " ").replace(/^./, (c) => c.toUpperCase()), nominal: n.nominal_v!, volts: sag * n.nominal_v!, sag }];
+  });
+}
 
 const over = (n?: GraphNode) => n?.kind === "rail" && n.value != null && n.limit != null && n.value > n.limit;
 const num = (v: number) => fmtQty(v);
@@ -89,9 +118,20 @@ export function connectionTubes(g: GraphLens, centre: (id: string) => Vec3 | und
   });
   const top = Math.log1p(Math.max(0, ...placed.map((p) => p.w)));
   const [lo, hi] = [size * 0.002, size * 0.008];
-  return placed.map(({ e, a, b, w }) => ({
-    from: e.from, to: e.to, a, b,
-    radius: lo + (hi - lo) * (top > 0 ? Math.min(Math.log1p(Math.max(w, 0)) / top, 1) : 0),
-    over: over(byId.get(e.from)) || over(byId.get(e.to)),
-  }));
+  // Amps down a wire = the load's watts over its rail's nominal volts; only on swept rails.
+  const amps = (e: { from: string; to: string }) => {
+    const rail = byId.get(e.from), watts = byId.get(e.to)?.value;
+    return railSag(rail) === undefined || !watts ? undefined : watts / rail!.nominal_v!;
+  };
+  const fastest = Math.max(0, ...placed.map((p) => amps(p.e) ?? 0));
+  return placed.map(({ e, a, b, w }) => {
+    const sag = railSag(byId.get(e.from)), i = amps(e);
+    return {
+      from: e.from, to: e.to, a, b,
+      radius: lo + (hi - lo) * (top > 0 ? Math.min(Math.log1p(Math.max(w, 0)) / top, 1) : 0),
+      over: over(byId.get(e.from)) || over(byId.get(e.to)),
+      ...(sag === undefined ? {} : { sag }),
+      ...(i ? { rate: DASH_RATE[0] + (DASH_RATE[1] - DASH_RATE[0]) * (i / fastest) } : {}),
+    };
+  });
 }

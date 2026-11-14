@@ -13,7 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-MODELS = (".urdf", ".sdf", ".xacro")
+MODELS = (".urdf", ".sdf", ".xacro", ".wbt", ".proto")
 LOCK = "lockwire.yaml"
 
 
@@ -55,7 +55,7 @@ def _violations(path: Path, tmp: Path) -> dict[str, list[str]]:
             return {}  # ponytail: no lock, nothing to compare; a bare model check takes ~5 s
         loaded = load_contract(lock)
         loaded.model.source = str(tmp)  # the checks read the proposed file, not the one on disk
-        if loaded.model.provenance.source.lower().endswith(MODELS):
+        if loaded.model.provenance and loaded.model.provenance.source.lower().endswith(MODELS):
             loaded.model.provenance.source = str(tmp)
         document = api.check(loaded, contract_path=lock)
     found: dict[str, list[str]] = {}

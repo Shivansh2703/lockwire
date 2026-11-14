@@ -140,6 +140,10 @@ device_models:
   input_voltage_range:
     min: {value: 6, unit: V}
     max: {value: 12.6, unit: V}
+  actuator:
+    # Both figures: this model's provenance note (Waveshare listing); stall current also catalog_seed.yaml feetech.st3215 stall_current 2.7 A.
+    stall_current_a: 2.7
+    no_load_current_a: 0.2
   hard_limits:
       # Feetech STS memory table: Maximum Temperature Limit, address 13 (0x0D), initial value 70, range 0-100, unit C;
       # Present Temperature, address 63 (0x3F), read-only, unit C. The lower bound is NOT published: absolute zero is

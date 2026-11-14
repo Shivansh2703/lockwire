@@ -1,4 +1,4 @@
-"""R2: the engine names findings and targets, so the app never parses paths."""
+"""The engine names findings and targets, so the app never parses paths."""
 
 from pathlib import Path
 

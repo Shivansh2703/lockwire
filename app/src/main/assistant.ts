@@ -2,7 +2,7 @@
 // edit a contract without a human signature. Read tools run at once; propose tools are held here
 // under an id and only `assistant:apply` (the user's witness + the revision the turn was stamped
 // with) ever sends them to the sidecar. The key never leaves main: not to the renderer, not to a log.
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -34,7 +34,7 @@ const API_DEADLINE_MS = 120_000;
 // Injected by main, never offered to the model (a model's dry_run would fake a write).
 // The sidecar requires a witness even on a dry run and stamps it into the diff. Main never sees the page's name prefill,
 // so the preview carries this stand-in; the signed write uses what the user types.
-const DRY_RUN_WITNESS = "your name";
+export const DRY_RUN_WITNESS = "your name";
 const MAIN_OWNED = ["witness", "expected_revision", "contract", "dry_run"];
 // a read tool's path-shaped arg is main's too; the model never picks where anything is written.
 const pathShaped = (k: string) => k === "out" || k === "json_out" || /(^|_)(path|dir)$/.test(k);
@@ -124,7 +124,13 @@ export async function handleSettingsSet(args: unknown): Promise<AssistantSetResu
   if (typeof req.disableRobot === "string") {
     s.enabledRobots = (s.enabledRobots ?? []).filter((r) => r !== req.disableRobot);
   }
-  save(s);
+  try {
+    save(s);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== "EACCES" && code !== "EROFS" && code !== "EPERM") throw e;
+    error = `${PRODUCT_NAME} cannot save settings because ${dirname(settingsPath())} is read-only. Make it writable or move it, then try again.`;
+  }
   return { settings: view(s), ...(error ? { error } : {}) };
 }
 
@@ -151,8 +157,15 @@ interface Tool {
 }
 
 const threads = new Map<string, Message[]>(); // per contract, this app run only
-const held = new Map<string, { contract: string; command: string; args: Record<string, unknown>; revision: string }>();
+export interface BatchStep { command: string; args: Record<string, unknown> }
+const held = new Map<string, { contract: string; command: string; args: Record<string, unknown>; revision: string; shown: string; steps?: BatchStep[] }>();
 let inflight: AbortController | null = null;
+// A turn's cards share one revision; once one is applied, the file this app just wrote is the only other revision they may apply on.
+const appliedTo = new Map<string, string>(); // `${contract}\0${card revision}` -> revision after the last applied card
+const changedLines = (diff: string) => diff.split("\n").filter((l) => /^[+-]/.test(l) && !/^(---|\+\+\+)/.test(l)).join("\n");
+const fileRevision = (contract: string): string | null => {
+  try { return createHash("sha256").update(readFileSync(contract)).digest("hex"); } catch { return null; }
+};
 
 function push(event: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -204,8 +217,38 @@ export async function recordProposal(contract: string, revision: string, command
   const diff = isRecord(dry.payload) && typeof dry.payload.diff === "string" ? dry.payload.diff : null;
   if (dry.refusal || diff === null) return { refusal: dry.refusal ?? "That proposal produced no diff, so it was not recorded." };
   const id = randomUUID();
-  held.set(id, { contract, command, args, revision });
+  held.set(id, { contract, command, args, revision, shown: changedLines(diff) });
   return { proposal: { id, command, args, revision, diff } };
+}
+
+/** Several edits held as ONE card (the Agent's robot from a description): signing writes them all or nothing. The caller has already run them on a temp copy. */
+export function recordBatch(contract: string, revision: string, steps: BatchStep[], diff: string): AssistantProposal {
+  const id = randomUUID();
+  held.set(id, { contract, command: "build robot", args: { changes: steps.length }, revision, shown: changedLines(diff), steps });
+  return { id, command: "build robot", args: { changes: steps.length }, revision, diff };
+}
+
+/** Every step kind the Agent emits (declare, add, place, move) is one engine `batch-edit` op: one write, one undo step, a refusal writes nothing.
+ * An add's top-level `id` rides in `fields` (the op's shape). */
+const OPS = ["declare", "add", "place", "move"];
+const change = (s: BatchStep, witness: string) => {
+  const { id, ...rest } = s.args;
+  return { op: s.command, ...rest, ...(s.command === "add" ? { fields: { ...(id === undefined ? {} : { id }), ...(isRecord(rest.fields) ? rest.fields : {}) } } : {}), witness };
+};
+const batchEdit = (contract: string, steps: BatchStep[], witness: string, revision: string, journal: boolean) =>
+  runSidecarCommand({ command: "batch-edit", args: { contract, expected_revision: revision, journal, changes: steps.map((s) => change(s, witness)) } });
+const unknownStep = (steps: BatchStep[]) => { const s = steps.find((x) => !OPS.includes(x.command)); return s ? `unknown step "${s.command}"` : null; };
+
+/** Run the steps on `copy` (a hidden file the caller owns, so no undo journal: journal false); the engine's refusal, or null. */
+export async function runSteps(copy: string, steps: BatchStep[], witness: string): Promise<string | null> {
+  return unknownStep(steps) ?? (await batchEdit(copy, steps, witness, fileRevision(copy) ?? "", false)).refusal ?? null;
+}
+
+/** All or nothing: one engine batch-edit on the person's file (its own revision guard, one undo step); the app pre-checks the revision too. */
+async function applyBatch(p: { contract: string; revision: string; steps: BatchStep[] }, witness: string): Promise<AssistantApplyResult> {
+  if (fileRevision(p.contract) !== p.revision) return { ok: false, error: "Nothing was written: the robot changed since this was proposed, so ask again." };
+  const refusal = unknownStep(p.steps) ?? (await batchEdit(p.contract, p.steps, witness, p.revision, true)).refusal;
+  return refusal ? { ok: false, error: `Nothing was written: ${refusal}` } : { ok: true };
 }
 
 /** For a `declare` proposal, the same non-mutating compare as the what-if read tool: the check before and after. */
@@ -230,6 +273,7 @@ export async function handleSend(args: unknown): Promise<AssistantTurn> {
   const { key, model } = creds;
 
   const controller = (inflight = new AbortController());
+  for (const k of appliedTo.keys()) if (k.startsWith(`${contract}\0`)) appliedTo.delete(k); // an earlier turn's write never vouches for this one
   const messages: Message[] = [...(threads.get(contract) ?? []), { role: "user", content: text }];
   const proposals: AssistantProposal[] = [];
   let calls = 0;
@@ -308,11 +352,24 @@ export async function handleApply(args: unknown): Promise<AssistantApplyResult> 
   const p = held.get(args.id);
   if (!p) return { ok: false, error: "That proposal is gone: ask again." };
   held.delete(args.id); // one signature, no retry
+  if (p.steps) return applyBatch({ contract: p.contract, revision: p.revision, steps: p.steps }, args.witness);
+  const key = `${p.contract}\0${p.revision}`;
+  let revision = p.revision;
+  const ours = appliedTo.get(key);
+  if (ours && fileRevision(p.contract) === ours) { // only this batch's own writes came between: re-check the card on the new file
+    const dry = await runSidecarCommand({ command: p.command, args: { ...p.args, contract: p.contract, dry_run: true, witness: DRY_RUN_WITNESS, expected_revision: ours } });
+    if (dry.refusal) return { ok: false, error: dry.refusal };
+    if (!isRecord(dry.payload) || typeof dry.payload.diff !== "string" || changedLines(dry.payload.diff) !== p.shown) return { ok: false, error: "This change no longer matches what you read. Ask again." };
+    revision = ours;
+  }
   const reply = await runSidecarCommand({
     command: p.command,
-    args: { ...p.args, contract: p.contract, witness: args.witness, expected_revision: p.revision },
+    args: { ...p.args, contract: p.contract, witness: args.witness, expected_revision: revision },
   });
-  return reply.refusal ? { ok: false, error: reply.refusal } : { ok: true };
+  if (reply.refusal) return { ok: false, error: reply.refusal };
+  const after = fileRevision(p.contract);
+  if (after) appliedTo.set(key, after);
+  return { ok: true };
 }
 
 export async function handleCancel(): Promise<{ ok: true }> {

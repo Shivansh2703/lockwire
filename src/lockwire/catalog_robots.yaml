@@ -58,6 +58,58 @@ robots:
     joint_speed_max: {value: 180, unit: deg/s, kind: datasheet, retrieved: 2026-11-04,
       source: "https://www.universal-robots.com/media/1807466/ur10e_e-series_datasheets_web.pdf — Elbow, Wrist 1-3 maximum speed ± 180°/s"}
   known_urdf_deviations: []
+- id: ur16e
+  name: Universal Robots UR16e
+  aliases: [ur16e]
+  fingerprint: *ur_links  # Universal Robots' ROS 2 description generates the same link names for every ur_type
+  numbers:
+    mass_total: {value: 33.1, unit: kg, kind: datasheet, scope: with_cable, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Weight including cable 33,1 kg / 72.9 lbs"}
+    dof: {value: 6, unit: count, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Degrees of freedom 6 rotating joints"}
+    reach_m: {value: 0.9, unit: m, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Reach 900 mm / 35.4 in"}
+    payload_kg: {value: 16, unit: kg, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Payload 16 kg / 35.3 lbs"}
+    joint_speed_max: {value: 180, unit: deg/s, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Elbow, Wrist 1-3 maximum speed ± 180˚/s"}
+  known_urdf_deviations: []
+- id: ur20
+  name: Universal Robots UR20
+  aliases: [ur20]
+  fingerprint: *ur_links  # Universal Robots' ROS 2 description generates the same link names for every ur_type
+  numbers:
+    mass_total: {value: 64, unit: kg, kind: datasheet, scope: arm_only, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Weight without cable 64 kg / 141.1 lbs"}
+    dof: {value: 6, unit: count, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Degrees of freedom 6 rotating joints"}
+    reach_m: {value: 1.75, unit: m, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Reach 1750 mm / 68.9 in"}
+    payload_kg: {value: 20, unit: kg, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Payload 20 kg / 44.1 lbs"}
+    joint_speed_max: {value: 210, unit: deg/s, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Wrist 1, 2, 3 maximum speed ± 210˚/s"}
+  known_urdf_deviations: []
+- id: kinova-gen3-7dof
+  name: Kinova Gen3 7-DOF
+  # alias from ros2_kortex kortex_description gen3.xacro (<robot name="gen3">)
+  aliases: [gen3]
+  # camera_link, camera_depth_frame and camera_color_frame exist only with vision=true (gen3.xacro defaults to vision=false), so they are left out here
+  fingerprint: [world, base_link, shoulder_link, half_arm_1_link, half_arm_2_link, forearm_link, spherical_wrist_1_link, spherical_wrist_2_link, bracelet_link, end_effector_link]
+  numbers:
+    mass_total: {value: 8.2, unit: kg, kind: datasheet, scope: arm_only, retrieved: 2026-11-13,
+      source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — Mass (without gripper and with vision module) 7 DoF 8.2 kg"}
+    dof: {value: 7, unit: count, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — Degrees of freedom 7 DoF, 6 DoF"}
+    reach_m: {value: 0.902, unit: m, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — Maximum reach (fully extended) 7 DoF 902 mm"}
+    payload_kg: {value: 4.0, unit: kg, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — mid-range continuous; no gripper: 4.0 kg"}
+    joint_speed_max: {value: 79.64, unit: deg/s, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — large (joints 1 - 4) 79.64 °/s (1.39 rad/s)"}
+    joint_torque_max: {value: 39.0, unit: N*m, kind: datasheet, retrieved: 2026-11-13,
+      source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — large (joints 1 - 4) 39.0 N * m (joint torques soft limits)"}
+  known_urdf_deviations: []
 - id: turtlebot3-burger
   name: ROBOTIS TurtleBot3 Burger
   aliases: [turtlebot3_burger]

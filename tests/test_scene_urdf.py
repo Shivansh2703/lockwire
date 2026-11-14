@@ -387,3 +387,51 @@ def test_package_xml_with_doctype_is_not_parsed(tmp_path):
         '<!DOCTYPE p [<!ENTITY n "mypkg">]><package><name>&n;</name></package>'
     )
     assert _find_package_dir(tmp_path, "mypkg", 3) is None
+
+
+# --------------------------------------------------------------------------- parsed-scene cache
+
+_CACHE_URDF = """<robot name="r"><link name="a"><visual><geometry>
+<mesh filename="m.stl"/></geometry></visual></link></robot>"""
+
+
+def _cache_robot(tmp_path):
+    import lockwire.scene_urdf as su
+
+    su._SCENE_CACHE.clear()
+    (tmp_path / "r.urdf").write_text(_CACHE_URDF)
+    _write_binary_stl(tmp_path / "m.stl", _TWO_TRI_STL)
+    return tmp_path / "r.urdf", tmp_path / "m.stl"
+
+
+def test_scene_cache_parses_mesh_once(tmp_path, monkeypatch):
+    import lockwire.scene_urdf as su
+
+    urdf, _stl = _cache_robot(tmp_path)
+    calls = []
+    real = su.read_stl
+    monkeypatch.setattr(su, "read_stl", lambda p: calls.append(p) or real(p))
+    first, second = load_robot_scene(urdf), load_robot_scene(urdf)
+    assert len(calls) == 1
+    assert first == second
+
+
+def test_scene_cache_reparses_after_mesh_edit(tmp_path):
+    import os
+
+    urdf, stl = _cache_robot(tmp_path)
+    before = load_robot_scene(urdf)
+    moved = [(n, v1, v2, (2.0, 2.0, 0.0)) for n, v1, v2, _v3 in _TWO_TRI_STL]
+    _write_binary_stl(stl, moved)
+    os.utime(stl, ns=(1, 1))  # same size: only the mtime tells
+    assert load_robot_scene(urdf).parts[0].positions != before.parts[0].positions
+
+
+def test_scene_cache_equals_uncached_load(tmp_path):
+    import lockwire.scene_urdf as su
+
+    urdf, _stl = _cache_robot(tmp_path)
+    load_robot_scene(urdf)
+    cached = load_robot_scene(urdf)
+    su._SCENE_CACHE.clear()
+    assert cached == load_robot_scene(urdf)

@@ -9,7 +9,7 @@ import { getDesignView, resetDesignView, setDesignView } from "./scene/designVie
 import { getSelectedGroup, setSelectedPartId } from "./scene/selectionStore";
 
 vi.mock("./proRegistry", () => ({ pro: null }));
-vi.mock("./scene/Canvas", () => ({ Canvas: ({ children }: { children?: ReactNode }) => <>{children}</>, useScene: () => ({}) }));
+vi.mock("./scene/Canvas", () => ({ Canvas: ({ children }: { children?: ReactNode }) => <>{children}</>, useScene: () => ({ meshes: [] }) }));
 const { DesignParts, DesignLens } = await import("./DesignPanel");
 
 let container: HTMLDivElement;

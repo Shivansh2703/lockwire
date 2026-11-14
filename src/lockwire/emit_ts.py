@@ -1,4 +1,4 @@
-"""Emit `app/src/shared/api.gen.ts` directly from the payload union (e1-d3).
+"""Emit `app/src/shared/api.gen.ts` directly from the payload union.
 
 Plan v8 line 265, verbatim: *"There is no TypeScript generator in the list,
 deliberately: the mainstream generator's own documentation says a
@@ -12,7 +12,7 @@ not run on this repo's toolchain today — `openapi-typescript@7.13.0` declares
 a peer on `typescript@^5.x` and crashes (`Cannot read properties of undefined
 (reading 'createKeywordTypeNode')`) against `app/package.json`'s already-pinned
 `typescript@7.0.2`. That is a second, independent reason (beyond v8 line 265)
-this box adds no npm dependency.
+this change adds no npm dependency.
 
 this walks `api_payload.ALL_MEMBERS` and each model's own
 `model_json_schema()` — the same schema `api_payload.export_openapi` already

@@ -40,7 +40,7 @@ def _declared(node: Any, path: tuple[str, ...] = ()) -> Iterator[dict[str, Any]]
             row = {
                 "path": "/".join(path),
                 "value": _plain({key: value for key, value in node.items() if key != "provenance"}),
-                "witness": str(provenance["witness"]),
+                "witness": str(provenance.get("witness") or "no name on record"),
                 "source": str(provenance["source"]),
                 "locked_at": str(provenance["locked_at"]),
                 "lines": lines,

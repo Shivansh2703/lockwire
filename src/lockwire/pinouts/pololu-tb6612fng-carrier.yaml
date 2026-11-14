@@ -1,0 +1,111 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: pololu-tb6612fng-carrier
+name: Pololu TB6612FNG Dual Motor Driver Carrier
+maker: Pololu
+numbers:
+  vmot_min:
+    value: 4.5
+    unit: V
+    kind: datasheet
+    source: 'https://www.pololu.com/product/713 (Pololu - TB6612FNG Dual Motor Driver Carrier: "4.5 V to 13.5 V recommended"; page: down to 2.5 V with derated performance), read 2026-11-13'
+  vmot_max:
+    value: 13.5
+    unit: V
+    kind: datasheet
+    source: 'https://www.pololu.com/product/713 (Pololu - TB6612FNG Dual Motor Driver Carrier: "4.5 V to 13.5 V recommended"; page: down to 2.5 V with derated performance), read 2026-11-13'
+  vcc_min:
+    value: 2.7
+    unit: V
+    kind: datasheet
+    source: 'https://www.pololu.com/product/713 (Pololu - TB6612FNG Dual Motor Driver Carrier: "Logic voltage (VCC): 2.7 V to 5.5 V"; as stated), read 2026-11-13'
+  vcc_max:
+    value: 5.5
+    unit: V
+    kind: datasheet
+    source: 'https://www.pololu.com/product/713 (Pololu - TB6612FNG Dual Motor Driver Carrier: "Logic voltage (VCC): 2.7 V to 5.5 V"; as stated), read 2026-11-13'
+  output_peak_per_channel:
+    value: 3
+    unit: A
+    kind: datasheet
+    source: 'https://www.pololu.com/product/713 (Pololu - TB6612FNG Dual Motor Driver Carrier: "Output current maximum: 3 A per channel"; as stated), read 2026-11-13'
+  output_continuous_per_channel:
+    value: 1
+    unit: A
+    kind: datasheet
+    source: 'https://www.pololu.com/product/713 (Pololu - TB6612FNG Dual Motor Driver Carrier: "Output current continuous: 1 A per channel"; page: can rise to 2 A if channels paralleled; depends on conditions),
+      read 2026-11-13'
+  pwm_max:
+    value: 100
+    unit: kHz
+    kind: datasheet
+    source: 'https://www.pololu.com/product/713 (Pololu - TB6612FNG Dual Motor Driver Carrier: "Maximum PWM frequency: 100 kHz"; as stated), read 2026-11-13'
+note: Pin names only, from the product page text; no pin numbers, GND pin or thresholds read. STBY must be driven high (2.7 V to 5.5 V).
+connectors:
+- id: PINS
+  source: 'https://www.pololu.com/product/713 (Pololu - TB6612FNG Dual Motor Driver Carrier: pin names)'
+  pins:
+  - name: VMOT
+    functions:
+    - power_in
+    type: power_in
+    number: VMOT
+  - name: VCC
+    functions:
+    - power_in
+    type: power_in
+    number: VCC
+  - name: STBY
+    functions:
+    - enable
+    type: input
+    number: STBY
+  - name: PWMA
+    functions:
+    - pwm_in
+    type: input
+    number: PWMA
+  - name: AIN1
+    functions:
+    - dir
+    type: input
+    number: AIN1
+  - name: AIN2
+    functions:
+    - dir
+    type: input
+    number: AIN2
+  - name: PWMB
+    functions:
+    - pwm_in
+    type: input
+    number: PWMB
+  - name: BIN1
+    functions:
+    - dir
+    type: input
+    number: BIN1
+  - name: BIN2
+    functions:
+    - dir
+    type: input
+    number: BIN2
+  - name: AO1
+    functions:
+    - motor_out
+    type: output
+    number: AO1
+  - name: AO2
+    functions:
+    - motor_out
+    type: output
+    number: AO2
+  - name: BO1
+    functions:
+    - motor_out
+    type: output
+    number: BO1
+  - name: BO2
+    functions:
+    - motor_out
+    type: output
+    number: BO2

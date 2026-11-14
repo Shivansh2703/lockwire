@@ -1,0 +1,257 @@
+# Resizable rover: a four-wheel base stored in this lockfile, sized by the named numbers under
+# `params:`. Change `half_wheelbase` (half the front-to-rear axle distance) or `half_track` (half
+# the left-to-right wheel distance) and `lockwire check` moves the tip margin; both sides move
+# together, a leading minus ("-half_wheelbase") puts a joint on the other side. Change a
+# `chassis_*` size and the derived mass follows the volume.
+# Every size and position is a design choice, not a maker spec. Chassis and wheels are solid
+# 6061-T6 aluminium (a plate and four discs), so every mass is derived from the shapes and the
+# cited density in `material.source` (lockwire.catalog row "Aluminium 6061-T6"); none is declared.
+schema_version: "0.2"
+robot:
+  name: Resizable rover
+  id: rover-param
+edges: []
+assumptions: []
+families: []
+device_models: []
+devices: []
+budgets: []
+gearboxes: []
+fitted_band_allocations: []
+actuator_cases: []
+params:
+- name: half_wheelbase
+  value: 0.15
+  min: 0.0
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: 2026-11-13
+- name: half_track
+  value: 0.225
+  min: 0.0
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: 2026-11-13
+- name: chassis_length
+  value: 0.4
+  min: 0.01
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: 2026-11-13
+- name: chassis_width
+  value: 0.3
+  min: 0.01
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: 2026-11-13
+- name: chassis_height
+  value: 0.01
+  min: 0.01
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: 2026-11-13
+- name: wheel_radius
+  value: 0.033
+  min: 0.01
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: 2026-11-13
+- name: wheel_width
+  value: 0.02
+  min: 0.01
+  max: 1.0
+  step: 0.005
+  unit: m
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: 2026-11-13
+model:
+  source: lockfile
+  source_sha256: 
+    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  structure_hash: 
+    dae198d950476eb84c5bd314331e2452d09da2b1788e1574ef5a2e07e23a9217
+  links:
+  - name: chassis
+    geometry:
+    - kind: box
+      size:
+      - chassis_length
+      - chassis_width
+      - chassis_height
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx
+        (Aalco datasheet, Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions
+        (HTML page; no revision shown; distributor datasheet): "Density 2.70 g/cm³"),
+        read 2026-11-13'
+  - name: wheel-front-left
+    geometry:
+    - kind: cylinder
+      radius: wheel_radius
+      length: wheel_width
+      origin:
+        xyz:
+        - 0
+        - 0
+        - 0
+        rpy:
+        - 1.5707963
+        - 0
+        - 0
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx
+        (Aalco datasheet, Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions
+        (HTML page; no revision shown; distributor datasheet): "Density 2.70 g/cm³"),
+        read 2026-11-13'
+  - name: wheel-front-right
+    geometry:
+    - kind: cylinder
+      radius: wheel_radius
+      length: wheel_width
+      origin:
+        xyz:
+        - 0
+        - 0
+        - 0
+        rpy:
+        - 1.5707963
+        - 0
+        - 0
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx
+        (Aalco datasheet, Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions
+        (HTML page; no revision shown; distributor datasheet): "Density 2.70 g/cm³"),
+        read 2026-11-13'
+  - name: wheel-rear-left
+    geometry:
+    - kind: cylinder
+      radius: wheel_radius
+      length: wheel_width
+      origin:
+        xyz:
+        - 0
+        - 0
+        - 0
+        rpy:
+        - 1.5707963
+        - 0
+        - 0
+  # 2026-11-13: name declared, witness w1, source design choice
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx
+        (Aalco datasheet, Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions
+        (HTML page; no revision shown; distributor datasheet): "Density 2.70 g/cm³"),
+        read 2026-11-13'
+  - name: wheel-rear-right
+    geometry:
+    - kind: cylinder
+      radius: wheel_radius
+      length: wheel_width
+      origin:
+        xyz:
+        - 0
+        - 0
+        - 0
+        rpy:
+        - 1.5707963
+        - 0
+        - 0
+    material:
+      name: Aluminium 6061-T6
+      density_kg_m3: 2700.0
+      source: 'https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6061-T6-Extrusions_145.ashx
+        (Aalco datasheet, Aluminium Alloy - Commercial Alloy - 6061 - T6 Extrusions
+        (HTML page; no revision shown; distributor datasheet): "Density 2.70 g/cm³"),
+        read 2026-11-13'
+  joints:
+  - name: wheel-front-left-drive
+    type: continuous
+    parent: chassis
+    child: wheel-front-left
+    origin:
+      xyz:
+      - half_wheelbase
+      - half_track
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+  - name: wheel-front-right-drive
+    type: continuous
+    parent: chassis
+    child: wheel-front-right
+    origin:
+      xyz:
+      - half_wheelbase
+      - -half_track
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+  - name: wheel-rear-left-drive
+    type: continuous
+    parent: chassis
+    child: wheel-rear-left
+    origin:
+      xyz:
+      - -half_wheelbase
+      - half_track
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+  # 2026-11-13: name declared, witness w1, source design choice
+  - name: wheel-rear-right-drive
+    type: continuous
+    parent: chassis
+    child: wheel-rear-right
+    origin:
+      xyz:
+      - -half_wheelbase
+      - -half_track
+      - 0
+    axis:
+    - 0
+    - 1
+    - 0
+  provenance:
+    witness: w1
+    source: design choice
+    locked_at: 2026-11-13
+  zero_mass_links: []

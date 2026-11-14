@@ -1,0 +1,48 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: raspberry-pi-4b
+name: Raspberry Pi 4 Model B
+maker: Raspberry Pi Ltd
+numbers:
+  vil_max:
+    value: 0.8
+    unit: V
+    kind: datasheet
+    source: 'https://pip-assets.raspberrypi.com/categories/545-raspberry-pi-4-model-b/documents/RP-008341-DS-1-raspberry-pi-4-datasheet.pdf (Raspberry Pi 4 Model B Datasheet, Release 1.1, March 2024: "VIL
+      Input low voltage 0 - 0.8 V"; VDD IO = 3.3 V, Table 3), read 2026-11-13'
+  vih_min:
+    value: 2.0
+    unit: V
+    kind: datasheet
+    source: 'https://pip-assets.raspberrypi.com/categories/545-raspberry-pi-4-model-b/documents/RP-008341-DS-1-raspberry-pi-4-datasheet.pdf (Raspberry Pi 4 Model B Datasheet, Release 1.1, March 2024: "VIH
+      Input high voltage 2.0 - VDD IO"; as stated), read 2026-11-13'
+  vol_max:
+    value: 0.4
+    unit: V
+    kind: datasheet
+    source: 'https://pip-assets.raspberrypi.com/categories/545-raspberry-pi-4-model-b/documents/RP-008341-DS-1-raspberry-pi-4-datasheet.pdf (Raspberry Pi 4 Model B Datasheet, Release 1.1, March 2024: "VOL
+      Output low voltage 0.4 V (IOL -2 mA)"; as stated), read 2026-11-13'
+  io_max_drive:
+    value: 16
+    unit: mA
+    kind: datasheet
+    source: 'https://pip-assets.raspberrypi.com/categories/545-raspberry-pi-4-model-b/documents/RP-008341-DS-1-raspberry-pi-4-datasheet.pdf (Raspberry Pi 4 Model B Datasheet, Release 1.1, March 2024: "Maximum
+      drive strength (16mA)"; as stated), read 2026-11-13'
+  vin_5v_abs_max:
+    value: 6.0
+    unit: V
+    kind: datasheet
+    source: 'https://pip-assets.raspberrypi.com/categories/545-raspberry-pi-4-model-b/documents/RP-008341-DS-1-raspberry-pi-4-datasheet.pdf (Raspberry Pi 4 Model B Datasheet, Release 1.1, March 2024: "VIN
+      5V Input Voltage -0.5 6.0 V"; as stated), read 2026-11-13'
+  usb_downstream_total:
+    value: 1.1
+    unit: A
+    kind: datasheet
+    source: 'https://pip-assets.raspberrypi.com/categories/545-raspberry-pi-4-model-b/documents/RP-008341-DS-1-raspberry-pi-4-datasheet.pdf (Raspberry Pi 4 Model B Datasheet, Release 1.1, March 2024: "limited
+      to approximately 1.1A in aggregate"; as stated), read 2026-11-13'
+  usb_c_supply_min:
+    value: 3
+    unit: A
+    kind: datasheet
+    source: 'https://pip-assets.raspberrypi.com/categories/545-raspberry-pi-4-model-b/documents/RP-008341-DS-1-raspberry-pi-4-datasheet.pdf (Raspberry Pi 4 Model B Datasheet, Release 1.1, March 2024: "capable
+      of delivering 5V at 3A"; datasheet: 5 V 2.5 A allowed if downstream USB < 500 mA), read 2026-11-13'
+note: 'Pin list awaits a readable source: the docs page is refused (403) and the datasheet pinout is an image. VOH min is VDD_IO - 0.4 V (IOH 2 mA, VDD_IO = 3.3 V).'

@@ -1,0 +1,734 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: holybro-pixhawk-6c
+name: Holybro Pixhawk 6C
+maker: Holybro
+numbers:
+  power_normal_min:
+    value: 4.9
+    unit: V
+    kind: datasheet
+    source: 'https://docs.px4.io/main/en/flight_controller/pixhawk6c.html (Holybro Pixhawk 6C | PX4 Guide (main): "POWER1 and POWER2 inputs (4.9V to 5.5V)"; read at the PX4 Pixhawk 6C page), read 2026-11-13'
+  power_normal_max:
+    value: 5.5
+    unit: V
+    kind: datasheet
+    source: 'https://docs.px4.io/main/en/flight_controller/pixhawk6c.html (Holybro Pixhawk 6C | PX4 Guide (main): "POWER1 and POWER2 inputs (4.9V to 5.5V)"; read at the PX4 Pixhawk 6C page), read 2026-11-13'
+  power_abs_max_undamaged:
+    value: 10
+    unit: V
+    kind: datasheet
+    source: 'https://docs.px4.io/main/en/flight_controller/pixhawk6c.html (Holybro Pixhawk 6C | PX4 Guide (main): "POWER1 and POWER2 inputs (operational range 4.1V to 5.7V, 0V to 10V undamaged)"; read at
+      the PX4 Pixhawk 6C page), read 2026-11-13'
+  usb_normal_min:
+    value: 4.75
+    unit: V
+    kind: datasheet
+    source: 'https://docs.px4.io/main/en/flight_controller/pixhawk6c.html (Holybro Pixhawk 6C | PX4 Guide (main): "USB input (4.75V to 5.25V)"; read at the PX4 Pixhawk 6C page), read 2026-11-13'
+  usb_normal_max:
+    value: 5.25
+    unit: V
+    kind: datasheet
+    source: 'https://docs.px4.io/main/en/flight_controller/pixhawk6c.html (Holybro Pixhawk 6C | PX4 Guide (main): "USB input (4.75V to 5.25V)"; read at the PX4 Pixhawk 6C page), read 2026-11-13'
+  servo_rail_abs_max_undamaged:
+    value: 42
+    unit: V
+    kind: datasheet
+    source: 'https://docs.px4.io/main/en/flight_controller/pixhawk6c.html (Holybro Pixhawk 6C | PX4 Guide (main): "Servo input: VDD_SERVO pin of FMU PWM OUT and I/O PWM OUT (0V to 42V undamaged)"; read
+      at the PX4 Pixhawk 6C page), read 2026-11-13'
+note: TELEM2 = UART5 (/dev/ttyS3) per PX4 serial map and Holybro ports page. PX4 docs say TELEM1 alone, Holybro says TELEM1+GPS2 share the 1.5 A limiter; left empty. POWER2 and CAN2 pin names not read.
+  FMU PWM-OUT must be powered separately (PX4 quick start). PWM signal is hardware switchable 3.3 V or 5 V.
+connectors:
+- id: POWER1
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): POWER1 port table)'
+  pins:
+  - number: 1
+    name: VDD5V_BRICK1
+    functions:
+    - power_in
+    type: power_in
+    voltage_v: 5
+  - number: 2
+    name: VDD5V_BRICK1
+    functions:
+    - power_in
+    type: power_in
+    voltage_v: 5
+  - number: 3
+    name: CURRENT1
+    functions:
+    - adc
+    - current_sense
+    type: input
+    voltage_v: 3.3
+  - number: 4
+    name: VOLTAGE1
+    functions:
+    - adc
+    - voltage_sense
+    type: input
+    voltage_v: 3.3
+  - number: 5
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 6
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: TELEM1
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): TELEM1 port table)'
+  pins:
+  - number: 1
+    name: VCC
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 2
+    name: UART7_TX
+    functions:
+    - uart_tx
+    type: output
+    direction: out
+    voltage_v: 3.3
+  - number: 3
+    name: UART7_RX
+    functions:
+    - uart_rx
+    type: input
+    direction: in
+    voltage_v: 3.3
+  - number: 4
+    name: UART7_CTS
+    functions:
+    - uart_cts
+    type: input
+    direction: in
+    voltage_v: 3.3
+  - number: 5
+    name: UART7_RTS
+    functions:
+    - uart_rts
+    type: output
+    direction: out
+    voltage_v: 3.3
+  - number: 6
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: TELEM2
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): TELEM2 port table)'
+  pins:
+  - number: 1
+    name: VCC
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 2
+    name: UART5_TX
+    functions:
+    - uart_tx
+    type: output
+    direction: out
+    voltage_v: 3.3
+  - number: 3
+    name: UART5_RX
+    functions:
+    - uart_rx
+    type: input
+    direction: in
+    voltage_v: 3.3
+  - number: 4
+    name: UART5_CTS
+    functions:
+    - uart_cts
+    type: input
+    direction: in
+    voltage_v: 3.3
+  - number: 5
+    name: UART5_RTS
+    functions:
+    - uart_rts
+    type: output
+    direction: out
+    voltage_v: 3.3
+  - number: 6
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: TELEM3
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): TELEM3 port table)'
+  pins:
+  - number: 1
+    name: VCC
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 2
+    name: USART2_TX
+    functions:
+    - uart_tx
+    type: output
+    direction: out
+    voltage_v: 3.3
+  - number: 3
+    name: USART2_RX
+    functions:
+    - uart_rx
+    type: input
+    direction: in
+    voltage_v: 3.3
+  - number: 4
+    name: NC
+    type: no_connect
+  - number: 5
+    name: NC
+    type: no_connect
+  - number: 6
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: GPS1
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): GPS1 port table)'
+  pins:
+  - number: 1
+    name: VCC
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 2
+    name: TX1
+    functions:
+    - uart_tx
+    type: output
+    direction: out
+    voltage_v: 3.3
+  - number: 3
+    name: RX1
+    functions:
+    - uart_rx
+    type: input
+    direction: in
+    voltage_v: 3.3
+  - number: 4
+    name: SCL1
+    functions:
+    - i2c_scl
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 5
+    name: SDA1
+    functions:
+    - i2c_sda
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 6
+    name: SAFETY_SWITCH
+    functions:
+    - gpio
+    type: input
+    voltage_v: 3.3
+  - number: 7
+    name: SAFETY_SWITCH_LED
+    functions:
+    - gpio
+    type: output
+    voltage_v: 3.3
+  - number: 8
+    name: IO_VDD_3V3
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 3.3
+  - number: 9
+    name: BUZZER-
+    functions:
+    - buzzer
+    type: output
+  - number: 10
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: GPS2
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): GPS2 port table)'
+  pins:
+  - number: 1
+    name: VCC
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 2
+    name: UART8_TX
+    functions:
+    - uart_tx
+    type: output
+    direction: out
+    voltage_v: 3.3
+  - number: 3
+    name: UART8_RX
+    functions:
+    - uart_rx
+    type: input
+    direction: in
+    voltage_v: 3.3
+  - number: 4
+    name: I2C2_SCL
+    functions:
+    - i2c_scl
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 5
+    name: I2C2_SDA
+    functions:
+    - i2c_sda
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 6
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: CAN1
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): CAN1 port table)'
+  pins:
+  - number: 1
+    name: VCC
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 2
+    name: CAN1_H
+    functions:
+    - can_h
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 3
+    name: CAN1_L
+    functions:
+    - can_l
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 4
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: I2C
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): I2C port table)'
+  pins:
+  - number: 1
+    name: VCC
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 2
+    name: I2C2_SCL
+    functions:
+    - i2c_scl
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 3
+    name: I2C2_SDA
+    functions:
+    - i2c_sda
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 4
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: USB
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): USB port table)'
+  pins:
+  - number: 1
+    name: VBUS
+    functions:
+    - power_in
+    type: power_in
+    voltage_v: 5
+  - number: 2
+    name: DM
+    functions:
+    - usb_dm
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 3
+    name: DP
+    functions:
+    - usb_dp
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 4
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: DSM
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): DSM port table)'
+  type: jst-zh-3
+  pins:
+  - number: 1
+    name: VDD_3V3_SPEKTRUM
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 3.3
+  - number: 2
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 3
+    name: DSM/SPEKTRUM_IN
+    functions:
+    - rc_in
+    type: input
+    voltage_v: 3.3
+- id: PPM-SBUS-RC
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): PPM-SBUS-RC port table)'
+  pins:
+  - number: 1
+    name: VDD_5V_PPM_SBUS
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+  - number: 2
+    name: PPM&SBUS_IN
+    functions:
+    - rc_in
+    type: input
+    voltage_v: 3.3
+  - number: 3
+    name: RSSI_IN
+    functions:
+    - adc
+    - rssi
+    type: input
+    voltage_v: 3.3
+  - number: 4
+    name: NC
+    type: no_connect
+  - number: 5
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: SBUS-OUT
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): SBUS-OUT port table)'
+  pins:
+  - number: 1
+    name: NC
+    type: no_connect
+  - number: 2
+    name: SBUS_OUT
+    functions:
+    - rc_out
+    type: output
+    voltage_v: 3.3
+  - number: 3
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: FMU-PWM-OUT
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): FMU-PWM-OUT port table)'
+  pins:
+  - number: 1
+    name: VDD_Servo
+    functions:
+    - power_in
+    type: power_in
+  - number: 2
+    name: FMU_CH1
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 3
+    name: FMU_CH2
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 4
+    name: FMU_CH3
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 5
+    name: FMU_CH4
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 6
+    name: FMU_CH5
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 7
+    name: FMU_CH6
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 8
+    name: FMU_CH7
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 9
+    name: FMU_CH8
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 10
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: IO-PWM-OUT
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): IO-PWM-OUT port table)'
+  pins:
+  - number: 1
+    name: VDD_Servo
+    functions:
+    - power_in
+    type: power_in
+  - number: 2
+    name: IO_CH1
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 3
+    name: IO_CH2
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 4
+    name: IO_CH3
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 5
+    name: IO_CH4
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 6
+    name: IO_CH5
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 7
+    name: IO_CH6
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 8
+    name: IO_CH7
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 9
+    name: IO_CH8
+    functions:
+    - pwm
+    type: output
+    voltage_v: 3.3
+    capabilities:
+    - pwm
+  - number: 10
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: FMU-DEBUG
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): FMU-DEBUG port table)'
+  type: jst-sh-10
+  pins:
+  - number: 1
+    name: FMU_VDD_3V3
+    aliases:
+    - Vtref
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 3.3
+  - number: 2
+    name: FMU_USART3_TX
+    aliases:
+    - Console TX
+    functions:
+    - uart_tx
+    type: output
+    voltage_v: 3.3
+  - number: 3
+    name: FMU_USART3_RX
+    aliases:
+    - Console RX
+    functions:
+    - uart_rx
+    type: input
+    voltage_v: 3.3
+  - number: 4
+    name: FMU_SWD_IO
+    aliases:
+    - SWDIO
+    functions:
+    - swd
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 5
+    name: FMU_SWD_CK
+    aliases:
+    - SWCLK
+    functions:
+    - swd
+    type: input
+    voltage_v: 3.3
+  - number: 6
+    name: SPI6_SCK_EXTERNAL1
+    aliases:
+    - SWO
+    functions:
+    - gpio
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 7
+    name: NFC_GPIO
+    functions:
+    - gpio
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 8
+    name: PH11
+    functions:
+    - gpio
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 9
+    name: FMU_nRST
+    functions:
+    - reset
+    type: input
+    voltage_v: 3.3
+  - number: 10
+    name: GND
+    functions:
+    - ground
+    type: power_in
+- id: IO-DEBUG
+  source: 'https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports (Pixhawk 6C Ports (Holybro docs): IO-DEBUG port table)'
+  pins:
+  - number: 1
+    name: IO_VDD_3V3
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 3.3
+  - number: 2
+    name: IO_USART1_TX
+    functions:
+    - uart_tx
+    type: output
+    voltage_v: 3.3
+  - number: 3
+    name: NC
+    type: no_connect
+  - number: 4
+    name: IO_SWD_IO
+    functions:
+    - swd
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 5
+    name: IO_SWD_CK
+    functions:
+    - swd
+    type: input
+    voltage_v: 3.3
+  - number: 6
+    name: IO_SWO
+    functions:
+    - swd
+    type: output
+    voltage_v: 3.3
+  - number: 7
+    name: IO_SPARE_GPIO1
+    functions:
+    - gpio
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 8
+    name: IO_SPARE_GPIO2
+    functions:
+    - gpio
+    type: bidirectional
+    voltage_v: 3.3
+  - number: 9
+    name: IO_nRST
+    functions:
+    - reset
+    type: input
+    voltage_v: 3.3
+  - number: 10
+    name: GND
+    functions:
+    - ground
+    type: power_in

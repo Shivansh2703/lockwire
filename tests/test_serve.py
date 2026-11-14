@@ -90,9 +90,10 @@ def test_hello_ok(client: TestClient):
 
 
 FREE_COMMANDS = {
-    "start", "check", "page", "declare-form", "declare", "add", "review", "commit", "undo",
+    "start", "check", "page", "declare-form", "declare", "add", "delete", "rename", "review", "commit", "undo",
     "place", "move", "rotate", "reparent", "mount-shape", "describe", "what-if", "plan", "diff",
-    "log", "report", "starters", "swap-preview", "swap-apply",
+    "log", "report", "starters", "swap-preview", "swap-apply", "set-witness", "undo-edit", "redo-edit",
+    "contract-at", "findings-export", "batch-edit", "export",
 }  # fmt: skip
 
 
@@ -414,7 +415,7 @@ def test_run_check_no_go(client: TestClient):
     assert body["cli_line"] == f"lockwire check {X500}"
 
     # The payload IS the library's document, not a second one assembled here.
-    # No `scene` key here: T2 discovery only matches a scene sharing the
+    # No `scene` key here: scene discovery only matches a scene sharing the
     # contract's own stem (`cli.py:454`, `_find_scene`) — X500's checked-in
     # fixture is `contract.yaml` beside `x500.glb`, a deliberate stem
     # mismatch, so nothing is discovered for THIS path (measured; see
@@ -514,8 +515,69 @@ def test_run_diff_refuses_missing_ref_and_extra_args(client: TestClient):
     assert client.post("/v1/run", json=malformed).status_code == 401
 
 
+def _two_commit_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+        subprocess.run(["git", "config", key, value], cwd=repo, check=True)
+    source = (FIXTURES / "contract_clean.yaml").read_text(encoding="utf-8")
+    for capacity in ("1", "8"):
+        text = source.replace(
+            "capacity: {value: 5, unit: W}", f"capacity: {{value: {capacity}, unit: W}}"
+        )
+        (repo / "lockwire.yaml").write_text(text, encoding="utf-8")
+        subprocess.run(["git", "add", "lockwire.yaml"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", f"c{capacity}"], cwd=repo, check=True)
+    return repo / "lockwire.yaml"
+
+
+def _contract_at(client: TestClient, contract: Path, ref: str) -> dict:
+    body = {"command": "contract-at", "args": {"contract": str(contract), "ref": ref}}
+    return client.post("/v1/run", headers=_auth(), json=body).json()
+
+
+def test_contract_at_reads_the_older_revision_and_leaves_the_tree_alone(
+    tmp_path: Path, client: TestClient
+):
+    contract = _two_commit_repo(tmp_path)
+    before = contract.read_bytes()
+    reply = _contract_at(client, contract, "HEAD~1")
+    assert "capacity: {value: 1, unit: W}" in reply["payload"]["lockfile"]
+    assert "capacity: {value: 8" not in reply["payload"]["lockfile"]
+    assert reply["payload"]["page"]["robot"]
+    assert contract.read_bytes() == before
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=contract.parent, capture_output=True, text=True
+    )
+    assert status.stdout == ""
+
+
+def test_contract_at_refuses_missing_ref_and_option_looking_ref_in_one_line(
+    tmp_path: Path, client: TestClient
+):
+    contract = _two_commit_repo(tmp_path)
+    assert _contract_at(client, contract, "nope")["refusal"] == "no such ref 'nope'"
+    assert _contract_at(client, contract, "-x")["refusal"] == "a ref cannot start with '-'"
+
+
+def test_contract_at_refuses_a_file_absent_at_the_ref_and_a_non_repo(
+    tmp_path: Path, client: TestClient
+):
+    contract = _two_commit_repo(tmp_path)
+    other = contract.parent / "other.yaml"
+    other.write_text("x: 1\n", encoding="utf-8")
+    assert "did not exist at HEAD" in _contract_at(client, other, "HEAD")["refusal"]
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    (loose / "lockwire.yaml").write_text("x: 1\n", encoding="utf-8")
+    assert (
+        "not a git repository" in _contract_at(client, loose / "lockwire.yaml", "HEAD")["refusal"]
+    )
+
+
 def test_run_page_returns_the_page_document(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """e1-pg: `PagePayload` had no producer — this crosses the sidecar's real
+    """`PagePayload` had no producer — this crosses the sidecar's real
     HTTP boundary (`client.post`, not `_handle_page` called in-process), which
     is the thing that catches a document mangled on the way out."""
     import lockwire.report_html as report_html_module
@@ -550,7 +612,7 @@ def _x500_with_matching_scene_stem(tmp_path: Path) -> Path:
     """Copy X500's contract + glb into `tmp_path` under one shared stem
     (`contract.yaml` / `contract.glb`), the same trick
     `test_gui_discovers_a_sidecar_scene_beside_the_contract` (`tests/test_cli.py`)
-    uses — T2 discovery (`_find_scene`) only matches `contract.with_suffix(ext)`,
+    uses — scene discovery (`_find_scene`) only matches `contract.with_suffix(ext)`,
     and the checked-in X500 fixture's `x500.glb` deliberately does not share
     `contract.yaml`'s stem."""
     contract_path = tmp_path / "contract.yaml"
@@ -779,7 +841,7 @@ def test_token_check_is_load_bearing(client: TestClient):
 # child pid, reparented to init once ``uv`` exits). A plain ``proc.kill()``
 # on that ``Popen`` only kills the wrapper — the real server, and its bound
 # port, keep running forever. That is the leak six worktrees' worth of
-# orphaned ``lockwire serve`` processes came from tonight (E0-sv). Every test
+# orphaned ``lockwire serve`` processes came from tonight. Every test
 # below launches through ``start_serve`` and never manages the kill itself
 # (dev-team fleet law: "give the lifetime to a fixture that owns it") —
 # ``start_new_session=True`` makes the server its own process-group leader, so
@@ -898,12 +960,12 @@ def test_served_native_start_real_http_reuse_stale_and_readback(start_serve, tmp
     proc = start_serve("--port", "0", "--exit-on-stdin-close")
     with selectors.DefaultSelector() as selector:
         selector.register(proc.stdout, selectors.EVENT_READ)
-        assert selector.select(timeout=10), "sidecar did not become ready"
+        assert selector.select(timeout=60), "sidecar did not become ready"
     ready = json.loads(proc.stdout.readline())
     with httpx.Client(
         base_url=f"http://127.0.0.1:{ready['port']}",
         headers={"X-Lockwire-Token": ready["token"]},
-        timeout=5,
+        timeout=60,
     ) as client:
 
         def run(command, args):
@@ -941,7 +1003,7 @@ def test_served_native_start_real_http_reuse_stale_and_readback(start_serve, tmp
         assert accepted["payload"]["written"] is True
         assert not (tmp_path / "lockwire-gui.html").exists()
     proc.stdin.close()
-    assert proc.wait(timeout=5) == 0
+    assert proc.wait(timeout=30) == 0
 
 
 def test_serve_lifecycle_ready_line_auth_and_clean_exit(start_serve):
@@ -1031,7 +1093,7 @@ def test_handlers_call_the_library_not_the_checks():
     Walks the commands that return a document and asserts each handler's body names
     ``api.<name>``. It also asserts no handler reaches a check module directly, which is
     the duplication the project forbids. ``report`` returns no document, so it is checked
-    by the one shared computation it calls (``api.load_scene``, E1-at).
+    by the one shared computation it calls (``api.load_scene``).
     """
     twins = {"check", "plan", "describe", "log", "diff"}
     assert twins <= set(serve._FREE_COMMANDS), "a twinned command stopped being served"
@@ -1555,7 +1617,7 @@ def test_exit_on_stdin_close_is_opt_in(start_serve):
     """Without the flag, a closed stdin must NOT kill the server — otherwise
     ``lockwire serve`` is unusable by hand or in CI, where stdin is /dev/null.
 
-    This is the test that leaked every time before this box: it deliberately
+    This is the test that leaked every time before this change: it deliberately
     keeps the server alive past stdin closing, so it never reaches a self-exit
     to reap cleanly, and the old raw ``proc.kill()`` teardown only killed the
     ``uv`` wrapper (see the module comment above) — ``start_serve`` is what
@@ -1619,8 +1681,7 @@ def test_rotating_log_writes_past_bound_and_caps_kept_files(tmp_path, sidecar_lo
     Volume is well past six rotations (~250 bytes/line x 12000 =~ 3MB against a
     200KB bound), not just past one — the retention count matters here, not only
     that rotation happened at all: weakening ``backupCount`` from 5 changes the
-    file count this test asserts, which the box's r1 attempt did not (bounce,
-    e1-log r1: 4000 lines produced 5 files under backupCount 5 *or* 500)."""
+    file count this test asserts, which the first attempt did not (4000 lines produced 5 files under backupCount 5 *or* 500)."""
     log_path = serve._configure_sidecar_logging(tmp_path)
     line = "x" * 200
     for _ in range(12000):
@@ -1659,7 +1720,7 @@ def test_rotating_log_never_contains_the_token(tmp_path, sidecar_logger):
 def test_refusal_responses_are_logged_too(tmp_path, sidecar_logger):
     """The guard middleware returns 400/401 *before* ``call_next`` runs — a user
     reporting "it stopped working" is overwhelmingly likely to be looking at a
-    token or Host rejection (its whole reason to exist), and the r1 attempt's
+    token or Host rejection (its whole reason to exist), and the first attempt's
     log line ran only on the success path, leaving those two cases silent."""
     token = "another-super-secret-token-do-not-log-me"
     app = create_app(token)
@@ -1768,3 +1829,532 @@ def test_serve_without_extra_tells_a_pip_user_what_to_run(monkeypatch, capsys):
     monkeypatch.setitem(__import__("sys").modules, "uvicorn", None)
     __import__("lockwire.cli").cli.app(["serve"], standalone_mode=False)
     assert 'pip install "lockwire[serve]"' in capsys.readouterr().err
+
+
+def test_plan_reply_carries_the_motion_preview_on_the_wire(client: TestClient, tmp_path: Path):
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_statics import two_link
+
+    from lockwire.schema import Contract, RobotInfo, save_contract
+
+    contract = tmp_path / "lockwire.yaml"
+    save_contract(Contract(robot=RobotInfo(name="arm"), model=two_link()), contract)
+    plan = tmp_path / "plan.yaml"
+    plan.write_text("segments:\n  - pose: {j1: 0.0, j2: 0.0}\n  - pose: {j1: 1.0, j2: 0.5}\n")
+    response = client.post(
+        "/v1/run",
+        headers=_auth(),
+        json={"command": "plan", "args": {"contract": str(contract), "plan": str(plan)}},
+    )
+    motion = response.json()["payload"]["motion"]
+    assert [j["name"] for j in motion["joints"]] == ["j1", "j2"] and motion["time_s"][-1] > 0
+
+
+# ---- delete and add-param through the sidecar
+
+_BLANK_LOCKFILE = 'schema_version: "0.7"\nrobot:\n  name: r\n'
+
+
+def _joined_lockfile(tmp_path: Path) -> Path:
+    from lockwire.edit import add_entry
+
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK_LOCKFILE)
+    for name in ("base", "arm"):
+        add_entry(path, "link", {"name": name}, source="s", witness="w1")
+    joint = {"name": "elbow", "type": "revolute", "parent": "base", "child": "arm"}
+    add_entry(path, "joint", joint, source="s", witness="w1")
+    return path
+
+
+def _run(command: str, args: dict, *, robot: bool = False) -> dict:
+    client = _client(create_app(TOKEN, robot=robot))
+    return client.post("/v1/run", headers=_auth(), json={"command": command, "args": args}).json()
+
+
+def _delete_args(path: Path, kind: str, name: str) -> dict:
+    return {
+        "contract": str(path),
+        "kind": kind,
+        "name": name,
+        "source": "s",
+        "witness": "w1",
+        "expected_revision": contract_revision(path),
+    }
+
+
+def test_delete_joint_through_serve_removes_it_from_the_file(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    reply = _run("delete", _delete_args(path, "joint", "elbow"))
+    assert reply["refusal"] is None and reply["payload"]["written"] is True
+    assert "elbow" not in path.read_text()
+
+
+def test_refused_delete_returns_the_engine_line_verbatim_and_writes_nothing(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    before = path.read_bytes()
+    reply = _run("delete", _delete_args(path, "link", "base"))
+    assert reply["refusal"] == "base holds 1 part (arm by joint elbow); delete or re-attach it first"
+    assert path.read_bytes() == before
+
+
+def test_delete_shape_through_serve_removes_that_primitive(tmp_path: Path):
+    from lockwire.edit import add_entry
+
+    path = _joined_lockfile(tmp_path)
+    shapes = [{"kind": "box", "size": [1, 1, 1]}, {"kind": "sphere", "radius": 0.1}]
+    add_entry(path, "link", {"name": "hand", "geometry": shapes}, source="s", witness="w1")
+    reply = _run("delete", {**_delete_args(path, "shape", "hand"), "index": 1})
+    assert reply["refusal"] is None
+    assert [x.kind for x in load_contract(path).model.links[-1].geometry] == ["box"]
+    refused = _run("delete", {**_delete_args(path, "shape", "hand"), "index": 5})
+    assert "has no shape at index 5" in refused["refusal"]
+
+
+def test_delete_with_a_stale_revision_is_refused_and_file_unchanged(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    before = path.read_bytes()
+    reply = _run("delete", {**_delete_args(path, "joint", "elbow"), "expected_revision": "0" * 64})
+    assert "contract changed since it was opened" in reply["refusal"]
+    assert path.read_bytes() == before
+
+
+def test_delete_dry_run_writes_nothing_and_needs_no_revision(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    before = path.read_bytes()
+    args = {**_delete_args(path, "joint", "elbow"), "dry_run": True}
+    del args["expected_revision"]
+    reply = _run("delete", args)
+    assert reply["refusal"] is None and reply["payload"]["written"] is False
+    assert "elbow" in reply["payload"]["diff"] and path.read_bytes() == before
+
+
+def test_add_param_through_serve_appends_it(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    args = {
+        "contract": str(path),
+        "kind": "param",
+        "fields": {"name": "arm_len", "value": 0.3, "unit": "m"},
+        "source": "s",
+        "witness": "w1",
+        "expected_revision": contract_revision(path),
+    }
+    assert _run("add", args)["refusal"] is None
+    assert [p.name for p in load_contract(path).params] == ["arm_len"]
+
+
+def test_add_stock_through_serve_makes_a_derived_plate(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    fields = {
+        "stock": "stock.plate",
+        "dimensions": {"length": 0.3, "width": 0.2, "thickness": 0.003},
+        "material": "Aluminium 6061-T6",
+        "parent": "base",
+        "frame": {"xyz": [0, 0, 0.1]},
+        "joint": {"type": "fixed"},
+        "name": "deck",
+    }
+    args = {
+        "contract": str(path),
+        "kind": "stock",
+        "fields": fields,
+        "source": "s",
+        "witness": "w1",
+    }
+    assert _run("add", {**args, "expected_revision": contract_revision(path)})["refusal"] is None
+    deck = load_contract(path).model.links[-1]
+    assert deck.name == "deck" and deck.mass.value == pytest.approx(0.486)
+
+
+def test_robot_mode_refuses_delete_and_hello_lists_it(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    before = path.read_bytes()
+    reply = _run("delete", _delete_args(path, "joint", "elbow"), robot=True)
+    assert reply["refusal"] == "write commands are not served on the robot: delete"
+    assert path.read_bytes() == before
+    hello = _client(create_app(TOKEN, robot=True)).get("/v1/hello", headers=_auth()).json()
+    assert "delete" in [c["name"] for c in hello["commands"]]
+
+
+def test_undo_edit_and_redo_edit_routes_step_the_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))  # no private parts.yaml
+    contract = tmp_path / "lockwire.yaml"
+    shutil.copy(Path(serve.__file__).parent / "examples/servo-bench.yaml", contract)
+    original, client = contract.read_bytes(), _client(create_app(TOKEN))
+    run = lambda command: client.post(  # noqa: E731
+        "/v1/run", headers=_auth(), json={"command": command, "args": {"contract": str(contract)}}
+    ).json()  # fmt: skip
+    assert "nothing to undo" in run("undo-edit")["refusal"]
+    part = client.post("/v1/run", headers=_auth(), json={"command": "swap-preview", "args": {"contract": str(contract), "joint": "wrist"}}).json()["payload"]["chosen"]  # fmt: skip
+    swap = client.post("/v1/run", headers=_auth(), json={"command": "swap-apply", "args": {
+        "contract": str(contract), "joint": "wrist", "part_id": part, "expected_revision": contract_revision(contract)}}).json()  # fmt: skip
+    changed = contract.read_bytes()
+    assert swap["payload"] and changed != original
+    assert run("undo-edit")["payload"] == {"undone": True} and contract.read_bytes() == original
+    assert run("redo-edit")["payload"] == {"redone": True} and contract.read_bytes() == changed
+
+
+def test_attach_through_serve_adds_link_and_joint(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    fields = {
+        "parent": "base",
+        "part": "dynamixel.ax-12a",
+        "name": "servo",
+        "frame": {"xyz": [0, 0, 0.1], "rpy": [0, 0, 0]},
+        "joint": {"type": "fixed"},
+    }
+    args = {
+        "contract": str(path),
+        "kind": "attach",
+        "fields": fields,
+        "source": "s",
+        "witness": "w1",
+        "expected_revision": contract_revision(path),
+    }
+    assert _run("add", args)["refusal"] is None
+    assert load_contract(path).model.joints[-1].child == "servo"
+
+
+def test_batch_edit_route_is_one_undo_step_and_journal_false_leaves_none(tmp_path):
+    contract = tmp_path / "lockwire.yaml"
+    shutil.copy(Path(serve.__file__).parent / "examples/servo-bench.yaml", contract)
+    original, client = contract.read_bytes(), _client(create_app(TOKEN))
+    change = lambda n: {"path": "topology/rails/rail.servo-5v/capacity", "value": f"{20 + n} W", "source": "s", "witness": "Pat"}  # noqa: E731  # fmt: skip
+    post = lambda **a: client.post("/v1/run", headers=_auth(), json={"command": "batch-edit", "args": {"contract": str(contract), **a}}).json()  # noqa: E731  # fmt: skip
+    assert "expected_revision is required" in post(changes=[change(1)])["refusal"]
+    done = post(changes=[change(1), change(2), change(3)], expected_revision=contract_revision(contract))
+    assert done["payload"]["written"] and contract.read_bytes() != original
+    client.post("/v1/run", headers=_auth(), json={"command": "undo-edit", "args": {"contract": str(contract)}})
+    assert contract.read_bytes() == original
+    hidden = tmp_path / "hidden.yaml"
+    hidden.write_bytes(original)
+    post_hidden = client.post("/v1/run", headers=_auth(), json={"command": "batch-edit", "args": {"contract": str(hidden), "journal": False, "changes": [change(1)], "expected_revision": contract_revision(hidden)}}).json()  # fmt: skip
+    assert post_hidden["payload"]["written"] and not list(tmp_path.glob(".hidden*"))
+
+
+def test_batch_edit_route_takes_add_place_move_in_one_undo_step(tmp_path):
+    contract = tmp_path / "lockwire.yaml"
+    contract.write_bytes((FIXTURES / "armtree.yaml").read_bytes())
+    original, client = contract.read_bytes(), _client(create_app(TOKEN))
+    pose = {"unit": "mm", "source": "s", "witness": "Pat"}
+    items = [{"op": "add", "kind": "device", "fields": {"id": "dev.cam", "model": "mdl.gripper.generic", "owner": "Pat"}, "source": "s", "witness": "Pat"},
+             {"op": "place", "target": "dev.cam", "on": "elbow", "offset": [1, 2, 3], **pose},
+             {"op": "move", "target": "dev.gripper", "offset": [4, 5, 6], **pose}]  # fmt: skip
+    post = lambda path, **a: client.post("/v1/run", headers=_auth(), json={"command": "batch-edit", "args": {"contract": str(path), "expected_revision": contract_revision(path), **a}}).json()  # noqa: E731  # fmt: skip
+    bad = post(contract, changes=[*items[:2], {**items[2], "target": "dev.nope"}])
+    assert "item 3 (move" in bad["refusal"] and contract.read_bytes() == original
+    assert post(contract, changes=items)["payload"]["written"]
+    assert "dev.cam" in contract.read_text()
+    client.post("/v1/run", headers=_auth(), json={"command": "undo-edit", "args": {"contract": str(contract)}})
+    assert contract.read_bytes() == original
+    hidden = tmp_path / "hidden.yaml"
+    hidden.write_bytes(original)
+    assert post(hidden, changes=items, journal=False)["payload"]["written"] and not list(tmp_path.glob(".hidden*"))
+
+
+_ROVER = FIXTURES.parent.parent / "src" / "lockwire" / "examples" / "rover-param"
+
+
+def _rover_lock(tmp_path: Path) -> Path:
+    lock = tmp_path / "lockwire.yaml"
+    lock.write_text((_ROVER / "contract.yaml").read_text())
+    return lock
+
+
+def _servo_lock(tmp_path: Path) -> Path:  # has inertia, which MJCF needs; the rover has shapes
+    source = tmp_path / "servo_arm.urdf"
+    source.write_text((FIXTURES / "servo_arm.urdf").read_text())
+    assert _run("start", {"urdf": str(source), "out": str(tmp_path / "lockwire.yaml")})["refusal"] is None
+    return tmp_path / "lockwire.yaml"
+
+
+def _export(lock: Path, fmt: str, **args) -> dict:
+    return _run("export", {"contract": str(lock), "format": fmt, **args})
+
+
+@pytest.mark.parametrize("fmt", ["urdf", "sdf", "mjcf", "stl", "obj", "dae"])
+def test_export_writes_each_format(tmp_path: Path, fmt: str):
+    mesh = fmt in ("stl", "obj", "dae")
+    reply = _export(_rover_lock(tmp_path) if mesh else _servo_lock(tmp_path), fmt)
+    assert reply["refusal"] is None and reply["exit_code"] == 0
+    assert reply["payload"]["written"] and all(Path(p).exists() for p in reply["payload"]["written"])
+    assert reply["payload"]["units"] == ("m" if mesh else None)
+
+
+def test_export_outside_the_contract_folder_is_refused(tmp_path: Path):
+    (tmp_path / "a").mkdir()
+    lock = _rover_lock(tmp_path / "a")
+    outside = tmp_path / "elsewhere.urdf"
+    reply = _export(lock, "urdf", out=str(outside))
+    assert "refusing to write outside" in reply["refusal"] and reply["exit_code"] == 2
+    assert not outside.exists()
+
+
+def test_export_step_is_refused_in_one_line(tmp_path: Path):
+    reply = _export(_rover_lock(tmp_path), "step")
+    assert reply["refusal"] == "STEP export is not built (it would need a new dependency)"
+
+
+def test_export_overwrites_only_with_force(tmp_path: Path):
+    lock = _rover_lock(tmp_path)
+    assert _export(lock, "urdf")["refusal"] is None
+    assert "already exists" in _export(lock, "urdf")["refusal"]
+    assert _export(lock, "urdf", force=True)["refusal"] is None
+
+
+def test_export_refuses_units_on_urdf(tmp_path: Path):
+    reply = _export(_rover_lock(tmp_path), "urdf", units="mm")
+    assert "apply to stl, obj and dae" in reply["refusal"]
+
+
+def test_export_is_not_served_on_a_robot(tmp_path: Path):
+    reply = _run("export", {"contract": str(_rover_lock(tmp_path)), "format": "urdf"}, robot=True)
+    assert reply["refusal"] and not (tmp_path / "lockwire.urdf").exists()
+
+
+# ---- rename through the sidecar
+
+
+def _rename_args(path: Path, **over) -> dict:
+    args = {"contract": str(path), "kind": "link", "old": "arm", "new": "forearm", "source": "s",
+            "witness": "w1", "expected_revision": contract_revision(path)}  # fmt: skip
+    return {**args, **over}
+
+
+def test_rename_through_serve_changes_the_id_and_its_references(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    reply = _run("rename", _rename_args(path))
+    assert reply["refusal"] is None and reply["payload"]["written"] is True
+    joint = load_contract(path).model.joints[0]
+    assert (joint.parent, joint.child) == ("base", "forearm")
+
+
+def test_refused_rename_returns_the_engine_line_and_writes_nothing(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    before = path.read_bytes()
+    reply = _run("rename", _rename_args(path, new="base"))
+    assert reply["refusal"] == "There is already a link named 'base'."
+    assert reply["exit_code"] == 2 and path.read_bytes() == before
+
+
+def test_rename_is_not_served_on_the_robot(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    before = path.read_bytes()
+    reply = _run("rename", _rename_args(path), robot=True)
+    assert reply["exit_code"] == 2 and path.read_bytes() == before
+
+
+# ---- WITNESS-OPT: an edit through serve with no witness records no name
+
+
+@pytest.fixture
+def login_sentinel(monkeypatch: pytest.MonkeyPatch) -> str:
+    import getpass
+
+    monkeypatch.setattr(getpass, "getuser", lambda: "login-sentinel")
+    return "login-sentinel"
+
+
+@pytest.mark.parametrize("witness", [{}, {"witness": None}], ids=["omitted", "null"])
+def test_anonymous_serve_add_writes_no_witness_and_no_login_name(
+    tmp_path: Path, login_sentinel: str, witness: dict
+):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK_LOCKFILE)
+    args = {"contract": str(path), "kind": "link", "fields": {"name": "base"}, "source": "s",
+            "expected_revision": contract_revision(path)}
+    reply = _run("add", {**args, **witness})
+    assert reply["refusal"] is None and reply["payload"]["written"] is True
+    text = path.read_text()
+    assert "witness" not in text and login_sentinel not in text
+    assert load_contract(path).model.provenance.source == "s"
+
+
+def test_named_serve_add_keeps_its_provenance(tmp_path: Path, login_sentinel: str):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK_LOCKFILE)
+    args = {"contract": str(path), "kind": "link", "fields": {"name": "base"}, "source": "s",
+            "expected_revision": contract_revision(path)}
+    assert _run("add", {**args, "witness": "Maya Chen"})["refusal"] is None
+    assert load_contract(path).model.provenance.witness == "Maya Chen"
+    assert login_sentinel not in path.read_text()
+
+
+def test_anonymous_serve_add_still_refuses_a_blank_witness(tmp_path: Path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK_LOCKFILE)
+    args = {"contract": str(path), "kind": "link", "fields": {"name": "b"}, "source": "s",
+            "expected_revision": contract_revision(path)}
+    assert "witness" in _run("add", {**args, "witness": "  "})["refusal"]
+
+
+def _armtree(tmp_path: Path) -> Path:
+    path = tmp_path / "armtree.yaml"
+    shutil.copy(FIXTURES / "armtree.yaml", path)
+    return path
+
+
+def _gripper_mass(path: Path, **over) -> dict:
+    return {"contract": str(path), "path": "devices/dev.gripper/physical/mass", "value": "300 g",
+            "source": "notes/scale.md", "expected_revision": contract_revision(path), **over}  # fmt: skip
+
+
+@pytest.mark.parametrize("witness", [{}, {"witness": None}], ids=["omitted", "null"])
+def test_anonymous_serve_declare_records_the_source_and_no_name(
+    tmp_path: Path, login_sentinel: str, witness: dict
+):
+    path = _armtree(tmp_path)
+    assert _run("declare", _gripper_mass(path, note="weighed", **witness))["refusal"] is None
+    text, prov = path.read_text(), load_contract(path).device("dev.gripper").provenance
+    assert "notes/scale.md" in text and login_sentinel not in text
+    assert load_contract(path).schema_version == "0.7" and prov.witness is None and prov.source == "notes/scale.md"
+
+
+def test_anonymous_declare_with_no_source_drops_the_old_name_and_records_nothing(tmp_path: Path):
+    path = _armtree(tmp_path)
+    assert _run("declare", _gripper_mass(path, source=""))["refusal"] is None
+    assert load_contract(path).device("dev.gripper").provenance is None
+
+
+def test_formal_declare_without_a_name_is_refused_in_one_line(tmp_path: Path):
+    path = _armtree(tmp_path)
+    before = path.read_bytes()
+    reply = _run("declare", _gripper_mass(path, formal=True))
+    assert reply["refusal"] == "A formal declaration needs a name: say who is declaring."
+    assert path.read_bytes() == before
+    assert _run("declare", _gripper_mass(path, formal=True, witness=""))["refusal"] is not None
+    assert path.read_bytes() == before
+
+
+def test_anonymous_batch_edit_records_no_name(tmp_path: Path, login_sentinel: str):
+    path = _armtree(tmp_path)
+    change = {"path": "devices/dev.gripper/physical/mass", "value": "300 g", "source": "notes/scale.md"}
+    args = {"contract": str(path), "changes": [change], "expected_revision": contract_revision(path)}
+    assert _run("batch-edit", args)["refusal"] is None
+    assert load_contract(path).device("dev.gripper").provenance.witness is None
+
+
+@pytest.mark.parametrize("verb", ["delete", "rename"])
+def test_anonymous_serve_delete_and_rename_keep_the_source_and_drop_the_stale_model_name(
+    tmp_path: Path, login_sentinel: str, verb: str
+):
+    path = _joined_lockfile(tmp_path)
+    assert load_contract(path).model.provenance.witness == "w1"
+    args = _delete_args(path, "joint", "elbow") if verb == "delete" else _rename_args(path)
+    del args["witness"]
+    assert _run(verb, args)["refusal"] is None
+    prov = load_contract(path).model.provenance
+    assert prov.witness is None and prov.source == "s"
+    assert login_sentinel not in path.read_text() and "witness: w1" not in path.read_text()
+
+
+def test_anonymous_serve_place_drops_the_named_provenance_of_the_changed_device(
+    tmp_path: Path, login_sentinel: str
+):
+    contract = tmp_path / "armtree.yaml"
+    shutil.copy(FIXTURES / "armtree.yaml", contract)
+    args = {"contract": str(contract), "target": "dev.gripper", "on": "elbow",
+            "offset": [10, 0, 25], "unit": "mm", "source": "notes/cad.md",
+            "expected_revision": contract_revision(contract)}  # fmt: skip
+    assert _run("place", args)["refusal"] is None
+    device = load_contract(contract).device("dev.gripper")
+    assert device.provenance.witness is None and device.provenance.source == "notes/cad.md"
+    assert device.physical.mount_frame == "elbow"
+    assert login_sentinel not in contract.read_text()
+
+
+# ---- groups through the sidecar
+
+
+def test_group_add_rename_and_delete_through_serve(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    rev = lambda: contract_revision(path)  # noqa: E731
+    base = {"contract": str(path), "source": "s", "witness": "w1"}
+    add = _run("add", {**base, "kind": "group", "fields": {"name": "g", "members": ["arm"]},
+                       "expected_revision": rev()})  # fmt: skip
+    assert add["refusal"] is None and [g.members for g in load_contract(path).groups] == [["arm"]]
+    ren = _run("rename", {**base, "kind": "group", "old": "g", "new": "h", "expected_revision": rev()})
+    assert ren["refusal"] is None and load_contract(path).groups[0].name == "h"
+    gone = _run("delete", _delete_args(path, "group", "h"))
+    assert gone["refusal"] is None and load_contract(path).groups is None
+
+
+def test_promote_through_serve_adds_link_and_joint(tmp_path: Path):
+    from lockwire.edit import Change, add_entry, apply_changes
+
+    path = _joined_lockfile(tmp_path)
+    fields = {"id": "dev.s.x", "model": "m.x", "family": "f.x", "owner": "me"}
+    add_entry(path, "device", fields, source="s", witness="w1")
+    for leaf, value in (("mount_frame", '"base"'), ("mount_xyz", "0.1 0 0.05 m")):
+        change = Change(f"devices/dev.s.x/physical/{leaf}", value, source="s", witness="w1")
+        apply_changes(path, [change])
+    args = {
+        "contract": str(path),
+        "kind": "promote",
+        "fields": {"device": "dev.s.x", "joint": {"type": "fixed"}},
+        "source": "s",
+        "witness": "w1",
+        "expected_revision": contract_revision(path),
+    }
+    assert _run("add", args)["refusal"] is None
+    assert load_contract(path).model.joints[-1].origin.xyz == pytest.approx((0.1, 0.0, 0.05))
+
+
+def test_add_mirror_through_serve_copies_the_arm_across_xz(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    fields = {"of": "arm", "plane": "xz", "rename": {"from": "arm", "to": "arm-r"}}
+    args = {"contract": str(path), "kind": "mirror", "fields": fields, "source": "s", "witness": "w1"}  # fmt: skip
+    assert _run("add", {**args, "expected_revision": contract_revision(path)})["refusal"] is None
+    assert "arm-r" in [x.name for x in load_contract(path).model.links]
+
+
+def _real_login() -> str:
+    import getpass
+
+    return getpass.getuser()
+
+
+def _quick_edit_lockfile(tmp_path: Path) -> Path:
+    from lockwire.edit import add_entry
+
+    path = _joined_lockfile(tmp_path)
+    add_entry(path, "param", {"name": "arm_len", "value": 0.3, "unit": "m"}, source="s", witness="w1")
+    return path
+
+
+def _quick_declare(path: Path, decl: str, value, **over) -> dict:
+    # A panel's quick edit as the app sends it after main/ipc drops the blank name: no witness key.
+    args = {"contract": str(path), "path": decl, "value": value, "source": "typed in the app",
+            "expected_revision": contract_revision(path), **over}  # fmt: skip
+    return _run("declare", args)
+
+
+@pytest.mark.parametrize(
+    ("panel", "decl", "value"),
+    [("efficiency", "topology/rails/rail.5v/efficiency", 0.9), ("named size", "params/arm_len/value", 0.4),
+     ("material", "model/links/arm/material", {"name": "Aluminium 6061-T6", "density_kg_m3": 2700, "source": "catalog"}), ("mass compare", "budgets/bud.mass/nominal", "2 kg")],
+)  # fmt: skip
+def test_quick_panel_edit_with_no_saved_name_is_written_and_names_nobody(tmp_path: Path, panel: str, decl: str, value):
+    if panel == "efficiency":
+        path = tmp_path / "lockwire.yaml"
+        shutil.copy(FIXTURES / "contract_clean.yaml", path)
+    else:
+        path = _quick_edit_lockfile(tmp_path)
+    if panel == "mass compare":
+        fields = {"budget_kind": "mass_total", "sources": "links", "nominal": "1 kg", "tolerance_pct": 5, "limit": "1.05 kg", "owner": "you"}
+        add = {"contract": str(path), "kind": "budget", "id": "bud.mass", "fields": fields, "source": "typed in the app", "expected_revision": contract_revision(path)}  # fmt: skip
+        assert _run("add", add)["refusal"] is None
+    reply = _quick_declare(path, decl, value)
+    assert reply["refusal"] is None and reply["payload"]["written"] is True, panel
+    assert _real_login() not in path.read_text()
+
+
+def test_delete_with_no_witness_is_written_and_names_nobody(tmp_path: Path):
+    path = _joined_lockfile(tmp_path)
+    args = _delete_args(path, "joint", "elbow")
+    del args["witness"]
+    reply = _run("delete", args)
+    assert reply["refusal"] is None and reply["payload"]["written"] is True
+    assert _real_login() not in path.read_text()

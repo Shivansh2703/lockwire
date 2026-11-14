@@ -8,7 +8,7 @@ re-walks a contract, or re-derives a verdict. The producers, measured
 
 | member | producer | discriminator |
 |---|---|---|
-| `CheckPayload` | `api.check` -> `api.check_document` -> `api.verdict_document(..., CHECK_ARTIFACT_TYPE)` plus `headline` (E2-hl) | `lockwire-check-report` |
+| `CheckPayload` | `api.check` -> `api.check_document` -> `api.verdict_document(..., CHECK_ARTIFACT_TYPE)` plus `headline` | `lockwire-check-report` |
 | `PlanPayload` | `api.plan` -> the same `api.verdict_document`, `PLAN_ARTIFACT_TYPE` | `lockwire-plan-report` |
 | `DescribePayload` | `api.describe` -> `describe.describe_all` behind `report_json.envelope` | `lockwire-describe` |
 | `EditPayload` | `api.declare` -> `edit.apply_changes` behind `report_json.envelope` | `lockwire-edit-result` |
@@ -51,10 +51,10 @@ emitter render the mark rather than re-deriving it.
 Open seams — named, not silently picked (this file is a freeze point)
 ---------------------------------------------------------------------
 1. **The page member has no discriminator.** `gui.build_payload` predates
-   `report_json.envelope` (E0-25) and emits no `artifact_type`, so
+   `report_json.envelope` and emits no `artifact_type`, so
    `MEMBERS` (keyed by `artifact_type`) discriminates the enveloped members and `PagePayload`
    is validated by name beside them. Giving the page dict an envelope is a
-   `gui.py` change and `gui.py` is the GUI lane's (e1-b3/b4/b5), not this box's.
+   `gui.py` change and `gui.py` is the GUI lane's, not this file's.
 2. **`scan` has no member and cannot have one yet.** The brief asks for one;
    measured, `cli.scan` dumps YAML straight to stdout (`cli.py:1167`) and has
    no `api` twin and no document producer. A member here would mean *writing*
@@ -74,7 +74,7 @@ Open seams — named, not silently picked (this file is a freeze point)
    `Alternative` itself, next to `Figure`'s copy of the same guard (a projected figure reaching a door
    carries its mark and its word, not a corrected sentence saying it is
    unenforced). `catalog` genuinely has no producer yet; this file does not
-   invent the catalog (that is `e1-cat`/O35).
+   invent the catalog (that is a separate piece of work).
    **The standing rule this seam earns: any `Measured:` claim in shipped
    source names the command that measured it.** A measurement claim with no
    command behind it is the same defect class as a test that asserts a
@@ -92,10 +92,10 @@ Open seams — named, not silently picked (this file is a freeze point)
    that field `extra="forbid"` would reject the MCP door's own output, which is
    the same document — so the union covers both doors, and
    `test_mcp_documents_validate_as_the_same_union_members` holds it.
-8. **`diff` has no envelope either.** `api.diff` (e0-34) returns
+8. **`diff` has no envelope either.** `api.diff` returns
    `FactDiff.as_json()` straight, with no `artifact_type`, so `DiffPayload` is
    keyed by name beside the page in `UNENVELOPED`. Enveloping it is a change to
-   `factdiff`/`api.diff`, which is e0-63's lane (*"the library leg of diff is
+   `factdiff`/`api.diff`, which is a separate piece of work (*"the library leg of diff is
    anchored by nothing"*), not this file's.
 9. **`log` is a top-level list.** `api.log` returns history rows directly, so
    `LogPayload` is a named root-list member beside `diff` in `UNENVELOPED`.
@@ -229,7 +229,7 @@ class Figure(_Strict):
 #:
 #: Foreign models (``report.Finding``, ``plan.AssertionOutcome``,
 #: ``schema.Quantity``) get their rows here too — their fields live in
-#: ``report.py``/``plan.py``/``schema.py``, which this box may not touch
+#: ``report.py``/``plan.py``/``schema.py``, which this change may not touch
 #: (``schema.py`` is frozen), so the union declares their kinds rather
 #: than annotating them at the source. When those modules carry kinds
 #: themselves, these rows move there.
@@ -255,16 +255,83 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "AddPartNumber.value": _build_kind_declaration(
         "catalog", "catalog.SourcedNumber", mark="catalog"
     ),
+    # --- Live wiring check: a pin's level as the lockfile or its pinout card states it, and the limit the pin rules apply
+    "WiringPinFact.level_v": _build_kind_declaration("declared", "page._wiring_live"),
+    "WiringPinFact.limit_v": _build_kind_declaration("derived", "pins.check_voltage"),
+    # --- Plan motion preview: sampled from the declared limits by page.motion_preview
+    "MotionPreview.time_s": _build_kind_declaration("derived", "page.motion_preview"),
+    "MotionJoint.velocity": _build_kind_declaration("derived", "page.motion_preview"),
+    "MotionJoint.acceleration": _build_kind_declaration("derived", "page.motion_preview"),
+    "MotionJoint.torque": _build_kind_declaration("derived", "page.motion_preview"),
+    "MotionJoint.velocity_limit": _build_kind_declaration("declared", "schema.Contract"),
+    "MotionJoint.acceleration_limit": _build_kind_declaration("declared", "schema.Contract"),
+    "MotionJoint.torque_limit": _build_kind_declaration("declared", "schema.Contract"),
     # --- one finding's numbers
     "Finding.stage": _build_kind_declaration("declared", "schema.Contract (contract section 3.2)"),
     "Quantity.value": _build_kind_declaration("declared", "schema.Contract"),
+    "MaterialOption.density_kg_m3": _build_kind_declaration(
+        "catalog", "catalog.materials", mark="catalog"
+    ),
+    "MaterialCompareRow.density_kg_m3": _build_kind_declaration(
+        "catalog", "catalog.materials", mark="catalog"
+    ),
+    "MaterialCompareRow.link_mass_kg": _build_kind_declaration("derived", "material_compare.compare_materials"),
+    "MaterialCompareRow.total_mass_kg": _build_kind_declaration("derived", "material_compare.compare_materials"),
+    "MaterialCompareRow.worst_margin_nm": _build_kind_declaration("derived", "material_compare.compare_materials"),
+    "MaterialCompareRow.delta_mass_kg": _build_kind_declaration("derived", "page._material_compare"),
+    "MaterialCompareRow.delta_margin_nm": _build_kind_declaration("derived", "page._material_compare"),
     # --- the robot view: model frames composed up the parent chain; limits as declared
+    "WiringWire.awg": _build_kind_declaration("declared", "schema.Wire"),
+    "PowerStage.depth": _build_kind_declaration("derived", "page._power_stages"),
+    "PowerStage.volts_in": _build_kind_declaration("declared", "schema.Rail"),
+    "PowerStage.volts_out": _build_kind_declaration("declared", "schema.Rail"),
+    "PowerStage.amps_out": _build_kind_declaration("derived", "page._power_stages"),
+    "PowerStage.efficiency": _build_kind_declaration("declared", "schema.Rail"),
+    "PowerStage.watts_out": _build_kind_declaration("derived", "checks.power_rollup"),
+    "PowerStage.watts_in": _build_kind_declaration("derived", "checks.power_rollup"),
+    "PowerStage.watts_lost": _build_kind_declaration("derived", "checks.power_rollup"),
+    "PowerStage.capacity_w": _build_kind_declaration("declared", "schema.Rail"),
+    "PowerStage.unknown_loads": _build_kind_declaration("derived", "checks.power_rollup"),
+    "PowerColumn.light_w": _build_kind_declaration("derived", "power_budget.rail_columns"),
+    "PowerColumn.typical_w": _build_kind_declaration("derived", "power_budget.rail_columns"),
+    "PowerColumn.max_w": _build_kind_declaration("derived", "power_budget.rail_columns"),
+    "PowerStress.value": _build_kind_declaration("derived", "stress.stress_list"),
+    "PowerStress.rating": _build_kind_declaration("catalog", "stress.stress_list", mark="catalog"),
+    "PowerStress.pct": _build_kind_declaration("derived", "stress.stress_list"),
+    "PowerPack.voltage_v": _build_kind_declaration("declared", "schema.Battery"),
+    "PowerPack.capacity_wh": _build_kind_declaration("declared", "schema.Battery"),
+    "PowerPack.reserve_pct": _build_kind_declaration("declared", "schema.Battery"),
+    "PowerPack.usable_wh": _build_kind_declaration("derived", "page._power_pack"),
+    "PowerPack.plan_need_wh": _build_kind_declaration("derived", "battery.plan_energy_wh"),
+    "ControlsFact.value": _build_kind_declaration("derived", "page._controls_joints"),
+    "ControlsMotor.torque_nm": _build_kind_declaration("derived", "page._motor_curves"),
+    "ControlsMotor.speed_rad_s": _build_kind_declaration("derived", "page._motor_curves"),
+    "ControlsMotor.efficiency_pct": _build_kind_declaration("derived", "page._motor_curves"),
+    "ControlsJoint.t_s": _build_kind_declaration("derived", "controls.joint_step"),
+    "ControlsJoint.position": _build_kind_declaration("derived", "controls.joint_step"),
+    "PowerLoad.watts": _build_kind_declaration("declared", "schema.Device"),
     "RobotJoint.position": _build_kind_declaration("derived", "gui._robot_model"),
     "RobotJoint.axis": _build_kind_declaration("derived", "gui._robot_model"),
+    "RobotJoint.rpy": _build_kind_declaration("declared", "schema.Joint"),
+    "RobotJoint.origin_mm": _build_kind_declaration("declared", "schema.Joint"),
+    "ReferenceFaceDevice.mount_mm": _build_kind_declaration("declared", "schema.Physical"),
     "RobotJoint.lower": _build_kind_declaration("declared", "schema.Joint"),
     "RobotJoint.upper": _build_kind_declaration("declared", "schema.Joint"),
     "RobotJoint.effort": _build_kind_declaration("declared", "schema.Joint"),
+    "JointHeadroom.needed_nm": _build_kind_declaration("derived", "page._headroom"),
+    "JointHeadroom.available_nm": _build_kind_declaration("derived", "page._headroom"),
+    "JointHeadroom.ratio": _build_kind_declaration("derived", "page._headroom"),
+    "TipReadout.xyz": _build_kind_declaration("derived", "page._tip_readout"),
+    "TipReadout.per_unit": _build_kind_declaration("derived", "page._tip_readout"),
+    "SupportPolygon.z": _build_kind_declaration("derived", "page._support_polygon"),
+    "SupportPolygon.points": _build_kind_declaration("derived", "page._support_polygon"),
     "RobotLink.position": _build_kind_declaration("derived", "gui._robot_model"),
+    "LinkSolid.size": _build_kind_declaration("declared", "schema.Shape"),
+    "LinkSolid.radius": _build_kind_declaration("declared", "schema.Shape"),
+    "LinkSolid.length": _build_kind_declaration("declared", "schema.Shape"),
+    "LinkSolid.position": _build_kind_declaration("derived", "gui._robot_model"),
+    "LinkSolid.rotation": _build_kind_declaration("derived", "gui._robot_model"),
+    "RobotParam.value": _build_kind_declaration("declared", "schema.Param"),
     # --- the page dict
     "PagePayload.scored": _build_kind_declaration("derived", "checks.run_record_checks"),
     "PagePayload.violations": _build_kind_declaration("derived", "report.verdict"),
@@ -274,6 +341,9 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "BudgetRow.value": _build_kind_declaration("derived", "gui._budget_rows"),
     "GraphNode.value": _build_kind_declaration("derived", "report_html._graph"),
     "GraphNode.limit": _build_kind_declaration("declared", "schema.Contract"),
+    "GraphNode.nominal_v": _build_kind_declaration("declared", "schema.Rail"),
+    "RailSweepPoint.load": _build_kind_declaration("derived", "checks.rail_sweep"),
+    "RailSweepPoint.volts": _build_kind_declaration("derived", "checks.rail_sweep"),
     "BudgetRow.limit": _build_kind_declaration("declared", "schema.Contract"),
     "Constraint.used": _build_kind_declaration("derived", "constraints.constraint_rows"),
     "Constraint.limit": _build_kind_declaration("declared", "constraints.constraint_rows"),
@@ -287,7 +357,11 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "ScenePayload.triangles": _build_kind_declaration("measured", "scene.load_scene"),
     "ScenePayload.vertices": _build_kind_declaration("measured", "scene.load_scene"),
     "ScenePayload.display_triangles": _build_kind_declaration("measured", "scene.load_scene"),
-    # --- the declare form (E4-df): every row is, by definition, a fact the
+    "ScenePayload.triangles_original": _build_kind_declaration("measured", "scene.load_scene"),
+    "ScenePayload.triangles_shown": _build_kind_declaration("measured", "scene.load_scene"),
+    "ScenePart.triangles_original": _build_kind_declaration("measured", "scene.load_scene"),
+    "ScenePart.triangles_shown": _build_kind_declaration("measured", "scene.load_scene"),
+    # --- the declare form: every row is, by definition, a fact the
     # contract itself would hold — the own example row.
     "DeclareRow.value": _build_kind_declaration("declared", "schema.Contract"),
     # `Provenance.conditions` reaches the union for the first time through
@@ -347,6 +421,9 @@ class ForceFigure(_Strict):
     reaction_n: float | None = None
     moment_nm: float | None = None
     span_axis: str | None = None
+    mass_kind: str | None = None  # a mass row only: measured, calculated or estimated
+    material: str | None = None  # a link mass row only: the declared material's name
+    mass_note: str | None = None  # a derived link mass row only: the plain marker
 
 
 class ForceMountShape(_Strict):
@@ -365,6 +442,7 @@ class ForceDocument(_Strict):
     gravity: ForceFigure
     mass_total: ForceFigure
     cg: ForceFigure
+    inertia: ForceFigure | None = None  # optional so older payloads still read
     masses: list[ForceFigure]
     mounts: list[ForceFigure]
     mount_shapes: list[ForceMountShape]
@@ -374,19 +452,19 @@ class ForceDocument(_Strict):
 class CheckPayload(_VerdictDocument):
     """``api.check`` / ``lockwire check --json``.
 
-    ``scene`` is a sidecar-only addition (e1-b2, not a CLI field — T2 keeps
+    ``scene`` is a sidecar-only addition (not a CLI field — scene discovery keeps
     ``lockwire check`` scene-free by design, ``cli.py:454``): present only on
     the ``/v1/run`` reply, and only when a scene sits beside the contract.
     ``None`` when there is no scene to offer; ``SceneUnchanged`` when the
     caller's ``scene.have`` already matches the current hash.
 
-    ``headline`` (E2-hl) is the plain-words sentence for the verdict --
+    ``headline`` is the plain-words sentence for the verdict --
     ``api.check``'s own field, not shared with ``PlanPayload``
     (its door does not fill it), computed once by ``report.verdict_headline``
     and reused, never re-derived by a consumer.
 
     ``graph`` rides beside ``scene`` for the same reason and on the same
-    condition (E2-j2): the app's Design tab needs the lens bar's words
+    condition: the app's Design tab needs the lens bar's words
     (``GraphLens.label``/``.caption``) next to the scene it labels, and
     ``report_html._graph`` already computes exactly this dict for the page
     payload (``gui.py:1019``) — this is the same call, not a second one.
@@ -417,8 +495,8 @@ class EditPayload(_Document):
     """``api.declare`` — the write door's document. This is the member that
     carries a diff; ``written`` is False under ``--dry-run``.
 
-    ``contract_sha`` is ``None`` with ``contract_sha_error`` set (E5-D3, same
-    shape as e5-d-r2's fix on ``api.add``) when the write landed but the
+    ``contract_sha`` is ``None`` with ``contract_sha_error`` set (same
+    shape as the fix on ``api.add``) when the write landed but the
     post-write disk re-read that names its sha then faulted — ``written``
     still reports what the writer did, never the re-read's outcome."""
 
@@ -434,6 +512,28 @@ class EditPayload(_Document):
 # --------------------------------------------------------------------------- cards
 
 
+class JointHeadroom(_Strict):
+    """Torque to spare at one joint, the engine's own numbers (``page._headroom``)."""
+
+    needed_nm: float  # static gravity torque at the worst pose
+    available_nm: float  # the weaker of the effort limit and the named servo's stall torque
+    ratio: float  # available / needed; under 1 it cannot hold the pose
+
+
+class TipReadout(_Strict):
+    """Where the tool tip is at the zero pose and how this joint moves it (``page._tip_readout``)."""
+
+    xyz: list[float]  # tip position in the robot frame, metres
+    per_unit: list[float]  # tip velocity per radian (rotary) or per metre (prismatic), metres
+
+
+class SupportPolygon(_Strict):
+    """The tip-over check's support polygon at the zero pose, robot frame (``page._support_polygon``)."""
+
+    z: float  # ground height of the contacts, metres
+    points: list[list[float]]  # hull corners as [x, y] metres, counter-clockwise
+
+
 class RobotJoint(_Strict):
     """A model joint with its frame in the single robot frame (parent chain composed)."""
 
@@ -445,14 +545,90 @@ class RobotJoint(_Strict):
     child_name: str
     position: list[float]  # metres, robot frame
     axis: list[float]  # joint axis in the robot frame
+    rpy: list[
+        float
+    ] = []  # the joint's own placement in its parent link, radians (URDF fixed-axis xyz)
+    #: Where the joint sits in its parent link, mm: the number `move` on the child link sets.
+    origin_mm: list[float] = []
     lower: float | None
     upper: float | None
     effort: float | None
+    headroom: JointHeadroom | None = None
+    tip: TipReadout | None = None
+
+
+class LinkSolid(_Strict):
+    """One box, cylinder or sphere on a link, sizes in metres with named dimensions
+    already resolved, for the overlap check. Meshes are not listed."""
+
+    kind: Literal["box", "cylinder", "sphere"]
+    size: list[float] | None = None  # box x, y, z
+    radius: float | None = None  # cylinder, sphere
+    length: float | None = None  # cylinder, along the shape's own z
+    position: list[float]  # shape origin, metres, robot frame
+    rotation: list[float]  # shape frame as a row-major 3x3, robot frame
+
+
+class CollisionPairRow(_Strict):
+    """Two links the owner told Lockwire not to check against each other, and why."""
+
+    link1: str
+    link2: str
+    reason: str
+
+
+class RobotParam(_Strict):
+    """A named design number (`schema.Param`) a link shape can be sized by."""
+
+    name: str
+    value: float
+    unit: str | None = None  # "mm", "cm" or "m"; none means metres
 
 
 class RobotLink(_Strict):
     name: str
     position: list[float]  # link origin, metres, robot frame
+    solids: list[LinkSolid] = []  # collision primitives, else visual ones
+    #: set when the link's mass was worked out from its shapes ("derived") or says why it
+    #: could not be (the line `lockwire describe` prints); none when the mass is declared.
+    mass_note: str | None = None
+
+
+class MaterialOption(_Strict):
+    """One cited catalog material the Mass and balance picker offers."""
+
+    name: str
+    density_kg_m3: float
+    #: the catalog's whole source text, written into the lockfile as is when this material is picked
+    source: str
+    source_label: str  # who published the number, in plain words
+    source_url: str | None = None
+    #: the source's own caveat (a plastic's solid filament density versus its infill); none for metals
+    caveat: str | None = None
+
+
+class MaterialCompareRow(_Strict):
+    """CADN-matpanel: one link in one catalog material (`material_compare.compare_materials`)."""
+
+    material: str
+    density_kg_m3: float
+    link_mass_kg: float
+    total_mass_kg: float
+    worst_margin_nm: float | None = None
+    worst_joint: str | None = None
+    #: change from the current material's row (none when the current material is not in the catalog)
+    delta_mass_kg: float | None = None
+    delta_margin_nm: float | None = None
+    current: bool
+    printed: bool
+
+
+class MaterialCompare(_Strict):
+    """One link's Compare materials table; no rows (and a note) when its mass is declared."""
+
+    link: str
+    rows: list[MaterialCompareRow]
+    note: str | None = None
 
 
 class Card(_Strict):
@@ -488,6 +664,8 @@ class Card(_Strict):
     owner: str | None = None
     #: The physical thing this card shares with others (a rail): the app shows them as one row.
     cluster_root: str | None = None
+    #: the `robot_graph` node ids this card is about (the relevance `involved` list); empty when nothing is known.
+    involves: list[str] = []
 
 
 class AddsUpRow(_Strict):
@@ -515,7 +693,7 @@ class BudgetRow(_Strict):
     direction: str
     state: str
     note: str | None
-    # E1-f2, landed since this model's first version: a limit carries the same
+    # Landed since this model's first version: a limit carries the same
     # provenance trio the findings do, read off `budget.provenance`.
     source: str | None
     witness: str | None
@@ -550,6 +728,14 @@ class Constraint(_Strict):
 # --------------------------------------------------------------------------- graph
 
 
+class RailSweepPoint(_Strict):
+    """One point of `checks.rail_sweep`: the volts at the servos at a share of stall load."""
+
+    #: 0 (no load) to 1 (every servo stalled), a fraction.
+    load: float
+    volts: float
+
+
 class GraphNode(_Strict):
     id: str
     label: str
@@ -560,6 +746,10 @@ class GraphNode(_Strict):
     value: float | None = None
     #: A rail's capacity in W; ``value > limit`` is an overloaded rail.
     limit: float | None = None
+    #: A rail's declared volts, and `checks.rail_sweep` for it; None when the
+    #: rail has no servo with catalog stall data. The app colours by it and never computes sag.
+    nominal_v: float | None = None
+    sweep: list[RailSweepPoint] | None = None
 
 
 class GraphEdge(_Strict):
@@ -570,7 +760,7 @@ class GraphEdge(_Strict):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
-#: The full lens namespace (E1-ln) — every place a lens is drawn, colored or
+#: The full lens namespace — every place a lens is drawn, colored or
 #: joined against a scene part uses this set. the words that go with
 #: each member (``GraphLens.label``/``.caption``) are the payload's, never
 #: composed in the app/GUI JS.
@@ -632,7 +822,7 @@ class ScenePart(_Strict):
     indices: PackedIndices
     color: list[float]
     translation: list[float]
-    #: Every lens this part belongs to (E1-ln) — computed from the
+    #: Every lens this part belongs to — computed from the
     #: contract join (`scene_view.part_lenses`), never guessed by the face.
     #: `off` and `health` are whole-scene overlays so every part carries
     #: them; `mechanical`/`power`/`data` are earned by the part's contract
@@ -641,6 +831,9 @@ class ScenePart(_Strict):
     group: SceneGroup
     #: A device part's declared physical.mount_frame; a drop on it places the dragged part there.
     mount_frame: str | None = None
+    #: Triangles in the model file vs drawn after display simplification.
+    triangles_original: int = 0
+    triangles_shown: int = 0
 
 
 class SceneLabel(_Strict):
@@ -671,7 +864,7 @@ class ScenePayload(_Strict):
     source: str
     #: sha256 of the source geometry (``scene_view.scene_hash``) — same scene,
     #: same hash, regardless of display decimation. What a caller's next
-    #: ``scene.have`` is compared against (e1-b2).
+    #: ``scene.have`` is compared against.
     hash: str
     parts: list[ScenePart]
     labels: list[SceneLabel]
@@ -681,12 +874,16 @@ class ScenePayload(_Strict):
     triangles: int
     vertices: int
     display_triangles: int
+    #: Whole-model counts, original vs drawn; ``simplified`` is the one flag the view's notice reads.
+    triangles_original: int = 0
+    triangles_shown: int = 0
+    simplified: bool = False
     honesty: str
 
 
 class SceneUnchanged(_Strict):
     """The sidecar's reply when a caller's ``scene.have`` already matches —
-    ships no geometry (e1-b2). ``unchanged`` is always ``True``; the shape
+    ships no geometry. ``unchanged`` is always ``True``; the shape
     exists so ``{"unchanged": true}`` is a typed member, not a bare dict."""
 
     unchanged: Literal[True]
@@ -731,6 +928,8 @@ class ReferenceFaceDevice(_Strict):
     id: str
     name: str  # copy.human_name of the id; the id stays the jump target
     text: str
+    #: The device's declared physical.mount_xyz in mm (what `move` sets), none when it has none.
+    mount_mm: list[float] | None = None
 
 
 class ReferenceDrawer(_Strict):
@@ -771,7 +970,7 @@ class Faces(_Strict):
 
 
 class DeclareRow(_Strict):
-    """One quantity ``lockwire declare`` could write, present or not (E4-df).
+    """One quantity ``lockwire declare`` could write, present or not.
 
     Walked from ``schema.Contract``'s own models (nothing here re-derives
     a value or invents a path) — ``path`` is the exact ``/``-separated string
@@ -780,7 +979,7 @@ class DeclareRow(_Strict):
     hold (the own example row is ``Quantity.value`` -> ``declared``). Scoped
     to ``schema.Quantity``-typed fields only — a bare unitless number
     (``efficiency``, ``gear_ratio``) is not a "quantity" in the sense and is
-    out of this box's charter.
+    out of this change's charter.
 
     ``value``/``unit`` are ``None`` when the fact has never been declared;
     ``provenance`` is the nearest ancestor block's own ``provenance`` (schema's
@@ -829,16 +1028,42 @@ class AddPartOption(_Strict):
     numbers: list[AddPartNumber]
     #: ids of the contract's rails inside the part's input voltage range; empty = none, never a guess.
     fits: list[str]
+    #: ids of the part's catalog mounting frames; empty = none on record, never a guess.
+    frames: list[str] = []
+
+
+class StockOption(_Strict):
+    """One stock shape the Structure tab can size by typing its dimensions (typed in mm, the engine takes metres)."""
+
+    id: str
+    name: str
+    #: dimension names in the order the engine takes them (e.g. length, width, thickness).
+    dimensions: list[str]
+    #: derived = mass comes from the picked material; maker = the maker's mass per metre (T-slot, no material).
+    mass_from: Literal["material", "mass_per_length"]
+    #: drawn as its outer box only (hollow shapes and T-slot profiles).
+    outline_only: bool
+
+
+class KitOption(_Strict):
+    """One kit structure part (channel, plate, standoff) the Structure tab can attach."""
+
+    id: str
+    name: str
+    #: the catalog gives it a body (outline) to draw.
+    outline_only: bool
 
 
 class AddPartPayload(_Strict):
     rails: list[str]
     parts: list[AddPartOption]
+    stock: list[StockOption] = []
+    kit: list[KitOption] = []
 
 
 class DeclareFormPayload(_Strict):
     """``gui.build_declare_form`` — every declarable quantity plus the witness
-    box (E4-df). Unenveloped like the page (seam 1): this box's face render is
+    box. Unenveloped like the page (seam 1): this form's face render is
     the app's own, not this door's, so there is no ``artifact_type`` to
     discriminate on yet."""
 
@@ -932,6 +1157,195 @@ class AcceptedRow(_Strict):
     date: str
 
 
+class PowerLoad(_Strict):
+    id: str
+    #: Nominal draw in W; ``None`` when the part declares no draw.
+    watts: float | None
+
+
+class PowerStage(_Strict):
+    """One rail seen as a stage of the power chain (``checks.power_rollup`` values).
+    Volts are V, amps A, watts W; ``efficiency`` is a 0..1 fraction."""
+
+    rail: str
+    label: str
+    depth: int
+    fed_by: str | None
+    volts_in: float | None
+    volts_out: float | None
+    amps_out: float | None
+    efficiency: float
+    watts_out: float
+    watts_in: float
+    watts_lost: float
+    capacity_w: float
+    unknown_loads: int
+    loads: list[PowerLoad]
+
+
+class PowerColumn(_Strict):
+    """One rail's load in W at three operating points (``power_budget.rail_columns``)."""
+
+    rail: str
+    label: str
+    light_w: float
+    typical_w: float
+    max_w: float
+    #: True when Typical is the plan's duty-weighted draw rather than the declared one.
+    typical_from_plan: bool
+
+
+class PowerStress(_Strict):
+    """One part against one rating (``stress.stress_list``). ``pct`` is percent of the rating;
+    ``over_advice`` is set above the unsourced 80 percent convention (advice, not a verdict)."""
+
+    part: str
+    quantity: str
+    value: float
+    rating: float
+    unit: str
+    pct: float
+    source: str
+    over_advice: bool
+
+
+class PowerPack(_Strict):
+    """The declared battery pack and the energy left after its reserve (Wh)."""
+
+    voltage_v: float | None
+    capacity_wh: float
+    reserve_pct: float | None
+    usable_wh: float
+    #: Wh the timed plan draws; ``None`` with no plan or any missing input.
+    plan_need_wh: float | None
+
+
+class WiringPin(_Strict):
+    key: str  # "device|connector|pin": one pin of the whole robot
+    label: str
+
+
+class CardPin(_Strict):
+    """One declared pin as the lockfile states it, for a device's pin card."""
+
+    number: str  # the connector's own number or label ("8", "A3"): the physical pin
+    name: str | None = None
+    functions: list[str] = []  # alternate functions
+    aliases: list[str] = []  # other names, e.g. "BCM14"
+    capabilities: list[str] = []
+    os_device: str | None = None  # e.g. "/dev/ttyAMA0"
+
+
+class WiringConnector(_Strict):
+    name: str
+    pins: list[WiringPin]
+    card: list[CardPin] = []  # every declared pin in declared order, wired or not
+    type: str | None = None
+
+
+class WiringDevice(_Strict):
+    id: str
+    name: str
+    connectors: list[WiringConnector]
+
+
+class WiringWire(_Strict):
+    """One pin-to-pin wire. ``rail`` is set only for a power wire; a signal wire has none."""
+
+    id: str
+    name: str
+    from_pin: str
+    to_pin: str
+    rail: str | None
+    rail_label: str | None
+    net: str | None
+    awg: int | None = None  # the declared gauge, so the Pro what-if starts where the robot is
+
+
+class WiringPinFact(_Strict):
+    """One pin's electrical facts as the pin rules read them, so the panel can flag a short before saving."""
+
+    key: str
+    level_v: float | None = None  # the voltage the pin sits at or drives
+    limit_v: float | None = (
+        None  # the most a receiver on this pin takes (card number, else level plus slack)
+    )
+    drives: bool = False
+    receives: bool = False
+
+
+class WiringFinding(_Strict):
+    """One finding from the engine's pin rules (voltage, output clash, current, special pins)."""
+
+    wire: str
+    wire_name: str
+    problem: str
+    limit: str
+
+
+class ControlsFact(_Strict):
+    """One labelled number on a Controls card, in the unit it names (a Figure-like readout)."""
+
+    label: str
+    value: float
+    unit: str
+
+
+class ControlsMotor(_Strict):
+    """One motor card plus its modelled curves; the lists run in step, torque in N*m on x."""
+
+    id: str
+    label: str
+    facts: list[ControlsFact]
+    torque_nm: list[float]
+    speed_rad_s: list[float]
+    efficiency_pct: list[float]
+    #: Findings on the card, each already worded; unsourced advice says so.
+    advice: list[str]
+
+
+class ControlsJoint(_Strict):
+    """One joint's closed-loop step (position as a fraction of the step, against time in s)."""
+
+    joint: str
+    label: str
+    facts: list[ControlsFact]
+    t_s: list[float]
+    position: list[float]
+    advice: list[str]
+
+
+class RequirementRow(_Strict):
+    id: str
+    text: str
+    check: str
+    #: proven | unproven | failing (Pro only; empty in the free app)
+    status: Literal["proven", "unproven", "failing"]
+    why: str
+
+
+class RobotGraphNode(_Strict):
+    #: "<kind>:<name>" (the battery is just "battery"); link and joint names are the scene part ids.
+    id: str
+    kind: Literal["link", "joint", "device", "connector", "host", "bus", "rail", "battery", "wire", "code"]
+    label: str
+
+
+class RobotGraphEdge(_Strict):
+    from_: str = Field(alias="from")
+    to: str
+    kind: Literal["structure", "drives", "mounts", "power", "signal", "depends"]
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+class RobotGraph(_Strict):
+    """What is connected to what (`robot_graph`), drawn by the graph view."""
+
+    nodes: list[RobotGraphNode]
+    edges: list[RobotGraphEdge]
+
+
 class PagePayload(_Strict):
     """``gui.build_payload``'s dict, field for field — the union's largest
     member, and the only one with no envelope (seam 1 in the module docstring).
@@ -956,23 +1370,50 @@ class PagePayload(_Strict):
     model_changed: bool = False
     joints: list[RobotJoint]
     links: list[RobotLink]
+    #: pairs declared as not to be checked for overlap (`collision_pairs`).
+    collision_pairs: list[CollisionPairRow] = []
+    #: the named dimensions link shapes use; resolved by the app on every payload.
+    params: list[RobotParam] = []
+    #: The Design panel's mass, centre of mass and inertia (the same document Check carries).
+    forces: ForceDocument | None = None
+    #: the cited material densities (`lockwire.catalog.materials()`) the mass picker offers.
+    materials: list[MaterialOption] = []
+    #: CADN-matpanel: per link, its mass and torque margin in each catalog material.
+    material_compare: list[MaterialCompare] = []
+    #: Set only when the engine has a support polygon (three or more ground contacts).
+    support_polygon: SupportPolygon | None = None
     graph: Graph
+    #: The connections graph (the `graph` name above is the lens graph): empty until it is wired.
+    robot_graph: RobotGraph | None = None
     budgets: list[BudgetRow]
+    power_stages: list[PowerStage] = []
+    power_columns: list[PowerColumn] = []
+    power_stress: list[PowerStress] = []
+    power_pack: PowerPack | None = None
+    #: The Wiring panel: devices with their connectors and the pin-to-pin wires. Empty when no device has a connector with pins.
+    wiring_devices: list[WiringDevice] = []
+    wiring_wires: list[WiringWire] = []
+    wiring_pins: list[WiringPinFact] = []
+    wiring_findings: list[WiringFinding] = []
+    controls_motors: list[ControlsMotor] = []
+    controls_joints: list[ControlsJoint] = []
     constraints: list[Constraint]
     setup: list[SetupGap]
+    #: Pro: each plan requirement and the check that proves it. Always empty in the free app.
+    requirements: list[RequirementRow] = []
     scene: ScenePayload | None
     modes: list[str]
     mode_labels: dict[str, str]
     command_modes: dict[str, str]
     faces: Faces
     cli_line: str | None
-    #: E0-30/`report_html.document_identity` — contract path, commit/hash,
+    #: `report_html.document_identity` — contract path, commit/hash,
     #: lockwire version, generated timestamp, the same footer `report` renders.
     document_identity: str
 
 
 # ---------------------------------------------------------------------- diff
-# `api.diff` (e0-34, merged after this file's first version) returns
+# `api.diff` (merged after this file's first version) returns
 # `factdiff.FactDiff.as_json()` — a document with no `report_json.envelope`, so
 # like the page it is keyed by name rather than discriminated. Seam 8 below.
 
@@ -1100,7 +1541,7 @@ def export_openapi(path: Path | str) -> None:
 
     Not a served OpenAPI document — there are no paths here; it is the schema
     map ``openapi-typescript`` reads (``packaging/generate-types.md``) to emit
-    ``app/src/shared/api.gen.ts`` (e1-d3). Every member is named, so a member
+    ``app/src/shared/api.gen.ts``. Every member is named, so a member
     added without a discriminator entry cannot silently generate a missing TS
     type, and ``x-lockwire-number-kinds`` ships the table so the app renders
     a catalog or projected figure's mark rather than re-deriving it.

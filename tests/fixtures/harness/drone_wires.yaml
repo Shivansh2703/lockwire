@@ -1,0 +1,42 @@
+# Added to the bundled drone starter by tests/test_harness.py (the starter itself has no wires).
+connectors:
+  dev.power-module.pm02-v3:
+    - id: J1
+      type: XT60
+      pins:
+        - {number: 1, name: VBAT, voltage_v: 11.1, net: motor-power}
+        - {number: 2, name: GND, voltage_v: 0, net: gnd}
+  dev.esc.esc-1:
+    - id: P1
+      type: XT60
+      pins:
+        - {number: 1, name: VBAT, net: motor-power}
+        - {number: 2, name: GND, net: gnd}
+    - id: S1
+      type: JST-GH
+      pins:
+        - {number: 1, name: SIG, net: pwm-1}
+wires:
+  - id: wire.esc-1-pos
+    awg: 14
+    length_m: 0.20
+    installation: enclosed
+    owner: propulsion
+    net: motor-power
+    from: {device: dev.power-module.pm02-v3, connector: J1, pin: 1}
+    to: {device: dev.esc.esc-1, connector: P1, pin: 1}
+  - id: wire.esc-1-neg
+    awg: 14
+    length_m: 0.20
+    installation: enclosed
+    owner: propulsion
+    net: gnd
+    from: {device: dev.power-module.pm02-v3, connector: J1, pin: 2}
+    to: {device: dev.esc.esc-1, connector: P1, pin: 2}
+  - id: wire.esc-1-sig
+    awg: 26
+    installation: free_air
+    owner: propulsion
+    colour: white
+    from: {device: dev.esc.esc-1, connector: S1, pin: 1}
+    to: {device: dev.flight-controller.pixhawk-6c, pin: MAIN1}

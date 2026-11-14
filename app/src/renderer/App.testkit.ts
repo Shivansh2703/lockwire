@@ -1,6 +1,15 @@
 import type { PagePayload, PlanPayload } from "../shared/api.gen";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
+import { act } from "react";
 import { vi } from "vitest";
+
+/** Click a screen by name: a tab, or an item in the More menu (Declare, Docs). */
+export function goMode(box: ParentNode, name: string): void {
+  const find = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)].find((t) => t.textContent === name);
+  let el = find('[role="tab"]');
+  if (!el) { act(() => box.querySelector<HTMLElement>(".shell-more")!.click()); el = find('[role="menuitem"]'); }
+  act(() => el!.click());
+}
 
 // Fixtures shared by the free App tests and the pro/ App tests.
 

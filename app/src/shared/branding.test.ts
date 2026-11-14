@@ -24,13 +24,19 @@ function occurrences(needle: string): number {
   return appFiles().reduce((n, f) => n + readFileSync(f, "utf8").split(needle).length - 1, 0);
 }
 
+/** Whole-string literals ("Name", 'Name', `Name`): a second authored constant, not the name inside a sentence. */
+function quotedLiterals(name: string): number {
+  const re = new RegExp(`(["'\`])${name}\\1`, "g");
+  return appFiles().reduce((n, f) => n + (readFileSync(f, "utf8").match(re)?.length ?? 0), 0);
+}
+
 describe("build metadata owns the local identity", () => {
   it("derives runtime branding without a second authored literal", () => {
     const { build } = JSON.parse(readFileSync(join(APP, "package.json"), "utf8"));
     expect(BUNDLE_ID).toBe(build.appId);
     expect(PRODUCT_NAME).toBe(build.productName);
     expect(occurrences(BUNDLE_ID)).toBe(0);
-    expect(occurrences(PRODUCT_NAME)).toBe(0);
+    expect(quotedLiterals(PRODUCT_NAME)).toBe(0); // the name appears in prose; what is banned is a second constant spelling it
   });
 });
 

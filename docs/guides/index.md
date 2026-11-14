@@ -16,7 +16,7 @@ machine, in CI and inside your AI coding agent.
 
 ## Guides, in the order you will need them
 
-- [Quick start](../../README.md#try-it-on-your-robot): check a model, lock it, add CI, add your agent.
+- [Quick start](../../README.md#check-your-robot): check a model, lock it, add CI, add your agent.
 - [Using Lockwire](users.md): every flag of `check` and `start`, datasheets, verdicts, exit
   codes, xacro, the robot catalog, and checking a sim file against the lock.
 - [CI](ci.md): the GitHub Action and every input, adopt mode, pre-commit.
@@ -24,6 +24,7 @@ machine, in CI and inside your AI coding agent.
 - [Every check](checks.md): what each check compares, generated from the code.
 - [The parts list](parts.md): cited and unverified parts, your own parts, adding one.
 - [Part swap](part-swap.md): which servo can replace the one on a joint, and what it does to the joints above.
+- [From Onshape](onshape.md): get an Onshape robot into a URDF, check it, and export it back out.
 - [Servo recorder](servo-recorder.md): record Feetech and Dynamixel servos, read-only.
 - [The MCP server](../mcp_server.md): the tools an agent can call.
 

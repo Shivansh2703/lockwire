@@ -18,7 +18,7 @@ Robot mode serves an allowlist of read commands; every other command is refused 
 
 **The sidecar computes nothing of its own.** Each handler calls the
 matching ``lockwire.api`` function and wraps the document it returns. ``report``
-and ``page``'s scene lookup is ``api.load_scene`` (E1-at); ``page`` has no CLI
+and ``page``'s scene lookup is ``api.load_scene``; ``page`` has no CLI
 command (``api.page`` is not in ``FUNCTIONS`` — see its docstring), so it is not
 one of the CLI-named twins either; it wraps ``api.page``, which wraps
 ``page.build_payload``, unchanged.
@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
 # ---------------------------------------------------------------------------
-# The reply shape (plan §3): always this, whichever command ran.
+# The reply shape (the plan's reply contract): always this, whichever command ran.
 
 
 class RunReply(BaseModel):
@@ -142,8 +142,22 @@ class CheckArgs(_StrictArgs):
     contract: str = "lockwire.yaml"
 
 
+class FindingsExportArgs(_StrictArgs):
+    contract: str = "lockwire.yaml"
+    format: Literal["csv", "tsv"] = "csv"
+
+
+class ExportArgs(_StrictArgs):
+    contract: str = "lockwire.yaml"
+    format: str
+    out: str | None = None
+    units: Literal["m", "mm"] | None = None
+    segments: int | None = None
+    force: bool = False
+
+
 class SceneRequest(_StrictArgs):
-    """The caller's half of the geometry-behind-a-hash negotiation (e1-b2):
+    """The caller's half of the geometry-behind-a-hash negotiation:
     the sha256 (``scene_view.scene_hash``) of the geometry it already has."""
 
     have: str | None = None
@@ -172,7 +186,7 @@ class ReportArgs(_StrictArgs):
 
 class PageArgs(_StrictArgs):
     """Same shape as ``GuiArgs`` minus ``out``: the page has nowhere to write to
-    here, it comes back in the reply's ``payload`` (e1-pg)."""
+    here, it comes back in the reply's ``payload``."""
 
     contract: str = "lockwire.yaml"
     scene: str | None = None
@@ -191,16 +205,53 @@ class DiffArgs(_StrictArgs):
     b: str | None = None
 
 
+class ContractAtArgs(_StrictArgs):
+    contract: str = "lockwire.yaml"
+    ref: str
+
+
 class DeclareArgs(_StrictArgs):
     contract: str
     path: str
     value: Any
     source: str
-    witness: str
+    witness: str | None = None  # omit or null: anonymous, no name recorded (a quick edit)
+    formal: bool = False  # the Declare form: a name is required, enforced here, not in the app
     note: str | None = None
     locked_at: str | None = None
     dry_run: bool = False
     expected_revision: str | None = None
+
+
+class BatchChangeArgs(_StrictArgs):
+    """One batch item. ``op`` picks the shape: declare (default), add, place, move."""
+
+    op: Literal["declare", "add", "place", "move"] = "declare"
+    source: str
+    witness: str | None = None  # omit or null: anonymous, no name recorded
+    note: str | None = None
+    locked_at: str | None = None
+    unit: str | None = None
+    path: str | None = None  # declare
+    value: Any = None  # declare
+    kind: str | None = None  # add
+    fields: dict[str, Any] = Field(default_factory=dict)  # add
+    target: str | None = None  # place, move
+    on: str | None = None  # place
+    offset: tuple[float, float, float] | None = None  # place, move
+
+
+class BatchEditArgs(_StrictArgs):
+    contract: str
+    changes: list[BatchChangeArgs]
+    journal: bool = True
+    dry_run: bool = False
+    expected_revision: str | None = None
+
+
+class BatchEditCommand(BaseModel):
+    command: Literal["batch-edit"] = "batch-edit"
+    args: BatchEditArgs
 
 
 class AddArgs(_StrictArgs):
@@ -209,9 +260,31 @@ class AddArgs(_StrictArgs):
     id: str | None = None
     fields: dict[str, Any] = Field(default_factory=dict)
     source: str
-    witness: str
+    witness: str | None = None  # omit or null: anonymous, nothing is stamped
     note: str | None = None
     locked_at: str | None = None
+    dry_run: bool = False
+    expected_revision: str | None = None
+
+
+class DeleteArgs(_StrictArgs):
+    contract: str
+    kind: Literal["link", "joint", "device", "shape", "group"]
+    name: str
+    index: int | None = None
+    source: str
+    witness: str | None = None
+    dry_run: bool = False
+    expected_revision: str | None = None
+
+
+class RenameArgs(_StrictArgs):
+    contract: str
+    kind: Literal["link", "joint", "device", "rail", "wire", "param", "group"]
+    old: str
+    new: str
+    source: str
+    witness: str | None = None
     dry_run: bool = False
     expected_revision: str | None = None
 
@@ -242,6 +315,20 @@ class UndoArgs(_StrictArgs):
     expected_revision: str | None = None
 
 
+class StepArgs(_StrictArgs):
+    contract: str
+
+
+class UndoEditCommand(BaseModel):
+    command: Literal["undo-edit"] = "undo-edit"
+    args: StepArgs
+
+
+class RedoEditCommand(BaseModel):
+    command: Literal["redo-edit"] = "redo-edit"
+    args: StepArgs
+
+
 class PlaceArgs(_StrictArgs):
     contract: str
     target: str
@@ -249,7 +336,7 @@ class PlaceArgs(_StrictArgs):
     offset: tuple[float, float, float]
     unit: str
     source: str
-    witness: str
+    witness: str | None = None  # omit or null: anonymous, nothing is stamped
     note: str | None = None
     locked_at: str | None = None
     dry_run: bool = False
@@ -262,7 +349,7 @@ class MoveArgs(_StrictArgs):
     offset: tuple[float, float, float]
     unit: str
     source: str
-    witness: str
+    witness: str | None = None  # omit or null: anonymous, nothing is stamped
     note: str | None = None
     locked_at: str | None = None
     dry_run: bool = False
@@ -275,7 +362,7 @@ class RotateArgs(_StrictArgs):
     rpy: tuple[float, float, float]
     unit: str
     source: str
-    witness: str
+    witness: str | None = None  # omit or null: anonymous, nothing is stamped
     note: str | None = None
     locked_at: str | None = None
     dry_run: bool = False
@@ -287,7 +374,7 @@ class ReparentArgs(_StrictArgs):
     target: str
     to: str
     source: str
-    witness: str
+    witness: str | None = None  # omit or null: anonymous, nothing is stamped
     note: str | None = None
     locked_at: str | None = None
     dry_run: bool = False
@@ -306,7 +393,7 @@ class MountShapeArgs(_StrictArgs):
     target: str
     shape: MountShape
     source: str
-    witness: str
+    witness: str | None = None  # omit or null: anonymous, nothing is stamped
     note: str | None = None
     locked_at: str | None = None
     dry_run: bool = False
@@ -347,7 +434,7 @@ class CheckCommand(BaseModel):
     command: Literal["check"] = "check"
     args: CheckArgs = Field(default_factory=CheckArgs)
     #: Sibling of ``args``, not nested in it: the scene negotiation is a
-    #: transport concern, not a `check` argument the CLI shares (e1-b2).
+    #: transport concern, not a `check` argument the CLI shares.
     scene: SceneRequest | None = None
     actuator_evidence: dict[str, ArtifactRef] | None = None
     evidence_root: str | None = None
@@ -438,6 +525,11 @@ class DiffCommand(BaseModel):
     args: DiffArgs = Field(default_factory=DiffArgs)
 
 
+class ContractAtCommand(BaseModel):
+    command: Literal["contract-at"] = "contract-at"
+    args: ContractAtArgs
+
+
 class DeclareCommand(BaseModel):
     command: Literal["declare"] = "declare"
     args: DeclareArgs
@@ -448,14 +540,43 @@ class AddCommand(BaseModel):
     args: AddArgs
 
 
+class DeleteCommand(BaseModel):
+    command: Literal["delete"] = "delete"
+    args: DeleteArgs
+
+
+class RenameCommand(BaseModel):
+    command: Literal["rename"] = "rename"
+    args: RenameArgs
+
+
 class ReviewCommand(BaseModel):
     command: Literal["review"] = "review"
     args: ReviewArgs
 
 
+class SetWitnessArgs(_StrictArgs):
+    name: str
+
+
+class SetWitnessCommand(BaseModel):
+    command: Literal["set-witness"] = "set-witness"
+    args: SetWitnessArgs
+
+
 class CommitCommand(BaseModel):
     command: Literal["commit"] = "commit"
     args: CommitArgs
+
+
+class FindingsExportCommand(BaseModel):
+    command: Literal["findings-export"] = "findings-export"
+    args: FindingsExportArgs
+
+
+class ExportCommand(BaseModel):
+    command: Literal["export"] = "export"
+    args: ExportArgs
 
 
 class UndoCommand(BaseModel):
@@ -490,7 +611,7 @@ class MountShapeCommand(BaseModel):
 
 _LOAD_ERRORS = (FileNotFoundError, KeyError, OSError, TypeError, ValueError, YAMLError)
 
-#: The parsed-scene cache (e1-b2): keyed by ``(path, root-file digest)`` so a scene
+#: The parsed-scene cache: keyed by ``(path, root-file digest)`` so a scene
 #: edited on disk is re-parsed and a re-request for the same file is not.
 #: Single-process, in-memory, unbounded — the sidecar serves one robot's
 #: contract tree per run, so the key space is small by construction.
@@ -499,7 +620,7 @@ _SCENE_CACHE: dict[tuple[str, str], Any] = {}
 
 
 def _cached_scene(contract_path: Path) -> tuple[Any, str | None]:
-    """Discover the scene beside ``contract_path`` (T2 — ``check`` takes no
+    """Discover the scene beside ``contract_path`` (scene discovery — ``check`` takes no
     ``--scene`` flag, `cli.py:454`) and load it, caching the parse by
     ``(path, root-file digest)``. Discovery and the actual parse (``load_scene_any``)
     are the same calls ``api.load_scene`` makes — this wraps them with a
@@ -581,7 +702,7 @@ def _handle_check(command: CheckCommand) -> RunReply:
                 labels=[],
                 decimate=False,
             )
-        # The lens bar's words ride beside the scene they label (E2-j2), on the same
+        # The lens bar's words ride beside the scene they label, on the same
         # condition as `scene` above — `_graph_view` is `report_html._graph`, the one
         # function the page payload already uses for this (`page.py`), not a second
         # computation of it.
@@ -699,6 +820,7 @@ def _handle_plan(args: PlanArgs) -> RunReply:
         from lockwire import page as gui  # noqa: PLC0415
 
         by_step = gui.step_targets(api.load(args.contract), args.plan)
+        document["motion"] = gui.motion_preview(api.load(args.contract), load_plan(Path(args.plan)))
         for step in document.get("steps", []):
             index = step["path"].split("/")[2:3]  # plan/steps/<i>/...
             if index and index[0].isdigit() and int(index[0]) < len(by_step):
@@ -768,7 +890,7 @@ def page_reply(
     args: PageArgs, run_of: Callable[[Any], tuple[list[Any], str]] | None = None
 ) -> RunReply:
     """The window's document: the payload ``page.build_payload`` computes, returned in
-    the reply (e1-pg). ``page`` has no CLI command of its own (a wrapper needs a
+    the reply. ``page`` has no CLI command of its own (a wrapper needs a
     twin only when one exists), so the ``cli_line`` names ``lockwire check``, the
     nearest command that reads the same contract. ``run_of(contract)`` is a plugin's
     way to hand the page extra findings; the free handler passes none."""
@@ -831,6 +953,15 @@ def _handle_log(args: LogArgs) -> RunReply:
     )
 
 
+def _handle_contract_at(args: ContractAtArgs) -> RunReply:
+    cli_line = f"git show {args.ref}:{args.contract}"
+    try:
+        payload = api.contract_at(args.contract, args.ref)
+    except _LOAD_ERRORS as error:
+        return _refusal(cli_line, 2, str(error))
+    return _ok(cli_line, exit_code=0, verdict=None, payload=payload)
+
+
 def _handle_diff(args: DiffArgs) -> RunReply:
     cli_line = f"lockwire diff {args.a}"
     if args.b is not None:
@@ -849,6 +980,10 @@ def _parse_locked_at(value: str | None) -> dt.date | None:
 
 
 def _handle_declare(args: DeclareArgs) -> RunReply:
+    from lockwire.edit import EditRefusal
+
+    if args.formal and args.witness is None:
+        raise EditRefusal("A formal declaration needs a name: say who is declaring.")
     cli_line = f"lockwire declare {args.contract} {args.path}"
     document = api.declare(
         args.contract,
@@ -862,6 +997,49 @@ def _handle_declare(args: DeclareArgs) -> RunReply:
         expected_revision=args.expected_revision,
     )
     return _ok(cli_line, exit_code=0, verdict=None, payload=document)
+
+
+def _batch_step(c: BatchChangeArgs) -> tuple[str, Any]:
+    """One item as (label, run(path)); a missing field for its op is a refusal."""
+    from lockwire import edit  # noqa: PLC0415
+
+    when = _parse_locked_at(c.locked_at)
+    need = {"declare": ("path", "witness"), "add": ("kind",), "place": ("target", "on", "offset", "witness"), "move": ("target", "offset", "witness")}[c.op]  # fmt: skip
+    if missing := [n for n in need if getattr(c, n) is None]:
+        raise edit.EditRefusal(f"{c.op} needs {', '.join(missing)}")
+    if c.op == "declare":
+        change = edit.Change(c.path, c.value, c.source, c.witness, c.note, when, c.unit)
+        return f"declare {c.path}", lambda p: edit.apply_changes(p, [change])
+    if c.op == "add":
+        return f"add {c.kind}", lambda p: edit.add_entry(p, c.kind, c.fields, source=c.source, witness=c.witness, note=c.note, locked_at=when)  # fmt: skip
+    fn = edit.place if c.op == "place" else edit.move
+    return f"{c.op} {c.target}", lambda p: fn(p, c.target, *([c.on] if c.op == "place" else []), c.offset, unit=c.unit, source=c.source, witness=c.witness, note=c.note, locked_at=when)  # fmt: skip
+
+
+def _handle_batch_edit(args: BatchEditArgs) -> RunReply:
+    """All changes in one write, so one undo step; any refusal writes and records nothing."""
+    from lockwire import edit  # noqa: PLC0415
+
+    if all(c.op == "declare" for c in args.changes):  # the original shape, unchanged
+        changes = [
+            edit.Change(c.path, c.value, c.source, c.witness, c.note, _parse_locked_at(c.locked_at), c.unit)  # fmt: skip
+            for c in args.changes
+        ]
+        result = edit.apply_changes(Path(args.contract), changes, dry_run=args.dry_run, expected_revision=args.expected_revision, journal=args.journal)  # fmt: skip
+    else:
+        steps = []
+        for index, c in enumerate(args.changes, start=1):
+            try:
+                steps.append(_batch_step(c))
+            except edit.EditRefusal as error:
+                raise edit.EditRefusal(f"item {index} ({c.op}): {error}") from error
+        result = edit.apply_batch(Path(args.contract), steps, dry_run=args.dry_run, expected_revision=args.expected_revision, journal=args.journal)  # fmt: skip
+    return _ok(
+        f"lockwire batch-edit {args.contract}",
+        exit_code=0,
+        verdict=None,
+        payload={"written": result.written, "diff": result.diff},
+    )
 
 
 def _handle_declare_form(args: DeclareFormArgs) -> RunReply:
@@ -891,6 +1069,58 @@ def _handle_add(args: AddArgs) -> RunReply:
     return _ok(cli_line, exit_code=0, verdict=None, payload=document)
 
 
+def _handle_delete(args: DeleteArgs) -> RunReply:
+    from lockwire.edit import delete_entry
+    from lockwire.report_json import envelope
+
+    path = Path(args.contract)
+    result = delete_entry(
+        path,
+        args.kind,
+        args.name,
+        source=args.source,
+        witness=args.witness,
+        dry_run=args.dry_run,
+        expected_revision=args.expected_revision,
+        index=args.index,
+    )
+    document = {"written": result.written, "diff": result.diff, "lines": list(result.lines)}
+    document["contract_sha"] = api.contract_sha(path)
+    document["revision"] = contract_revision(path)
+    return _ok(
+        f"lockwire delete {args.kind} {args.contract}",
+        exit_code=0,
+        verdict=None,
+        payload=envelope("lockwire-edit-result", document),
+    )
+
+
+def _handle_rename(args: RenameArgs) -> RunReply:
+    from lockwire.edit import rename_entry
+    from lockwire.report_json import envelope
+
+    path = Path(args.contract)
+    result = rename_entry(
+        path,
+        args.kind,
+        args.old,
+        args.new,
+        source=args.source,
+        witness=args.witness,
+        dry_run=args.dry_run,
+        expected_revision=args.expected_revision,
+    )
+    document = {"written": result.written, "diff": result.diff, "lines": list(result.lines)}
+    document["contract_sha"] = api.contract_sha(path)
+    document["revision"] = contract_revision(path)
+    return _ok(
+        f"lockwire rename {args.kind} {args.contract}",
+        exit_code=0,
+        verdict=None,
+        payload=envelope("lockwire-edit-result", document),
+    )
+
+
 def _handle_review(args: ReviewArgs) -> RunReply:
     cli_line = f"lockwire review {args.contract} {args.path} {args.state}"
     document = api.review(
@@ -906,6 +1136,18 @@ def _handle_review(args: ReviewArgs) -> RunReply:
     return _ok(cli_line, exit_code=0, verdict=None, payload=document)
 
 
+def _handle_set_witness(args: SetWitnessArgs) -> RunReply:
+    from lockwire.edit import write_default_witness
+
+    name = write_default_witness(args.name)
+    return _ok(
+        "lockwire set-witness",
+        exit_code=0,
+        verdict=None,
+        payload={"written": True, "witness": name},
+    )
+
+
 def _handle_commit(args: CommitArgs) -> RunReply:
     cli_line = f"lockwire commit {args.contract}"
     document = vcs.commit_contract(
@@ -918,6 +1160,65 @@ def _handle_commit(args: CommitArgs) -> RunReply:
     return _ok(cli_line, exit_code=0, verdict=None, payload=document)
 
 
+def _handle_findings_export(args: FindingsExportArgs) -> RunReply:
+    from lockwire import findings_export
+    from lockwire.checks import run_record_checks
+
+    cli_line = f"lockwire check {args.contract} --format {args.format}"
+    try:
+        findings = run_record_checks(load_contract(Path(args.contract)), contract_path=Path(args.contract))
+    except _LOAD_ERRORS as error:
+        return _refusal(cli_line, 2, str(error))
+    payload = {
+        "rows": findings_export.rows(findings),
+        "verdict": findings_export.verdict_row(findings),
+        "text": findings_export.table(findings, findings, "," if args.format == "csv" else "\t"),
+    }
+    return _ok(cli_line, exit_code=0, verdict=None, payload=payload)
+
+
+def _handle_export(args: ExportArgs) -> RunReply:
+    from lockwire import export_model
+
+    fmt = args.format
+    cli_line = f"lockwire export {args.contract} --format {fmt}"
+    if fmt == "step":
+        return _refusal(cli_line, 2, export_model.STEP_REFUSAL)
+    mesh = fmt in ("stl", "obj", "dae")
+    if not mesh and fmt not in export_model.SUFFIX:
+        return _refusal(cli_line, 2, f"format must be urdf, sdf, mjcf, stl, obj or dae, not {fmt!r}")
+    if not mesh and (args.units is not None or args.segments is not None):
+        return _refusal(cli_line, 2, f"units and segments apply to stl, obj and dae, not {fmt}")
+    contract = Path(args.contract)
+    try:
+        loaded = load_contract(contract)
+    except _LOAD_ERRORS as error:
+        return _refusal(cli_line, 2, str(error))
+    if loaded.model is None:
+        return _refusal(cli_line, 2, "the lockfile holds no model to export")
+    default = export_model.default_stl_dir(contract, fmt) if mesh else export_model.default_out(contract, fmt)
+    try:  # inside the contract's folder, never over a lockfile
+        out = confine(args.out or default, contract, contract.resolve().parent)
+        if mesh:
+            kw = {} if args.segments is None else {"segments": args.segments}
+            written, notes = export_model.write_mesh(
+                loaded.model, out, fmt, args.units or "m", force=args.force,
+                source_root=contract.parent, **kw,
+            )
+        else:
+            written = [
+                export_model.write(
+                    loaded.model, fmt, out, force=args.force, source_root=contract.parent
+                )
+            ]
+            notes = []
+    except (OSError, ValueError) as error:
+        return _refusal(cli_line, 2, str(error))
+    units = (args.units or "m") if mesh else None
+    payload = {"written": [str(p) for p in written], "notes": notes, "units": units}
+    return _ok(cli_line, exit_code=0, verdict=None, payload=payload)
+
+
 def _handle_undo(args: UndoArgs) -> RunReply:
     cli_line = f"lockwire undo {args.contract} --source {args.source}"
     plan = vcs.undo_plan(args.contract, source=args.source)
@@ -927,6 +1228,24 @@ def _handle_undo(args: UndoArgs) -> RunReply:
         else:
             vcs.apply_undo(plan, contract=args.contract, expected_revision=args.expected_revision)
     return _ok(cli_line, exit_code=0, verdict=None, payload=plan)
+
+
+def _handle_undo_edit(args: StepArgs) -> RunReply:
+    from lockwire.edit import undo_edit
+
+    undo_edit(Path(args.contract))
+    return _ok(
+        f"lockwire undo {args.contract}", exit_code=0, verdict=None, payload={"undone": True}
+    )
+
+
+def _handle_redo_edit(args: StepArgs) -> RunReply:
+    from lockwire.edit import redo_edit
+
+    redo_edit(Path(args.contract))
+    return _ok(
+        f"lockwire redo {args.contract}", exit_code=0, verdict=None, payload={"redone": True}
+    )
 
 
 def _handle_place(args: PlaceArgs) -> RunReply:
@@ -1078,11 +1397,22 @@ _FREE_COMMANDS = {
     "page": plugins.ServeCommand(_handle_page, PageArgs, PageCommand),
     "log": plugins.ServeCommand(_handle_log, LogArgs, LogCommand),
     "diff": plugins.ServeCommand(_handle_diff, DiffArgs, DiffCommand),
+    "contract-at": plugins.ServeCommand(_handle_contract_at, ContractAtArgs, ContractAtCommand),
     "declare": plugins.ServeCommand(_handle_declare, DeclareArgs, DeclareCommand),
+    "batch-edit": plugins.ServeCommand(_handle_batch_edit, BatchEditArgs, BatchEditCommand),
     "add": plugins.ServeCommand(_handle_add, AddArgs, AddCommand),
+    "delete": plugins.ServeCommand(_handle_delete, DeleteArgs, DeleteCommand),
+    "rename": plugins.ServeCommand(_handle_rename, RenameArgs, RenameCommand),
     "review": plugins.ServeCommand(_handle_review, ReviewArgs, ReviewCommand),
+    "set-witness": plugins.ServeCommand(_handle_set_witness, SetWitnessArgs, SetWitnessCommand),
     "commit": plugins.ServeCommand(_handle_commit, CommitArgs, CommitCommand),
+    "findings-export": plugins.ServeCommand(
+        _handle_findings_export, FindingsExportArgs, FindingsExportCommand
+    ),
+    "export": plugins.ServeCommand(_handle_export, ExportArgs, ExportCommand),
     "undo": plugins.ServeCommand(_handle_undo, UndoArgs, UndoCommand),
+    "undo-edit": plugins.ServeCommand(_handle_undo_edit, StepArgs, UndoEditCommand),
+    "redo-edit": plugins.ServeCommand(_handle_redo_edit, StepArgs, RedoEditCommand),
     "place": plugins.ServeCommand(_handle_place, PlaceArgs, PlaceCommand),
     "move": plugins.ServeCommand(_handle_move, MoveArgs, MoveCommand),
     "rotate": plugins.ServeCommand(_handle_rotate, RotateArgs, RotateCommand),
@@ -1110,7 +1440,10 @@ def request_type(table: dict[str, plugins.ServeCommand] | None = None) -> Any:
 _REVISION_GUARDED_COMMANDS = frozenset(
     {
         "declare",
+        "batch-edit",
         "add",
+        "delete",
+        "rename",
         "review",
         "commit",
         "undo",
@@ -1172,7 +1505,7 @@ def dispatch(body: Any, state: Any = None) -> RunReply:
 _ROBOT_READ_COMMANDS = frozenset(
     {"starters", "check", "what-if", "plan", "declare-form", "page", "swap-preview"}
 )
-_HOST_ONLY_COMMANDS = frozenset({"diff", "log"})
+_HOST_ONLY_COMMANDS = frozenset({"diff", "log", "contract-at"})
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
@@ -1282,12 +1615,12 @@ def _log_dir() -> Path:
     """The platform's real log location — never the cwd (a packaged app's
     working directory is wherever it happened to be launched from) and never a
     location the release checklist's uninstall promise ("only the log folder"
-    survives, docs/release_checklist.md §2) would have to special-case.
+    survives, per the release checklist) would have to special-case.
 
     macOS (the only shipping platform today): ``~/Library/Logs/Lockwire`` —
     the OS's own per-app log convention, shown by Console.app and untouched by an
     app bundle's own uninstall (dragging the .app to Trash). Linux/Windows follow
-    each platform's equivalent convention so the same code holds if E6 ships them;
+    each platform's equivalent convention so the same code holds if packaging ships them;
     no third-party dependency (stdlib + environment variables only).
 
     ``LOCKWIRE_LOG_DIR`` overrides everything above. The test suite sets it via an

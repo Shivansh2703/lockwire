@@ -262,7 +262,7 @@ def test_payload_matches_x500_with_its_scene():
 
 def test_payload_matches_the_empty_state_card_after_start(tmp_path, monkeypatch):
     """`_empty_state_card` (gui.py) is `_cards`' one hand-built dict, not one of
-    the generic per-finding cards — e3-cf2, respin: it shipped `Card.consumer`
+    the generic per-finding cards — an earlier version shipped `Card.consumer`
     with no default, which made the field REQUIRED, and `_empty_state_card`
     never sets it. `lockwire start` on a fresh model is exactly the path that
     hits it, so the accept line runs that path rather than only the fixture
@@ -299,7 +299,7 @@ def test_mutation_bite_new_build_payload_key_fails_the_drift_test():
 
 
 # ------------------------------------------------------------ the scene wire format
-# e1-b2: the geometry leaves the reply behind a hash. the wire-format doc is the
+# The geometry leaves the reply behind a hash. the wire-format doc is the
 # spec; these tests hold the Python encoder/decoder to it and each other.
 
 
@@ -365,13 +365,15 @@ def test_translation_is_an_origin_not_a_transform():
     assert any(abs(shifted[i] - want) > scale / 2 + 1e-9 for i, want in enumerate(moved.positions))
 
 
-def test_api_serves_parts_undecimated():
+def test_api_serves_parts_undecimated(monkeypatch):
     """`decimate=False` (the sidecar's flag) ships every triangle regardless of
     the 150,000-triangle display cap that `decimate=True` (`gui --out`) applies
     to the same scene."""
     from lockwire.scene import Scene, ScenePart
     from lockwire.scene_view import scene_payload
 
+    monkeypatch.setattr("lockwire.scene_view._DISPLAY_TRIANGLES", 150_000)
+    monkeypatch.setattr("lockwire.catalog._CACHE", {})
     vertices = 450_003  # > 150,000 triangles, unshared-vertex layout (test_gui.py's own pattern)
     positions = tuple(v for i in range(vertices) for v in ((i % 3 == 1), (i % 3 == 2), 0.0))
     indices = tuple(range(vertices - vertices % 3))
@@ -441,7 +443,7 @@ def test_every_served_command_has_a_union_member(tmp_path):
 
 
 def test_the_union_discriminates_on_the_envelopes_artifact_type(tmp_path):
-    """E0-25's `artifact_type` is the discriminator — the union does not invent
+    """The envelope's `artifact_type` is the discriminator — the union does not invent
     a second one. Every member's key in `MEMBERS` is the literal its model
     declares, and a document is routed by that key alone."""
     for artifact_type, model in MEMBERS.items():
@@ -580,17 +582,17 @@ def test_declare_form_rows_carry_a_short_group_and_name():
 
 
 def test_declare_form_member_carries_every_declarable_quantity():
-    """E4-df: the declare form's rows, validated as real output — not the
-    Card-polluted `_every_document`/page path, which this box does not own.
+    """The declare form's rows, validated as real output — not the
+    Card-polluted `_every_document`/page path, which this change does not own.
 
     A row's ``kind``/``label`` are the whole reason the three blocked face
-    boxes (e4-b-r2, e4-c-r2, e4-d) can render one truthfully without
+    panes can render one truthfully without
     computing anything themselves: drop either from the producer and
     this is the test that reddens.
     """
     document = DeclareFormPayload.model_validate(api.declare_form(X500))
     by_path = {row.path: row for row in document.rows}
-    # e4-df-r2: the case most likely to fail, per the charter check rule below
+    # The case most likely to fail, per the charter check rule below
     # -- a `model/links/*/mass` row. `Link` has no `provenance` field of its
     # own (schema.py:270), so this is exactly the shape `declare` refused on
     # before edit.py's `_UNSTRUCTURED_PROVENANCE_OWNERS` fix.
@@ -613,7 +615,7 @@ def test_declare_form_member_carries_every_declarable_quantity():
 
 
 def test_every_declared_row_the_payload_emits_survives_declares_own_resolver(tmp_path):
-    """e4-df-r2: the payload's promise is that every ``path`` it emits is "the
+    """The payload's promise is that every ``path`` it emits is "the
     exact `/`-separated string `declare` accepts". That was FALSE for a
     `model/links/*/mass` row (measured: ``EditRefusal: cannot stamp
     provenance at model/links``) even though the row was emitted correctly --
@@ -645,7 +647,7 @@ def test_every_declared_row_the_payload_emits_survives_declares_own_resolver(tmp
                     Change(
                         path=row.path,
                         value=value,
-                        source="re-declare (e4-df-r2 resolver sweep)",
+                        source="re-declare (resolver sweep)",
                         witness="human",
                         locked_at=LOCKED_AT,
                     )
@@ -733,7 +735,7 @@ def test_every_number_in_the_union_carries_its_kind():
     )
 
 
-# e1-gk: the scene's mesh-derived numbers are `measured`, checked against the
+# The scene's mesh-derived numbers are `measured`, checked against the
 # the rule's own words, not just against "some kind is present" (this file's stated
 # ceiling, above). `docs/words.md`'s kind table: `declared` = "the contract author
 # wrote it (a datasheet value, a limit)"; `measured` = "a run produced it (a
@@ -744,8 +746,7 @@ def test_every_number_in_the_union_carries_its_kind():
 # typed into the contract. `scene_view.scene_payload`'s own `honesty` string draws
 # the same line: "shapes come from the model; positions are declared only where the
 # contract says so" — `declared` is reserved for what the contract itself states.
-# The sibling branch that owns this mechanism (e1-kt phase 2, `9aa8f08`,
-# unmerged) agrees: its `_GEOMETRY_PRODUCER_KINDS` registry keys
+# The sibling branch that owns this mechanism (unmerged) agrees: its `_GEOMETRY_PRODUCER_KINDS` registry keys
 # `scene.load_scene` to `"measured"` and reserves `"derived"` for
 # `scene_inferred.inferred_scene_payload` (a placeholder scene with no real
 # file behind it) — precisely to stop an inferred scene from claiming
@@ -975,12 +976,12 @@ def _looks_like_magnitude(value: str) -> bool:
 def test_every_string_figure_exemption_satisfies_the_admission_rule(tmp_path):
     """The guard inspects VALUES, not reasons. Each exempted field's actual
     value in rendered documents must NOT parse as a magnitude, except for
-    entries explicitly marked as xfail (e.g., e1-gl known violations).
+    entries explicitly marked as xfail (e.g., known violations).
 
     This test validates the values themselves, so the exemption list cannot
     grow by matching prose alone.
     """
-    # Known violations marked with e1-gl (the box that will fix them)
+    # Known violations marked as known (a later change will fix them)
     known_violations = {
         "GraphNode.sub",
         "GraphEdge.label",
@@ -1016,7 +1017,7 @@ def test_every_string_figure_exemption_satisfies_the_admission_rule(tmp_path):
         if is_magnitude and key not in known_violations:
             failures.append(
                 f"  {key} = {value!r} (from `{door_name}`) looks like a magnitude "
-                f"but is not in known_violations with e1-gl"
+                f"but is not in known_violations"
             )
         elif key in known_violations and not is_magnitude:
             failures.append(
@@ -1194,7 +1195,7 @@ def test_self_kinded_and_marked_kinds_match_real_producers():
 # --------------------------------------------------------------- lenses
 #
 # labels are payload strings the app never invents. Two workers on two
-# bases refused e2-f's lens tests for exactly this — a renderer composing lens
+# bases refused the lens tests for exactly this — a renderer composing lens
 # words itself. This is the payload sweep that makes the rule durable: every
 # lens the union names carries its own caption, and every scene part the union
 # ships is claimed by at least one lens. Both are enumerations (rule 10/11):
@@ -1238,7 +1239,7 @@ def test_every_scene_part_is_in_at_least_one_lens():
     )
 
 
-# ---------------------------------------------------------- e4-pf: Reference drawers
+# ---------------------------------------------------------- Reference drawers
 
 
 def _command_flag_names(command_name: str) -> set[str]:
@@ -1265,8 +1266,8 @@ def test_every_reference_drawer_names_a_real_flag():
     turns this red on its own).
 
     MEASURED: `api_payload.build_union` (the payload union's whole-document
-    assembler) is not on this branch — it lands with e1-b6, still queued,
-    and this box's own brief names it as a blocker. The Reference face is
+    assembler) is not on this branch — it lands later, still queued,
+    and the task brief names it as a blocker. The Reference face is
     built by `gui.build_payload(...)["faces"]["reference"]`, the same
     function `build_union`'s eventual page member calls — so this test
     exercises the real producer, not a stand-in for the missing assembler.
@@ -1292,7 +1293,7 @@ def test_every_reference_drawer_names_a_real_flag():
         )
 
 
-# --------------------------------------------------------------- e2-lf: layout values vs number slots
+# --------------------------------------------------------------- layout values vs number slots
 
 # `ScenePayload.bounds` and `ScenePart.translation` are DELIBERATELY kind-less (LAYOUT_FIELDS,
 # above) — they are positions, not measurements. That means `test_every_number_in_the_union_carries_
@@ -1303,7 +1304,7 @@ def test_every_reference_drawer_names_a_real_flag():
 # `{"value": ..., "kind": ...}` dict literal bypassing `_figure` — proving no such call's numeric
 # argument traces back to a `bounds`/`translation` read, anywhere in `src/lockwire/`.
 #
-# Rule 47 (this box's brief quotes it directly): a sweep that only matches the ONE spelling of the
+# A sweep that only matches the ONE spelling of the
 # violation it was written against is not a sweep. So the trace below is a real (if bounded) taint
 # analysis, not a grep: an assignment whose right-hand side reads `.bounds`/`.translation` (attribute,
 # string-keyed subscript, or a bare name spelled `bounds`/`translation`) taints its target name(s),

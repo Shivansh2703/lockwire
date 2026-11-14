@@ -160,7 +160,7 @@ export function ReferenceFace({ payload, selectedPlanFinding: f = null, names, o
               { label: "Expected", value: to(at, <span className="reference-plan-finding-expected">{f.expected}</span>, own) },
               { label: "Fix", value: to(at, <span className="reference-plan-finding-action">{f.action}</span>, own) },
               { label: "Source", value: to(`Go to the review of ${f.quantity}`, f.source ?? "source unknown", review) },
-              { label: "Witness", value: to(`Go to the review of ${f.quantity}`, f.witness ?? "witness unknown", review) },
+              { label: "Checked by", value: to(`Go to the review of ${f.quantity}`, f.witness ?? "unknown", review) },
               { label: "Locked", value: <span className="reference-plan-finding-locked-at">{f.locked_at ?? "date unknown"}</span> },
               ...((f.alternatives ?? []).length ? [{
                 label: "Instead",
@@ -183,8 +183,8 @@ export function ReferenceFace({ payload, selectedPlanFinding: f = null, names, o
       </div>
       {payload.devices.length > 0 && (
         <div className="reference-face-devices">
-          <Disclosure summary={`Devices (${payload.devices.length})`}>
-            <Field label="Search" aria-label="Search devices" placeholder="Search devices" value={q}
+          <Disclosure summary={`Parts (${payload.devices.length})`}>
+            <Field label="Search" aria-label="Search parts" placeholder="Search parts" value={q}
               onChange={(e: { target: { value: string } }) => setQ(e.target.value)} />
             <div className="reference-device-list">
               {devices.map((device) => (

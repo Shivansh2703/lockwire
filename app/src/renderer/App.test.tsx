@@ -1,9 +1,11 @@
+import { explainOpenError } from "./openError";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import { DECLARE_FORM, DIFF, HISTORY, PAGE, PAGE_WITH_SCENE, PLAN, deferred, mockMatchMedia, picked } from "./App.testkit";
+import { PLACED_SOURCE } from "./DesignControls";
+import { DECLARE_FORM, DIFF, HISTORY, PAGE, PAGE_WITH_SCENE, PLAN, deferred, goMode, mockMatchMedia, picked } from "./App.testkit";
 import type { PagePayload, PlanPayload } from "../shared/api.gen";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
 import { pro } from "./proRegistry";
@@ -11,11 +13,16 @@ import { readRecents } from "./recents";
 import { applyHighlight } from "./scene/robotScene";
 import { getSelectedPartId, setSelectedPartId } from "./scene/selectionStore";
 
-const canvasProps = vi.hoisted(() => ({ onDropPart: undefined as undefined | ((d: string, hit: null) => void) }));
+const canvasProps = vi.hoisted(() => ({ onDropPart: undefined as undefined | ((d: string, hit: null) => void), skeleton: undefined as unknown, parts: [] as unknown[] }));
 vi.mock("./scene/Canvas", () => ({
-  Canvas: ({ children, onDropPart }: { children?: React.ReactNode; onDropPart?: (d: string, hit: null) => void }) => { canvasProps.onDropPart = onDropPart; return <div data-testid="scene-canvas">{children}</div>; },
-  useScene: () => ({}),
+  Canvas: ({ children, onDropPart, skeleton, parts }: { children?: React.ReactNode; onDropPart?: (d: string, hit: null) => void; skeleton?: unknown; parts?: unknown[] }) => { canvasProps.onDropPart = onDropPart; canvasProps.skeleton = skeleton; canvasProps.parts = parts ?? []; return <div data-testid="scene-canvas">{children}</div>; },
+  useScene: () => ({ meshes: [] }),
 }));
+const { replies } = vi.hoisted(() => ({ replies: [] as Promise<{ written: boolean; refusal: string | null }>[] }));
+vi.mock("./DesignControls", async (orig) => {
+  const real = await orig<typeof import("./DesignControls")>();
+  return { ...real, DesignControls: (p: Parameters<typeof real.DesignControls>[0]) => <real.DesignControls {...p} onEdit={(r) => { replies.push(p.onEdit(r)); return replies.at(-1)!; }} /> };
+});
 vi.mock("./scene/robotScene", async (orig) => ({ ...(await orig<typeof import("./scene/robotScene")>()), applyHighlight: vi.fn(), applyDim: vi.fn(), focusCamera: vi.fn() }));
 
 
@@ -69,6 +76,38 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     expect(startFromUrdf).toHaveBeenLastCalledWith({ urdf: "/tmp/robot.urdf", expected_revision: "a".repeat(64) });
   });
 
+  it.each([["/tmp/robot.wbt", true], ["/tmp/robot.xml", false]])("a Webots file says there is no 3D view, other types do not (%s)", async (urdf, says) => {
+    const startFromUrdf = vi.fn().mockResolvedValue({
+      started: true, urdf, start: { path: "/tmp/lockwire.yaml", revision: "a".repeat(64), written: true },
+      opened: { opened: true, path: "/tmp/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD },
+    });
+    Object.assign(window, { lockwire: { startFromUrdf, getContractPage: vi.fn().mockResolvedValue({ ...PAGE_WITH_SCENE, joints: [{ name: "q", type: "revolute", parent: "a", child: "b", position: [0, 0, 0], axis: [0, 0, 1] }], revision: "a".repeat(64) }),
+      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
+    root = createRoot(container);
+    act(() => root.render(<App />));
+    await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Open robot")!.click());
+    expect(container.querySelector(".start-note")?.textContent ?? "").toContain(says ? "No 3D view for this file type" : "");
+    expect(container.textContent?.includes("No 3D view for this file type")).toBe(says);
+    expect(!!container.querySelector(".shell-hint")).toBe(!says); // nothing to turn: no orbit hint on a Webots file
+    expect(canvasProps.skeleton === undefined && canvasProps.parts.length === (says ? 0 : 1)).toBe(true); // and no body, not even the joint skeleton
+  });
+
+  it("after a Webots file, opening another robot shows that robot's view", async () => {
+    const reply = (urdf: string, dir: string) => ({ started: true, urdf, start: { path: `${dir}/lockwire.yaml`, revision: "a".repeat(64), written: false },
+      opened: { opened: true, path: `${dir}/lockwire.yaml`, payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
+    let menu: (r: unknown) => void = () => undefined;
+    Object.assign(window, { lockwire: { startFromUrdf: vi.fn().mockResolvedValue(reply("/w/robot.wbt", "/w")), onOpenedFromMenu: (cb: typeof menu) => { menu = cb; return () => undefined; },
+      getContractPage: vi.fn().mockResolvedValue({ ...PAGE_WITH_SCENE, revision: "a".repeat(64) }),
+      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
+    root = createRoot(container);
+    act(() => root.render(<App />));
+    const view = () => [!!container.querySelector(".shell-hint"), canvasProps.parts.length];
+    await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Open robot")!.click());
+    expect(view()).toEqual([false, 0]);
+    await act(async () => menu({ result: { started: false, opened: reply("/u/robot.urdf", "/u").opened } }));
+    expect(view()).toEqual([true, 1]); // File > Open Robot on an existing URDF lockfile: its parts and orbit hint are back
+  });
+
   it("shows the Start reply's note, so missing meshes are not silent", async () => {
     const note = "5 of 5 mesh files not found inside the robot's package folder; the 3D model is not recorded.";
     const startFromUrdf = vi.fn().mockResolvedValue({
@@ -103,16 +142,54 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     expect(readRecents().map((r) => r.path).filter((p) => p.startsWith("/r/"))).toEqual(["/r/lockwire.yaml"]); // moved: Recent lists the robot once
   });
 
-  it("an example opens from the app's folder and says where, with Save a copy… asking where to put an editable one", async () => {
-    const newRobot = vi.fn().mockResolvedValue({ started: false, example: "/ud/examples/rover", opened: { opened: true, path: "/ud/examples/rover/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
-    Object.assign(window, { lockwire: { newRobot, getStarters: vi.fn().mockResolvedValue([]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
+  it.each([
+    ["Start from blank", null, "Not saved yet. Save it to keep your work.", "Save…"],
+    ["Rover ·", "rover", "This is an example. Save a copy to keep your changes.", "Save a copy…"],
+  ])("%s opens from the app's folder with its own notice, and its button asks where to put an editable copy", async (button, starter, notice, label) => {
+    const newRobot = vi.fn().mockResolvedValue({ started: false, example: `/ud/examples/${starter ?? "blank"}`, opened: { opened: true, path: "/ud/examples/x/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
+    Object.assign(window, { lockwire: { newRobot, getSidecarState: vi.fn().mockResolvedValue({ phase: "ready" }), onSidecarState: vi.fn().mockReturnValue(() => undefined), getStarters: vi.fn().mockResolvedValue([{ name: "rover", title: "Rover", based_on: "Rover" }]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
       getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
     root = createRoot(container);
-    act(() => root.render(<App />));
-    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".open-face-new button")].find((b) => b.textContent === "Blank")!.click());
-    expect(container.querySelector(".start-note")?.textContent).toBe("This is an example robot. Save a copy to change it.Save a copy…");
-    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Save a copy…")!.click());
-    expect(newRobot.mock.calls).toEqual([[null, undefined], [null, true]]);
+    await act(async () => root.render(<App />));
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".open-face-new button")].find((b) => b.textContent!.startsWith(button))!.click());
+    expect(container.querySelector(".start-note")?.textContent).toBe(notice + label);
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === label)!.click());
+    expect(newRobot.mock.calls).toEqual([[starter, undefined], [starter, true]]);
+  });
+
+  it("with no robot open there is one Agent entry; it opens a blank robot and the Agent tab", async () => {
+    const newRobot = vi.fn().mockResolvedValue({ started: false, example: "/ud/examples/blank", opened: { opened: true, path: "/ud/examples/x/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
+    Object.assign(window, { lockwire: { newRobot, getSidecarState: vi.fn().mockResolvedValue({ phase: "ready" }), onSidecarState: vi.fn().mockReturnValue(() => undefined), getStarters: vi.fn().mockResolvedValue([{ name: "rover", title: "Rover", based_on: "Rover" }]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
+      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {}, getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }) } });
+    root = createRoot(container);
+    await act(async () => root.render(<App />));
+    const entries = [...container.querySelectorAll("button")].filter((b) => /Agent/.test(b.textContent!));
+    expect(entries.map((b) => b.textContent)).toEqual(["Ask the Agent to design one"]);
+    await act(async () => entries[0]!.click());
+    expect(newRobot.mock.calls).toEqual([[null, undefined]]);
+    expect(container.querySelector("#side-drawer [role=tab][aria-selected=true]")!.textContent).toBe("Agent");
+  });
+
+  it("when the blank robot fails to open, the Agent entry does not leave the drawer set to pop open on the next robot", async () => {
+    const newRobot = vi.fn().mockRejectedValueOnce(new Error("could not open")).mockResolvedValue({ started: false, example: "/ud/examples/rover", opened: { opened: true, path: "/ud/examples/x/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
+    Object.assign(window, { lockwire: { newRobot, getSidecarState: vi.fn().mockResolvedValue({ phase: "ready" }), onSidecarState: vi.fn().mockReturnValue(() => undefined), getStarters: vi.fn().mockResolvedValue([{ name: "rover", title: "Rover", based_on: "Rover" }]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }), getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {}, getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }) } });
+    root = createRoot(container);
+    await act(async () => root.render(<App />));
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Ask the Agent to design one")!.click());
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".open-face-new button")].find((b) => b.textContent!.startsWith("Rover ·"))!.click());
+    expect(newRobot).toHaveBeenCalledTimes(2);
+    expect(container.querySelector("#side-drawer")!.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("an example on the start screen opens in one tap and does not open the Agent", async () => {
+    const newRobot = vi.fn().mockResolvedValue({ started: false, example: "/ud/examples/rover", opened: { opened: true, path: "/ud/examples/x/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
+    Object.assign(window, { lockwire: { newRobot, getSidecarState: vi.fn().mockResolvedValue({ phase: "ready" }), onSidecarState: vi.fn().mockReturnValue(() => undefined), getStarters: vi.fn().mockResolvedValue([{ name: "rover", title: "Rover", based_on: "Rover" }]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
+      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
+    root = createRoot(container);
+    await act(async () => root.render(<App />));
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".open-face-new button")].find((b) => b.textContent!.startsWith("Rover ·"))!.click());
+    expect(newRobot.mock.calls).toEqual([["rover", undefined]]);
+    expect(container.querySelector("#side-drawer")!.hasAttribute("hidden")).toBe(true);
   });
 
   it("a drifted robot opened from Recent offers Update from model file, re-locking the lockfile's own model", async () => {
@@ -176,13 +253,13 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
   });
 
   it("catches initial open rejection and retries the opening operation", async () => {
-    const startFromUrdf = vi.fn().mockRejectedValueOnce(new Error("sidecar unavailable")).mockResolvedValue({ started: false });
+    const startFromUrdf = vi.fn().mockRejectedValueOnce(new Error("the sidecar stopped")).mockResolvedValue({ started: false });
     Object.assign(window, { lockwire: { startFromUrdf } });
     root = createRoot(container);
     act(() => root.render(<App />));
     clickOpenRobot();
     await act(async () => {});
-    expect(container.querySelector("[role=alert]")?.textContent).toContain("sidecar unavailable");
+    expect(container.querySelector("[role=alert]")?.textContent).toContain("the sidecar stopped");
     await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Retry opening")!.click());
     expect(startFromUrdf).toHaveBeenCalledTimes(2);
     expect(container.querySelector("[role=alert]")).toBeNull();
@@ -197,6 +274,26 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     await act(async () => {});
     const labels = [...container.querySelectorAll("[role=alert] button")].map((b) => b.textContent);
     expect(labels).toEqual(["Open a different robot"]);
+  });
+
+  it("a bad-YAML open shows one plain line, the raw text folded, and no Retry", async () => {
+    const startFromUrdf = vi.fn().mockRejectedValue(new Error("mismatched tag: line 1, column 60"));
+    Object.assign(window, { lockwire: { startFromUrdf } });
+    root = createRoot(container);
+    act(() => root.render(<App />));
+    clickOpenRobot();
+    await act(async () => {});
+    const alert = container.querySelector("[role=alert]")!;
+    expect(alert.textContent).toContain("This file could not be opened as a robot model. Choose a different file.");
+    expect(alert.querySelector("details")?.textContent).toContain("mismatched tag");
+    expect([...alert.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Open a different robot"]);
+  });
+
+  it("a failed document refresh says so in one line and keeps Retry opening", () => {
+    const f = explainOpenError("Opened the check, but document refresh failed: lockfile revision missing");
+    expect(f.line).toContain("Open the file again to try once more.");
+    expect(f.retry).toBe(true);
+    expect(f.raw).toContain("lockfile revision missing");
   });
 
   it("test_first_launch_shows_open_face_not_a_check_face", () => {
@@ -237,7 +334,7 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     expect(headline).not.toBeNull();
     // The sentence moved to the pill's tooltip; the page shows the verdict and the count.
     expect(headline!.getAttribute("title")).toBe(X500_CHECK_PAYLOAD.headline);
-    expect(headline!.textContent).toMatch(/^VerdictNO-GO\d+ problems?( · \d+ not compared yet)?$/);
+    expect(headline!.textContent).toMatch(/^VerdictNO-GO\d+ (?:faults?|warnings?)( · \d+ not scored)?$/);
   });
 });
 
@@ -253,6 +350,7 @@ describe("App owns the mode tab router", () => {
     const undoContract = vi.fn();
     (window as unknown as { lockwire: object }).lockwire = {
       startFromUrdf: vi.fn().mockResolvedValue(picked({ opened: true, path: "/tmp/x500/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD })),
+      openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/tmp/x500/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }),
       getContractPage,
       getDeclareForm: vi.fn().mockResolvedValue(form),
       getHistory: vi.fn().mockResolvedValue(HISTORY),
@@ -271,25 +369,16 @@ describe("App owns the mode tab router", () => {
   }
 
   function clickTab(name: string) {
-    act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click());
-    const tab = Array.from(container.querySelectorAll('[role="tab"]')).find((el) => el.textContent === name)!;
-    act(() => tab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    goMode(container, name);
   }
 
-  it("a fresh open shows Check and Docs only; a sibling plan, a jump or More reveals the rest", async () => {
+  it("the tab bar is Design, Check, Plan; Declare and Docs live in More", async () => {
     const tabs = () => [...container.querySelectorAll('.shell-tabs [role="tab"]')].map((t) => t.textContent);
     await openToCheckFace();
-    expect(tabs()).toEqual(["Check", "Docs"]);
-    await act(async () => container.querySelector<HTMLButtonElement>(".shell-chip-btn")!.click()); // the robot's name opens Design
-    expect(tabs()).toEqual(["Design", "Check", "Docs"]);
-    act(() => [...container.querySelectorAll<HTMLElement>('.shell-tabs [role="tab"]')].find((t) => t.textContent === "Check")!.click());
-    expect(tabs()).toEqual(["Design", "Check", "Docs"]); // a tab this robot has been to stays
-    act(() => container.querySelector<HTMLButtonElement>(".shell-more")!.click());
-    expect(tabs()).toEqual(["Design", "Declare", "Check", "Plan", ...(pro?.modes.map((m) => m.label) ?? []), "Docs"]); // pro/ tabs only when that folder is present
-    act(() => root.unmount());
-    root = createRoot(container);
-    await openToCheckFace(PAGE, DECLARE_FORM, PLAN);
-    expect(tabs()).toEqual(["Check", "Plan", "Docs"]);
+    expect(tabs()).toEqual(["Design", "Check", "Plan", ...(pro?.modes.map((m) => m.label) ?? [])]); // pro/ tabs only when that folder is present
+    expect(container.querySelector(".shell-more")?.textContent).toContain("More");
+    goMode(container, "Docs");
+    expect(container.querySelector(".shell-more")?.textContent).toContain("Docs");
   });
 
   it("test_check_mode_renders_frame_with_check_face", async () => {
@@ -308,7 +397,7 @@ describe("App owns the mode tab router", () => {
   it("test_page_faces_route from the generated page document", async () => {
     await openToCheckFace();
     clickTab("Design");
-    expect(container.querySelector(".design-face-empty")?.textContent).toBe("no Design face yet");
+    expect(container.querySelector(".design-face-empty")?.textContent).toBe("Add a part to start.");
     clickTab("Plan");
     expect(container.querySelector(".plan-input")).not.toBeNull();
     clickTab("Docs");
@@ -319,9 +408,36 @@ describe("App owns the mode tab router", () => {
     await openToCheckFace(PAGE_WITH_SCENE);
     act(() => canvasProps.onDropPart!("dev.x", null));
     expect(container.querySelector(".open-face-error")?.textContent).toContain("Drop on the robot's body");
-    await openToCheckFace(PAGE_WITH_SCENE, { ...DECLARE_FORM, witness: { prefill: "" } });
-    act(() => canvasProps.onDropPart!("dev.x", null));
-    expect(container.querySelector(".open-face-error")?.textContent).toContain("Set your witness name");
+  });
+
+  it("a drop with no saved name sends the place request at once, with no name prompt", async () => {
+    const { writeContract } = await openToCheckFace({ ...PAGE_WITH_SCENE, links: [{ name: "base", position: [0, 0, 0] }] }, { ...DECLARE_FORM, witness: { prefill: "" } });
+    const hit = { id: "base", point: [0, 0, 0] as [number, number, number] };
+    await act(async () => (canvasProps.onDropPart as (d: string, h: unknown) => void)("dev.x", hit));
+    expect(container.querySelector(".name-prompt")).toBeNull();
+    expect(writeContract).toHaveBeenLastCalledWith(expect.objectContaining({ command: "place", args: expect.objectContaining({ target: "dev.x", witness: "" }) }));
+  });
+
+  it("a written drop re-checks the robot it was placed on", async () => {
+    await openToCheckFace({ ...PAGE_WITH_SCENE, links: [{ name: "base", position: [0, 0, 0] }] });
+    const { openLockfile } = window.lockwire as unknown as { openLockfile: ReturnType<typeof vi.fn> };
+    await act(async () => (canvasProps.onDropPart as (d: string, h: unknown) => void)("dev.x", { id: "base", point: [0, 0, 0] }));
+    expect(openLockfile).toHaveBeenCalledWith({ contract: "/tmp/x500/lockwire.yaml" }); // writePlace's reload
+  });
+
+  it("a drawn shape re-checks once every step is written", async () => {
+    const { writeContract } = await openToCheckFace(PAGE_WITH_SCENE);
+    const { openLockfile } = window.lockwire as unknown as { openLockfile: ReturnType<typeof vi.fn> };
+    clickTab("Design");
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "Add shape")!.click());
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    for (const [label, v] of [["shape name", "rail"], ["length", "100"], ["width", "20"], ["height", "10"]]) {
+      const input = container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+      act(() => { set.call(input, v); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    }
+    await act(async () => [...container.querySelectorAll(".add-part button")].find((b) => b.textContent === "Add shape")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(writeContract).toHaveBeenLastCalledWith(expect.objectContaining({ command: "add", args: expect.objectContaining({ kind: "link", id: "rail" }) }));
+    expect(openLockfile).toHaveBeenCalledWith({ contract: "/tmp/x500/lockwire.yaml" }); // addShape's final reload
   });
 
   it("test_switching_back_to_check_remounts_check_face", async () => {
@@ -353,7 +469,7 @@ describe("App owns the mode tab router", () => {
     await openToCheckFace(PAGE, DECLARE_FORM, PLAN);
     clickTab("Plan");
     await act(async () => {});
-    expect(container.querySelector(".verdict-word")?.textContent).toBe("GO");
+    expect(container.querySelector(".verdict-word")?.textContent).toBe("Plan passes");
     expect(container.querySelector(".kit-filepick .kit-cli-text")?.textContent).toBe("lockwire plan");
   });
 
@@ -376,10 +492,10 @@ describe("App owns the mode tab router", () => {
       contract: "/tmp/x500/lockwire.yaml",
       plan: "/tmp/plan.yaml",
     });
-    expect(container.querySelector(".verdict-word")?.textContent).toBe("GO");
+    expect(container.querySelector(".verdict-word")?.textContent).toBe("Plan passes");
     clickTab("Declare");
     clickTab("Plan");
-    expect(container.querySelector(".verdict-word")?.textContent).toBe("GO");
+    expect(container.querySelector(".verdict-word")?.textContent).toBe("Plan passes");
     await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click());
     expect(container.querySelector(".verdict-word")?.textContent).toBe("Not scored");
   });
@@ -468,9 +584,10 @@ describe("App owns the mode tab router", () => {
       choosePlan: vi.fn().mockResolvedValue("/tmp/plan"), checkPlan: (r: { plan: string }) => (r.plan === "" ? Promise.resolve(null) : plan.promise) } });
     root = createRoot(container); act(() => root.render(<App />)); clickOpenRobot();
     await act(async () => first.resolve({ opened: true, path: "/tmp/a.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }));
+    clickTab("Plan"); await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click()); // A's plan is still being checked
+    clickTab("Check"); // robot B is not interactive until its page lands, so the plan was picked on A first
     act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "Re-check")!.click()); // opens are ordered by start; the second begins once the first has landed
     await act(async () => second.resolve({ opened: true, path: "/tmp/b.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }));
-    clickTab("Plan"); await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click());
     await act(async () => secondPage.resolve(PAGE));
     await act(async () => { plan.resolve(PLAN); });
     clickTab("Plan");
@@ -498,6 +615,7 @@ describe("App owns the mode tab router", () => {
         value: "2 kg",
         source: "",
         witness: "Maya",
+        formal: true,
         expected_revision: "revision",
       },
     });
@@ -517,7 +635,7 @@ describe("App owns the mode tab router", () => {
     };
     act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "+ Add part")!.click()); // its own surface, from the Values header
     set("catalog part", "cat.servo");
-    set("part witness", "Maya");
+    set("part checked by", "Maya");
     const add = [...container.querySelectorAll("button")].find((b) => b.textContent === "Add part")!;
     await act(async () => add.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(writeContract).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -525,6 +643,222 @@ describe("App owns the mode tab router", () => {
     }));
     expect(openLockfile).toHaveBeenCalledWith({ contract: "/tmp/x500/lockwire.yaml" });
     expect(getContractPage).toHaveBeenCalled(); // the refreshed page/check arrived without pressing recheck
+  });
+
+  describe("Add part from Design", () => {
+    const catalog = { rails: ["rail.5v"], parts: [{ id: "cat.servo", name: "Servo", fits: ["rail.5v"],
+      numbers: [{ key: "draw_max", value: 7, unit: "W", kind: "datasheet" as const, source: "datasheet p1" }] }] };
+    const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text)!;
+    const click = (text: string) => act(() => button(text).click());
+    const hasServo = (p: any) => ({ ...p, faces: { ...p.faces, reference: { ...p.faces.reference, devices: [{ id: "dev.servo", name: "Servo", text: "", mount_mm: [1, 2, 3] }] } } });
+    const bare = hasServo(PAGE); // the servo is declared; no 3D scene at all
+    const withServo = (hash: string) => ({ ...hasServo(PAGE_WITH_SCENE), scene: { ...(PAGE_WITH_SCENE.scene as object), hash } }); // a scene with no body for it
+    const field = (label: string) => container.querySelector<HTMLInputElement & HTMLSelectElement>(`:is(input, select)[aria-label="${label}"]`);
+    async function openDesign(page: PagePayload = PAGE, witness = "Maya", cat = catalog) {
+      window.localStorage.clear();
+      const opened = await openToCheckFace(page, { ...DECLARE_FORM, witness: { prefill: witness }, add_part: cat });
+      Object.assign(window.lockwire, { openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/tmp/x500/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }) });
+      clickTab("Design");
+      return opened;
+    }
+    const chooseServo = () => act(() => { field("catalog part")!.value = "cat.servo"; field("catalog part")!.dispatchEvent(new Event("change", { bubbles: true })); });
+    const addServo = async () => { click("Add part"); chooseServo(); await act(async () => button("Add part").click()); };
+    const type = (label: string, v: string) => act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field(label), v);
+      field(label)!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const submitForm = () => act(async () => container.querySelector("form.design-controls")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    describe("attaching a component (CAD-05)", () => {
+      const withLink = { ...PAGE_WITH_SCENE, links: [{ name: "base", position: [0, 0, 0] }] };
+      const attachServo = async (opened: Awaited<ReturnType<typeof openDesign>>) => {
+        click("Add part"); chooseServo();
+        act(() => { field("structure attach to")!.value = "base"; field("structure attach to")!.dispatchEvent(new Event("change", { bubbles: true })); });
+        type("position x", "40"); type("position z", "25");
+        await act(async () => button("Add part").click());
+        return opened.writeContract.mock.calls.map((c) => c[0] as { command: string; args: Record<string, any> });
+      };
+      it("writes the device with its rail and draw, then the attach on the link in metres", async () => {
+        const opened = await openDesign(withLink as PagePayload);
+        const calls = await attachServo(opened);
+        const adds = calls.filter((c) => c.command === "add");
+        expect(adds.map((c) => c.args.kind)).toEqual(["device", "attach"]);
+        expect(adds[0]!.args.fields).toMatchObject({ power_rail: "rail.5v", power_draw: "7 W" });
+        expect(adds[1]!.args.fields).toMatchObject({ part: "cat.servo", parent: "base", frame: { xyz: [0.04, 0, 0.025] } });
+        expect(calls.some((c) => c.command === "undo-edit")).toBe(false);
+      });
+      it("a refused attach undoes the device add", async () => {
+        const opened = await openDesign(withLink as PagePayload);
+        opened.writeContract.mockImplementation(async (r: { command: string; args: { kind?: string } }) =>
+          r.command === "add" && r.args.kind === "attach" ? { payload: { written: false }, refusal: "No link base" } : r.command === "undo-edit" ? { payload: { undone: true }, refusal: null } : { payload: { written: true, revision: "r2" }, refusal: null });
+        const calls = await attachServo(opened);
+        expect(calls.filter((c) => c.command === "undo-edit")).toHaveLength(1);
+        expect(container.textContent).toContain("No link base Nothing was added.");
+      });
+    });
+
+    const moveServo = async () => {
+      act(() => [...container.querySelectorAll<HTMLElement>(".kit-tree-row")].find((r) => r.textContent?.includes("Servo"))!.click());
+      type("Move by X", "10");
+      await submitForm();
+    };
+    const moves = (w: { mock: { calls: unknown[][] } }) => w.mock.calls.map(([r]) => r as { command: string; args: object }).filter((r) => r.command === "move");
+    const refuseMoves = (w: { mockImplementation: (f: (r: { command: string }) => unknown) => void }) => w.mockImplementation(async ({ command }) => ({ payload: command === "move" ? null : { written: true }, refusal: command === "move" ? "Too far." : null }));
+    it.each([["saved name signs it", "Maya"], ["no saved name: sent at once, no name, no prompt", ""]])("move, %s", async (_n, name) => {
+      replies.length = 0;
+      const { writeContract } = await openDesign(withServo("h1"), name);
+      refuseMoves(writeContract);
+      await moveServo();
+      expect([field("Checked by"), field("Source"), field("Your name")]).toEqual([null, null, null]);
+      expect(moves(writeContract).map((m) => m.args)).toEqual([expect.objectContaining({ offset: [11, 2, 3], witness: name, source: PLACED_SOURCE })]);
+      expect(await Promise.race([replies[0], "unresolved"])).toEqual(expect.objectContaining({ refusal: "Too far." }));
+      expect(container.textContent).toContain("Too far.");
+    });
+    it("the drawer lists a panel only when the robot has data for it, and no panel has a top-bar button of its own", async () => {
+      const lens = (nodes: object[]) => ({ nodes, edges: [], label: "", caption: "" });
+      const withParts = { ...PAGE, graph: { off: lens([]), mechanical: lens([{ id: "dev.servo", label: "dev.servo", sub: "", kind: "device" }]), power: lens([]), data: lens([]), health: lens([]) } } as unknown as PagePayload;
+      const withJoint = { ...PAGE, controls_joints: [{ joint: "q", label: "Q", facts: [], t_s: [0, 1], position: [0, 1], advice: [] }] } as unknown as PagePayload;
+      const wired = { ...PAGE, wiring_devices: [{ id: "d", name: "D", connectors: [{ name: "J", pins: [{ key: "d|J|1", label: "1" }] }] }, { id: "e", name: "E", connectors: [{ name: "K", pins: [{ key: "e||2", label: "2" }] }] }], wiring_wires: [{ id: "wire.a", name: "A", from_pin: "d|J|1", to_pin: "e||2", rail: null, rail_label: null, net: null }] } as unknown as PagePayload;
+      const drawerTabs = () => [...container.querySelectorAll('#side-drawer [role="tab"]')].map((t) => t.textContent);
+      for (const [page, listed] of [[PAGE, undefined], [withParts, ["Parts"]], [withJoint, ["Controls"]], [wired, ["Wiring"]]] as const) {
+        await openDesign(page);
+        Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {} });
+        if (!listed) expect(button("Panels")).toBeUndefined();
+        else { act(() => button("Panels").click()); expect(drawerTabs()).toEqual(listed); }
+        for (const name of ["Power", "Controls", "Wiring", "Parts"]) expect(container.querySelector(".kit-slot-topRight")!.textContent).not.toContain(name);
+        act(() => root.unmount()); container.remove();
+      }
+    });
+    it("with a data panel showing, one tap on Assistant shows the Assistant view", async () => {
+      const lens = (nodes: object[]) => ({ nodes, edges: [], label: "", caption: "" });
+      const withParts = { ...PAGE, graph: { off: lens([]), mechanical: lens([{ id: "dev.servo", label: "dev.servo", sub: "", kind: "device" }]), power: lens([]), data: lens([]), health: lens([]) } } as unknown as PagePayload;
+      await openDesign(withParts);
+      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {} });
+      act(() => button("Panels").click());
+      const tabs = () => [...container.querySelectorAll('#side-drawer [role="tab"]')].map((t) => t.textContent);
+      expect(tabs()).toEqual(["Parts"]);
+      act(() => button("Assistant").click());
+      expect(tabs()).toEqual(["Assistant", "Agent", "Terminal"]);
+    });
+    it("two pin clicks in the Wiring panel write one wire, from then to, and reload the page", async () => {
+      const bench = { ...PAGE, wiring_wires: [], wiring_devices: [{ id: "d", name: "D", connectors: [{ name: "J", pins: [{ key: "d|J|1", label: "1" }] }] }, { id: "e", name: "E", connectors: [{ name: "K", pins: [{ key: "e|K|2", label: "2" }] }] }] } as unknown as PagePayload;
+      const { writeContract, getContractPage } = await openDesign(bench);
+      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {} });
+      act(() => button("Panels").click());
+      act(() => [...container.querySelectorAll<HTMLElement>('#side-drawer [role="tab"]')].find((t) => t.textContent === "Wiring")!.click());
+      const reads = getContractPage.mock.calls.length;
+      const tap = (key: string) => act(async () => { container.querySelector(`[data-pin="${key}"]`)!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await tap("d|J|1"); await tap("e|K|2");
+      const adds = writeContract.mock.calls.filter(([r]) => r.command === "add");
+      expect(adds).toHaveLength(1);
+      expect(adds[0]![0].args).toEqual(expect.objectContaining({ kind: "wire", id: "wire.d-e", witness: "Maya", fields: expect.objectContaining({ from: { device: "d", connector: "J", pin: 1 }, to: { device: "e", connector: "K", pin: 2 } }) }));
+      expect(getContractPage.mock.calls.length).toBeGreaterThan(reads);
+    });
+    it("with no saved name, Save efficiency in the Power panel declares with no witness and no formal flag", async () => {
+      const stage = { rail: "rail.a", label: "Rail A", depth: 0, fed_by: "battery", volts_in: 14.8, volts_out: 5, amps_out: 6.42, efficiency: 0.8, watts_out: 32.1, watts_in: 40.125, watts_lost: 8.025, capacity_w: 15, unknown_loads: 0, loads: [] };
+      const { writeContract } = await openDesign({ ...PAGE, power_stages: [stage] } as unknown as PagePayload, "");
+      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {} });
+      act(() => button("Panels").click());
+      act(() => [...container.querySelectorAll<HTMLElement>('#side-drawer [role="tab"]')].find((t) => t.textContent === "Power")!.click());
+      type("efficiency for Rail A", "90");
+      await act(async () => button("Save efficiency").click());
+      const declares = writeContract.mock.calls.filter(([r]) => r.command === "declare");
+      expect(declares).toHaveLength(1);
+      expect(declares[0]![0].args).toEqual(expect.objectContaining({ path: "topology/rails/rail.a/efficiency", value: "0.9", witness: "" }));
+      expect(declares[0]![0].args).not.toHaveProperty("formal"); // a quick edit, not the Declare form
+    });
+    it.each([["with a 3D scene", withServo("h1"), true], ["without one", bare, false]])("lists a device with no body under Not placed yet, %s", async (_n, page, frames) => {
+      await openDesign(page as PagePayload);
+      expect(container.textContent).toContain("Not placed yet");
+      act(() => [...container.querySelectorAll<HTMLElement>(".kit-tree-row")].find((r) => r.textContent?.includes("Servo"))!.click());
+      expect(!!field("Place on")).toBe(frames);
+      expect(container.textContent?.includes("This robot has no 3D model yet, so there is nothing to place this on.")).toBe(!frames);
+    });
+
+    it.each([["with a 3D scene", withServo("after")], ["without one", bare]])("a successful add closes the form and selects the new part, %s", async (_n, after) => {
+      const { writeContract, getContractPage } = await openDesign();
+      getContractPage.mockResolvedValue(after);
+      await addServo();
+      expect(writeContract).toHaveBeenLastCalledWith(expect.objectContaining({ args: expect.objectContaining({ id: "dev.servo", witness: "Maya" }) }));
+      expect(field("catalog part")).toBeNull();
+      expect(getSelectedPartId()).toBe("dev.servo");
+    });
+
+    describe("on a robot with no rail", () => {
+      const blank = { rails: [], parts: [{ ...catalog.parts[0]!, fits: [] }] };
+      const setIn = (label: string, v: string) => act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field(label), v); field(label)!.dispatchEvent(new Event("input", { bubbles: true })); });
+      const addBlank = async (...replies: object[]) => {
+        const { writeContract } = await openDesign({ ...PAGE, revision: "r1" } as PagePayload, "Maya", blank);
+        replies.forEach((r) => writeContract.mockResolvedValueOnce(r));
+        Object.assign(window.lockwire, { getDeclareForm: vi.fn().mockResolvedValue({ ...DECLARE_FORM, witness: { prefill: "Maya" }, add_part: { ...blank, rails: ["rail.main"] } }) });
+        click("Add part"); chooseServo(); setIn("rail voltage", "12"); setIn("rail capacity", "20");
+        await act(async () => button("Add part").click());
+        return writeContract;
+      };
+      const arg = (w: ReturnType<typeof vi.fn>, n: number) => w.mock.calls[n]![0].args;
+
+      it("writes the rail on the open revision, then the part on the revision that returned, and keeps the rail when the part is refused", async () => {
+        const w = await addBlank({ payload: { written: true, revision: "r2" }, refusal: null }, { payload: null, refusal: "Rail is full." });
+        expect(w).toHaveBeenCalledTimes(2);
+        expect([arg(w, 0).kind, arg(w, 0).expected_revision, arg(w, 1).kind, arg(w, 1).expected_revision]).toEqual(["rail", "r1", "device", "r2"]);
+        expect(container.textContent).toContain("Rail is full.");
+        expect(window.lockwire.openLockfile).toHaveBeenCalled();
+        expect(container.textContent).not.toContain("Power for this part");
+        expect(field("rail")!.value).toBe("rail.main");
+      });
+
+      it("stops at the rail when the engine refuses it, and shows its line", async () => {
+        const w = await addBlank({ payload: null, refusal: "Voltage is not a number." });
+        expect(w).toHaveBeenCalledTimes(1);
+        expect(container.textContent).toContain("Voltage is not a number.");
+      });
+    });
+
+    it("with no saved name the add is sent at once, with no name prompt, and the engine's refusal shows in the form", async () => {
+      const { writeContract } = await openDesign(PAGE, "");
+      writeContract.mockImplementation(async ({ command }) => (command === "add" ? { payload: null, refusal: "Rail is full." } : { payload: { written: true }, refusal: null }));
+      await addServo();
+      expect(field("Your name")).toBeNull();
+      expect(writeContract).toHaveBeenLastCalledWith(expect.objectContaining({ command: "add", args: expect.objectContaining({ witness: "" }) }));
+      expect(container.textContent).toContain("Rail is full.");
+    });
+
+    it("a save that moved an older file to format 0.7 shows the engine's line once", async () => {
+      const LINE = "format moved to 0.7: this file now records an anonymous model";
+      const { writeContract } = await openDesign(PAGE, "");
+      writeContract.mockImplementation(async () => ({ payload: { written: true, lines: [LINE] }, refusal: null }));
+      await addServo();
+      expect(container.textContent?.split(LINE).length).toBe(2);
+    });
+
+    it("a pending select that found no part is dropped, so another robot's part with that id is not selected", async () => {
+      await openDesign(PAGE_WITH_SCENE);
+      await addServo();
+      clickTab("Check");
+      Object.assign(window.lockwire, { openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/tmp/b.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }), getContractPage: vi.fn().mockResolvedValue(withServo("b")) });
+      await act(async () => button("Re-check").click());
+      expect(getSelectedPartId()).toBeNull();
+    });
+
+    it("changing the selection with the form open keeps it open, entries intact", async () => {
+      await openDesign(withServo("h1") as PagePayload);
+      click("Add part");
+      chooseServo();
+      act(() => setSelectedPartId("dev.servo"));
+      expect(field("catalog part")!.value).toBe("cat.servo");
+    });
+
+    it("Shift+A opens the form in place with no Checked by field, with the panel focused but not while typing", async () => {
+      await openDesign();
+      expect(container.textContent).toContain("No parts yet.");
+      const press = () => act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "A", shiftKey: true, bubbles: true })); });
+      container.querySelector(".design-parts")!.appendChild(document.createElement("input")).focus();
+      press();
+      expect(field("catalog part")).toBeNull();
+      button("Add part").focus();
+      press();
+      expect(field("catalog part")).not.toBeNull();
+      expect(field("part checked by")).toBeNull();
+    });
   });
 
   it("test_review_routes_selected_value_and_surfaces_stale_revision_without_advancing_it", async () => {
@@ -566,7 +900,7 @@ describe("App owns the mode tab router", () => {
   it("test_declare_mounts_a_read_only_current_proposed_comparison_and_preserves_declaration", async () => {
     const { compareContractWhatIf, writeContract } = await openToCheckFace();
     clickTab("Declare");
-    for (const [label, next] of [["source", "caliper.csv"], ["witness", "Maya"]]) {
+    for (const [label, next] of [["source", "caliper.csv"], ["checked by", "Maya"]]) {
       const input = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, next);
       act(() => input.dispatchEvent(new Event("input", { bubbles: true })));
@@ -595,6 +929,7 @@ describe("App owns the mode tab router", () => {
         value: "2 kg",
         source: "caliper.csv",
         witness: "Maya",
+        formal: true,
         expected_revision: "revision",
       },
     });
@@ -609,7 +944,7 @@ describe("App owns the mode tab router", () => {
     expect(container.querySelector(".history-entry")?.textContent).toContain("lock mount");
     await act(async () => container.querySelector<HTMLButtonElement>(".history-diff-disk")!.click());
     expect(window.lockwire.diffContract).toHaveBeenCalledWith({ contract: "/tmp/x500/lockwire.yaml", a: "abc123" });
-    expect(container.querySelector(".history-diff-result")?.textContent).toBe("No changes");
+    expect(container.querySelector(".history-diff-result")?.textContent).toBe("No changes between these two versions. Pick another to compare.");
   });
 
   it("reloads the raw revision after Undo before Declare and CAD writes without leaking selection across pages", async () => {
@@ -677,17 +1012,11 @@ describe("App owns the mode tab router", () => {
     const frame = container.querySelector<HTMLButtonElement>('[data-part-id="frame"]')!;
     expect(frame.getAttribute("aria-pressed")).toBe("true");
     act(() => frame.click());
-    for (const [label, value] of [["Source", "caliper"], ["Witness", "Maya"]]) {
-      const input = container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
-      act(() => {
-        setter.call(input, value);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-    }
+    act(() => [...container.querySelectorAll<HTMLLabelElement>('[aria-label="Operation"] label')].find((l) => l.textContent === "Mount")!.querySelector("input")!.click()); // a frame has no known position or turn, so Move and Rotate would refuse; Mount still forwards the write
     await act(async () => container.querySelector<HTMLFormElement>(".design-controls")!
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(writeContract).toHaveBeenLastCalledWith(expect.objectContaining({
-      command: "move",
+      command: "mount-shape",
       args: expect.objectContaining({ expected_revision: afterDeclare, target: "frame" }),
     }));
     expect(container.querySelector(".design-controls-refusal")).toBeNull();
@@ -733,7 +1062,7 @@ describe("App owns the mode tab router", () => {
   it.each([
     ["fails", () => Promise.reject(new Error("page read failed")), "page read failed"],
     ["returns no revision", () => Promise.resolve({ ...PAGE_WITH_SCENE, revision: null }), "lockfile revision missing"],
-  ])("invalidates the stale revision when Undo applies but page reload %s", async (_case, reload, reason) => {
+  ])("drops the stale document when Undo applies but the reload %s", async (_case, reload, reason) => {
     const beforeUndo = "a".repeat(64);
     const { getContractPage, undoContract, writeContract } = await openToCheckFace({ ...PAGE_WITH_SCENE, revision: beforeUndo });
     undoContract.mockResolvedValue({
@@ -754,16 +1083,11 @@ describe("App owns the mode tab router", () => {
     await act(async () => container.querySelector<HTMLButtonElement>(".history-undo-apply")!.click());
 
     expect(getContractPage).toHaveBeenCalledTimes(2);
-    expect(container.querySelector(".history-write-status")?.textContent).toBe(
-      `undo applied, but reload failed: ${reason}; reload before applying another edit`,
-    );
-    expect(container.querySelector<HTMLInputElement>('[aria-label="commit message"]')!.value).toBe("keep this proposal");
-    expect(container.querySelector(".history-undo-plan-result")).not.toBeNull();
+    expect(container.querySelector(".open-face-error")?.textContent).toContain(`document refresh failed: ${reason}`); // the same full reload every edit uses
 
     clickTab("Declare");
-    await act(async () => container.querySelector<HTMLButtonElement>(".declare-face button")!.click());
+    expect(container.querySelector(".declare-face")).toBeNull(); // no stale revision is left to write with
     expect(writeContract).not.toHaveBeenCalled();
-    expect(container.querySelector(".kit-notice-error")?.textContent).toContain("revision missing");
 
     clickTab("Design");
     expect(container.querySelector(".design-controls")).toBeNull();

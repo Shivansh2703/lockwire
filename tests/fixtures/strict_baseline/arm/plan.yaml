@@ -1,0 +1,11 @@
+# Example plan for the Arm starter: raise the shoulder and bend the elbow, both inside their URDF
+# joint limits (+/-1.745 rad and +/-1.69 rad). Try elbow_flex at 2.0 to see the plan refused.
+# (A power step is scored against every other servo at its worst declared mode, stall, so on this
+# 60 W supply any power step is refused: the accepted stall gap in contract.yaml.)
+steps:
+  - kind: joint_target
+    joint: shoulder_lift
+    position: 1.0
+  - kind: joint_target
+    joint: elbow_flex
+    position: -1.0

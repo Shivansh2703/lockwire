@@ -11,7 +11,7 @@ import type { CheckPayload, PagePayload, WhatIfPayload } from "../shared/api.gen
 const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
 let mockIsPackaged = false;
 
-const { showOpenDialog } = vi.hoisted(() => ({ showOpenDialog: vi.fn() }));
+const { showOpenDialog, showMessageBox } = vi.hoisted(() => ({ showOpenDialog: vi.fn(), showMessageBox: vi.fn() }));
 vi.mock("electron", () => ({
   app: {
     get isPackaged() {
@@ -19,7 +19,7 @@ vi.mock("electron", () => ({
     },
     getPath: () => "/userdata",
   },
-  dialog: { showOpenDialog },
+  dialog: { showOpenDialog, showMessageBox },
   ipcMain: {
     handle: (channel: string, fn: (event: unknown, ...args: unknown[]) => unknown) => {
       handlers.set(channel, fn);
@@ -53,9 +53,13 @@ import {
   dispatch,
   isPermittedCommand,
   isTrustedSender,
+  openRecentFromMenu,
   registerIpc,
   RUN_CHANNEL,
+  stepFromMenu,
 } from "./ipc";
+vi.mock("./menuState", async (orig) => { const m = await orig<typeof import("./menuState")>(); return { ...m, noteOpened: vi.fn(m.noteOpened) }; });
+import { closeRobot, currentRobot, noteOpened } from "./menuState";
 
 const TRUSTED_FRAME = { url: "http://localhost:5173/" } as IpcMainInvokeEvent["senderFrame"];
 const TRUSTED_EVENT = { senderFrame: TRUSTED_FRAME } as IpcMainInvokeEvent;
@@ -271,6 +275,70 @@ describe("dispatch: contract writes and undo", () => {
 
     await expect(dispatch(TRUSTED_EVENT, "contract:write", request)).resolves.toEqual(reply);
     expect(callSidecarMock).toHaveBeenCalledTimes(1);
+  });
+
+  const ARGS = { contract: "c", expected_revision: "r", witness: "" };
+  const FREE = {
+    add: { kind: "device", id: "dev.x", fields: {}, source: "typed in the app" },
+    place: { target: "t", on: "o", offset: [0, 0, 0], unit: "mm", source: "s" },
+    move: { target: "t", offset: [0, 0, 0], unit: "mm", source: "s" },
+    rotate: { target: "t", rpy: [0, 0, 0], unit: "deg", source: "s" },
+    reparent: { target: "t", to: "u", source: "s" },
+    delete: { kind: "device", name: "dev.x", source: "placed in the app" },
+    "mount-shape": { target: "t", shape: { kind: "plate", dimensions_mm: [1, 2, 3] }, source: "s" },
+  };
+  const sentArgs = async (command: string, extra: object) => {
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve(runReply(EDIT_PAYLOAD, "lockwire write")) });
+    await dispatch(TRUSTED_EVENT, "contract:write", { command, args: { ...ARGS, ...extra } });
+    return JSON.parse(callSidecarMock.mock.calls.at(-1)![1].body as string).args;
+  };
+  it.each(Object.keys(FREE))("a blank witness on %s records no name: the key is dropped, never filled in", async (command) => {
+    expect(await sentArgs(command, FREE[command as keyof typeof FREE])).not.toHaveProperty("witness");
+  });
+  it.each(Object.keys(FREE))("a saved name on %s is kept on the request", async (command) => {
+    expect((await sentArgs(command, { ...FREE[command as keyof typeof FREE], witness: "Maya" })).witness).toBe("Maya");
+  });
+  it("a blank witness on review is sent as is, for the engine to refuse", async () => {
+    expect((await sentArgs("review", { path: "p", state: "approved" })).witness).toBe("");
+  });
+  const DECLARE = { path: "p", value: "1", source: "s" };
+  it.each([["", {}], [null, {}], [undefined, {}]])("a quick declare with witness %j records no name: no witness key reaches the sidecar", async (witness, extra) => {
+    const sent = await sentArgs("declare", { ...DECLARE, ...extra, witness });
+    expect(sent).not.toHaveProperty("witness");
+    expect(sent).not.toHaveProperty("formal");
+  });
+  it.each([
+    ["efficiency", { path: "topology/rails/rail.5v/efficiency", value: "0.9", source: "typed in the Power panel" }],
+    ["named size", { path: "params/arm_len/value", value: 0.4, source: "changed in the app" }],
+    ["material", { path: "devices/d/physical/material", value: { name: "Aluminium", density_kg_m3: 2700, source: "c" }, source: "picked in the app" }],
+    ["mass compare", { path: "budgets/bud.mass/nominal", value: "2 kg", source: "typed in the app" }],
+  ])("the %s quick edit with no saved name reaches the sidecar with no witness and no marker", async (_panel, extra) => {
+    const sent = await sentArgs("declare", { ...extra, witness: "" });
+    expect(sent).not.toHaveProperty("witness");
+    expect(sent).not.toHaveProperty("formal");
+  });
+  it("a formal declare keeps its blank name and its marker, for the engine to refuse", async () => {
+    const sent = await sentArgs("declare", { ...DECLARE, formal: true });
+    expect(sent).toMatchObject({ witness: "", formal: true });
+  });
+  it("a quick declare with a saved name stays signed, and a non-boolean formal is refused", async () => {
+    expect((await sentArgs("declare", { ...DECLARE, witness: "Maya" })).witness).toBe("Maya");
+    await expect(dispatch(TRUSTED_EVENT, "contract:write", { command: "declare", args: { ...ARGS, ...DECLARE, formal: "yes" } })).rejects.toThrow("invalid arguments");
+  });
+
+  it("forwards delete, undo-edit and redo-edit, and refuses a delete without its revision or with a kind the app never sends", async () => {
+    const del = { command: "delete", args: { contract: "c", kind: "device", name: "dev.cam", source: "placed in the app", witness: "Maya", expected_revision: "revision" } };
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve(runReply(EDIT_PAYLOAD, "lockwire delete")) });
+    await expect(dispatch(TRUSTED_EVENT, "contract:write", del)).resolves.toBeTruthy();
+    for (const [command, payload] of [["undo-edit", { undone: true }], ["redo-edit", { redone: true }]] as const) {
+      callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve(runReply(payload, "lockwire undo")) });
+      await expect(dispatch(TRUSTED_EVENT, "contract:write", { command, args: { contract: "c" } })).resolves.toBeTruthy();
+    }
+    callSidecarMock.mockClear();
+    await expect(dispatch(TRUSTED_EVENT, "contract:write", { ...del, args: { ...del.args, expected_revision: undefined } })).rejects.toThrow("invalid arguments");
+    await expect(dispatch(TRUSTED_EVENT, "contract:write", { ...del, args: { ...del.args, kind: "wire" } })).rejects.toThrow("invalid arguments");
+    await expect(dispatch(TRUSTED_EVENT, "contract:write", { command: "undo-edit", args: { contract: "c", extra: 1 } })).rejects.toThrow("invalid arguments");
+    expect(callSidecarMock).not.toHaveBeenCalled();
   });
 
   it("forwards an allowed write request unchanged to the sidecar", async () => {
@@ -672,6 +740,18 @@ describe("dispatch: file:open asks the sidecar for a real check, never a fixture
     expect(await dispatch(TRUSTED_EVENT, "file:open-dropped", { path: real })).toMatchObject({ started: true });
     expect(callSidecarMock.mock.calls[0]?.[1].body).toBe(JSON.stringify({ command: "start", args: { urdf: real } }));
   });
+  it("drop accepts MuJoCo and Webots files and sends each to start", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lw-drop-fmt-"));
+    for (const name of ["a.xml", "b.mjcf", "c.wbt", "d.proto"]) {
+      const path = join(dir, name);
+      writeFileSync(path, "x");
+      callSidecarMock.mockClear();
+      callSidecarMock.mockResolvedValueOnce({ json: async () => runReply({ path: "/tmp/lockwire.yaml", written: false, revision: "a".repeat(64) }) });
+      callSidecarMock.mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+      expect(await dispatch(TRUSTED_EVENT, "file:open-dropped", { path })).toMatchObject({ started: true });
+      expect(callSidecarMock.mock.calls[0]?.[1].body).toBe(JSON.stringify({ command: "start", args: { urdf: path } }));
+    }
+  });
   it("Choose folder re-starts the mesh-less robot into the picked folder, and refuses one not holding the model", async () => {
     const pkg = mkdtempSync(join(tmpdir(), "lw-pkg-"));
     const urdf = join(pkg, "urdf.urdf");
@@ -740,6 +820,13 @@ describe("dispatch: file:open asks the sidecar for a real check, never a fixture
     expect(await dispatch(TRUSTED_EVENT, "file:start-urdf", undefined)).toMatchObject({ opened: { path: home } });
     expect(callSidecarMock.mock.calls[0]?.[1].body).toBe(JSON.stringify({ command: "start", args: { urdf, out: home } }));
     expect([existsSync(beside), existsSync(home)]).toEqual([false, true]);
+  });
+  it("an opened lockfile is remembered under the robot name the start screen shows", async () => {
+    callSidecarMock.mockResolvedValueOnce({ json: async () => runReply(checkPayload("GO", 0)) });
+    const lock = "/tmp/named-robot/lockwire.yaml";
+    const opened = await dispatch(TRUSTED_EVENT, "file:open", { contract: lock }) as { payload: { robot: string } };
+    expect(noteOpened).toHaveBeenCalledWith(lock, opened.payload.robot);
+    expect(opened.payload.robot).toBeTruthy();
   });
   it("a lockfile opened from Recent names its model, and that model may be re-locked into it", async () => {
     const dir = mkdtempSync(join(tmpdir(), "lw-recent-"));
@@ -874,6 +961,73 @@ describe("dispatch: file:open asks the sidecar for a real check, never a fixture
       payload: { verdict },
       checkPayload: { verdict, exit_code },
     });
+  });
+
+  it("a reply to an open, a drop or Open Recent that began before File > Close robot leaves no robot open, so the menu stays greyed", async () => {
+    const lock = join(mkdtempSync(join(tmpdir(), "lw-close-")), "lockwire.yaml");
+    writeFileSync(lock, "robot: {}\n");
+    const win = { isDestroyed: () => false, webContents: { send: vi.fn() } } as never;
+    const starts = [() => dispatch(TRUSTED_EVENT, "file:open", OPEN_ARGS), () => dispatch(TRUSTED_EVENT, "file:open-dropped", { path: lock }), () => openRecentFromMenu(win, lock)];
+    for (const start of starts) {
+      let reply!: (v: unknown) => void;
+      callSidecarMock.mockReturnValueOnce(new Promise((r) => { reply = r; }));
+      const pending = start();
+      closeRobot();
+      reply({ json: async () => runReply(checkPayload("GO", 0)) });
+      await pending;
+      expect(currentRobot()).toBeNull(); // the menu's Undo, Export and Save a Copy are enabled only with a current robot
+    }
+  });
+
+  it("a page reply that lands after File > Close robot does not make that robot current again", async () => {
+    let reply!: (v: unknown) => void;
+    callSidecarMock.mockReturnValueOnce(new Promise((r) => { reply = r; }));
+    const pending = dispatch(TRUSTED_EVENT, "contract:page", { contract: OPEN_ARGS.contract }).catch(() => undefined);
+    closeRobot();
+    reply({ json: async () => runReply(PAGE_PAYLOAD) });
+    await pending;
+    expect(currentRobot()).toBeNull();
+  });
+
+  it("an opened lockfile becomes the open robot the menu acts on", async () => {
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve(runReply(checkPayload("GO", 0))) });
+    await dispatch(TRUSTED_EVENT, "file:open", OPEN_ARGS);
+    expect(currentRobot()).toBe(OPEN_ARGS.contract);
+  });
+
+  it("Edit > Undo steps the open lockfile in the sidecar, then tells the window to refresh it in place", async () => {
+    const send = vi.fn();
+    const before = callSidecarMock.mock.calls.length;
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve(runReply({ undone: true })) });
+    await stepFromMenu({ isDestroyed: () => false, webContents: { send } } as never, "undo-edit");
+    expect(callSidecarMock.mock.calls.slice(before).map((c) => JSON.parse(c[1].body))).toEqual([{ command: "undo-edit", args: { contract: OPEN_ARGS.contract } }]); // no check: the window's reload runs it
+    expect(send.mock.calls).toEqual([["lockwire:opened-from-menu", { stepped: OPEN_ARGS.contract }]]); // not a reopen, which sent the user to Check
+  });
+
+  it("Edit > Undo targets the robot the window shows, not the last one main opened", async () => {
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve(runReply(checkPayload("GO", 0))) });
+    await dispatch(TRUSTED_EVENT, "file:open", OPEN_ARGS);
+    callSidecarMock.mockRejectedValueOnce(new Error("stop"));
+    await dispatch(TRUSTED_EVENT, "contract:page", { contract: "/tmp/window/lockwire.yaml" }).catch(() => {});
+    expect(currentRobot()).toBe("/tmp/window/lockwire.yaml");
+  });
+
+  it("an undo failure says what failed; only an empty journal reads Nothing to undo", async () => {
+    const win = { isDestroyed: () => false, webContents: { send: vi.fn() } } as never;
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve({ ...runReply(null), exit_code: 2, payload: null, refusal: "the file moved since" }) });
+    await stepFromMenu(win, "undo-edit");
+    expect(showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({ message: "Could not undo", detail: "the file moved since" }));
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve({ ...runReply(null), exit_code: 2, payload: null, refusal: "nothing to undo" }) });
+    await stepFromMenu(win, "undo-edit");
+    expect(showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({ message: "Nothing to undo" }));
+  });
+
+  it("Open Recent opens the path clicked, as a lockfile check", async () => {
+    const send = vi.fn();
+    callSidecarMock.mockResolvedValueOnce({ json: () => Promise.resolve(runReply(checkPayload("GO", 0))) });
+    await openRecentFromMenu({ isDestroyed: () => false, webContents: { send } } as never, "/tmp/other/lockwire.yaml");
+    expect(JSON.parse(callSidecarMock.mock.calls.at(-1)![1].body)).toEqual({ command: "check", args: { contract: "/tmp/other/lockwire.yaml" } });
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a contradictory GO document and envelope at exit 1", async () => {

@@ -15,6 +15,7 @@ from lockwire.schema import (
     MAX_CONTRACT_BYTES,
     REJECT_YAML_ANCHORS_ALIASES,
     Actuator,
+    PrintedLink,
     Band,
     ContractError,
     Battery,
@@ -22,6 +23,7 @@ from lockwire.schema import (
     Bus,
     ContextEnvelope,
     Contract,
+    DependencyEdge,
     DeviceFamily,
     DeviceIdentity,
     DeviceInstance,
@@ -49,7 +51,9 @@ from lockwire.schema import (
     Tolerance,
     Wire,
     load_contract,
+    load_contract_bytes,
     save_contract,
+    tolerance_corners,
     upgrade_contract_document,
     upgrade_contract_text,
 )
@@ -235,6 +239,16 @@ def test_fixture_loads_and_round_trips(clean_contract, tmp_path):
     save_contract(clean_contract, out)
     # MUTATION-BITE: catches save/load dropping or changing existing contract fields.
     assert load_contract(out) == clean_contract
+
+
+def test_printed_link_printer_round_trips_and_is_none_when_absent(clean_contract, tmp_path):
+    kw = dict(material="PLA", infill_pct=20, walls=2, layers="along", diameter_mm=10)
+    assert PrintedLink(**kw).printer is None
+    clean_contract.schema_version = "0.6"
+    clean_contract.printed = {"arm": PrintedLink(printer="Prusa MK4", **kw)}
+    out = tmp_path / "p.yaml"
+    save_contract(clean_contract, out)
+    assert load_contract(out).printed["arm"].printer == "Prusa MK4"
 
 
 def test_device_input_voltage_range_is_optional(clean_contract):
@@ -486,7 +500,7 @@ def test_a_contract_with_no_reviews_key_writes_back_with_no_reviews_key(tmp_path
     # side effect. Byte-diff, not object-equality: an object round-trip would
     # still pass while the file text quietly grew the key.
     #
-    # The "original" is this box's own first save, not the checked-in fixture
+    # The "original" is this change's own first save, not the checked-in fixture
     # text verbatim -- save_contract's dumper normalises quoting/comments
     # regardless of reviews, so a diff against the hand-written fixture would
     # fail on that noise. Comparing a save to a save isolates exactly the
@@ -867,17 +881,17 @@ def test_resolve_paths(clean_contract):
 
 def test_minimal_contract_valid():
     contract = Contract(robot=RobotInfo(name="bare"))
-    # MUTATION-BITE: catches failure to advance the authored contract default to v0.6.
-    assert contract.schema_version == "0.6"
+    # MUTATION-BITE: catches failure to advance the authored contract default to v0.7.
+    assert contract.schema_version == "0.7"
 
 
 def test_v04_upgrade_is_pure_and_legacy_documents_remain_legacy():
     legacy = {"schema_version": "0.2", "robot": {"name": "legacy"}}
     proposal = upgrade_contract_document(legacy)
     assert legacy["schema_version"] == "0.2"
-    assert proposal["schema_version"] == "0.6"
+    assert proposal["schema_version"] == "0.7"
     assert Contract.model_validate(legacy).schema_version == "0.2"
-    assert "schema_version: '0.6'" in upgrade_contract_text(
+    assert "schema_version: '0.7'" in upgrade_contract_text(
         'schema_version: "0.3"\nrobot:\n  name: legacy\n'
     )
 
@@ -1332,6 +1346,33 @@ def test_wire_rejects_non_positive_awg():
             rail="rail.5v",
             owner="power",
         )
+
+
+def test_signal_wire_explicit_null_gauge_equals_absent_key(tmp_path):
+    absent, null = _f1c_data(), _f1c_data()
+    for d, extra in ((absent, {}), (null, {"awg": None, "installation": None})):
+        wire = d["topology"]["wires"][1]
+        wire.pop("awg", None), wire.pop("installation", None)
+        wire.update(extra)
+    a = load_contract_bytes(json.dumps(absent).encode())
+    n = load_contract_bytes(json.dumps(null).encode())
+    assert n == a and n.topology.wires[1].awg is None
+    for name, c in (("a", a), ("n", n)):
+        save_contract(c, tmp_path / f"{name}.yaml")
+        assert "awg" not in (tmp_path / f"{name}.yaml").read_text().split("wire.tx")[1]
+        assert "null" not in (tmp_path / f"{name}.yaml").read_text()
+
+
+@pytest.mark.parametrize("bad", [0, -2])
+def test_wire_non_positive_gauge_refused_in_one_plain_line(bad):
+    with pytest.raises(ValidationError, match="awg must be a positive gauge number") as e:
+        Wire(id="w", awg=bad, installation="free_air", rail="rail.5v", owner="p")
+    assert len(str(e.value).splitlines()) <= 4
+
+
+def test_rail_wire_with_null_gauge_refused_naming_awg():
+    with pytest.raises(ValidationError, match="names a rail, so it needs awg"):
+        Wire(id="w", awg=None, installation="free_air", rail="rail.5v", owner="p")
 
 
 # ---------------------------------------------------------------------------
@@ -1891,7 +1932,7 @@ def test_all_fixtures_still_load_after_why_max_rate(fixture):
     schema version bump."""
     from lockwire.schema import SCHEMA_VERSION
 
-    assert SCHEMA_VERSION == "0.6"
+    assert SCHEMA_VERSION == "0.7"
     contract = load_contract(Path(__file__).parent / "fixtures" / fixture)
     for model in contract.device_models:
         for band in model.hard_limits.values():
@@ -1943,7 +1984,7 @@ def test_unsupported_schema_version_raises_typed(tmp_path):
     still loads."""
     from lockwire.schema import SUPPORTED_SCHEMA_VERSIONS, UnsupportedSchemaVersion
 
-    for version in ("0.1", "0.7"):
+    for version in ("0.1", "0.8"):
         with pytest.raises(UnsupportedSchemaVersion) as caught:
             load_contract(_contract_at_version(tmp_path, version))
         assert caught.value.found == version
@@ -1986,8 +2027,8 @@ def test_tolerance_is_scored_by_checks() -> None:
     assert "SCORED: shape is validated" in text, (
         "marker comment 'SCORED: shape is validated' is missing or reworded in schema.py; the note must say tolerance is scored — restore or update it next to the tolerance field in DependencyEdge"
     )
-    assert "DECLARED-FOR-FUTURE (E0-70)" not in text, (
-        "schema.py's tolerance note still claims DECLARED-FOR-FUTURE (unscored), but checks.py scores it as of e3-tol — update the note, don't just add a new one"
+    assert "DECLARED-FOR-FUTURE" not in text, (
+        "schema.py's tolerance note still claims DECLARED-FOR-FUTURE (unscored), but checks.py scores it now — update the note, don't just add a new one"
     )
 
     checks_path = Path(__file__).parent.parent / "src" / "lockwire" / "checks.py"
@@ -2080,7 +2121,7 @@ def test_missing_schema_version_is_one_default_for_load_and_upgrade():
     """a keyless document means the latest version in load and in upgrade."""
     text = "robot:\n  name: r\nstructural: {}\n"
     doc = YAML().load(text)
-    assert upgrade_contract_document(dict(doc))["schema_version"] == "0.6"
+    assert upgrade_contract_document(dict(doc))["schema_version"] == "0.7"
     assert "schema_version" in upgrade_contract_text("robot:\n  name: r\n")
 
 
@@ -2173,12 +2214,673 @@ def test_old_lock_loads_without_battery_chemistry():
         type(c.topology.battery).model_validate({**ok, "chemistry": "alkaline"})
 
 
-def test_v05_upgrade_changes_only_the_version_line():
+@pytest.mark.parametrize("was", ["0.5", "0.6"])
+def test_v05_upgrade_changes_only_the_version_line(was):
     import difflib
 
     for eol in ("\n", "\r\n"):  # a CRLF checkout keeps its line endings
-        old = 'schema_version: "0.5"\nrobot:\n    name: r  # four-space\nlinks:\n- a\n-   b\n'
+        old = f'schema_version: "{was}"\nrobot:\n    name: r  # four-space\nlinks:\n- a\n-   b\n'
         old = old.replace("\n", eol)
         new = upgrade_contract_text(old).splitlines(True)
         changed = [d for d in difflib.ndiff(old.splitlines(True), new) if d[0] in "+-"]
-        assert changed == [f'- schema_version: "0.5"{eol}', f'+ schema_version: "0.6"{eol}']
+        assert changed == [f'- schema_version: "{was}"{eol}', f'+ schema_version: "0.7"{eol}']
+
+
+# ---------------------------------------------------------------- electrical optional group
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+_F1A = {
+    "wire": {"length_m": 0.4, "net_class": "power"},
+    "rail": {
+        "source_device": "dev.pm02",
+        "regulator_kind": "buck",
+        "dropout_v": 0.3,
+        "min_input_v": 6.0,
+        "capacitance_f": 0.00047,
+        "accepts_regen": False,
+        "thermal_resistance_k_per_w": 40.0,
+    },
+    "battery": {
+        "cells_parallel": 2,
+        "reserve_pct": 20.0,
+        "ocv_curve": [{"soc_pct": 0.0, "voltage_v": 13.2}, {"soc_pct": 100.0, "voltage_v": 16.8}],
+        "r1_mohm": 12.0,
+        "c1_f": 1500.0,
+        "regen_current_max_a": 5.0,
+    },
+    "bus": {"phy": "can-hs", "length_m": 1.2, "protocol": "dronecan", "twisted": True},
+    "protection": {
+        "id": "fuse.main",
+        "kind": "fuse",
+        "rating_a": 30.0,
+        "curve": "slow",
+        "i2t_a2s": 400.0,
+        "v_standoff_v": 24.0,
+        "v_clamp_v": 38.0,
+        "protects": ["rail.pm02-5v"],
+    },
+}
+
+
+def _f1a_data() -> dict:
+    data = json.loads(
+        json.dumps(
+            load_contract(FIXTURES / "x500" / "contract.yaml").model_dump(
+                mode="json", exclude_none=True
+            )
+        )
+    )
+    top = data["topology"]
+    top["rails"][0].update(_F1A["rail"])
+    top["buses"][0].update(_F1A["bus"])
+    top["battery"].update(_F1A["battery"])
+    top["protection"] = [_F1A["protection"]]
+    wire = {
+        "id": "wire.main",
+        "awg": 12,
+        "installation": "free_air",
+        "rail": top["rails"][0]["id"],
+        "draw_mode": "nominal",
+        "owner": "power",
+    }
+    top["wires"] = [{**wire, **_F1A["wire"]}]
+    return json.loads(json.dumps(data))  # a copy: tests below edit it, _F1A must stay clean
+
+
+def test_f1a_every_field_round_trips_through_save_contract(tmp_path):
+    data = _f1a_data()
+    out = tmp_path / "f1a.yaml"
+    save_contract(Contract.model_validate(data), out)
+    reloaded = load_contract(out).model_dump(mode="json", exclude_none=True)
+    assert reloaded == data
+    top = reloaded["topology"]
+    assert top["wires"][0]["length_m"] == 0.4 and top["protection"][0]["protects"] == [
+        "rail.pm02-5v"
+    ]
+
+
+@pytest.mark.parametrize(
+    "where, key, bad",
+    [
+        ("protection", "rating_a", -1.0),
+        pytest.param("battery", "reserve_pct", 100.0),
+        ("wire", "length_m", 0.0),
+    ],
+)
+def test_f1a_physically_impossible_values_are_refused(where, key, bad):
+    data = _f1a_data()
+    top = data["topology"]
+    target = {
+        "protection": top["protection"][0],
+        "battery": top["battery"],
+        "wire": top["wires"][0],
+    }[where]
+    target[key] = bad
+    with pytest.raises(ValidationError, match=key):
+        Contract.model_validate(data)
+
+
+def test_f1a_reader_refuses_a_key_it_does_not_know_and_names_it():
+    """An older reader meets a newer file through extra="forbid": the plain error names the key."""
+    data = _f1a_data()
+    data["topology"]["protection"][0]["melt_curve_id"] = "x"
+    with pytest.raises(ContractError, match=r"topology\.protection\.0\.melt_curve_id: unknown key"):
+        load_contract_bytes(json.dumps(data).encode(), name="lockfile")
+
+
+# ---------------------------------------------------------------- actuator optional group
+
+_F1B_ACTUATOR = {
+    "terminal_resistance_ohm": 0.4,
+    "inductance_h": 0.0002,
+    "kv_rpm_per_v": 100.0,
+    "kt_convention": "sine",
+    "rotor_inertia_kgm2": 3.3e-6,
+    "viscous_friction": 0.0001,
+    "coulomb_friction": 0.0,
+    "no_load_speed_rad_s": 250.0,
+    "no_load_current_a": 0.3,
+    "stall_current_a": 20.0,
+    "peak_current_a": 15.0,
+    "continuous_current_a": 4.0,
+    "winding_thermal_resistance_k_per_w": 2.5,
+    "thermal_time_constant_s": 30.0,
+    "winding_temp_limit_c": 120.0,
+    "encoder_max_rate_hz": 1000000.0,
+}
+_F1B_TOP = {
+    "controllers": [
+        {"joint": "elbow", "kp": 8.0, "ki": 0.0, "kd": 0.2, "loop_rate_hz": 500.0}
+        | {"velocity_loop_hz": 2000.0, "current_loop_hz": 20000.0}
+    ],
+    "base": {"wheel_radius_m": 0.05, "track_width_m": 0.3}
+    | {"tyre_friction_mu": 0.8, "rolling_resistance": 0.02},
+    "contacts": [{"link": "arm", "xyz": [0.1, 0.0, -0.02]}],
+}
+
+
+def _f1b_data() -> dict:
+    data = load_contract(FIXTURES / "actuator_review_e2e" / "contract.yaml").model_dump(
+        mode="json", exclude_none=True
+    )
+    data["device_models"][0]["actuator"].update(_F1B_ACTUATOR)
+    data["model"]["joints"][0]["limits"]["acceleration"] = 12.0
+    data["gearboxes"] = [
+        {"id": "gb.elbow", "ratio": 50.0, "input_joint": "elbow", "output_joint": "elbow"}
+        | {"efficiency": 0.85}
+    ]
+    return data | json.loads(json.dumps(_F1B_TOP))
+
+
+def test_f1b_every_field_round_trips_through_save_contract(tmp_path):
+    data = _f1b_data()
+    out = tmp_path / "f1b.yaml"
+    save_contract(Contract.model_validate(data), out)
+    assert load_contract(out).model_dump(mode="json", exclude_none=True) == data
+
+
+@pytest.mark.parametrize(
+    "where, key, bad",
+    [
+        ("controller", "kp", -0.1),
+        ("controller", "current_loop_hz", 0.0),
+        ("actuator", "stall_current_a", 0.0),
+        ("actuator", "coulomb_friction", -0.01),
+        ("actuator", "kt_convention", "square"),
+        ("gearbox", "efficiency", 1.01),
+        ("base", "tyre_friction_mu", -0.1),
+        ("limits", "acceleration", 0.0),
+    ],
+)
+def test_f1b_physically_impossible_values_are_refused(where, key, bad):
+    data = _f1b_data()
+    target = {
+        "controller": data["controllers"][0],
+        "actuator": data["device_models"][0]["actuator"],
+        "gearbox": data["gearboxes"][0],
+        "base": data["base"],
+        "limits": data["model"]["joints"][0]["limits"],
+    }[where]
+    target[key] = bad
+    with pytest.raises(ValidationError, match=key):
+        Contract.model_validate(data)
+
+
+def test_f1b_reader_refuses_a_key_it_does_not_know_and_names_it():
+    data = _f1b_data()
+    data["controllers"][0]["feedforward"] = 1.0
+    with pytest.raises(ContractError, match=r"controllers\.0\.feedforward: unknown key"):
+        load_contract_bytes(json.dumps(data).encode(), name="lockfile")
+
+
+def test_f1b_declared_joint_acceleration_is_not_structure_drift():
+    data = load_contract(FIXTURES / "actuator_review_e2e" / "contract.yaml").model_dump(mode="json")
+    before = Contract.model_validate(data).model.structure_hash
+    data["model"]["joints"][0]["limits"]["acceleration"] = 12.0
+    assert Contract.model_validate(data).model.structure_hash == before
+
+
+# ---------------------------------------------------------------- tolerance optional group
+
+_F1E_TOP = {
+    "assertions": [
+        {"id": "a.vbus", "instance": "motor.elbow", "channel": "vbus", "window_s": 2.0}
+        | {"band": {"lo": 11.0, "hi": 13.0, "unit": "V"}}
+    ],
+    "modes": {
+        "states": ["idle", "run", "estop"],
+        "transitions": [{"from": "idle", "to": "run"}, {"from": "run", "to": "estop"}],
+        "safe": ["estop"],
+    },
+}
+
+
+def _f1e_data() -> dict:
+    data = load_contract(FIXTURES / "actuator_review_e2e" / "contract.yaml").model_dump(
+        mode="json", exclude_none=True
+    )
+    act = data["device_models"][0]["actuator"]
+    act["torque_peak"] = 2.0
+    act["tolerances"] = {"torque_peak": {"rel_pct": 10}, "gear_ratio": {"min": 0.9, "max": 1.1}}
+    data["model"]["links"][1] |= {
+        "mass_kind": "measured",
+        "mass_override": {"value": 0.3, "unit": "kg"},
+    }
+    data["model"]["links"][1]["material"] = {"name": "6061-T6", "density_kg_m3": 2700.0} | {
+        "source": "ASM handbook"
+    }
+    data["devices"][0]["physical"] = {"mass_kind": "calculated"} | {
+        "mass_override": {"value": 120.0, "unit": "g"}
+    }
+    return data | json.loads(json.dumps(_F1E_TOP))
+
+
+def test_f1e_every_field_round_trips_through_save_contract(tmp_path):
+    data = _f1e_data()
+    out = tmp_path / "f1e.yaml"
+    save_contract(Contract.model_validate(data), out)
+    assert load_contract(out).model_dump(mode="json", exclude_none=True, by_alias=True) == data
+    assert "from: idle" in out.read_text()
+
+
+@pytest.mark.parametrize(
+    "field, corners", [("torque_peak", (1.8, 2.2)), ("gear_ratio", (0.9, 1.1))]
+)
+def test_f1e_tolerance_reports_low_then_high_corner(field, corners):
+    act = load_contract_bytes(json.dumps(_f1e_data()).encode()).device_models[0].actuator
+    assert tolerance_corners(getattr(act, field), act.tolerances[field]) == pytest.approx(corners)
+
+
+def test_f1e_mass_kind_reads_estimated_when_absent_and_is_never_written(tmp_path):
+    c = load_contract(FIXTURES / "actuator_review_e2e" / "contract.yaml")
+    assert c.model.links[1].effective_mass_kind == Physical().effective_mass_kind == "estimated"
+    save_contract(c, tmp_path / "out.yaml")
+    assert "mass_kind" not in (tmp_path / "out.yaml").read_text()
+
+
+def _drop_channel(d):
+    del d["assertions"][0]["channel"]
+
+
+@pytest.mark.parametrize(
+    "edit, match",
+    [
+        (_drop_channel, r"assertions\.0\.channel"),
+        (lambda d: d["assertions"][0].update(window_s=0.0), "window_s"),
+        (lambda d: d["model"]["links"][1]["material"].update(density_kg_m3=0.0), "density"),
+        (lambda d: d["modes"]["transitions"].append({"from": "run", "to": "fly"}), "fly"),
+        (
+            lambda d: d["device_models"][0]["actuator"]["tolerances"].update(
+                encoder_cpr={"rel_pct": 1}
+            ),
+            "encoder_cpr",
+        ),
+        (
+            lambda d: d["device_models"][0]["actuator"]["tolerances"].update(
+                torque_peak={"min": 3, "max": 1}
+            ),
+            "min <= typ",
+        ),
+        (lambda d: d["devices"][0]["physical"].update(mass_kind="guessed"), "mass_kind"),
+    ],
+)
+def test_f1e_invalid_values_are_refused(edit, match):
+    data = _f1e_data()
+    edit(data)
+    with pytest.raises(ContractError, match=match):
+        load_contract_bytes(json.dumps(data).encode())
+
+
+def test_f1e_edge_refuses_a_band_tolerance_it_cannot_score():
+    with pytest.raises(ValidationError, match="edge tolerance needs rel_pct or abs"):
+        DependencyEdge(quantity="q", tolerance={"min": 1.0, "max": 2.0}, code=["a.py"], owner="o")
+
+
+def test_f1e_reader_refuses_a_key_it_does_not_know_and_names_it():
+    data = _f1e_data()
+    data["modes"]["transitions"][0]["guard"] = "armed"
+    with pytest.raises(ContractError, match=r"modes\.transitions\.0\.guard: unknown key"):
+        load_contract_bytes(json.dumps(data).encode(), name="lockfile")
+
+
+# ---------------------------------------------------------------- connectors, pins, signal wires
+
+_F1C_PIN = {
+    "number": 1,
+    "name": "TX",
+    "functions": ["UART1_TX", "GPIO14"],
+    "type": "output",
+    "direction": "out",
+    "voltage_v": 3.3,
+    "vih": 2.0,
+    "vil": 0.8,
+    "voh": 2.9,
+    "vol": 0.4,
+    "max_current_ma": 8.0,
+    "capabilities": ["pwm"],
+    "reserved": True,
+    "reason": "console",
+    "net": "uart1.tx",
+    "aliases": ["P8"],
+    "os_device": "/dev/ttyAMA0",
+}
+_F1C_RANGE = {"min": {"value": 4.5, "unit": "V"}, "max": {"value": 5.5, "unit": "V"}}
+
+
+def _f1c_data() -> dict:
+    data = _f1a_data()
+    dev = data["devices"][0]
+    pins = [_F1C_PIN, {"number": "A2", "type": "power_in", "voltage_range": _F1C_RANGE}]
+    dev["connectors"] = [
+        {"id": "j1", "type": "jst-gh-4", "placement": "left edge", "max_current_a": 1.0}
+        | {"shared_budget_group": "gpio", "pins": pins}
+    ]
+    dev |= {"gpio_total_ma": 50.0, "power_inputs": ["j1"], "radio_on": False}
+    dev["kicad_project"] = "hw/board.kicad_pro"
+    end = {"device": dev["id"], "connector": "j1", "pin": 1}
+    signal = {k: v for k, v in data["topology"]["wires"][0].items() if k != "rail"}
+    signal |= {"id": "wire.tx", "from": end, "to": end | {"pin": "A2"}, "net": "uart1.tx"}
+    signal |= {"cable": "harness.a", "colour": "yellow", "shielded": True}
+    data["topology"]["wires"].append(signal)
+    data["connector_types"] = [
+        {"id": "jst-gh-4", "family": "JST-GH", "gender": "female", "pitch_mm": 1.25}
+        | {"pin_count": 4, "rated_current_a": 1.0, "contact_resistance_mohm": 20.0}
+        | {"pin_labels": ["TX", "RX", "5V", "GND"], "colours": ["yellow", "green"]}
+    ]
+    data["safety"] = {"estop_category": 1, "channels": [{"id": "sto1", "kind": "STO1"}]}
+    data["safety"]["channels"][0]["device"] = dev["id"]
+    return json.loads(json.dumps(data))  # the shared _F1A/_F1C dicts stay unmutated
+
+
+def test_f1c_every_field_round_trips_and_writes_from(tmp_path):
+    data = _f1c_data()
+    out = tmp_path / "f1c.yaml"
+    save_contract(load_contract_bytes(json.dumps(data).encode()), out)
+    assert load_contract(out).model_dump(mode="json", exclude_none=True, by_alias=True) == data
+    assert "from:" in out.read_text() and "from_" not in out.read_text()
+
+
+def test_f1c_pin_to_pin_signal_wire_without_rail_loads():
+    wire = load_contract_bytes(json.dumps(_f1c_data()).encode()).topology.wires[1]
+    assert wire.rail is None and (wire.from_.pin, wire.to.pin) == (1, "A2")
+
+
+@pytest.mark.parametrize(
+    "edit, match",
+    [
+        (lambda d: d["topology"]["wires"][1].pop("to"), "needs both from and to"),
+        (lambda d: d["devices"][0]["connectors"][0]["pins"][0].pop("reason"), "say why"),
+        (
+            lambda d: d["devices"][0]["connectors"][0]["pins"][0].update(voltage_range=_F1C_RANGE),
+            "not both",
+        ),
+        (lambda d: d["devices"][0]["connectors"][0]["pins"][0].update(type="in"), "type"),
+        (lambda d: d["connector_types"][0].update(pin_count=0), "pin_count"),
+        (lambda d: d["safety"].update(estop_category=3), "estop_category"),
+        (lambda d: d["safety"]["channels"][0].update(kind="STO3"), "kind"),
+    ],
+)
+def test_f1c_invalid_values_are_refused(edit, match):
+    data = _f1c_data()
+    edit(data)
+    with pytest.raises(ContractError, match=match):
+        load_contract_bytes(json.dumps(data).encode())
+
+
+def test_f1c_wire_with_neither_rail_nor_ends_makes_check_exit_2_with_one_line(tmp_path):
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    data = _f1c_data()
+    for key in ("from", "to"):
+        del data["topology"]["wires"][1][key]
+    lock = tmp_path / "lock.yaml"
+    lock.write_text(json.dumps(data))
+    result = CliRunner().invoke(app, ["check", str(lock)])
+    assert result.exit_code == 2 and result.output.strip().splitlines() == [
+        "lock.yaml: topology.wires.1: wire 'wire.tx' has no rail and no from/to pins: give it one"
+    ]
+
+
+def _gaugeless_signal_data() -> dict:
+    data = _f1c_data()
+    for key in ("awg", "installation"):
+        del data["topology"]["wires"][1][key]
+    return data
+
+
+def test_signal_wire_without_gauge_loads_and_round_trips(tmp_path):
+    data, out = _gaugeless_signal_data(), tmp_path / "sig.yaml"
+    save_contract(load_contract_bytes(json.dumps(data).encode()), out)
+    assert load_contract(out).model_dump(mode="json", exclude_none=True, by_alias=True) == data
+    assert "awg" not in out.read_text().split("wire.tx")[1]
+
+
+@pytest.mark.parametrize("missing", ["awg", "installation"])
+def test_rail_wire_missing_gauge_field_is_refused_naming_it(missing):
+    data = _f1c_data()
+    del data["topology"]["wires"][0][missing]
+    with pytest.raises(ContractError, match=rf"wire .* names a rail, so it needs {missing}"):
+        load_contract_bytes(json.dumps(data).encode())
+
+
+def test_check_is_clean_on_power_wire_plus_gaugeless_signal_wire(tmp_path):
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    lock = tmp_path / "lock.yaml"
+    lock.write_text(json.dumps(_gaugeless_signal_data()))
+    result = CliRunner().invoke(app, ["check", str(lock)])
+    assert result.exit_code != 2 and "Traceback" not in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "wire.tx" not in result.output
+
+
+def test_f1c_reader_refuses_a_key_it_does_not_know_and_names_it():
+    data = _f1c_data()
+    data["devices"][0]["connectors"][0]["pins"][0]["drive_strength"] = "high"
+    with pytest.raises(ContractError, match=r"connectors\.0\.pins\.0\.drive_strength: unknown key"):
+        load_contract_bytes(json.dumps(data).encode(), name="lockfile")
+
+
+# ---------------------------------------------------------------- shapes, params, mimic
+
+_F1DS_ORIGIN = {"xyz": [0.0, 0.0, 0.1], "rpy": [0.0, 1.5708, 0.0]}
+
+
+def _f1ds_data() -> dict:
+    data = load_contract(FIXTURES / "actuator_review_e2e" / "contract.yaml").model_dump(
+        mode="json", exclude_none=True
+    )
+    data["params"] = [
+        {"name": "arm_len", "value": 0.3, "unit": "m", "min": 0.1, "max": 0.5, "step": 0.01}
+    ]
+    arm = data["model"]["links"][1]
+    arm["geometry"] = [
+        {"kind": "box", "size": [0.04, 0.04, "arm_len"], "origin": _F1DS_ORIGIN},
+        {"kind": "cylinder", "radius": 0.02, "length": "arm_len"},
+        {"kind": "sphere", "radius": 0.03},
+    ]
+    arm["collision"] = [{"kind": "mesh", "mesh": "meshes/arm.stl"}]
+    data["model"] |= {"source": "lockfile"}
+    data["model"]["links"].append({"name": "tip"})
+    tip = {"name": "tip_joint", "type": "continuous", "parent": "arm", "child": "tip"}
+    data["model"]["joints"].append(tip | {"mimic": {"joint": "elbow", "multiplier": -1.0}})
+    data["model"]["joints"][1]["mimic"]["offset"] = 0.2
+    data["collision_pairs"] = [{"link1": "base", "link2": "arm", "reason": "adjacent"}]
+    data["devices"][0]["physical"] = {"mount_frame": "base", "mount_rpy": [0.0, 0.0, 1.5708]}
+    end = {"device": "motor.elbow", "connector": "j1", "pin": 2}
+    data["safety"] = {"channels": [{"id": "sto1", "kind": "STO1"} | end]}
+    return json.loads(json.dumps(data))
+
+
+def test_f1ds_every_field_round_trips_through_save_contract(tmp_path):
+    first = load_contract_bytes(json.dumps(_f1ds_data()).encode())
+    out = tmp_path / "f1ds.yaml"
+    save_contract(first, out)
+    dump = {"mode": "json", "exclude_none": True}
+    again = load_contract(out).to_file_data(**dump)  # memory is resolved, the file is not
+    assert again == first.to_file_data(**dump)
+    assert again["model"]["links"][1]["geometry"][0]["size"][2] == "arm_len"
+
+
+def test_f1ds_mimic_is_structure_and_shapes_are_not():
+    data = _f1ds_data()
+    full = load_contract_bytes(json.dumps(data).encode()).model.structure_hash
+    for key in ("geometry", "collision"):
+        del data["model"]["links"][1][key]
+    assert load_contract_bytes(json.dumps(data).encode()).model.structure_hash == full
+    del data["model"]["joints"][1]["mimic"]
+    assert load_contract_bytes(json.dumps(data).encode()).model.structure_hash != full
+
+
+@pytest.mark.parametrize(
+    "edit, match",
+    [
+        (lambda d: d["params"][0].update(value=0.6), "min <= value <= max"),
+        (lambda d: d["params"][0].update(step=0), "step"),
+        (lambda d: d["params"].append(dict(d["params"][0])), "duplicate param name"),
+        (lambda d: d["model"]["links"][1]["geometry"][1].pop("length"), "needs length"),
+        (lambda d: d["model"]["links"][1]["collision"][0].pop("mesh"), "needs mesh"),
+        (lambda d: d["collision_pairs"][0].pop("reason"), "reason"),
+        (
+            lambda d: d["model"]["links"][1]["collision"].append({"kind": "sphere", "radius": "r"}),
+            "link 'arm' uses param 'r', which params does not declare",
+        ),
+    ],
+)
+def test_f1ds_invalid_values_are_refused(edit, match):
+    data = _f1ds_data()
+    edit(data)
+    with pytest.raises(ContractError, match=match):
+        load_contract_bytes(json.dumps(data).encode())
+
+
+def test_f1ds_reader_refuses_a_key_it_does_not_know_and_names_it():
+    data = _f1ds_data()
+    data["model"]["links"][1]["geometry"][0]["fillet"] = 0.002
+    with pytest.raises(ContractError, match=r"geometry\.0\.fillet: unknown key"):
+        load_contract_bytes(json.dumps(data).encode(), name="lockfile")
+
+
+# ---------------------------------------------------------------- format 0.7
+
+
+def test_version_a_new_file_writes_07_and_a_06_file_loads_and_stays_06(tmp_path):
+    out = tmp_path / "new.yaml"
+    save_contract(Contract(robot=RobotInfo(name="fresh")), out)
+    assert 'schema_version: "0.7"' in out.read_text() or "schema_version: '0.7'" in out.read_text()
+    old = _contract_at_version(tmp_path, "0.6")
+    assert load_contract(old).schema_version == "0.6"
+
+
+def test_version_upgrade_of_a_06_file_changes_only_the_version_line():
+    text = 'schema_version: "0.6"  # keep me\nrobot:\n  name: r\n'
+    new = upgrade_contract_text(text)
+    assert new.splitlines()[0] == 'schema_version: "0.7"  # keep me'
+    assert new.splitlines()[1:] == text.splitlines()[1:]
+
+
+def test_version_07_file_with_an_unknown_field_is_refused_naming_it():
+    data = _f1ds_data() | {"schema_version": "0.7", "future_rail": {"v": 5}}
+    with pytest.raises(ContractError, match=r"future_rail: unknown key"):
+        load_contract_bytes(json.dumps(data).encode(), name="lockfile")
+
+
+def test_a_file_without_mimic_loads_with_mimic_none():
+    contract = load_contract(FIXTURES / "so101" / "lockwire.yaml")
+    assert contract.model.joints[0].mimic is None
+
+
+def test_param_provenance_round_trips_through_save_contract(tmp_path):
+    from lockwire.schema import Param, Provenance, save_contract
+
+    prov = Provenance(source="s", witness="w1", locked_at=dt.date(2026, 11, 13))
+    path = tmp_path / "lockwire.yaml"
+    path.write_text('schema_version: "0.6"\nrobot:\n  name: r\n')
+    contract = load_contract(path)
+    contract.params = [Param(name="a", value=1.0, provenance=prov)]
+    save_contract(contract, path)
+    assert load_contract(path).params[0].provenance == prov
+
+
+def test_cad04_pattern_round_trips_and_unknown_key_is_refused(tmp_path):
+    data = _f1ds_data()
+    data["patterns"] = [
+        {
+            "id": "p",
+            "kind": "circular",
+            "of": "arm",
+            "count": 4,
+            "axis": [0, 0, 1],
+            "angle_deg": 90,
+            "pitch_m": 0.1,
+            "joint_type": "fixed",
+        }
+    ]
+    first = load_contract_bytes(json.dumps(data).encode())
+    out = tmp_path / "p.yaml"
+    save_contract(first, out)
+    dump = {"mode": "json", "exclude_none": True}
+    assert load_contract(out).to_file_data(**dump)["patterns"] == data["patterns"]
+    data["patterns"][0]["spacing"] = 1
+    with pytest.raises(ContractError, match=r"patterns\.0\.spacing: unknown key"):
+        load_contract_bytes(json.dumps(data).encode())
+
+
+def _belt(**over):
+    belt = {
+        "id": "b1",
+        "driver": {"pulley_teeth": 20, "joint": "elbow"},
+        "driven": {"pulley_teeth": 40, "link": "arm"},
+        "profile": "GT2",
+        "center_distance_m": 0.15,
+        "length_m": 0.4,
+        "teeth": 200,
+        "provenance": {"witness": "w1", "source": "s", "locked_at": "2026-11-13"},
+    }
+    return belt | over
+
+
+def _belt_data(belt, params=None):
+    data = {"schema_version": "0.6", "robot": {"name": "r"}, "topology": {"belts": [belt]}}
+    return data | ({"params": params} if params else {})
+
+
+def test_belt_with_every_field_round_trips_through_save_contract(tmp_path):
+    first = load_contract_bytes(json.dumps(_belt_data(_belt())).encode())
+    out = tmp_path / "b.yaml"
+    save_contract(first, out)
+    dump = {"mode": "json", "exclude_none": True}
+    assert load_contract(out).to_file_data(**dump)["topology"]["belts"] == [_belt()]
+
+
+def test_belt_param_centre_distance_resolves_and_saves_back_raw(tmp_path):
+    params = [{"name": "span", "value": 0.2}]
+    for raw, number in (("span", 0.2), ("-span", -0.2)):
+        data = _belt_data(_belt(center_distance_m=raw), params)
+        if number < 0:
+            with pytest.raises(ContractError, match="center_distance_m must be positive"):
+                load_contract_bytes(json.dumps(data).encode())
+            continue
+        contract = load_contract_bytes(json.dumps(data).encode())
+        assert contract.topology.belts[0].center_distance_m == number
+        out = tmp_path / "b.yaml"
+        save_contract(contract, out)
+        assert YAML(typ="safe").load(out.read_text())["topology"]["belts"][0]["center_distance_m"] == raw
+
+
+@pytest.mark.parametrize(
+    ("belt", "params", "message"),
+    [
+        (_belt(driver={"pulley_teeth": 20, "link": "a", "joint": "j"}), None, "not both"),
+        (_belt(driver={"pulley_teeth": 0}), None, "greater than 0"),
+        (_belt(teeth=0), None, "greater than 0"),
+        (_belt(length_m=0), None, "greater than 0"),
+        (_belt(profile=""), None, "at least 1 character"),
+        (_belt(center_distance_m=0), None, "must be positive"),
+        (_belt(center_distance_m="ghost"), None, "'ghost', which params does not declare"),
+        (_belt(driver={"pulley_teeth": 20, "tooth": 1}), None, "driver.tooth: unknown key"),
+    ],
+)
+def test_belt_refusals(belt, params, message):
+    with pytest.raises(ContractError, match=message):
+        load_contract_bytes(json.dumps(_belt_data(belt, params)).encode())
+
+
+def test_duplicate_belt_ids_are_refused():
+    data = _belt_data(_belt())
+    data["topology"]["belts"].append(_belt())
+    with pytest.raises(ContractError, match="duplicate belt id"):
+        load_contract_bytes(json.dumps(data).encode())
+
+
+def test_a_provenance_may_omit_its_witness_but_a_review_may_not():
+    from lockwire.schema import Provenance, ReviewNote
+
+    assert Provenance(source="s", locked_at="2026-01-01").witness is None
+    with pytest.raises(ValueError, match="witness"):
+        ReviewNote(state="approved", at="2026-01-01")

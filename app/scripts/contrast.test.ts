@@ -22,4 +22,12 @@ describe("theme.css's token layer gates both palettes", () => {
     );
     expect(edgeFailures).toEqual([]);
   });
+
+  it("test_no_palette_is_missing_a_token_its_twin_defines", () => {
+    const css = readFileSync(THEME_CSS_PATH, "utf8");
+    const missing = runContrastCheck(css).flatMap((r) => r.problems);
+    expect(missing).toEqual([]);
+    const broken = runContrastCheck(css.replace(/--term-fg:[^;]*;/, ""));
+    expect(broken.flatMap((r) => r.problems).join()).toContain("missing token --term-fg");
+  });
 });

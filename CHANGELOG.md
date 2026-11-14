@@ -1,6 +1,131 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-11-14
+
+### Get your robot in
+- `lockwire check robot.wbt` reads Webots robots (.wbt, .proto), and Webots files get the same model checks as a URDF.
+- Webots files work in the edit hook and the MCP tools; the 3D scene says plainly that it needs a URDF, SDF or xacro model.
+- A lock started from a MuJoCo model (`model.xml`) gets structure drift, sanity checks and a mass, centre of mass and inertia comparison like a URDF; `check` says when MuJoCo works out the mass itself and names what is not compared (joint anchors, sites, cameras, lights). Bodies, joints and inertials inside a `<frame>` are read as MuJoCo reads them; a frame rotated with `axisangle`, `xyaxes` or `zaxis` is refused.
+- Big robot models are no longer drawn with holes: models up to two million triangles are shown whole, larger ones are simplified per part and the view says so ('Checks use the full model').
+- `lockwire add link LOCK --name N --mesh PATH --scale mm|m|NUMBER` imports an STL or DAE part. The unit is required and never guessed; the mesh lives inside the lockfile's folder and the lockfile keeps the scale.
+- Design a robot from an empty folder: `lockwire start --blank`, then `add link --shape --material` and `add joint --origin`.
+- `lockwire rename KIND OLD NEW` renames a part and every reference to it in one write.
+- The README's first run checks your own robot file in one command, then a small example arm with power and wiring reaches a real catch.
+
+### Checks
+- Joint limits that disagree between URDF, MJCF and SDF versions of the same robot are reported.
+- `check --compare-to <base lockfile>` lists only the checks whose verdict changed, as GitHub annotations with `--format github`.
+- `check --format csv` or `--format tsv` writes the findings as a table, and `--quiet` prints only the verdict line (the exit code is unchanged).
+- `lockwire check` runs every declared variant of a lockfile and exits with the worst result.
+- Identical findings and not-compared reasons collapse into one line with a count (like '12 checks: velocity limit ...'), in the text output of `check` and `report` too.
+- When `--strict` changes the result, `check` prints the new word (NOT SCORED or NO-GO) with "under --strict"; exit codes are unchanged.
+- `lockwire check --plan PATH` checks hold torque at each Plan pose.
+- `lockwire plan` warns which tip targets (`requirements[].reach_m`) the arm cannot reach and by how much.
+- `lockwire plan` warns when a segment's duration is shorter than the joints' velocity and acceleration limits allow.
+- Check shows a bar of each value against its limit, and the saved report carries the same bars.
+- In Declare, a changed number previews the verdict a moment after you stop typing, without saving.
+- Overlaps panel finds parts that overlap or sit too close, also through each joint's range; pairs you have ignored stay quiet.
+- Wire drop and connector heat are checked from the parts catalog.
+- Thin wires are checked too: wires of gauges the NEC table lacks (such as 28 AWG) are compared with the published chassis-wiring rating and warn when overloaded; the arm-power example ships with that warning on its 28 AWG servo feed.
+- A zero or negative rail limit, rail voltage, battery voltage or battery mass is reported in one plain line instead of crashing check; tip margin says why it was not computed.
+- Deleting a part removes it with its joint, and a floating part that has mass is a warning.
+- Finding titles in the app state the catch with both numbers (for example the brownout, the fuse, the drifted mass).
+- The app says so when a GO has nothing physical compared, and what to do next.
+- SDF robots get the same no-inertia warning as URDF robots, because the check now reads each link's mass and inertia from the SDF.
+
+### Power
+- Battery sag is worked out from the pack's own voltage curve and resistance, including the cold case, and warns when a rail would drop below its minimum near empty.
+- Build a battery pack from a cell (series x parallel: voltage, Ah, mass, max current) and warn when a timed plan needs more energy than the pack holds after its reserve.
+- A Power panel lists each rail's volts, amps, efficiency and heat lost, plus light, typical and worst-case load per rail, parts against their ratings, and the battery pack.
+- Power budget: light, typical and max load per rail, with a CSV load list (Plan duty when given).
+- Stress list: each catalog-linked part's current, voltage and junction rise as a share of its own rating; over-rating warns, 80 to 100% is advice.
+
+### Controls
+- Each motor is checked for Kv versus Kt agreement, encoder rate against top speed, and wheeled bases for tyre slip, as warnings only and only when the fields are present.
+- Controls panel shows each motor's card with efficiency and speed curves, and each joint's step response from declared gains, rotor inertia and gear ratio.
+- Phase margin, crossover against loop rate (with half-sample delay) and step effort against stall torque, as advice.
+
+### Wiring
+- A Wiring panel draws each board with its pins and every wire, lights up a pin's whole net, shows a pin card per board (CSV export), and lets you click two pins to add a wire.
+- While wiring, a wire that would short a supply to ground is flagged before it is saved.
+- Pin rules: voltage-level mismatch, 5 V into 3.3 V inputs, output-to-output (also across several wires), per-pin and per-board current from 12 board pin cards. A power input pin is judged against its own voltage range, not the card's signal limit, so 5 V into an ESP32 5V pin no longer warns (a GPIO pin at 5 V still does).
+- The saved report gains a printable wiring build sheet with a clickable diagram.
+- `lockwire describe` shows the bus address map.
+- `lockwire add` takes rail `--dropout/--min-input/--regulator-kind`, bus `--length/--twisted`, battery `--cells-parallel/--reserve`, with units; `add wire --awg --installation --length --net-class --connector --from --to`; `add connector --device --type [--placement]` names pins from the connector type.
+- A wire with no gauge prints no gauge; a pin-to-pin signal wire may omit its gauge and installation, but a wire naming a rail still needs them.
+- Connector types ship in the lockfile shape with cited pin orders, including SparkFun's 226 mA Qwiic limit.
+
+### CAD and parts
+- Add a box, cylinder or sphere sized by a named dimension; change the size in the app and the link and the torque check follow.
+- A joint origin or shape dimension may name a declared param; an undeclared estimated link with geometry and a material gets its mass and centre of mass from its volume (in memory only).
+- A mass Lockwire works out from shapes says so and names its density source.
+- The material picker shows where each density comes from, and printed plastics note that infill changes the real density.
+- `lockwire materials compare PATH --link NAME` shows the link's mass, the robot's mass and the worst torque margin in every library material.
+- Design shows total mass, centre of mass and inertia with a marker in 3D, and a placement shows roll, pitch and yaw.
+- In Design, joints are coloured by how much torque they have to spare, with the number beside each, and the support polygon is drawn.
+- In Design, type G, an axis and a number to move the selected part that many millimetres; Move and Rotate work from where the part is.
+- Optional `groups`, `patterns` (`add pattern`, `add duplicate`), `variants`, `topology.belts` (`add belt`) and stock shapes in the lockfile.
+- Two example robots with resizable parts: a rover and a hexapod (18 ST3215 servos from the library) with masses from cited aluminium density.
+- Catalog parts now name their maker, and the Feetech ST3215, STS3215, Here3+ and PM02 V3 masses cite the maker's own page.
+- A Parts list panel lists parts, power rails and data buses, and saves as CSV; the parts-list export gains a Maker column.
+- `lockwire catalog parts` browses the parts library; `lockwire add device --part <id>` adds a catalog part with no numbers typed.
+- The MCP `list_parts` tool lists the catalog's stock shapes after the parts, each with its recipe, dimensions, whether it takes named dimensions and how its mass is worked out.
+
+### Export
+- `lockwire export <lockfile> --format urdf|sdf|mjcf` writes the model (never over your source; `--force` to overwrite); `--format mjcf` says its checks are narrower.
+- `lockwire export --format stl|obj|dae` writes meshes (`--units mm` for millimetres); STEP says plainly it is not built.
+- `lockwire export --format bom` writes a parts list (CSV), with weights from the catalog on an exact match, a note that compares the listed weight with the model's, and a notes column on each row: no cited mass, mass from an unverified catalog entry, and listed twice (merge into one row with qty 2); `--format budget [--plan]` writes the power budget CSV.
+- SDF export keeps continuous joints as continuous.
+- MuJoCo export derives a part's inertia from its shapes when mass is declared but no inertia is.
+- The parts list counts a battery pack once when the pack and its source device both name it.
+
+### App
+- A real application menu: File gets Open Recent, Save a Copy and an Export submenu (now with Report (PDF)), Edit gets Undo and Redo, View gets zoom, full screen and light/dark, Help links to the shortcuts, docs and About.
+- Open robot and drag-and-drop take MuJoCo (.xml, .mjcf) and Webots (.wbt, .proto) files; a Webots file shows its check result and says it has no 3D view.
+- Opening a robot shows it in 3D while the check runs.
+- Free edits and saves no longer ask for your name and record none unless you save one; the Declare form keeps its Checked by field.
+- Print this part on a selected link exports its STL in millimetres and opens it, and says why it is disabled when the link has no shape.
+- The start screen has a quiet 'Ask the Agent to design one' that opens a blank robot and the Agent tab.
+- One Panels button opens every side panel; panels without data for your robot stay hidden. The Assistant is one tap.
+- A Graph view shows what connects to what; pick a check to light the parts it uses, pick a part to see what it feeds, drives and carries; the saved report includes the graph.
+- Hide a part, show only some, see through, wireframe, frames and axes from one View menu; Show everything puts it back.
+- Pressing F frames the robot in the part of the view you can see; a read-only settings folder gets one plain sentence saying what to do.
+- Screens share one type scale, spacing and header style, with one main action each; the Open screen's examples are a tidy list with Start from blank under it.
+- The Agent can propose a part from a datasheet PDF with the page and a quote behind every number.
+- Type a supply spec such as '4S, 5 V 3 A, 12 V 1 A' into the Agent tab and it proposes power trees built only from parts in the library, as cards you accept or reject.
+- A batch the Agent proposes leaves no hidden files in your folder and is one undo step; a NO-GO robot is said in plain words.
+- Shape-based examples show the robot you design: they no longer ship a stand-in scene, and shapes declared in the lockfile take precedence over a scene file found next to it.
+- Adding a shape in Design no longer hides a robot's mesh model: the mesh stays and the new shape is drawn with it.
+- Every Assistant entry point ends in a next step: with no key set it leads to the key screen, and a greyed Assistant says why.
+- A failed 3D view no longer blanks the window.
+- The 3D view keeps your camera across edits to the same robot and refits only for a new robot or Fit.
+- Undo and Redo stay in Design and refresh in place, a value you declare shows at once, and a late reply for one robot never lands on another.
+- A file that will not open shows one plain line saying what is wrong, with the raw text under Details; Retry opening appears only where a retry can succeed.
+- A datasheet weight typed with a decimal comma (1,5) is read as 1.5, so Compare works.
+- The start card puts the desk arm and the built-to-fail servo bench first, and each example says what its check finds.
+
+### CLI
+- `lockwire add link / add joint` and `lockwire delete` edit the robot from the CLI, with the engine's plain refusals; `from-parts` shows 'could be: ...' on a NO MATCH row.
+- `lockwire add param`, `add shape` and `add attach` take flags for the same edits the MCP tools make (`--name --value --unit --min --max`; `--link --shape`; `--parent --part --frame --frame-id` with the joint's type, axis, limits and name).
+- `lockwire blame`, `describe`, `diff` and the report print 'no name on record' instead of crashing on an edit saved without a name.
+- `lockwire undo` / `redo` step one edit at a time without losing uncommitted edits; batch-edit is one undo step per accepted batch; compare with an older revision.
+- Refusals print your file names and values literally (no stray colours or emoji); swap previews print part and joint names literally.
+- Opening a robot file never runs code from it: a `.xacro`, URDF or SDF file that uses `$(eval ...)` is refused in one plain line. `$(env)`, `$(optenv)`, includes or YAML loads that reach outside the robot's package, a `$(find x)/../..` escape, a DOCTYPE or ENTITY declaration in an included file, and any expression over 10000 characters are refused the same way.
+- Lockwire does not run code from robot files. A file built to waste memory can still make a check slow or fail; open files from people you trust.
+- `lockwire export` never writes over the model's own source, assets or meshes, even with `--force`.
+- The agent's `upgrade_contract` tool writes only inside the contract's folder, to a `.yaml` or `.yml` file.
+
+### Changes to results
+- MuJoCo files are now scored: torque checks are scored from the actuator strength written in the file, where before they were not compared at all. A MuJoCo file that was NOT SCORED can now be GO or NO-GO.
+- Coming from 0.2.8: a bare MuJoCo file (no lockfile) that 0.2.8 called NOT SCORED (exit 3) now gets a verdict, often GO with notes (exit 0).
+- Coming from 0.2.8: `check --json` reports `schema_version` "0.7" instead of "0.6", and under `forces` the `mass_total.value` and `cg.value` that were null are numbers wherever Lockwire can now work them out.
+- Coming from 0.2.8: the agent tool server lists 24 tools instead of 13. The 13 released tools are unchanged; the 11 new ones include editors (proposals by default, writing only with `apply=true`) and tools that write files but refuse to overwrite.
+- A robot whose servos, all stalling at once, would pull a rail below its minimum is now a NO-GO (all-servo brownout check, only where the catalog has stall data for the servos; none of the 42 example and fixture robots measured changed verdict).
+- A closed loop in an SDF model (a five-bar leg, a parallel linkage) is no longer a NO-GO. `check` solves a planar loop and scores each driven joint's holding torque through it, and names the loops it cannot solve as not scored (not planar, a joint moving above or below the loop, too many or too few driven joints). The torque is for the base held still, not for the robot standing. URDF is unchanged: two parent joints on one link is still a failure there.
+- Three part ratings were lowered to the cautious printed figure where a source prints two, and one part name was corrected. `check` and `--strict` output is unchanged on all 9 example and template files.
+- Catalog numbers were re-read blind against their sources: 807 numbers, 0 wrong (2 pages refused the re-read and keep their status).
+- The lockfile format is now 0.7 (pin-to-pin wires and an optional rail change what a file means); 0.6 and older files load unchanged and `lockwire upgrade` on a 0.6 file rewrites only the version line. Lockwire 0.2.8 and older refuse a file that uses new fields and name the field.
+- Lockfiles can describe more of the power and wiring (all optional): wire length and net class; rail source, regulator, dropout, minimum input, capacitance, regen and thermal fields; battery parallel cells, reserve, voltage curve, R1/C1; bus phy, length, protocol, twisted; a `topology.protection` list (fuses, breakers, TVS diodes, reverse-polarity guards); connectors with pins; a `safety` block; tolerance bands, `assertions`, `modes`; params, link geometry and collision shapes, mimic joints.
 
 ## 0.2.8 — 2026-11-11
 

@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 
-import type { Figure as ApiFigure } from "../shared/api.gen";
+import type { Figure as ApiFigure, RequirementRow, RobotGraph } from "../shared/api.gen";
 import type { Card, CheckFacePayload } from "./checkFacePayload";
 import { FindingList, ModeBlocks, VERDICT, WHOLE, capChips, chipJump, linkTo, liveChips, modeHeads, targetChips, type Chip, type FindingItem } from "./FindingList";
 import { insteadJump, type Jump, type OnJump } from "./jump";
+import { graphLabels, partNames } from "./partNames";
 import { Button, CommandLine, Disclosure, Figure, FindingDetail, FindingRow, Panel, StatusPill } from "./kit";
 import { MASS_NOMINAL, massLine } from "./MeasureCompareDeclare";
 import { SwapPanel } from "./SwapPanel";
@@ -20,10 +21,17 @@ const fig = (f: ApiFigure) => (
 // Owner ids are engine slugs; show them as words ("power-integration" -> "Power").
 const ownerWord = (o: string) => { const w = o.replace(/-integration$/, "").replace(/[-_]/g, " "); return w.replace(/^./, (c) => c.toUpperCase()); };
 
+// GO whose only scored item is the lock agreeing with itself: the page payload's adds_up is empty
+// (nothing physical compared) while the verdict stays GO. Say so beside the word.
+const SELF_ONLY = "Locked. Nothing physical compared yet. Declare the robot's mass or a part's datasheet figure to compare it.";
+export const selfAgreementOnly = (p: Pick<CheckFacePayload, "verdict" | "adds_up">) => p.verdict === "GO" && p.adds_up?.length === 0;
+
 export function CheckPanel({
-  payload, selected, onSelect, onRecheck, pills, more, onJump, onCompare, notice, saved, contract, expectedRevision, onSwapped,
+  payload, graph, selected, onSelect, onRecheck, pills, more, onJump, onCompare, notice, saved, contract, expectedRevision, onSwapped,
 }: {
   payload: CheckFacePayload;
+  /** The robot graph: its nodes carry each part's display name (what GraphView shows). */
+  graph?: RobotGraph | null;
   selected: number | null;
   onSelect: (index: number | null) => void;
   onRecheck?: () => void;
@@ -46,6 +54,9 @@ export function CheckPanel({
   onSwapped?: (lines: string[]) => void;
 }) {
   const [swapJoint, setSwapJoint] = useState<string | null>(null);
+  // Display only: the verdict, its count and the selection still speak for every finding.
+  const [sev, setSev] = useState("");
+  const [part, setPart] = useState("");
   const [verdictStatus, verdictLabel] = VERDICT[payload.verdict] ?? ["muted", payload.verdict];
   const owners = [...new Set(payload.findings.map((f) => f.owner).filter((o): o is string => Boolean(o)))];
   // "Frames without mass" is normal on a fresh robot: a quiet note under the rows, not a problem.
@@ -55,8 +66,14 @@ export function CheckPanel({
   const problem = (g: Group) => ["violation", "warning"].includes(payload.cards[g.members[0]!]!.severity);
   const firstProblem = groups.find(problem)?.members[0];
   const { problems, quiet } = countWords(groups, payload.cards);
+  // The parts the engine says findings involve (Card.involves), named by a target's label when one matches.
+  const nameOf = partNames([...payload.cards.flatMap((c) => c.targets.map((t) => [t.id, t.label] as const)), ...graphLabels(graph)]);
+  const parts = [...new Set(groups.flatMap((g) => g.members.flatMap((i) => payload.cards[i]!.involves ?? [])))].map((id) => ({ id, name: nameOf(id) }));
+  const keep = (g: Group) => (!sev || payload.cards[g.members[0]!]!.severity === sev) && (!part || g.members.some((i) => payload.cards[i]!.involves?.includes(part)));
+  const shown = groups.filter(keep).length;
   const accepted = payload.accepted ?? [];
-  const count = [problems, quiet, accepted.length ? `${accepted.length} accepted` : "", saved].filter(Boolean).join(" · ");
+  const count = [...problems, quiet, accepted.length ? `${accepted.length} accepted` : "", saved].filter(Boolean)
+    .flatMap((c, i) => [...(i ? [" · "] : []), <Fragment key={i}>{c}</Fragment>]);
   // Check lands on the first problem, already open: nothing to tap to see what is wrong (mockup 2B).
   useEffect(() => { if (selected === null && firstProblem !== undefined) onSelect(firstProblem); }, [payload.cards]);
   const onSwap = contract && expectedRevision && onSwapped ? setSwapJoint : undefined;
@@ -70,6 +87,7 @@ export function CheckPanel({
           <span className="check-verdict-kicker">Verdict</span>
           <span className="check-verdict-word">{verdictLabel}</span>
           <span className="check-count">{count}</span>
+          {selfAgreementOnly(payload) && <span className="check-count check-count-note">{SELF_ONLY}</span>}
         </div>
         {/* One wrapping group: at 1280x800 the pair drops under the headline instead of clipping. */}
         {(onCompare || onRecheck) && (
@@ -93,8 +111,26 @@ export function CheckPanel({
           })}
         </div>
       )}
-      {firstProblem !== undefined && <h3 className="check-section">Problems</h3>}
-      <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={groups.map((g) => groupItem(payload.cards, g, selected, onSelect, onJump, payload.cli_line, onSwap))} quietSummary={(n) => `Not compared yet (${n})`} />
+      {firstProblem !== undefined && <h3 className="check-section">Findings</h3>}
+      {groups.length > 1 && (
+        <div className="check-filter">
+          <label><span className="kit-sr">Show</span>
+            <select value={sev} onChange={(e) => setSev(e.target.value)}>
+              <option value="">All</option><option value="violation">NO-GO only</option><option value="warning">Warnings</option><option value="not_scored">Not scored</option>
+            </select>
+          </label>
+          {parts.length > 0 && (
+            <label><span className="kit-sr">Part</span>
+              <select value={part} onChange={(e) => setPart(e.target.value)}>
+                <option value="">Any part</option>
+                {parts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+          )}
+          {(sev || part) && <><span className="check-filter-count">Showing {shown} of {groups.length}</span><Button variant="quiet" onClick={() => { setSev(""); setPart(""); }}>Clear</Button></>}
+        </div>
+      )}
+      <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={groups.flatMap((g, gi) => (keep(g) ? [{ ...groupItem(payload.cards, g, selected, onSelect, onJump, payload.cli_line, onSwap), index: gi }] : []))} quietSummary={(n) => `Not scored (${n})`} />
       {accepted.length > 0 && (
         // Accepted on record: muted, never red, never hidden.
         <Disclosure summary={`Accepted (${accepted.length})`}>
@@ -102,6 +138,7 @@ export function CheckPanel({
         </Disclosure>
       )}
       {noteCard && <p className="check-note">{noteWords(noteCard)}</p>}
+      {(payload.requirements ?? []).length > 0 && <Requirements rows={payload.requirements!} />}
       {more}
     </Panel>
   );
@@ -140,11 +177,15 @@ function ServoActions({ joint, edit, onSwap }: { joint: string; edit: string; on
   );
 }
 
+const NO_NUMBERS = /^Numbers not shown/;
+
 function Detail({ card, onJump, cli, bare, onSwap }: { card: Card; onJump?: OnJump; cli?: string | null; bare?: boolean; onSwap?: (joint: string) => void }) {
   const servo = servoStall(card);
   // The "i" opens the exact finding, where the note is written out.
   const [exact, setExact] = useState(false);
-  const info = card.figure_note ? <button type="button" className="finding-info" aria-label={card.figure_note} title={card.figure_note} onClick={() => setExact(true)}>i</button> : null;
+  // "Numbers not shown" is filler: say it only when nothing else is there to read.
+  const note = card.figure_note && (!NO_NUMBERS.test(card.figure_note) || (!card.observed && !card.expected && !card.body)) ? card.figure_note : null;
+  const info = note ? <button type="button" className="finding-info" aria-label={note!} title={note!} onClick={() => setExact(true)}>i</button> : null;
   // A number or the fix leads to the quantity's Declare row (else the card's parts light).
   const own: Jump = { path: card.quantity, targets: card.targets };
   // Nowhere to go: the link opens the exact finding (while it is shut), else the text stays plain.
@@ -159,20 +200,70 @@ function Detail({ card, onJump, cli, bare, onSwap }: { card: Card; onJump?: OnJu
     ...card.instead.map((a, i) => ({ label: i === 0 ? "Instead" : "", value: to(`Show ${a.text}`, <span className="finding-alt" title={a.text}>{a.text}</span>, insteadJump(a)) })),
   ];
   const fix = { label: "Fix", value: to(at, <span className="finding-fix">{card.fix}</span>) };
+  // A found fault with no drawn figures states its measured and needed values in the open: no tap.
+  const showBody = !!card.body && !card.observed && !card.expected && card.severity !== "not_scored";
   const body = (
     <div className="check-detail">
+      <LimitBar card={card} />
       <FindingDetail rows={head ? [fix, ...instead] : [...figures, ...instead, fix]} />
+      {showBody && <p className="finding-body">{card.body}</p>}
       {servo && <ServoActions joint={servo.joint} edit={servo.edit} onSwap={onSwap} />}
       <Disclosure summary="Show the exact finding" open={exact || undefined}>
         {head && <FindingDetail rows={figures} />}
-        {!card.observed && !card.expected && card.body && <p className="finding-body">{card.body}</p>}
-        {card.figure_note && <p className="finding-note">{card.figure_note}</p>}
-        <pre className="finding-raw">{card.raw}</pre>
+        {!card.observed && !card.expected && card.body && !showBody && <p className="finding-body">{card.body}</p>}
+        {note && <p className="finding-note">{note}</p>}
+        <Disclosure summary="Raw output"><pre className="finding-raw">{card.raw}</pre></Disclosure>
         {cli && <CommandLine command={cli} />}
       </Disclosure>
     </div>
   );
   return head && !bare ? <ModeBlocks heads={[head]} details={[body]} /> : body;
+}
+
+/** Value against its limit: width = value/limit (drawn at most to twice the limit), the part past the limit in red.
+ * Needs both typed figures in one unit and a positive limit; otherwise nothing is drawn. */
+export function barOf(card: Pick<Card, "observed" | "expected"> & { raw?: string }) {
+  // A finding without typed figures (the servo-stall one) still states "observed 0.40 N*m" / "expected <= 0.226 N*m" in its own lines.
+  const read = (word: string) => { const m = new RegExp(`\\b${word}\\s+(?:<=\\s*)?(\\d+(?:\\.\\d+)?)\\s+([^\\s,;]+)`).exec(card.raw ?? ""); return m ? { value: Number(m[1]), unit: m[2]! } : null; };
+  const o = card.observed ?? read("observed"), e = card.expected ?? read("expected");
+  if (!o || !e || o.unit !== e.unit || !(e.value > 0) || !Number.isFinite(o.value) || o.value < 0) return null;
+  // "expected >= N" is a floor (a servo's torque against what the joint needs): short of it is the bad side.
+  const floor = /expected\s+>=/.test(card.raw ?? "");
+  if (floor && !(o.value > 0)) return null;
+  const ratio = floor ? e.value / o.value : o.value / e.value;
+  const drawn = Math.min(ratio, 2), good = ratio > 1 ? 1 / drawn : ratio, fill = ratio > 1 ? 1 : ratio;
+  const n = (v: number) => String(+v.toPrecision(3));
+  const words = floor ? `${n(o.value)} ${o.unit} available against ${n(e.value)} ${e.unit} needed` : `${n(o.value)} ${o.unit} against a limit of ${n(e.value)} ${e.unit}`;
+  return { ratio, good, fill, words: words.trim(), over: floor ? "short by " : "over by ", pct: Math.round(floor ? (1 - 1 / ratio) * 100 : (ratio - 1) * 100) };
+}
+
+function LimitBar({ card }: { card: Card }) {
+  const b = barOf(card);
+  if (!b) return null;
+  const over = b.ratio > 1;
+  const bg = `linear-gradient(to right, var(--go) ${b.good * 100}%, var(--bad) 0 ${b.fill * 100}%, var(--line) 0)`;
+  return (
+    <div className="check-limit" data-ratio={b.ratio.toFixed(3)}>
+      <p className={`check-limit-words${over ? " is-over" : ""}`}>{b.words}{over ? `, ${b.over}${b.pct}%` : ""}</p>
+      <i className={`conn-bar${over ? " is-over" : ""}`} style={{ background: bg, height: 6, display: "block" }} aria-hidden="true" />
+    </div>
+  );
+}
+
+const REQUIREMENT_WORDS = { proven: "Proven", unproven: "Unproven: no check proves it yet", failing: "Failing" } as const;
+
+/** Pro: each plan requirement with the check behind it. A requirement no check covers says so. */
+function Requirements({ rows }: { rows: RequirementRow[] }) {
+  return (
+    <div className="check-requirements">
+      <h3 className="check-section">Requirements</h3>
+      {rows.map((r) => (
+        <p key={r.id} className={`check-note check-req check-req-${r.status}`} title={r.why}>
+          <b>{r.text}</b>: {REQUIREMENT_WORDS[r.status]}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 const MASSLESS = "model/links/massless_frames";
@@ -206,11 +297,14 @@ const groupCards = (cards: Card[]): Group[] => {
   return out;
 };
 
-/** Plain words, one row one count: "1 problem · 5 not compared yet" (never engine arithmetic like "2 modes"). */
+/** Plain words, one rule: a red count for faults, an amber count for warnings, then the rest ("1 fault · 1 warning · 5 not scored"). */
 const countWords = (groups: Group[], cards: Card[]) => {
-  const p = groups.filter((g) => ["violation", "warning"].includes(cards[g.members[0]!]!.severity)).length;
-  const quiet = groups.length - p;
-  return { problems: `${p} ${p === 1 ? "problem" : "problems"}`, quiet: quiet ? `${quiet} not compared yet` : "" };
+  const n = (sev: string) => groups.filter((g) => cards[g.members[0]!]!.severity === sev).length;
+  const [faults, warnings] = [n("violation"), n("warning")];
+  const quiet = groups.length - faults - warnings;
+  const fault = faults ? <span className="check-count-fault">{faults} {faults === 1 ? "fault" : "faults"}</span> : null;
+  const warn = warnings ? <span className="check-count-warn">{warnings} {warnings === 1 ? "warning" : "warnings"}</span> : null;
+  return { problems: fault || warn ? [fault, warn] : ["0 findings"], quiet: quiet ? `${quiet} not scored` : "" };
 };
 
 const groupOf = (groups: Group[], selected: number | null) =>
@@ -261,4 +355,18 @@ function groupRow(cards: Card[], g: Group, selected: number | null, onSelect: (i
       </div>
     ),
   };
+}
+
+/** The verdict card while the findings are still being worked out: never a stale or a guessed verdict. */
+export function CheckPending() {
+  return (
+    <Panel>
+      <div className="check-verdict check-verdict-muted">
+        <div className="check-headline verdict-pending" role="status">
+          <span className="check-verdict-kicker">Verdict</span>
+          <span className="check-verdict-word">Checking…</span>
+        </div>
+      </div>
+    </Panel>
+  );
 }

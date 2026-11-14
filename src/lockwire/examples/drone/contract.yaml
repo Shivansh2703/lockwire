@@ -228,6 +228,19 @@ devices:
     physical:
       mass: {value: 59.3, unit: g}
       mount_frame: x500_frame
+    # TELEM1 connector: id, type and pin numbers/names copied from
+    # src/lockwire/pinouts/holybro-pixhawk-6c.yaml (Holybro Pixhawk 6C Ports,
+    # TELEM1 port table: https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports).
+    connectors:
+      - id: TELEM1
+        type: pixhawk-telem-jst-gh6
+        pins:
+          - {number: 1, name: VCC}
+          - {number: 2, name: UART7_TX}
+          - {number: 3, name: UART7_RX}
+          - {number: 4, name: UART7_CTS}
+          - {number: 5, name: UART7_RTS}
+          - {number: 6, name: GND}
     envelopes:
       - context: bench-idle
         signals:
@@ -409,6 +422,16 @@ devices:
       source: "https://holybro.com/products/spare-parts-x500-v2-kit"
       locked_at: 2026-09-06
       note: "Same as dev.esc.esc-1 (see its provenance note)."
+
+# Connector part used above, copied from catalog_seed.yaml id pixhawk-telem-jst-gh6
+# (Holybro Pixhawk baseboard ports page: JST GH 1.25 mm pitch, 6 pins VCC TX RX CTS RTS GND).
+connector_types:
+  - id: pixhawk-telem-jst-gh6
+    family: JST-GH
+    pitch_mm: 1.25
+    pin_count: 6
+    pin_labels: [VCC, TX, RX, CTS, RTS, GND]
+    colours: [red, black, black, black, black, black]
 
 topology:
   hosts:

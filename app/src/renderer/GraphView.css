@@ -1,0 +1,43 @@
+/* GRAPH-1: the graph view. Colours are the theme's own tokens, so dark and light both read. */
+.gv { position: absolute; inset: 0; background: var(--canvas-a); }
+.gv-svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.gv-bar { position: absolute; display: flex; gap: var(--sp-15); align-items: center; }
+.gv-pick select { max-width: 260px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: var(--sp-15) var(--sp-2); }
+.gv-uses { position: absolute; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--fs-md); color: var(--ink); max-width: min(560px, 50%); }
+.gv-key { position: absolute; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); color: var(--muted); max-width: min(55%, calc(100% - 360px)); }
+.gv-key span { display: inline-flex; align-items: center; gap: var(--sp-15); }
+.gv-tip { position: absolute; margin: 0; font-size: var(--fs-md); color: var(--ink); min-height: 1.2em; }
+.gv-node { cursor: pointer; }
+.gv-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gv-node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
+.gv-node text { fill: var(--ink); font-size: var(--fs-sm); pointer-events: none; }
+.gv-k-device rect { stroke: var(--chart-4); }
+.gv-k-rail rect, .gv-k-battery rect, .gv-k-wire rect, .gv-k-connector rect { stroke: var(--chart-2); }
+.gv-k-host rect, .gv-k-bus rect { stroke: var(--chart-1); }
+.gv-node:focus-visible rect, .gv-node:hover rect { stroke: var(--accent); stroke-width: 2.2; }
+.gv-node.is-lit rect { fill: color-mix(in srgb, var(--accent) 18%, var(--panel)); stroke: var(--accent); stroke-width: 2.4; }
+.gv-node.is-selected rect { stroke: var(--ink); stroke-width: 3; }
+.gv-node.is-dim { opacity: 0.35; }
+.gv-edge { fill: none; stroke-width: 1.6; }
+.gv-edge.is-dim { opacity: 0.2; }
+.gv-edge.is-lit { stroke-width: 3.2; }
+.gv-e-structure { stroke: var(--muted); }
+.gv-e-drives { stroke: var(--chart-4); stroke-dasharray: 2 3; }
+.gv-e-mounts { stroke: var(--chart-3); stroke-dasharray: 8 3; }
+.gv-e-power { stroke: var(--chart-2); stroke-width: 2.4; }
+.gv-e-signal { stroke: var(--chart-1); stroke-dasharray: 5 4; }
+.gv-e-depends { stroke: var(--chart-5); stroke-dasharray: 1 4; }
+.gv-arrow { stroke: none; }
+.gv-arrow.gv-e-structure { fill: var(--muted); } .gv-arrow.gv-e-drives { fill: var(--chart-4); } .gv-arrow.gv-e-mounts { fill: var(--chart-3); }
+.gv-arrow.gv-e-power { fill: var(--chart-2); } .gv-arrow.gv-e-signal { fill: var(--chart-1); } .gv-arrow.gv-e-depends { fill: var(--chart-5); }
+
+.gv-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 24%, transparent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* GRAPH-2: the picked part's panel. */
+.gv-focus { position: absolute; max-width: 300px; max-height: 60%; overflow: auto; padding: var(--sp-3) var(--sp-3); font-size: var(--fs-md); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.gv-focus p { margin: 0 0 6px; }
+.gv-focus ul { margin: 0 0 6px; padding-left: var(--sp-4); }
+.gv-focus-row { display: flex; gap: var(--sp-15); }
+.gv-link { all: unset; cursor: pointer; color: var(--accent); text-decoration: underline; }
+.gv-link:focus-visible { outline: 2px solid var(--accent); }
+.gv-none { color: var(--muted); }

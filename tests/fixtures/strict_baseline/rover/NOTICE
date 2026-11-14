@@ -1,0 +1,12 @@
+Rover starter, based on the ROBOTIS TurtleBot3 Burger.
+
+scene.glb: the ROBOTIS TurtleBot3 Burger visual meshes (burger_base, left_tire, right_tire, lds
+from turtlebot3_description/meshes, ROBOTIS-GIT/turtlebot3 commit 90a68bd, humble branch),
+Copyright ROBOTIS CO., LTD., licensed under the Apache License, Version 2.0
+(https://github.com/ROBOTIS-GIT/turtlebot3/blob/humble/LICENSE). Changes: decimated to fewer
+triangles (7.7 MB of STL to about 1.2 MB), converted from millimetre STL to a metre glTF, placed
+as the URDF places them; the OpenCR and Jetson boxes are illustrative additions. Generator:
+scripts/starters/rover_scene.py.
+
+contract.yaml: numbers read from the pages named in each provenance entry.
+plan.yaml: an example plan written for this starter.

@@ -16,23 +16,38 @@ export interface OpenFaceProps {
   connected?: boolean;
   /** Genuinely empty on first launch -- no example rows (plan v8 line 430). */
   recent?: Recent[];
+  /** The engine failed to start: one line instead of an empty examples list. */
+  engineError?: string;
   onOpenRobot?: () => void;
   /** The bundled starters, as the sidecar lists them (empty until it answers). */
   starters?: Starter[];
   /** A starter's name, or null for a blank robot. */
   onNewRobot?: (starter: string | null) => void;
   onOpenRecent?: (path: string) => void;
+  /** One quiet way to the Agent with no robot open: the app opens a blank robot and shows the Agent. */
+  onAgent?: () => void;
 }
 
-// Short model name per bundled starter (full provenance stays in the tooltip).
-const MODEL: Record<string, string> = { arm: "SO-101", drone: "Holybro X500", humanoid: "ToddlerBot", quadruped: "Solo-12", rover: "TurtleBot3" };
+// One short label per bundled starter, "kind · name", and a muted line saying what its check finds (counted by running
+// `lockwire check` on each: the two that fail come first, so the first catch is the first chip). Full provenance stays
+// in the tooltip.
+const LABEL: Record<string, string> = { "arm-power": "Desk arm · findings to catch", "servo-bench": "Servo bench · built to fail", arm: "Arm · SO-101", drone: "Drone · X500", humanoid: "Humanoid · ToddlerBot", quadruped: "Quadruped · Solo-12", rover: "Rover · TurtleBot3", "hexapod-param": "Hexapod · design example", "rover-param": "Rover · resizable example" };
+// [what `lockwire check` really gives, muted line]; tests/test_starters.py reads this table and fails when a starter's result moves.
+const NOTE: Record<string, [string, string]> = { "arm-power": ["fails", "A made-up arm with findings"], "servo-bench": ["fails", "Two findings, on purpose"], arm: ["clean", "Nothing disagrees"], drone: ["clean", "Nothing disagrees"], humanoid: ["clean", "Nothing disagrees"], quadruped: ["warns", "One note to read"], rover: ["warns", "One note to read"], "hexapod-param": ["clean", "Made-up, nothing disagrees"], "rover-param": ["clean", "Made-up, nothing disagrees"] };
+const FAILING = ["arm-power", "servo-bench"];
+const rank = (s: Starter) => { const f = FAILING.indexOf(s.name); return f >= 0 ? f : isDesign(s) ? 100 : 50; };
+export const NOT_MAKER_NOTE = "Not a maker model";
+const isDesign = (s: Starter) => s.based_on.includes("no maker model");
+const failingFirst = (a: Starter[]) => [...a].sort((x, y) => rank(x) - rank(y));
 export function OpenFace({
   connected = true,
   recent = [],
+  engineError,
   onOpenRobot,
   starters = [],
   onNewRobot,
   onOpenRecent,
+  onAgent,
 }: OpenFaceProps) {
   const [drag, setDrag] = useState(false);
   return (
@@ -65,23 +80,26 @@ export function OpenFace({
               Open robot
             </Button>
           </div>
-          <small className="open-face-hint">{connected ? "URDF, SDF, xacro or a lockfile" : "Starting up, one moment…"}</small>
+          <small className="open-face-hint">{connected ? "URDF, SDF, xacro, MuJoCo, Webots or a lockfile" : engineError ? "The engine is not running." : "Starting up, one moment…"}</small>
         </div>
 
         <div className="open-face-new">
           <p className="open-face-label">OR TRY AN EXAMPLE</p>
+          {starters.length === 0 && (engineError
+            ? <p className="open-face-hint">Lockwire could not start its engine: {engineError}</p>
+            : !connected && <p className="open-face-hint">Starting…</p>)}
           <ul>
-            {starters.map((s) => (
+            {failingFirst(starters).map((s) => (
               <li key={s.name}>
                 <Button variant="quiet" disabled={!connected} title={`Based on ${s.based_on}`} onClick={() => onNewRobot?.(s.name)}>
-                  {`${s.title} · ${MODEL[s.name] ?? s.based_on}`}
+                  {LABEL[s.name] ?? s.title}
+                  {(NOTE[s.name] ?? isDesign(s)) && <small className="open-face-note">{NOTE[s.name]?.[1] ?? NOT_MAKER_NOTE}</small>}
                 </Button>
               </li>
             ))}
-            <li>
-              <Button variant="quiet" disabled={!connected} onClick={() => onNewRobot?.(null)}>Blank</Button>
-            </li>
           </ul>
+          <p className="open-face-blank"><Button variant="quiet" disabled={!connected} onClick={() => onNewRobot?.(null)}>Start from blank</Button></p>
+          {onAgent && <p className="open-face-blank"><Button variant="quiet" disabled={!connected} onClick={onAgent}>Ask the Agent to design one</Button></p>}
         </div>
 
         <div className="open-face-recents">

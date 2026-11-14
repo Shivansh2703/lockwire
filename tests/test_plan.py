@@ -16,7 +16,10 @@ from lockwire.plan import (
     Publish,
     RailLoad,
     SetPowerMode,
+    duty_weighted_current,
     load_plan,
+    plan_segments,
+    total_time,
     validate_plan,
 )
 from lockwire.report import render, verdict
@@ -729,7 +732,7 @@ def test_publish_unknown_topic_is_not_scored(x500_contract):
 def test_publish_dimension_mismatch_is_not_scored_and_does_not_hide_later_steps(x500_contract):
     """Signal unit vs hard-limit unit in different dimensions must not raise UnitError
     out of validate_plan — it must score not_scored for that step and keep scoring the
-    rest of the plan (D-uncaught-UnitError bounce)."""
+    rest of the plan (an uncaught UnitError)."""
     contract = _wired_for_publish(x500_contract)
     # hard_limits declared in kg; the signal is m/s^2 — different dimensions.
     model = contract.device_model("mdl.camera.oak-d-lite")
@@ -1172,3 +1175,175 @@ def test_a_plan_publish_resolves_joint_arrays_like_the_bag_reader():
 
     msg = {"name": ["hip", "knee"], "position": [0.1, 0.2]}
     assert _resolve_field(msg, "position[name=knee]") == (0.2, None)
+
+
+# ------------------------------------------------ segments, time and duty
+
+EXAMPLES = Path(__file__).parent.parent / "src" / "lockwire" / "examples"
+# outcomes and findings computed by the code before segments existed
+OLD_PLAN_VERDICTS = {
+    "arm": [("plan/steps/0/joint_target/position", "PASS"), ("plan/steps/1/joint_target/position", "PASS")],
+    "drone": [("plan/steps/0/rail_load/draw", "PASS"), ("plan/steps/1/rail_load/draw", "PASS")],
+    "humanoid": [("plan/steps/0/joint_target/position", "PASS"), ("plan/steps/1/joint_target/position", "PASS")],
+    "quadruped": [("plan/steps/0/set_power_mode/draw", "PASS")],
+    "rover": [("plan/steps/0/set_power_mode/draw", "PASS"), ("plan/steps/1/rail_load/draw", "PASS")],
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("name", sorted(OLD_PLAN_VERDICTS))
+def test_shipped_old_plans_load_validate_unchanged_and_lack_duration(name):
+    d = EXAMPLES / name
+    plan = load_plan(d / "plan.yaml")
+    report = validate_plan(load_contract(d / "contract.yaml"), plan)
+    assert [(o.path, o.status) for o in report.outcomes] == OLD_PLAN_VERDICTS[name]
+    assert list(report) == [] and total_time(plan) == "duration not given"
+
+
+def test_old_plan_is_one_segment_with_no_duration_not_zero():
+    (seg,) = plan_segments(Plan(steps=[]))
+    assert seg.duration_s is None
+    assert total_time(Plan()) != 0
+
+
+def test_one_segment_missing_duration_makes_total_unknown():
+    plan = Plan(segments=[{"name": "a", "duration_s": 5}, {"name": "b"}])
+    assert total_time(plan) == "duration not given"
+
+
+def test_ambient_defaults_to_25_c():
+    assert Plan().ambient_c == 25.0
+
+
+def test_requirements_load(tmp_path):
+    f = tmp_path / "plan.yaml"
+    f.write_text("requirements:\n  - {id: R1, text: lift 2 kg, target: payload_kg}\n")
+    assert load_plan(f).requirements[0].id == "R1"
+
+
+@pytest.mark.parametrize("duty", [-0.1, 1.5])
+def test_duty_outside_0_to_1_is_refused(duty):
+    with pytest.raises(ValueError):
+        Plan(segments=[{"duration_s": 1, "device_modes": {"dev.motor.m1": duty}}])
+
+
+def test_two_segment_total_time_and_duty_weighted_current(x500_contract):
+    plan = Plan(
+        segments=[
+            {"name": "climb", "duration_s": 30, "device_modes": {"dev.motor.m1": 1.0}},
+            {"name": "hover", "duration_s": 70, "device_modes": {"dev.motor.m1": 0.5}},
+        ]
+    )
+    amps = duty_weighted_current(x500_contract, plan)
+    assert total_time(plan) == 100
+    assert amps["dev.motor.m1"] == pytest.approx(0.65 * 61.67 / 14.8)
+
+
+def test_device_with_unknown_draw_gets_no_current(x500_contract):
+    nodraw = next(d.id for d in x500_contract.devices if d.power is None or d.power.draw is None)
+    plan = Plan(segments=[{"duration_s": 10, "device_modes": {nodraw: 1.0, "dev.motor.m1": 1.0}}])
+    assert set(duty_weighted_current(x500_contract, plan)) == {"dev.motor.m1"}
+
+
+def test_current_needs_every_duration(x500_contract):
+    plan = Plan(segments=[{"device_modes": {"dev.motor.m1": 1.0}}])
+    assert duty_weighted_current(x500_contract, plan) == {}
+
+
+# ------------------------------------------------ trapezoid timing
+
+
+def _arm_with_limits(v=2.0, a=4.0):
+    from lockwire.schema import Joint, JointLimits, Link, ModelRecord, Provenance
+    import datetime as dt
+
+    joint = Joint(name="q1", type="revolute", parent="b", child="l", axis=(0, 0, 1), limits=JointLimits(velocity=v, acceleration=a))
+    return ModelRecord(source="p.urdf", source_sha256="0" * 64, structure_hash="x", links=[Link(name="b"), Link(name="l")], joints=[joint],
+                       provenance=Provenance(witness="human", source="t", locked_at=dt.date(2026, 11, 13)))  # fmt: skip
+
+
+def _two_joint_model(kind2="revolute"):
+    from lockwire.schema import Joint, JointLimits
+
+    m = _arm_with_limits()  # q1: 2 rad/s, 4 rad/s^2
+    m.joints.append(Joint(name="q2", type=kind2, parent="b", child="l", axis=(0, 0, 1), limits=JointLimits(velocity=1.0, acceleration=1.0)))
+    return m  # fmt: skip
+
+
+def _moves(*poses_and_durations):
+    return Plan(segments=[{"pose": {"q1": p}, "duration_s": d} for p, d in poses_and_durations])
+
+
+def test_trapezoid_time_equals_closed_form():
+    from lockwire.plan import trapezoid_time
+
+    assert trapezoid_time(3.0, 2.0, 4.0) == pytest.approx(3.0 / 2.0 + 2.0 / 4.0)  # long: d/v + v/a
+    assert trapezoid_time(-0.5, 2.0, 4.0) == pytest.approx(2 * (0.5 / 4.0) ** 0.5)  # short: triangle
+
+
+def test_trapezoid_short_move_uses_triangle_per_segment():
+    from lockwire.plan import segment_min_times
+
+    times = segment_min_times(_arm_with_limits(), _moves((0.0, 5), (0.5, 5), (3.5, 5)))
+    assert times[0] is None and times[1] == pytest.approx(2 * (0.5 / 4.0) ** 0.5)
+    assert times[2] == pytest.approx(2.0)
+
+
+def test_trapezoid_too_short_duration_warns_and_enough_time_does_not():
+    from lockwire.plan import trapezoid_findings
+
+    (f,) = trapezoid_findings(_arm_with_limits(), _moves((0.0, 5), (3.0, 1.9), (0.0, 2.0)))
+    assert f.severity == "warning" and f.quantity == "plan/segments/1/duration_s"
+
+
+def _two_joint_plan(d1, d2):
+    return Plan(segments=[{"pose": {"q1": 0.0, "q2": 0.0}, "duration_s": 5}, {"pose": {"q1": d1, "q2": d2}, "duration_s": 5}])
+
+
+def test_trapezoid_two_joints_slower_one_governs_segment_time():
+    from lockwire.plan import segment_min_times, trapezoid_time
+
+    # q1 is fast (3 rad at 2 rad/s, 4 rad/s^2 = 2.0 s); q2 is slow (3 rad at 1 rad/s, 1 rad/s^2 = 4.0 s).
+    t = segment_min_times(_two_joint_model(), _two_joint_plan(3.0, 3.0))[1]
+    assert t == pytest.approx(trapezoid_time(3.0, 1.0, 1.0)) and t == pytest.approx(4.0)
+    assert t > trapezoid_time(3.0, 2.0, 4.0)
+
+
+def test_trapezoid_prismatic_joint_matches_revolute_closed_form():
+    from lockwire.plan import segment_min_times
+
+    plan = Plan(segments=[{"pose": {"q2": 0.0}, "duration_s": 5}, {"pose": {"q2": 3.0}, "duration_s": 5}])
+    assert segment_min_times(_two_joint_model("prismatic"), plan)[1] == pytest.approx(3.0 / 1.0 + 1.0 / 1.0)  # m, m/s, m/s^2: d/v + v/a
+
+
+def test_trapezoid_first_segment_has_no_start_so_no_time_and_no_finding():
+    from lockwire.plan import segment_min_times, trapezoid_findings
+
+    plan = Plan(steps=[{"kind": "joint_target", "joint": "q1", "position": 0.0}], segments=[{"pose": {"q1": 9.0}, "duration_s": 0.01}])
+    assert segment_min_times(_arm_with_limits(), plan) == [None] and trapezoid_findings(_arm_with_limits(), plan) == []
+
+
+@pytest.mark.parametrize("model_plan", ["no_accel", "no_duration", "no_prev_pose", "no_model"])
+def test_trapezoid_missing_input_emits_nothing(model_plan):
+    from lockwire.plan import trapezoid_findings
+
+    model, plan = _arm_with_limits(), _moves((0.0, 1), (3.0, 0.1))
+    if model_plan == "no_accel":
+        model.joints[0].limits.acceleration = None
+    if model_plan == "no_duration":
+        plan = Plan(segments=[{"pose": {"q1": 0.0}}, {"pose": {"q1": 3.0}}])
+    if model_plan == "no_prev_pose":
+        plan = Plan(segments=[{"pose": {"q1": 3.0}, "duration_s": 0.1}])
+    assert trapezoid_findings(None if model_plan == "no_model" else model, plan) == []
+
+
+@pytest.mark.parametrize("name", sorted(OLD_PLAN_VERDICTS))
+def test_shipped_example_plans_have_no_trapezoid_finding(name):
+    d = EXAMPLES / name
+    report = validate_plan(load_contract(d / "contract.yaml"), load_plan(d / "plan.yaml"))
+    assert [f for f in report if "segments" in f.quantity] == []
+
+
+def test_validate_plan_surfaces_trapezoid_warning():
+    contract = load_contract(EXAMPLES / "arm" / "contract.yaml").model_copy(update={"model": _arm_with_limits()})
+    report = validate_plan(contract, _moves((0.0, 5), (3.0, 1.0)))
+    assert any(f.quantity == "plan/segments/1/duration_s" for f in report)

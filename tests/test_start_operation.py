@@ -194,9 +194,9 @@ def test_starters_list_and_blank_start_checks_not_scored(tmp_path: Path):
         assert {"drone": "Drone", "rover": "Rover", "quadruped": "Quadruped"}.items() <= {
             s["name"]: s["title"] for s in listed
         }.items()
-        assert all(s["based_on"] for s in listed) and "servo-bench" not in {
-            s["name"] for s in listed
-        }
+        # The bench is a starter, and wherever it shows it is labelled built to fail.
+        titles = {s["name"]: s["title"] for s in listed}
+        assert all(s["based_on"] for s in listed) and "built to fail" in titles["servo-bench"]
         out = tmp_path / "blank" / "lockwire.yaml"
         started = run({"command": "start", "args": {"blank": True, "out": str(out)}})["payload"]
         assert started["written"] is True and load_contract(out).robot.name == "New robot"
@@ -255,3 +255,19 @@ def test_start_overwrite_keeps_file_mode(tmp_path: Path):
     target.chmod(0o644)
     api.start(source, overwrite=True, expected_revision=result["revision"])
     assert target.stat().st_mode & 0o777 == 0o644
+
+
+def _mass_lock(tmp_path: Path, monkeypatch, **options) -> str:
+    monkeypatch.setattr("getpass.getuser", lambda: "zz-login")
+    model = tmp_path / "robot.urdf"
+    model.write_text('<robot name="robot"><link name="base"/></robot>')
+    lock = start_operation.model_lock(model, tmp_path, mass="1 kg", **options)
+    return lock.read_text()
+
+
+def test_the_cli_mass_check_still_names_the_login_as_witness(tmp_path: Path, monkeypatch):
+    assert "zz-login" in _mass_lock(tmp_path, monkeypatch)
+
+
+def test_an_anonymous_mass_check_never_asks_for_the_login(tmp_path: Path, monkeypatch):
+    assert "zz-login" not in _mass_lock(tmp_path, monkeypatch, anonymous=True)

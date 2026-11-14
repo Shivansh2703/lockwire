@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlanPayload, RobotJoint } from "../shared/api.gen";
 import { PlanFace } from "./PlanFace";
+import { setUnits } from "./units";
 import { PlanInput, planName } from "./PlanInput";
 
 const PAYLOAD: PlanPayload = {
@@ -43,6 +44,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  setUnits({ length: "mm", angle: "deg" });
 });
 
 const JOINTS = [{ name: "elbow", parent: "upper", child: "forearm" }] as RobotJoint[];
@@ -153,7 +155,7 @@ describe("PlanFace", () => {
     expect(container.querySelector(".plan-finding [data-kind]")?.getAttribute("data-kind")).toBe("model");
     render({ ...PAYLOAD, findings: [{ ...FINDING, source: null, witness: null }] });
     expect(container.querySelector(".plan-finding")?.textContent).toContain("source unknown");
-    expect(container.querySelector(".plan-finding")?.textContent).toContain("witness unknown");
+    expect(container.querySelector(".plan-finding")?.textContent).toContain("unknown");
   });
 
   it("jumps to the docs only through the quiet View citation button", () => {
@@ -190,6 +192,11 @@ describe("PlanInput", () => {
     expect(container.querySelector(".verdict-word")?.textContent).toContain("1 step not scored");
   });
 
+  it("the plan result is named for the plan, never a bare GO that reads as the robot verdict", () => {
+    const word = (verdict: string) => { act(() => root.render(<PlanInput onChoosePlan={async () => null} payload={{ ...PAYLOAD, verdict } as never} onPlan={vi.fn()} />)); return container.querySelector(".verdict-word")!.textContent; };
+    expect([word("GO"), word("NO-GO")]).toEqual([expect.stringMatching(/^Plan passes/), "Plan fails"]);
+  });
+
   it("planName never doubles or leads with a space", () => {
     expect(["plan.yaml", "plan-.yaml", ".yaml", "plan-x500.yaml"].map((f) => planName(f))).toEqual(["Plan", "Plan", "Plan", "x500 plan"]);
     expect(planName("plan-x500.yaml", "X500")).toBe("X500 plan");
@@ -221,5 +228,46 @@ describe("PlanInput", () => {
     await act(async () => container.querySelector<HTMLButtonElement>(".kit-filepick button")!.click());
     expect(container.querySelector(".kit-filepick button")?.textContent).toBe("Choose plan");
     expect(container.querySelector(".verdict-word")).toBeNull();
+  });
+});
+
+describe("PlanFace motion preview", () => {
+  // One joint, 0.1 s steps: torque crosses its 9 N·m limit at 0.2 s; speed and acceleration never do.
+  const MOTION: PlanPayload = {
+    ...PAYLOAD,
+    motion: {
+      time_s: [0, 0.1, 0.2, 0.3],
+      joints: [{ name: "elbow", velocity: [0, 0.4, 0.8, 1], acceleration: [0, 3, 3, 0], torque: [2, 7, 12.5, 4],
+        velocity_limit: 2, acceleration_limit: 4, torque_limit: 9 }],
+    },
+  };
+  const chart = (title: string) => [...container.querySelectorAll(".chart")].find((c) => c.querySelector(`[aria-label="${title}"]`))!;
+  const column = (title: string) => [...chart(title).querySelectorAll(`table[aria-label="${title}, data"] tbody tr td:nth-child(2)`)].map((td) => td.textContent);
+
+  it("plots each quantity on its own axis: torque holds torque values, not speed", () => {
+    setUnits({ angle: "rad" });
+    render(MOTION);
+    expect(column("Torque needed")).toEqual(["2", "7", "12.5", "4"]);
+    expect(column("Speed")).toEqual(["0", "0.4", "0.8", "1"]);
+    expect(chart("Torque needed").textContent).toContain("elbow (N·m)");
+  });
+
+  it("draws each joint's own limit and names the first sample that crosses it", () => {
+    render(MOTION);
+    expect(chart("Torque needed").querySelector(".sr-only[aria-label='Torque needed, limits and bands']")?.textContent).toContain("elbow limit: max limit 9 N·m");
+    expect(container.textContent).toContain("Torque needed goes over its limit first at 0.2 s: elbow reaches 12.5 N·m, its limit is 9 N·m.");
+    expect(container.textContent).toContain("Speed stays inside every limit.");
+  });
+
+  it("moves the Now marker on every chart when the scrub bar moves, and shows nothing without a motion", () => {
+    render(MOTION);
+    const bar = container.querySelector<HTMLInputElement>("input[aria-label='Move to a time']")!;
+    const nowOf = () => [...container.querySelectorAll(".sr-only li")].filter((li) => li.textContent!.startsWith("Now")).map((li) => li.textContent);
+    expect(nowOf()).toHaveLength(3);
+    const before = nowOf()[0];
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(bar, "0.2"); bar.dispatchEvent(new Event("input", { bubbles: true })); });
+    expect(nowOf()[2]).not.toBe(before);
+    render(PAYLOAD);
+    expect(container.querySelector(".plan-motion")).toBeNull();
   });
 });

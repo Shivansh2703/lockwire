@@ -238,7 +238,7 @@ def write_change_file(entries: tuple[dict[str, Any], ...], out: Path, *, scene_s
             handle.write(f"# written by lockwire scene import — {scene_source}, {today}\n")
             yaml.dump([_flow_lists(entry) for entry in entries], handle)
         if out.exists():
-            _replace(temporary_path, out)
+            _replace(temporary_path, out, journal=False)  # a change file is no lockfile: no undo journal
         else:
             os.replace(temporary_path, out)
     finally:

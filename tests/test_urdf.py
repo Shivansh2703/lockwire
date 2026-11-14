@@ -52,7 +52,7 @@ ANYMAL_D_URDF = FIXTURES / "anymal_d.urdf"
 
 
 def test_anymal_d_records_all_links_and_joints():
-    """P1 (audit 2): `parse_urdf` used to build links only and drop every joint.
+    """`parse_urdf` used to build links only and drop every joint.
 
     The fixture has 96 `<link>` and 96 `<joint` substrings, but one joint
     (`base_to_hatch`) is commented out in the source XML — so the real,
@@ -217,7 +217,7 @@ def test_init_refuses_doctype_urdf_no_traceback(tmp_path):
 
 
 def test_init_refuses_unresolved_xacro_exit_2(tmp_path):
-    """§3.3: unreadable/unusable source → exit 2, never confusable with NO-GO."""
+    """Unreadable/unusable source → exit 2, never confusable with NO-GO."""
     contract = tmp_path / "lockwire.yaml"
     result = runner.invoke(
         app,

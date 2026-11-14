@@ -2,7 +2,7 @@
 never Lockwire code, and is superseded by tests/test_sim_jazzy_admission.py
 (jobs.start_motion_job). Kept until cycle 3 deletes it.
 
-E5.9: the sim-jazzy CI job proves container isolation, asset identity, and
+The sim-jazzy CI job proves container isolation, asset identity, and
 that a disabled controller produces no motion.
 
 These never run Gazebo themselves -- the sim-jazzy job in .github/workflows/ci.yml
@@ -32,7 +32,7 @@ LEG_JOINTS = [
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("LOCKWIRE_SIM") != "1",
-    reason="E5.9 runs only in the sim-jazzy CI job (LOCKWIRE_SIM=1); local Docker stays paused",
+    reason="runs only in the sim-jazzy CI job (LOCKWIRE_SIM=1); local Docker stays paused",
 )
 
 
@@ -68,7 +68,7 @@ def test_controller_disabled_gives_no_motion(sim_out: Path) -> None:
     Not ANYmal: scenarios.json's own anymal_d_controller_disabled_negative
     requires >=0.01 rad of gravity motion once its effort controller goes
     inactive (hold_joints: false) -- the opposite property. See the worker
-    report for why E5.9's generic "controller off -> no motion" check uses
+    report for why the generic "controller off -> no motion" check uses
     X500 instead.
     """
     path = sim_out / "x500_idle_pose.jsonl"
@@ -86,7 +86,7 @@ def test_controller_disabled_gives_no_motion(sim_out: Path) -> None:
 
 
 def test_anymal_controller_disabled_negative(sim_out: Path) -> None:
-    """B4/E5.9's real controller-disabled negative: scenarios.json's
+    """The real controller-disabled negative: scenarios.json's
     anymal_d_controller_disabled_negative. With anymal_effort_controller
     deactivated (hold_joints:false in the overlay) and the 2s gravity window
     captured, the legs must visibly NOT hold -- moving at least the fixture's

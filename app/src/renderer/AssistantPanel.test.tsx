@@ -3,12 +3,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import { DECLARE_FORM, PAGE, mockMatchMedia, picked } from "./App.testkit";
+import { DECLARE_FORM, PAGE, goMode, mockMatchMedia, picked } from "./App.testkit";
 import { AssistantPanel, EMPTY_CHAT, type Chat } from "./AssistantPanel";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
 import { Shell } from "./Shell";
 
-vi.mock("./scene/Canvas", () => ({ Canvas: ({ children }: { children?: React.ReactNode }) => <div data-testid="scene-canvas">{children}</div>, useScene: () => ({}) }));
+vi.mock("./scene/Canvas", () => ({ Canvas: ({ children }: { children?: React.ReactNode }) => <div data-testid="scene-canvas">{children}</div>, useScene: () => ({ meshes: [] }) }));
 vi.mock("./scene/robotScene", async (orig) => ({ ...(await orig<typeof import("./scene/robotScene")>()), applyHighlight: vi.fn(), applyDim: vi.fn(), focusCamera: vi.fn() }));
 
 let container: HTMLDivElement;
@@ -92,7 +92,7 @@ describe("AssistantPanel", () => {
     await tap("Assistant");
     expect(container.textContent).toContain("Try this");
     expect(container.textContent).toContain("declare");
-    await act(async () => ([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === "Docs") as HTMLElement).click());
+    goMode(container, "Docs");
     expect(container.querySelector('[aria-label="Docs view"]')).not.toBeNull(); // it used to step aside
     expect(container.textContent).toContain("Ask the Assistant");
   });
@@ -101,6 +101,7 @@ describe("AssistantPanel", () => {
     const api = bridge({ getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }) });
     await mount(panel());
     expect(container.textContent).toContain("Your robot's contract is sent to Anthropic with your key.");
+    expect(container.textContent).toContain("needs your own Anthropic key (get one at console.anthropic.com). The key is saved encrypted on this computer and sent only to Anthropic.");
     await type("Paste your Anthropic key", "sk-x");
     await tap("Save key and allow for this robot");
     expect(api.setAssistantSettings).toHaveBeenCalledWith({ key: "sk-x", enableRobot: "/r.yaml" });

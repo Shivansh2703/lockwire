@@ -60,7 +60,7 @@ def drift_decision_interval(
 ) -> float:
     """Calibrate a capture-level decision interval for the trend CUSUM.
 
-    The cubic fit is a linear projection.  Under §2's Gaussian residual model,
+    The cubic fit is a linear projection.  Under the Gaussian residual model,
     each cumulative fitted-trend contrast is normal with variance obtained from
     the polynomial design matrix.  A two-sided Bonferroni allocation over all
     prefixes controls the probability of any trip in the capture.  Inflating

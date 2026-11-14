@@ -7,17 +7,18 @@ import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import type { Card, Finding, FindingLabel, RobotJoint, RobotLink, Target } from "../../shared/api.gen";
 import { type SceneContext } from "./buildScene";
+import { posed } from "./collide";
 
 export type Level = "warn" | "bad" | "pass" | "selected";
 export interface Highlight { id: string; level: Level; /** whole-robot finding: a faint tint, no outline */ faint?: boolean }
 type V3 = [number, number, number];
 export interface Skeleton {
-  segments: { from: V3; to: V3; joint: string }[];
-  nodes: { id: string; position: V3; axis: V3 }[];
+  segments: { from: V3; to: V3; joint: string; /** the link this bone rides on when posed */ link: string }[];
+  nodes: { id: string; position: V3; axis: V3; link: string }[];
   base: V3 | null;
   /** The root link's name: the pedestal answers to it, so a fixed root joint lights something. */
   baseLink?: string;
-  tip: { position: V3; dir: V3; joint: string } | null;
+  tip: { position: V3; dir: V3; joint: string; link: string } | null;
   radius: number;
 }
 
@@ -28,15 +29,16 @@ const dist = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
  * (zero-length ones skipped); a node per joint; a base at the root link. */
 export function buildSkeleton(joints: RobotJoint[], links: RobotLink[]): Skeleton {
   const at = new Map(links.map((l) => [l.name, v3(l.position)]));
+  const shaped = new Set(links.filter((l) => l.solids?.length).map((l) => l.name)); // a drawn primitive replaces the bone at that link
   const segments: Skeleton["segments"] = [];
   const nodes: Skeleton["nodes"] = [];
   for (const j of joints) {
     const p = v3(j.position);
     const parent = at.get(j.parent);
     const child = at.get(j.child);
-    if (parent && dist(parent, p) > 1e-6) segments.push({ from: parent, to: p, joint: j.name });
-    if (child && dist(child, p) > 1e-6) segments.push({ from: p, to: child, joint: j.name });
-    if (j.type !== "fixed") nodes.push({ id: j.name, position: p, axis: v3(j.axis) });
+    if (parent && !shaped.has(j.parent) && dist(parent, p) > 1e-6) segments.push({ from: parent, to: p, joint: j.name, link: j.parent });
+    if (child && !shaped.has(j.child) && dist(child, p) > 1e-6) segments.push({ from: p, to: child, joint: j.name, link: j.child });
+    if (j.type !== "fixed") nodes.push({ id: j.name, position: p, axis: v3(j.axis), link: j.parent });
   }
   const children = new Set(joints.map((j) => j.child));
   const root = joints.find((j) => !children.has(j.parent))?.parent;
@@ -48,7 +50,7 @@ export function buildSkeleton(joints: RobotJoint[], links: RobotLink[]): Skeleto
   const tipAt = leaf && (at.get(leaf.child) ?? v3(leaf.position));
   const dir = last ? ([last.to[0] - last.from[0], last.to[1] - last.from[1], last.to[2] - last.from[2]] as V3) : null;
   const len = dir ? Math.hypot(...dir) : 0;
-  const tip = leaf && tipAt && dir && len > 0 ? { position: tipAt, dir: dir.map((c) => c / len) as V3, joint: leaf.name } : null;
+  const tip = leaf && tipAt && dir && len > 0 ? { position: tipAt, dir: dir.map((c) => c / len) as V3, joint: leaf.name, link: leaf.child } : null;
   return { segments, nodes, base: (root && at.get(root)) || null, baseLink: root, tip, radius: Math.max(extent * 0.05, 0.004) };
 }
 
@@ -73,7 +75,7 @@ export function skeletonMeshes(sk: Skeleton): THREE.Mesh[] {
     const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(d.length() - 2 * r, 1e-4), 6, 20), tint());
     m.position.copy(a).addScaledVector(d, 0.5);
     m.quaternion.setFromUnitVectors(Y, d.normalize());
-    m.userData = { partId: s.joint, bone: true }; // pickable, but only joints glow
+    m.userData = { partId: s.joint, bone: true, link: s.link }; // pickable, but only joints glow
     out.push(m);
   });
   sk.nodes.forEach((n, i) => {
@@ -83,10 +85,11 @@ export function skeletonMeshes(sk: Skeleton): THREE.Mesh[] {
     m.position.set(...n.position);
     m.quaternion.copy(q);
     m.userData.partId = n.id;
+    m.userData.link = n.link;
     const halo = new THREE.Mesh(new THREE.TorusGeometry(hr * 1.3, hr * 0.07, 8, 40), tint());
     halo.position.copy(m.position);
     halo.quaternion.copy(q).multiply(new THREE.Quaternion().setFromUnitVectors(Z, Y)); // torus lies in XY; face the cylinder axis
-    halo.userData = { partId: n.id, ring: true };
+    halo.userData = { partId: n.id, ring: true, link: n.link };
     // visible until `paint` hides it, so the camera fit leaves room for the halo
     out.push(m, halo);
   });
@@ -95,7 +98,7 @@ export function skeletonMeshes(sk: Skeleton): THREE.Mesh[] {
     const ped = new THREE.Mesh(new THREE.CylinderGeometry(sk.radius * 2.3, sk.radius * 2.6, h, 40), tint());
     ped.quaternion.setFromUnitVectors(Y, Z);
     ped.position.set(sk.base[0], sk.base[1], sk.base[2] + h / 2);
-    ped.userData = { partId: sk.baseLink, bone: true };
+    ped.userData = { partId: sk.baseLink, bone: true, link: sk.baseLink };
     out.push(ped);
   }
   if (sk.tip) {
@@ -107,7 +110,7 @@ export function skeletonMeshes(sk: Skeleton): THREE.Mesh[] {
       const f = new THREE.Mesh(new THREE.BoxGeometry(r * 0.6, len, r * 1.1), tint());
       f.quaternion.setFromUnitVectors(Y, dir);
       f.position.set(...sk.tip.position).addScaledVector(dir, len / 2 + r).addScaledVector(side, k * r * 1.3);
-      f.userData = { partId: sk.tip.joint, bone: true };
+      f.userData = { partId: sk.tip.joint, bone: true, link: sk.tip.link };
       out.push(f);
     }
   }
@@ -215,12 +218,14 @@ export function paint(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolea
     // Docs dims the whole robot (fade); a selection dims every other part (dim). Transparent
     // parts do not write depth, so the ground grid stays behind the robot.
     const fade = colors?.fade ?? ghost;
-    const opacity = m.userData.fade ? fade : greyed(m) ? OUT_OF_LENS : m.userData.dim ? ghost : 1;
+    const base = m.userData.fade ? fade : greyed(m) ? OUT_OF_LENS : m.userData.dim ? ghost : 1;
+    const opacity = m.userData.seeThrough && !m.userData.ring ? Math.min(base, SEE_THROUGH) : base;
     const mat = m.material as THREE.MeshStandardMaterial;
     if (mat.transparent !== opacity < 1) mat.needsUpdate = true; // the OPAQUE shader define is baked at compile time
     mat.transparent = opacity < 1;
     mat.opacity = opacity;
-    mat.depthWrite = opacity === 1 || opacity === ghost || opacity === fade; // ghosted parts still hide the ones behind them, or dozens of overlapping meshes stack back to solid
+    mat.depthWrite = opacity === 1 || opacity === ghost || opacity === fade;
+    mat.wireframe = !!m.userData.wireframe && !m.userData.ring && !m.userData.bone; // ghosted parts still hide the ones behind them, or dozens of overlapping meshes stack back to solid
   }
   if (!colors) return;
   for (const m of ctx.meshes) {
@@ -233,7 +238,7 @@ export function paint(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolea
     mat.color.copy(glow && m.userData.faint ? colors.part.clone().lerp(glow, FAINT_MIX) : glow ?? (greyed(m) ? colors.part.clone().lerp(colors.canvas, 0.7) : colors.part));
     mat.emissive.copy(glow ?? new THREE.Color(0));
     mat.emissiveIntensity = pick ? 0.6 : glow ? (m.userData.faint ? FAINT : 0.7) : 0;
-    if (m.userData.ring) m.visible = !!m.userData.level || !!m.userData.selected;
+    if (m.userData.ring) m.visible = (!!m.userData.level || !!m.userData.selected) && !m.userData.isolatedOut;
   }
   setOutlines(ctx.meshes, colors);
   setHalos(ctx.meshes, colors);
@@ -324,6 +329,7 @@ function setOutlines(meshes: THREE.Mesh[], colors: ThemeColors): void {
 }
 
 const OUT_OF_LENS = 0.35;
+const SEE_THROUGH = 0.3; // VIEW-1 "See through": every part at this opacity
 /** Outside the active view and not lit: drawn light grey so the robot stays recognisable. */
 const greyed = (m: THREE.Object3D) => !!m.userData.outLens && !m.userData.selected && !m.userData.level;
 
@@ -332,7 +338,7 @@ const greyed = (m: THREE.Object3D) => !!m.userData.outLens && !m.userData.select
 export function applyLens(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolean }, inLens: readonly boolean[], lens: string): void {
   ctx.meshes.forEach((m, i) => {
     if (inLens[i] === undefined) return; // ctx lags parts by one rebuild
-    m.visible = inLens[i] || lens !== "off";
+    m.visible = (inLens[i] || lens !== "off") && !m.userData.isolatedOut;
     m.userData.outLens = !inLens[i] && lens !== "off";
   });
   paint(ctx);
@@ -361,6 +367,25 @@ export function applyHighlight(ctx: SceneContext, highlight: Highlight[], select
   paint(ctx);
 }
 
+/** Parts not in `ids` are hidden (not dimmed), and so is every id in `hidden`; null/empty bring them back. GRAPH-1 and the View menu both come through here (VIEW-1). */
+export function applyIsolate(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolean }, ids: readonly string[] | null, hidden: readonly string[] = []): void {
+  const keep = ids && new Set(ids);
+  const gone = new Set(hidden);
+  for (const m of ctx.meshes) {
+    const out = (!!keep && !keep.has(m.userData.partId)) || gone.has(m.userData.partId);
+    m.userData.isolatedOut = out;
+    if (out) m.visible = false;
+    else if (!m.userData.ring) m.visible = true;
+  }
+  paint(ctx);
+}
+
+/** VIEW-1: see-through and wireframe, as flags `paint` turns into material state. */
+export function applyDisplay(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolean }, mode: { seeThrough: boolean; wireframe: boolean }): void {
+  for (const m of ctx.meshes) { m.userData.seeThrough = mode.seeThrough; m.userData.wireframe = mode.wireframe; }
+  paint(ctx);
+}
+
 /** Docs: the robot ghosts at the shared ghost opacity (--ghost), the grid behind it. */
 export function applyDim(ctx: SceneContext, dim: boolean): void {
   for (const m of ctx.meshes) m.userData.fade = dim;
@@ -373,9 +398,10 @@ export function applyTheme(ctx: SceneContext): void {
   const colors = readThemeColors();
   if (!colors) return;
   ctx.scene.background = colors.canvas;
-  for (const old of ctx.scene.children.filter((o) => o.userData.decor)) {
+  // Only the ground grid is rebuilt here; another decor object (the support polygon) is not ours to dispose.
+  for (const old of ctx.scene.children.filter((o): o is THREE.GridHelper => o instanceof THREE.GridHelper && !!o.userData.decor)) {
     ctx.scene.remove(old);
-    (old as THREE.GridHelper).dispose();
+    old.dispose();
   }
   const box = new THREE.Box3();
   for (const m of ctx.meshes) box.expandByObject(m);
@@ -437,5 +463,55 @@ export function focusCamera(ctx: SceneContext, ids: string[]): void {
   ctx.controls.target.addScaledVector(shift, t);
   ctx.camera.position.addScaledVector(shift, t);
   ctx.controls.update();
+  ctx.needsRender = true;
+}
+
+/** How far the camera sits so a sphere of this radius fills the view with a 30% margin. A zero-size
+ * selection (a point) gets a small floor so the camera does not land on it. */
+export function framingDistance(radius: number, fovDeg: number): number {
+  return (1.3 * Math.max(radius, 0.02)) / Math.sin((fovDeg * Math.PI) / 360);
+}
+
+/** F: keep the view direction, centre on the selection, and come close enough that it fills the view. */
+export function zoomToCamera(ctx: SceneContext, ids: string[]): void {
+  const box = new THREE.Box3();
+  for (const m of ctx.meshes) if (ids.includes(m.userData.partId) && !m.userData.ring) box.expandByObject(m);
+  if (box.isEmpty()) return;
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const cam = ctx.camera;
+  const dir = cam.position.clone().sub(ctx.controls.target).normalize();
+  // The open area (inside the panels), not the window: the view offset already centres it, so only its size sets the distance.
+  const { x: w, y: h } = ctx.resolution ?? { x: 1, y: 1 };
+  const i = ctx.inset ?? { top: 0, right: 0, bottom: 0, left: 0 };
+  const half = Math.tan((cam.fov * Math.PI) / 360);
+  const tanHalf = Math.min(half * Math.max((h - i.top - i.bottom) / h, 0.2), half * cam.aspect * Math.max((w - i.left - i.right) / w, 0.2));
+  const dist = framingDistance(sphere.radius, 2 * Math.atan(tanHalf) * (180 / Math.PI));
+  ctx.controls.target.copy(sphere.center);
+  cam.position.copy(sphere.center).addScaledVector(dir, dist);
+  cam.near = Math.min(cam.near, dist / 10);
+  cam.updateProjectionMatrix();
+  ctx.controls.update();
+  ctx.needsRender = true;
+}
+
+/**
+ * POSE-1: move every mesh the way its link moves when the joints in `pose` (radians or metres)
+ * are turned. Each mesh walks up its link's chain of joints and is moved by collide.ts's `posed`,
+ * the same transform the sweep uses, starting from where it was drawn (kept in userData.rest).
+ * A mesh with no link, or a joint at zero, stays put; an empty pose puts everything back.
+ */
+export function applyPose(ctx: SceneContext, joints: RobotJoint[], pose: Record<string, number>, linkOf: (m: THREE.Mesh) => string | undefined): void {
+  const byChild = new Map(joints.map((j) => [j.child, j]));
+  for (const m of ctx.meshes) {
+    const rest = (m.userData.rest ??= { p: m.position.clone(), q: m.quaternion.clone() }) as { p: THREE.Vector3; q: THREE.Quaternion };
+    const e = new THREE.Matrix4().makeRotationFromQuaternion(rest.q).elements;
+    let s = { position: rest.p.toArray(), rotation: [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => e[c * 4 + r]!)) };
+    let j = byChild.get(linkOf(m) ?? "");
+    for (let n = 0; j && n < joints.length; n++, j = byChild.get(j.parent)) if (pose[j.name]) s = posed(s, j, pose[j.name]!);
+    const r = s.rotation;
+    m.position.fromArray(s.position);
+    m.quaternion.setFromRotationMatrix(new THREE.Matrix4().set(r[0]!, r[1]!, r[2]!, 0, r[3]!, r[4]!, r[5]!, 0, r[6]!, r[7]!, r[8]!, 0, 0, 0, 0, 1));
+    m.updateMatrixWorld();
+  }
   ctx.needsRender = true;
 }

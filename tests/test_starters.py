@@ -194,6 +194,18 @@ def test_drone_starter_names_scene_ids_and_plan(tmp_path):
     assert list(validate_plan(contract, load_plan(folder / "plan.yaml"))) == []  # both steps fit
 
 
+def test_drone_flight_controller_carries_the_telem1_connector_from_the_pin_card():
+    from lockwire.catalog import load_pinouts
+
+    c = load_contract(EXAMPLES / "drone" / "contract.yaml")
+    fc = next(d for d in c.devices if d.id == "dev.flight-controller.pixhawk-6c")
+    telem = next(x for x in fc.connectors or [] if x.id == "TELEM1")
+    board = next(b for b in load_pinouts() if b.id == "holybro-pixhawk-6c")
+    card = next(x for x in board.connectors if x.id == "TELEM1")
+    assert [(p.number, p.name) for p in telem.pins] == [(p.number, p.name) for p in card.pins]
+    assert telem.type in {t.id for t in c.connector_types or []}
+
+
 def test_humanoid_reads_as_a_robot_with_plain_names():
     folder = EXAMPLES / "humanoid"
     c = _load(folder / "contract.yaml")
@@ -269,3 +281,347 @@ def test_start_example_copy_differs_from_the_shipped_file_by_the_version_line_on
         assert [x for x, y in zip(a, b) if x != y] == [
             x for x in a if x.startswith("schema_version:")
         ], name
+
+
+@pytest.mark.parametrize(
+    ("rel", "exit_code"), [("servo-bench.yaml", 1), ("rover/contract.yaml", 0)]
+)
+def test_starter_verdict_pinned_with_wires_and_no_new_not_scored(rel, exit_code):
+    c = load_contract(EXAMPLES / rel)
+    assert c.topology.wires[0].length_m and c.topology.wires[0].awg
+    result = runner.invoke(app, ["check", str(EXAMPLES / rel), "--all"])
+    assert result.exit_code == exit_code
+    assert f"{c.topology.wires[0].id}: " in result.output  # the wire reports its ampacity headroom
+    assert (
+        "bitrate unrated" not in result.output
+    )  # a bus without a cited bitrate adds a NOT SCORED line
+
+
+@pytest.mark.parametrize(
+    ("rel", "model", "field", "value"),
+    [
+        ("servo-bench.yaml", "mdl.servo.mg996r", "stall_current_a", 1.4),
+        ("arm/contract.yaml", "mdl.servo.sts3215-12v", "stall_current_a", 2.7),
+        ("arm/contract.yaml", "mdl.servo.sts3215-12v", "no_load_current_a", 0.2),
+    ],
+)
+def test_starter_servo_electrical_fields_are_the_cited_numbers(rel, model, field, value):
+    c = load_contract(EXAMPLES / rel)
+    m = next(m for m in c.device_models if m.id == model)
+    assert getattr(m.actuator, field) == value
+
+
+def _resized(tmp_path, **values):
+    """A tmp copy of the rover-param lockfile with the named params set (text replace)."""
+    import re
+
+    text = (EXAMPLES / "rover-param" / "contract.yaml").read_text()
+    for name, value in values.items():
+        text, n = re.subn(rf"(name: {name}\n\s+value: )[-\d.]+", rf"\g<1>{value}", text)
+        assert n == 1, name
+    path = tmp_path / "rover.yaml"
+    path.write_text(text)
+    return path
+
+
+def _check_json(path, tmp_path):
+    out = tmp_path / "out.json"
+    assert runner.invoke(app, ["check", str(path), "--json", str(out)]).exit_code == 0
+    return json.loads(out.read_text())
+
+
+def _tip_mm(path, tmp_path):
+    import re
+
+    [f] = [
+        f for f in _check_json(path, tmp_path)["findings"] if f["quantity"] == "model/tip_margin"
+    ]
+    return int(re.search(r"is (\d+) mm inside", f["observed"]).group(1))
+
+
+def test_rover_param_is_a_starter_stored_in_the_lockfile():
+    assert "rover-param" in ops.example_names()
+    assert any(s["name"] == "rover-param" for s in ops.starters())
+    contract = load_contract(EXAMPLES / "rover-param" / "contract.yaml")
+    assert contract.model.source == "lockfile" and len(contract.params) >= 4
+
+
+def test_rover_param_wheelbase_300_to_400_mm_widens_the_tip_margin(tmp_path):
+    assert (
+        _tip_mm(_resized(tmp_path), tmp_path) == 150
+    )  # track 450 mm: wheelbase 300 is the short side
+    wide = _resized(tmp_path, half_wheelbase=0.2)
+    assert _tip_mm(wide, tmp_path) == 200
+
+
+def test_rover_param_every_link_mass_is_derived_with_its_cited_density(tmp_path):
+    rows = _check_json(_resized(tmp_path), tmp_path)["forces"]["masses"]
+    assert len(rows) == 5
+    assert {r["kind"] for r in rows} == {"derived"}
+    assert all("aalco.co.uk" in r["mass_note"] for r in rows)
+
+
+def test_rover_param_chassis_mass_follows_the_volume_not_one_length(tmp_path):
+    def chassis(**values):
+        rows = _check_json(_resized(tmp_path, **values), tmp_path)["forces"]["masses"]
+        return next(r["value"] for r in rows if r["id"] == "model/links/chassis/mass")
+
+    base = chassis()
+    assert chassis(chassis_length=0.6, chassis_width=0.45) == pytest.approx(base * 1.5 * 1.5)
+
+
+def test_rover_param_materials_are_the_catalog_row():
+    from lockwire import catalog
+
+    links = load_contract(EXAMPLES / "rover-param" / "contract.yaml").model.links
+    assert len(links) == 5
+    assert all(link.material == catalog.material("Aluminium 6061-T6") for link in links)
+
+
+def _hex_variant(tmp_path, **values):
+    import re
+
+    text = (EXAMPLES / "hexapod-param" / "contract.yaml").read_text()
+    for name, value in values.items():
+        text, n = re.subn(rf"(name: {name}\n\s+value: )[-\d.]+", rf"\g<1>{value}", text)
+        assert n == 1, name
+    path = tmp_path / "hexapod.yaml"
+    path.write_text(text)
+    return path
+
+
+def test_hexapod_param_is_a_starter_with_six_legs_and_passes_check(tmp_path):
+    assert "hexapod-param" in ops.example_names()
+    assert any(s["name"] == "hexapod-param" for s in ops.starters())
+    model = load_contract(EXAMPLES / "hexapod-param" / "contract.yaml").model
+    assert model.source == "lockfile" and (len(model.links), len(model.joints)) == (19, 18)
+    assert _check_json(_hex_variant(tmp_path), tmp_path)["exit_code"] == 0
+
+
+def test_hexapod_param_every_link_mass_is_derived_and_servos_are_the_cited_part(tmp_path):
+    from lockwire import catalog
+
+    rows = _check_json(_hex_variant(tmp_path), tmp_path)["forces"]["masses"]
+    assert len(rows) == 19 and {r["kind"] for r in rows} == {"derived"}
+    assert all("aalco.co.uk" in r["mass_note"] for r in rows)
+    c = load_contract(EXAMPLES / "hexapod-param" / "contract.yaml")
+    part = next(p for p in catalog.load_catalog().parts if p.id == "feetech.st3215")
+    act = c.device_models[0].actuator
+    assert act.stall_current_a == part.numbers["stall_current"].value
+    assert c.devices[0].physical.mass.value == part.numbers["mass"].value
+    assert len(c.devices) == 18
+
+
+def test_hexapod_param_leg_length_moves_the_mass_and_inertia(tmp_path):
+    def forces(**values):
+        return _check_json(_hex_variant(tmp_path, **values), tmp_path)["forces"]
+
+    a, b = forces(), forces(tibia_length=0.2)
+    assert b["mass_total"]["value"] > a["mass_total"]["value"]
+    assert b["inertia"]["value"] != a["inertia"]["value"]
+
+
+def test_templates_every_actuated_joint_has_the_catalog_servo_effort_and_range():
+    from lockwire import catalog, units
+
+    path = EXAMPLES / "hexapod-param" / "contract.yaml"
+    c = load_contract(path)
+    part = next(p for p in catalog.load_catalog().parts if p.id == "feetech.st3215")
+    effort = units.to_base(part.numbers["stall_torque"].value, part.numbers["stall_torque"].unit)
+    travel = units.to_base(
+        part.numbers["rotation_range"].value, part.numbers["rotation_range"].unit
+    )
+    joints = {j.name: j for j in c.model.joints}
+    driven = [joints[d.drives_joint] for d in c.devices]
+    assert len(driven) == 18
+    assert all(j.limits and j.limits.effort == effort for j in driven)
+    assert all(j.limits.upper - j.limits.lower == pytest.approx(travel, rel=1e-6) for j in driven)
+    assert (
+        path.read_text().count("2.942 N*m = catalog feetech.st3215") == 18
+    )  # the cited source, per joint
+    rover = load_contract(EXAMPLES / "rover-param" / "contract.yaml")
+    assert rover.devices == []  # wheels are continuous joints with no actuator row to cite
+
+
+def test_hexapod_param_femur_length_moves_the_femur_gravity_torque(tmp_path):
+    from lockwire import checks
+
+    def femur(**values):
+        loads = checks.gravity_loads(load_contract(_hex_variant(tmp_path, **values)))
+        return loads["front-left-femur-servo"]
+
+    assert femur(femur_length=0.16) > femur() > 0
+
+
+# ---- arm-power: a small arm whose power, wiring and pin problems the 0.5.0 checks catch.
+
+ARM_POWER = EXAMPLES / "arm-power"
+ARM_BROWNOUT, ARM_FUSE, ARM_PIN = (
+    "topology/rails/rail.5v/brownout",
+    "topology/wires/w.pack/fuse",
+    "topology/wires/w.bus-data",
+)
+# the single change per problem (old text, new text); each appears once in contract.yaml
+ARM_FIXES = {
+    ARM_BROWNOUT: ("awg: 28", "awg: 18"),  # w.servo-feed: 28 AWG -> 18 AWG
+    ARM_FUSE: ("awg: 22", "awg: 18"),  # w.pack: 22 AWG -> 18 AWG
+    ARM_PIN: ("pin: IO12", "pin: IO13"),  # w.bus-data: reserved strapping pin -> free pin
+}
+
+
+def _arm_variant(tmp_path, *fixes, text=None):
+    text = text or (ARM_POWER / "contract.yaml").read_text()
+    for old, new in fixes:
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    path = tmp_path / "arm.yaml"
+    path.write_text(text)
+    return path
+
+
+def _arm_check(path, tmp_path, *extra):
+    out = tmp_path / "out.json"
+    res = runner.invoke(app, ["check", str(path), "--json", str(out), *extra])
+    return res.exit_code, json.loads(out.read_text())
+
+
+def _arm_findings(path, tmp_path, *extra):
+    return {f["quantity"]: f for f in _arm_check(path, tmp_path, *extra)[1]["findings"]}
+
+
+def test_arm_power_is_a_starter_that_starts(tmp_path):
+    assert "arm-power" in ops.example_names()
+    assert any(s["name"] == "arm-power" for s in ops.starters())
+    out = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["start", "--example", "arm-power", "--out", str(out)]).exit_code == 0
+    model = load_contract(out).model
+    assert model.source == "lockfile" and (len(model.links), len(model.joints)) == (4, 3)
+    assert (tmp_path / "lockwire.plan.yaml").is_file()
+
+
+def test_arm_power_as_shipped_is_no_go_with_the_three_named_findings(tmp_path):
+    code, doc = _arm_check(ARM_POWER / "contract.yaml", tmp_path)
+    found = {f["quantity"]: f for f in doc["findings"]}
+    assert code == 1 and doc["counts"]["violation"] == 2 and doc["counts"]["warning"] == 2
+    assert (
+        found["topology/wires/w.servo-feed/ampacity"]["severity"] == "warning"
+    )  # AMP-THIN, sourced 28 AWG row
+    assert {ARM_BROWNOUT, ARM_FUSE, ARM_PIN} <= set(found)
+    assert found[ARM_BROWNOUT]["severity"] == found[ARM_FUSE]["severity"] == "violation"
+    assert found[ARM_PIN]["severity"] == "warning"
+
+
+def test_arm_power_findings_carry_their_number_limit_and_source(tmp_path):
+    found = _arm_findings(ARM_POWER / "contract.yaml", tmp_path)
+    brown, fuse, pin = found[ARM_BROWNOUT], found[ARM_FUSE], found[ARM_PIN]
+    assert brown["observed_quantity"]["value"] == pytest.approx(4.65, abs=0.01)
+    assert brown["expected_quantity"]["value"] == 4.75  # the Jetson's catalog minimum input
+    assert (fuse["observed_quantity"]["value"], fuse["expected_quantity"]["value"]) == (9, 7)
+    assert "powerstream.com/Wire_Size.htm" in fuse["source"]  # 22 AWG chassis column
+    assert "IO12 is reserved" in pin["observed"] and "espressif.com" in pin["source"]
+
+
+@pytest.mark.parametrize("quantity", sorted(ARM_FIXES))
+def test_arm_power_each_documented_fix_removes_only_its_finding(quantity, tmp_path):
+    found = _arm_findings(_arm_variant(tmp_path, ARM_FIXES[quantity]), tmp_path)
+    assert quantity not in found
+    assert {ARM_BROWNOUT, ARM_FUSE, ARM_PIN} - {quantity} <= set(found)
+
+
+def test_arm_power_with_all_three_fixes_is_go(tmp_path):
+    code, doc = _arm_check(_arm_variant(tmp_path, *ARM_FIXES.values()), tmp_path)
+    assert (code, doc["verdict"]) == (0, "GO") and doc["counts"]["violation"] == 0
+
+
+def test_arm_power_without_the_fuse_there_is_no_fuse_over_wire_finding(tmp_path):
+    path = _arm_variant(tmp_path, ("    current_limit_enforced_by: fuse\n", ""))
+    assert ARM_FUSE not in _arm_findings(path, tmp_path)
+
+
+def test_arm_power_spec_numbers_are_the_catalog_rows(tmp_path):
+    from lockwire import catalog
+
+    parts = {p.id: p.numbers for p in catalog.load_catalog().parts}
+    c = load_contract(ARM_POWER / "contract.yaml")
+    xl, jet = parts["dynamixel.xl330-m288"], parts["nvidia.jetson-nano-devkit"]
+    assert c.servo == "dynamixel.xl330-m288"
+    assert c.device_models[0].actuator.stall_current_a == xl["stall_current"].value
+    assert {j.limits.effort for j in c.model.joints if j.type == "revolute"} == {
+        xl["stall_torque"].value
+    }
+    assert c.device("dev.servo.shoulder").physical.mass.value == xl["mass"].value
+    assert c.device_models[1].input_voltage_range.min.value == jet["input_voltage_min"].value
+    assert (
+        c.rail("rail.battery").current_limit.value
+        == parts["ptc.bourns.mf-r900"]["hold_current"].value
+    )
+    reg = parts["pololu.d36v50f5"]
+    assert c.rail("rail.5v").min_input_v == reg["input_voltage_min"].value
+    assert c.rail("rail.5v").efficiency == reg["efficiency_min"].value / 100
+    assert c.rail("rail.5v").capacity.value == reg["output_current_max"].value * 5
+
+
+def test_arm_power_every_link_mass_is_derived_from_the_catalog_material(tmp_path):
+    from lockwire import catalog
+
+    rows = _check_json_any(ARM_POWER / "contract.yaml", tmp_path)["forces"]["masses"]
+    assert len(rows) == 4 and {r["kind"] for r in rows} == {"derived"}
+    links = load_contract(ARM_POWER / "contract.yaml").model.links
+    assert all(link.material == catalog.material("Aluminium 6061-T6") for link in links)
+
+
+def _check_json_any(path, tmp_path):
+    return _arm_check(path, tmp_path)[1]
+
+
+def test_arm_power_plan_hold_passes_and_asks_for_no_reach(tmp_path):
+    plan = ARM_POWER / "plan.yaml"
+    assert not [f for f in _arm_findings(ARM_POWER / "contract.yaml", tmp_path, "--plan", str(plan)) if "hold_torque" in f]  # fmt: skip
+    got = validate_plan(load_contract(ARM_POWER / "contract.yaml"), load_plan(plan))
+    assert not [f for f in got if f.quantity.endswith("/reach_m")]
+
+
+def test_arm_power_plan_hold_fires_when_the_shoulder_is_too_weak(tmp_path):
+    weak = _arm_variant(tmp_path, text=(ARM_POWER / "contract.yaml").read_text().replace("effort: 0.52", "effort: 0.05"))  # fmt: skip
+    found = _arm_findings(weak, tmp_path, "--plan", str(ARM_POWER / "plan.yaml"))
+    hold = found["plan/segments/hold/hold_torque/shoulder"]
+    assert hold["severity"] == "warning" and "<= 0.05" in hold["expected"]
+
+
+def test_arm_power_readme_names_each_problem_and_its_fix():
+    text = (ARM_POWER / "README.md").read_text()
+    assert all(k in text for k in ("w.pack", "w.servo-feed", "IO12", "IO13", "awg: 18"))
+
+
+def test_arm_power_has_no_broken_references():
+    from lockwire.checks import check_reference_integrity
+
+    assert check_reference_integrity(load_contract(ARM_POWER / "contract.yaml")) == []
+
+
+def test_the_built_to_fail_bench_is_a_starter_and_both_failing_examples_show_two_failures(tmp_path):
+    from lockwire.page import build_payload
+    from lockwire.schema import load_contract
+
+    assert any(s["name"] == "servo-bench" for s in ops.starters())
+    for name in ("servo-bench", "arm-power"):  # the chip says "problems to find" / "built to fail"
+        ops.start_example(name, tmp_path / f"{name}.yaml")
+        assert build_payload(load_contract(tmp_path / f"{name}.yaml"))["violations"] == 2, name
+
+
+def test_each_start_chip_line_matches_what_check_really_finds(tmp_path):
+    import re
+    from pathlib import Path
+
+    from lockwire.page import build_payload
+    from lockwire.schema import load_contract
+
+    tsx = (Path(__file__).parent.parent / "app/src/renderer/OpenFace.tsx").read_text(
+        encoding="utf-8"
+    )
+    claimed = dict(re.findall(r'"?([\w-]+)"?: \["(fails|warns|clean)"', tsx))
+    assert set(claimed) == {s["name"] for s in ops.starters()}
+    for name, kind in claimed.items():
+        ops.start_example(name, tmp_path / f"{name}.yaml")
+        p = build_payload(load_contract(tmp_path / f"{name}.yaml"))
+        assert ("fails" if p["violations"] else "warns" if p["warnings"] else "clean") == kind, name

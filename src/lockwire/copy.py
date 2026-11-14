@@ -136,6 +136,8 @@ def check_label(quantity: str) -> str:
         if kind and what:  # "bud.power.servo-5v" -> "Servo 5 V power budget": it names the budget
             return f"{human_name(what)} {kind} budget"
         return f"Total {kind} budget" if kind else CHECK_LABELS["budgets"]
+    if not words and parts[:2] == ["topology", "wires"]:  # the wire's own id is the subject, not the label
+        return "Wire check"
     # Unmapped: still readable, still no underscores (the test lists every known path).
     last = (words[-1] if words else quantity.split("/")[-1]).replace("_", " ").replace("-", " ")
     text = " ".join(last.replace("|", "").split())
@@ -178,7 +180,7 @@ def human_name(identifier: str) -> str:
     codes with a digit and known acronyms are upper-cased ("pm02" -> "PM02"); a long word with
     a digit is split ("computer1" -> "Computer 1"); other words are title-cased.
     """
-    for prefix in ("dev.", "rail.", "bus.", "bud.", "host.", "fam.", "mdl."):
+    for prefix in ("dev.", "rail.", "bus.", "bud.", "host.", "fam.", "mdl.", "w."):
         if identifier.startswith(prefix):
             identifier = identifier[len(prefix) :]
     identifier = re.sub(r"(\d)([vV])\b", r"\1 V", identifier)

@@ -2,6 +2,7 @@
 caught, and the clean contract produces zero findings (false-positive budget)."""
 
 from math import pi
+import math
 import shutil
 from pathlib import Path
 from typing import Any, get_type_hints
@@ -12,6 +13,21 @@ from rich.console import Console
 
 from lockwire.advice import Alternative
 from lockwire.checks import (
+    belt_lengths,
+    check_belt_length,
+    check_collision_visual,
+    bus_address_map,
+    check_estop_wiring,
+    check_connector_mating,
+    check_back_power,
+    check_reverse_polarity,
+    check_tvs_rating,
+    check_qwiic_budget,
+    check_port_budget,
+    check_fuse_wire,
+    check_rail_source_rules,
+    check_bus_wiring_rules,
+    check_servo_bus,
     AMPACITY_SOURCE,
     EMPTY_SCORE_OBSERVED,
     EMPTY_SCORE_QUANTITY,
@@ -30,6 +46,8 @@ from lockwire.checks import (
     check_rail_topology,
     check_reference_integrity,
     check_scene_placement,
+    check_hold_torque,
+    check_tip_over,
     check_thermal_budget,
     check_mesh_drift,
     check_model_values,
@@ -40,16 +58,23 @@ from lockwire.checks import (
     free_space_path_loss_db,
     run_record_checks,
 )
-from lockwire.report import CGReport, Finding, RecordReport, render
+from lockwire.report import CGReport, Finding, RecordReport, render, verdict
 from lockwire.scene import Scene, ScenePart
 from lockwire.schema import (
+    Belt,
+    Pulley,
+    Topology,
+    Actuator,
     AntennaGain,
     Autopilot,
     Band,
     Bus,
     Contract,
     DeviceInstance,
+    DeviceModel,
     DeviceThermal,
+    PowerDraw,
+    Rail,
     InputVoltageRange,
     LinkBudget,
     PowerMode,
@@ -1802,6 +1827,39 @@ def test_planted_undersized_wire_ampacity_fires(clean_contract):
     assert "1.00 A" in finding.delta or "1.00" in finding.delta
 
 
+def _ampacity_on_5v(contract, awg, watts):
+    contract.device("dev.imu").power.draw = Quantity(value=0.0, unit="W")
+    contract.device("dev.radio.rfd900").power.draw = Quantity(value=watts, unit="W")
+    contract.topology.wires.append(
+        Wire(id="wire.rail.5v", awg=awg, installation="free_air", rail="rail.5v", owner="shivansh")
+    )
+    return check_ampacity(contract)
+
+
+def test_ampacity_chassis_column_warns_for_gauge_missing_from_nec(clean_contract):
+    findings = _ampacity_on_5v(clean_contract, 28, 25.0)  # 5 A on 28 AWG; chassis limit 1.4 A
+    assert [f.severity for f in findings] == ["warning"]
+    assert findings[0].expected_quantity.value == pytest.approx(1.4)
+    assert "PowerStream" in findings[0].source and "wiring in air" in findings[0].expected
+
+
+def test_ampacity_chassis_column_scores_22_awg_under_limit(clean_contract):
+    scores = _ScoreBook()
+    clean_contract.device("dev.imu").power.draw = Quantity(value=0.0, unit="W")
+    clean_contract.device("dev.radio.rfd900").power.draw = Quantity(value=32.5, unit="W")
+    clean_contract.topology.wires.append(
+        Wire(id="wire.rail.5v", awg=22, installation="free_air", rail="rail.5v", owner="shivansh")
+    )
+    assert check_ampacity(clean_contract, scores=scores) == []  # 6.5 A under 7 A
+    assert "wires/wire.rail.5v" in scores._keys
+
+
+def test_ampacity_gauge_in_neither_table_is_not_scored_in_plain_words(clean_contract):
+    (finding,) = _ampacity_on_5v(clean_contract, 40, 25.0)
+    assert finding.severity == "not_scored"
+    assert "not scored" in finding.observed and "chassis" in finding.observed
+
+
 def test_ampacity_evaluates_worst_declared_mode_not_defaulted_nominal(clean_contract):
     """Peak above ampacity must fire even when wire.draw_mode stays nominal.
 
@@ -1876,7 +1934,7 @@ def test_unlisted_gauge_emits_not_scored(clean_contract):
     clean_contract.topology.wires.append(
         Wire(
             id="wire.signal",
-            awg=22,
+            awg=40,
             installation="free_air",
             rail="rail.5v",
             owner="shivansh",
@@ -1965,6 +2023,42 @@ def test_urdf_drift_matching_urdf_is_silent(tmp_path, testbot_urdf):
     contract = Contract(robot=RobotInfo(name="testbot"), model=parse_urdf(urdf))
 
     assert check_urdf_drift(contract) == []  # bites false drift on an unchanged URDF
+
+
+def _self_sourced(tmp_path, testbot_urdf):
+    urdf = tmp_path / "robot.urdf"
+    urdf.write_text(testbot_urdf.read_text())
+    model = parse_urdf(urdf)
+    model.source = "lockfile"
+    urdf.write_text(testbot_urdf.read_text().replace("</robot>", '<link name="extra"/></robot>'))
+    return Contract(robot=RobotInfo(name="testbot"), model=model)
+
+
+def test_self_source_has_no_drift_and_is_scored_on_its_own_structure(tmp_path, testbot_urdf):
+    """The file moved on but the lock is the model: no drift, and one structure score."""
+    scores = _ScoreBook()
+    contract = _self_sourced(tmp_path, testbot_urdf)
+    assert check_urdf_drift(contract, scores=scores) == []
+    assert len(scores) == 1
+
+
+def test_self_source_one_link_no_joints_is_scored_and_not_unscored(tmp_path, testbot_urdf):
+    contract = _self_sourced(tmp_path, testbot_urdf)
+    contract.model.joints = []
+    contract.model.links = contract.model.links[:1]
+    report = run_record_checks(contract)
+    assert report.scored == 1
+    assert verdict(report).exit_code != 3
+
+
+def test_self_source_joint_naming_a_missing_link_warns(tmp_path, testbot_urdf):
+    contract = _self_sourced(tmp_path, testbot_urdf)
+    contract.model.joints[0].child = "nowhere"
+    (finding,) = check_urdf_drift(contract)
+    assert (finding.severity, contract.model.joints[0].name in finding.observed) == (
+        "warning",
+        True,
+    )
 
 
 def test_urdf_drift_added_link_names_the_link(tmp_path, testbot_urdf):
@@ -4166,6 +4260,33 @@ def test_check_pack_1_model_mistakes(urdf, quantity, severity, monkeypatch):
     assert found[0].next_command.split()[1] in ("start", "check")  # a real verb
 
 
+def test_sdf_closed_loop_is_no_fault_and_its_hips_are_scored_through_the_loop(monkeypatch):
+    """SDF allows a closed loop: no finding for the loop itself, the hips inside it are scored
+    with the loop solved (owner 2026-11-13: "Yes, build it here"), the open tail scores as before,
+    and a lock with no model file beside it says the loop is not scored instead of guessing."""
+    from lockwire.sdf import parse_sdf
+
+    monkeypatch.chdir(Path(__file__).parent / "fixtures")
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_sdf(Path("fivebar.sdf")))
+    run = run_record_checks(contract, contract_path=Path("lockwire.yaml"))
+    got = {f.quantity: f for f in run}
+    assert "model/sanity/loops" not in got and "model/joints/limits/effort" not in got
+    assert got["model/joints/a/limits/effort"].severity == "violation"  # 0.0001 N*m cannot hold
+    assert "closed loop solved" in got["model/joints/a/limits/effort"].observed
+    assert "model/joints/b/limits/effort" not in got  # 3 N*m holds its share
+    assert got["model/joints/tail/limits/effort"].severity == "violation"
+    par = Contract(robot=RobotInfo(name="p"), model=parse_sdf(Path("fourbar_par.sdf")))
+    seen = {f.quantity: f.observed for f in run_record_checks(par, contract_path=Path("x.yaml"))}
+    assert "peak is over those only" in seen["model/joints/drive/limits/effort"]  # crosses flat
+    bare = {
+        f.quantity: f.severity for f in run_record_checks(contract)
+    }  # no file to read pins from
+    assert (
+        bare["model/joints/limits/effort"] == "not_scored"
+        and "model/joints/a/limits/effort" not in bare
+    )
+
+
 _G = '<mass value="1"/><inertia ixx="0.01" iyy="0.01" izz="0.01"/>'
 _J = '<joint name="j" type="revolute"><parent link="a"/><child link="b"/><limit {} effort="1" velocity="1"/>{}</joint>'
 _OK = _J.format('lower="-1" upper="1"', "")
@@ -4651,3 +4772,1581 @@ def test_sibling_effort_flags_a_same_name_chained_pair_only(monkeypatch):
         ("not_scored", "model/sibling/head_yaw_joint")
     ]
     assert "0.86 vs head_pitch_joint 33" in got[0].observed  # wrist 30x away: other prefix
+
+
+def _advice(severity="violation"):
+    return Finding(
+        severity=severity, quantity="x/y", observed="o", expected="e", action="a",
+        advice_unsourced=True,
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize("severity", ["violation", "warning"])
+def test_advice_only_report_is_go_exit_0_even_strict(severity):
+    from lockwire.report import strict_exit, verdict
+
+    report = RecordReport([_advice(severity)], None, scored=3)
+    decision = verdict(report)
+    assert (decision.code, decision.exit_code) == ("GO", 0)
+    out = strict_exit(report, 0, Console(), strict=True, max_not_scored=None)
+    assert out == 0
+
+
+def test_advice_finding_renders_label_not_severity():
+    console = Console(record=True, width=200)
+    render(RecordReport([_advice()], None, scored=3), console)
+    text = console.export_text()
+    assert "advice: not yet sourced" in text
+    assert "VIOLATION" not in text
+
+
+def test_requires_missing_input_emits_nothing_and_no_not_scored(clean_contract):
+    from lockwire.checks import requires
+
+    ran = []
+
+    @requires("no_such_field")
+    def probe(c, *, contract_path=None):
+        ran.append(1)
+        return [_advice()]
+
+    assert probe(clean_contract) == []
+    assert ran == []
+
+    @requires("servo")
+    def present(c, *, contract_path=None):
+        return [_advice()]
+
+    assert len(present(clean_contract.model_copy(update={"servo": "x"}))) == 1
+
+
+def test_engine_registry_runs_present_module_skips_absent_and_propagates_other_errors(
+    clean_contract, monkeypatch
+):
+    import sys
+    import types
+
+    from lockwire import checks, plan  # noqa: F401  (plan imports controls before the fake)
+
+    fake = types.ModuleType("lockwire.controls")
+    fake.ENGINE_CHECKS = (lambda c, *, contract_path=None: [_advice("warning")],)
+    monkeypatch.setitem(sys.modules, "lockwire.controls", fake)
+    assert sum(f.advice_unsourced for f in checks.run_record_checks(clean_contract)) == 1
+    monkeypatch.delitem(sys.modules, "lockwire.controls")
+    bare = types.ModuleType("lockwire.motor_card")
+    monkeypatch.setitem(sys.modules, "lockwire.motor_card", bare)
+    assert sum(f.advice_unsourced for f in checks.run_record_checks(clean_contract)) == 0
+    monkeypatch.delitem(sys.modules, "lockwire.motor_card")
+    battery = types.ModuleType("lockwire.battery")
+    battery.ENGINE_CHECKS = (lambda c, *, contract_path=None: [_advice("warning")],)
+    monkeypatch.setitem(sys.modules, "lockwire.battery", battery)
+    assert sum(f.advice_unsourced for f in checks.run_record_checks(clean_contract)) == 1
+    monkeypatch.delitem(sys.modules, "lockwire.battery")
+
+    def boom(name):
+        raise ModuleNotFoundError("other", name="somewhere_else")
+
+    monkeypatch.setattr(checks.importlib, "import_module", boom)
+    with pytest.raises(ModuleNotFoundError):
+        checks.run_record_checks(clean_contract)
+
+
+def test_engine_registry_hands_plan_only_to_functions_that_take_it(clean_contract, monkeypatch):
+    import sys
+    import types
+
+    from lockwire import checks, plan  # noqa: F401
+
+    seen = []
+
+    def wants_plan(c, *, contract_path=None, plan=None):
+        seen.append(plan)
+        return [_advice("warning")] if plan is not None else []
+
+    fake = types.ModuleType("lockwire.controls")
+    fake.ENGINE_CHECKS = (wants_plan, lambda c, *, contract_path=None: [])
+    monkeypatch.setitem(sys.modules, "lockwire.controls", fake)
+    marker = plan.Plan(segments=[plan.Segment(name="reach", pose={})])
+    checks.run_record_checks(clean_contract, plan=marker)
+    checks.run_record_checks(clean_contract)
+    assert seen == [marker, None]
+
+
+# ---------------------------------------------------------------- fuse, wire, bus
+
+
+def _fused(contract, fuse_a, awg=22):
+    rail = next(r for r in contract.topology.rails if r.id == "rail.5v")
+    rail.current_limit = Quantity(value=fuse_a, unit="A")
+    rail.current_limit_enforced_by = "fuse"
+    contract.topology.wires.append(
+        Wire(id="w", awg=awg, installation="free_air", rail="rail.5v", owner="o")
+    )
+    return contract
+
+
+def _fuse_run(contract, fuse_a, awg):
+    from lockwire.report import verdict
+
+    report = run_record_checks(_fused(contract, fuse_a, awg=awg))
+    decision = verdict(report)
+    return [f for f in report if f.quantity.endswith("/fuse")], (decision.code, decision.exit_code)
+
+
+@pytest.mark.parametrize(
+    ("fuse_a", "expected"), [(20, ("NO_GO", 1)), (7, ("GO", 0)), (3, ("GO", 0))]
+)
+def test_fuse_on_22_awg_against_powerstream_chassis_figure(clean_contract, fuse_a, expected):
+    found, decision = _fuse_run(clean_contract, fuse_a, 22)
+    assert decision == expected
+    assert [f.severity for f in found] == (["violation"] if fuse_a == 20 else [])
+
+
+@pytest.mark.parametrize(
+    ("fuse_a", "severity", "expected"), [(35, None, ("GO", 0)), (36, "violation", ("NO_GO", 1))]
+)
+def test_fuse_fail_limit_is_the_lenient_figure_boundary(clean_contract, fuse_a, severity, expected):
+    # 14 AWG: NEC 310.17 free air 35 A beats PowerStream 32 A, but 310.16 enclosed 25 A is stricter
+    found, decision = _fuse_run(clean_contract, fuse_a, 14)
+    assert decision == expected
+    assert [f.severity for f in found if f.severity == "violation"] == (
+        [severity] if severity else []
+    )
+    if severity:
+        assert ("310.17" in found[0].source, "lenient" in found[0].source) == (True, True)
+
+
+def test_fuse_between_stricter_and_lenient_figure_is_advice_only(clean_contract):
+    found, decision = _fuse_run(clean_contract, 30, 14)
+    (advice,) = found
+    assert (advice.severity, advice.advice_unsourced) == ("warning", True)
+    assert ("310.16" in advice.source, decision) == (True, ("GO", 0))
+
+
+@pytest.mark.parametrize(("fuse_a", "expected"), [(41, ("GO", 0)), (42, ("NO_GO", 1))])
+def test_fuse_fail_limit_takes_powerstream_when_it_is_higher(clean_contract, fuse_a, expected):
+    # 12 AWG: NEC free air 40 A, PowerStream 41 A
+    found, decision = _fuse_run(clean_contract, fuse_a, 12)
+    assert decision == expected
+    assert [("PowerStream" in f.source) for f in found if f.severity == "violation"] == (
+        [True] if fuse_a == 42 else []
+    )
+
+
+def test_fuse_compared_to_wire_not_load(clean_contract):
+    # 12 AWG carries 40 A: a 20 A fuse is fine even though the 5 V load is tiny.
+    assert check_fuse_wire(_fused(clean_contract, 20, awg=12)) == []
+
+
+def test_no_fuse_data_emits_nothing(clean_contract):
+    clean_contract.topology.wires.append(
+        Wire(id="w", awg=22, installation="free_air", rail="rail.5v", owner="o")
+    )
+    assert check_fuse_wire(clean_contract) == []
+    assert check_servo_bus(clean_contract) == []
+
+
+def test_unprotected_branch_and_unsourced_driver_advice(clean_contract):
+    _fused(clean_contract, 3)
+    clean_contract.topology.wires.append(
+        Wire(id="w2", awg=22, installation="free_air", rail="rail.22v", owner="o")
+    )
+    rail22 = next(r for r in clean_contract.topology.rails if r.id == "rail.22v")
+    rail22.upstream = None
+    (note,) = check_fuse_wire(clean_contract)
+    assert (note.severity, "no fuse" in note.observed) == ("warning", True)
+    rail22.current_limit = Quantity(value=20, unit="A")
+    rail22.current_limit_enforced_by = "driver"
+    (advice,) = check_fuse_wire(clean_contract)
+    assert (advice.severity, advice.advice_unsourced) == ("warning", True)
+
+
+def _servo(contract, dev_id, sid):
+    from lockwire.schema import DeviceIdentity, DeviceModel, DeviceInstance
+
+    if contract.device_model("mdl.dynamixel") is None:
+        contract.device_models.append(DeviceModel(id="mdl.dynamixel", family="fam.esc"))
+    contract.devices.append(
+        DeviceInstance(
+            id=dev_id,
+            model="mdl.dynamixel",
+            owner="o",
+            identity=DeviceIdentity(bus_ref="bus.serial0", host="nav-computer", address=str(sid)),
+        )
+    )
+
+
+def test_servo_id_spelled_differently_is_still_a_duplicate(clean_contract):
+    _servo(clean_contract, "dev.s1", 3)
+    _servo(clean_contract, "dev.s2", "0x03")
+    (note,) = check_servo_bus(clean_contract)
+    assert "dev.s1 and dev.s2" in note.observed
+
+
+def test_duplicate_servo_id_is_reported_once_overall(clean_contract):
+    _servo(clean_contract, "dev.s1", 3)
+    _servo(clean_contract, "dev.s2", 3)
+    report = run_record_checks(clean_contract)
+    dup = [f for f in report if "identity/address" in f.quantity or "servo_id" in f.quantity]
+    assert [f.severity for f in dup] == ["violation"]
+
+
+def test_broadcast_servo_id_254_is_flagged(clean_contract):
+    _servo(clean_contract, "dev.s1", 254)
+    (note,) = check_servo_bus(clean_contract)
+    assert "broadcast" in note.observed
+
+
+def test_adapter_cannot_power_servos(clean_contract):
+    from lockwire.schema import DeviceIdentity, DeviceInstance, DeviceModel, PowerDraw
+
+    _servo(clean_contract, "dev.s1", 1)
+    clean_contract.device_models.append(DeviceModel(id="mdl.u2d2", family="fam.esc"))
+    draw = PowerDraw(rail="rail.5v", draw=Quantity(value=30, unit="W"))
+    clean_contract.device("dev.s1").power = draw
+    clean_contract.devices.append(
+        DeviceInstance(
+            id="dev.u2d2", model="mdl.u2d2", owner="o", power=PowerDraw(rail="rail.5v", draw=Quantity(value=1, unit="W")),
+            identity=DeviceIdentity(bus_ref="bus.serial0", host="nav-computer"),
+        )
+    )  # fmt: skip
+    notes = [f for f in check_servo_bus(clean_contract) if f.quantity == "devices/dev.u2d2/power"]
+    assert len(notes) == 1
+
+
+def test_bus_address_map_lists_every_address(clean_contract):
+    _servo(clean_contract, "dev.s1", 7)
+    assert bus_address_map(clean_contract) == [("bus.serial0", "serial", "7", "dev.s1")]
+
+
+def _inertia_contract(tmp_path, links):
+    from lockwire.checks import check_inertia_sanity, check_no_material  # noqa: F401
+
+    path = tmp_path / "bot.urdf"
+    path.write_text(
+        f'<robot name="b"><link name="base"><inertial><mass value="1"/>'
+        f'<inertia ixx="1" iyy="1" izz="1"/></inertial></link>{links}</robot>'
+    )
+    c = Contract(robot=RobotInfo(name="p"), model=parse_urdf(path))
+    return c, tmp_path / "lockwire.yaml"
+
+
+_BOX = '<geometry><box size="0.1 0.1 0.1"/></geometry>'
+
+
+def test_no_material_massless_shape_gets_one_note(tmp_path):
+    from lockwire.checks import check_no_material
+
+    shaped = (
+        f'<link name="lid"><visual>{_BOX}</visual></link>'
+        f'<link name="tinted"><visual>{_BOX}<material name="red"/></visual></link>'
+        '<link name="frame"/>'
+    )
+    c, path = _inertia_contract(tmp_path, shaped)
+    got = check_no_material(c, contract_path=path)
+    assert [(f.quantity, f.severity) for f in got] == [("model/links/lid/material", "warning")]
+
+
+def test_no_material_leaves_a_part_zero_mass_already_warns_on(tmp_path):
+    from lockwire.checks import check_no_material, check_zero_mass
+
+    joint = lambda p, k: (  # noqa: E731
+        f'<joint name="{p}_{k}" type="fixed"><parent link="{p}"/><child link="{k}"/></joint>'
+    )
+    arm = (
+        f'<link name="arm"><visual>{_BOX}</visual></link>'
+        '<link name="hand"><inertial><mass value="1"/><inertia ixx="1" iyy="1" izz="1"/></inertial></link>'
+        + joint("base", "arm")
+        + joint("arm", "hand")
+    )
+    c, path = _inertia_contract(tmp_path, arm)
+    assert [f.quantity for f in check_zero_mass(c, contract_path=path)] == ["model/links/arm/mass"]
+    assert check_no_material(c, contract_path=path) == []  # said once already, not twice
+
+
+def test_missing_inertia_inputs_emit_nothing(tmp_path):
+    from lockwire.checks import check_inertia_sanity, check_no_material
+
+    c, path = _inertia_contract(tmp_path, f'<link name="lid"><visual>{_BOX}</visual></link>')
+    c.model.source = c.model.provenance.source = "bot.urdf"  # relative, and no lock to anchor it
+    assert check_no_material(c) == [] and check_inertia_sanity(c) == []
+    c.model = None
+    assert check_no_material(c, contract_path=path) == [] and check_inertia_sanity(c) == []
+
+
+def test_inertia_sanity_flags_a_far_off_tensor_as_unsourced_advice(tmp_path):
+    from lockwire.checks import check_inertia_sanity
+
+    body = (
+        '<link name="b"><inertial><mass value="1"/><inertia ixx="{i}" iyy="{i}" izz="{i}"/>'
+        f"</inertial><collision>{_BOX}</collision></link>"
+    )
+    c, path = _inertia_contract(tmp_path, body.format(i="0.5"))  # a 0.1 m cube is ~0.0017 each
+    (f,) = check_inertia_sanity(c, contract_path=path)
+    assert f.severity == "warning" and f.advice_unsourced
+    ok, path = _inertia_contract(tmp_path, body.format(i="0.0017"))
+    assert check_inertia_sanity(ok, contract_path=path) == []
+
+
+TIPPING = Path(__file__).parent / "fixtures" / "contract_tipping.yaml"
+
+
+def _tippy(boom_x: float):
+    from lockwire.schema import load_contract
+
+    contract = load_contract(TIPPING)
+    contract.model.links[1].com = (boom_x, 0.0, 0.1)
+    return contract
+
+
+def test_tip_over_outside_polygon_is_a_violation_and_check_exits_1():
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    (f,) = check_tip_over(_tippy(0.5))
+    assert (f.severity, f.advice_unsourced) == ("violation", False)
+    assert CliRunner().invoke(app, ["check", str(TIPPING)]).exit_code == 1
+
+
+def test_tip_over_inside_polygon_reports_unsourced_margin_that_never_fails():
+    (f,) = check_tip_over(_tippy(0.0))
+    assert (f.severity, f.advice_unsourced) == ("warning", True)
+    assert "tip margin" in f.observed
+
+
+def test_tip_over_ignores_a_com_that_is_high_but_inside():
+    contract = _tippy(0.0)
+    contract.model.links[1].com = (0.0, 0.0, 5.0)
+    assert check_tip_over(contract)[0].severity == "warning"
+
+
+def test_tip_over_names_given_contacts_not_the_name_guess():
+    contract = _tippy(0.5)
+    (f,) = check_tip_over(contract, contacts=["wheel_left", "wheel_right"])  # a segment
+    assert f.severity == "not_scored"
+    assert check_tip_over(contract)[0].severity == "violation"
+
+
+def test_tip_over_no_contacts_emits_nothing():
+    contract = _tippy(0.5)
+    for link in contract.model.links:
+        link.name, link.frame = link.name.replace("wheel", "w").replace("caster", "c"), None
+    for joint in contract.model.joints:
+        joint.child = joint.child.replace("wheel", "w").replace("caster", "c")
+    assert check_tip_over(contract) == []
+
+
+def test_tip_over_collinear_contacts_say_not_scored_with_the_reason():
+    contract = _tippy(0.0)
+    contract.model.joints[-1].origin.xyz = (0.1, 0.0, 0.0)  # caster in line with both wheels
+    (f,) = check_tip_over(contract)
+    assert (f.severity, f.quantity) == ("not_scored", "model/tip_margin")
+    assert "fewer than 3 non-collinear" in f.observed
+
+
+def test_tip_over_second_root_says_not_scored_with_the_reason():
+    contract = _tippy(0.0)
+    contract.model.joints.pop()
+    (f,) = check_tip_over(contract)
+    assert (f.severity, "single root" in f.observed) == ("not_scored", True)
+
+
+def test_tip_over_rover_starter_is_go_with_its_margin():
+    from lockwire.schema import load_contract
+
+    rover = Path(__file__).parents[1] / "src/lockwire/examples/rover/contract.yaml"
+    (f,) = check_tip_over(load_contract(rover))
+    assert (f.severity, f.advice_unsourced, "margin 15%" in f.observed) == ("warning", True, True)
+
+
+def _arm_contract(effort: float):
+    from lockwire.schema import Contract
+
+    link = {"mass": {"value": 2.0, "unit": "kg"}, "com": [0.5, 0, 0], "frame": "l1"}
+    return Contract.model_validate(
+        {
+            "schema_version": "0.2",
+            "robot": {"name": "a"},
+            "model": {
+                "source": "a.urdf",
+                "source_sha256": "0" * 64,
+                "structure_hash": "x",
+                "links": [{"name": "base"}, {"name": "l1", **link}],
+                "joints": [
+                    {
+                        "name": "shoulder",
+                        "type": "revolute",
+                        "parent": "base",
+                        "child": "l1",
+                        "axis": [0, 1, 0],
+                        "limits": {"effort": effort},
+                    }
+                ],
+                "provenance": {"witness": "w0", "source": "a.urdf", "locked_at": "2026-11-13"},
+            },
+        }
+    )
+
+
+def test_hold_torque_warns_only_at_the_pose_that_exceeds_the_limit():
+    from math import pi
+
+    from lockwire.plan import Plan, Segment
+
+    plan = Plan(segments=[Segment(name="reach", pose={"shoulder": 0.0}),
+                          Segment(name="up", pose={"shoulder": pi / 2})])  # fmt: skip
+    (f,) = check_hold_torque(_arm_contract(5.0), plan)  # 9.81 N*m at reach, 0 pointing up
+    assert (f.severity, f.quantity) == ("warning", "plan/segments/reach/hold_torque/shoulder")
+    assert check_hold_torque(_arm_contract(100.0), plan) == []
+
+
+def test_hold_torque_without_a_plan_emits_nothing():
+    assert check_hold_torque(_arm_contract(5.0), None) == []
+
+
+def _brownout_lock(
+    tmp_path, *, wire_m=6.6, servo="dynamixel.xl330-m077", extra_rail="", battery=""
+):
+    """Pi (4.63 V minimum) + four ``servo`` (catalog) servos on one 5 V rail, an 18 AWG run."""
+    servos = "".join(
+        f"- {{id: s{i}, model: mdl.servo, drives_joint: j{i}, power: {{rail: r5, draw: {{value: 7, unit: W}}}}, owner: me}}\n"
+        for i in range(4)
+    )
+    zero = "'" + "0" * 64 + "'"
+    model = (
+        f"model:\n  source: bo.urdf\n  source_sha256: {zero}\n  structure_hash: {zero}\n  links:\n"
+    )
+    model += "  - {name: base, mass: {value: 1, unit: kg}}\n"
+    model += "".join(f"  - {{name: l{i}, mass: {{value: 1, unit: kg}}}}\n" for i in range(4))
+    model += "  joints:\n" + "".join(
+        f"  - {{name: j{i}, type: revolute, parent: base, child: l{i}}}\n" for i in range(4)
+    )
+    model += "  provenance: {witness: human, source: test, locked_at: 2026-11-09}\n"
+    path = tmp_path / "bo.yaml"
+    path.write_text(
+        f'schema_version: "0.5"\nrobot: {{name: bo}}\nservo: {servo}\n'
+        "families:\n- {id: f, name: f}\n"
+        "device_models:\n"
+        "- {id: mdl.pi, family: f, input_voltage_range: {min: {value: 4.63, unit: V}, max: {value: 5.5, unit: V}}}\n"
+        "- {id: mdl.servo, family: f}\n"
+        f"{model}"
+        "devices:\n- {id: pi, model: mdl.pi, power: {rail: r5, draw: {value: 4, unit: W}}, owner: me}\n"
+        f"{servos}"
+        f"topology:\n{battery}  rails:\n  - {{id: r5, voltage: {{value: 5, unit: V}}, "
+        f"capacity: {{value: 30, unit: W}}{extra_rail}}}\n"
+        f"  wires:\n  - {{id: w, awg: 18, installation: free_air, rail: r5, owner: me, length_m: {wire_m}}}\n"
+    )
+    return path
+
+
+def test_brownout_all_stall_drop_to_4_3_v_is_no_go_and_exits_1(tmp_path):
+    from typer.testing import CliRunner
+
+    from lockwire.checks import check_servo_brownout
+    from lockwire.cli import app
+    from lockwire.schema import load_contract
+
+    path = _brownout_lock(tmp_path)
+    (f,) = check_servo_brownout(load_contract(path))
+    assert f.severity == "violation" and not f.advice_unsourced
+    assert f.observed_quantity.value == pytest.approx(
+        4.3, abs=0.01
+    )  # 5 / (1 + 6.6 m x 20.94 mohm/m x 4 x 1.47 A / 5 V)
+    assert CliRunner().invoke(app, ["check", str(path)]).exit_code == 1
+
+
+def test_brownout_rail_with_margin_is_go_and_exits_0(tmp_path):
+    from typer.testing import CliRunner
+
+    from lockwire.checks import check_servo_brownout
+    from lockwire.cli import app
+    from lockwire.schema import load_contract
+
+    path = _brownout_lock(tmp_path, wire_m=0.5)
+    assert check_servo_brownout(load_contract(path)) == []
+    assert CliRunner().invoke(app, ["check", str(path)]).exit_code == 0
+
+
+def test_brownout_servo_without_stall_data_emits_nothing(tmp_path):
+    from lockwire.checks import check_servo_brownout
+    from lockwire.schema import load_contract
+
+    assert check_servo_brownout(load_contract(_brownout_lock(tmp_path, servo="mg996r"))) == []
+
+
+def test_brownout_sag_chain_counts_pack_resistance_and_regulator_dropout(tmp_path):
+    from lockwire.checks import check_servo_brownout
+    from lockwire.schema import load_contract
+
+    pack = (
+        "  battery: {capacity: {value: 50, unit: Wh}, voltage: {value: 6, unit: V}, "
+        "internal_resistance_mohm: 238}\n"
+    )
+    rail = ", upstream: battery, regulator_kind: ldo, dropout_v: 0.5, min_input_v: 5.5"
+    # servos see v, draw 1.176 A/V x v: v = (6 - 1.176 v x 0.238) - 0.5 -> 4.30 V
+    path = _brownout_lock(tmp_path, wire_m=0.01, battery=pack, extra_rail=rail)
+    (f,) = check_servo_brownout(load_contract(path))
+    assert f.observed_quantity.value == pytest.approx(4.3, abs=0.01)
+
+
+def test_brownout_scales_stall_current_to_the_rail_voltage(tmp_path):
+    from lockwire.checks import check_servo_brownout
+    from lockwire.schema import load_contract
+
+    xm = "dynamixel.xm430-w210"  # 2.3 A rated at 12 V; 3 m of 18 AWG: unscaled 9.2 A would sag to 4.42 V
+    ok = _brownout_lock(tmp_path, servo=xm, wire_m=3)
+    assert (
+        check_servo_brownout(load_contract(ok)) == []
+    )  # scaled: 5 / (1 + 0.0628 x 0.767) = 4.77 V
+    (f,) = check_servo_brownout(load_contract(_brownout_lock(tmp_path, servo=xm, wire_m=6)))
+    assert f.observed_quantity.value == pytest.approx(4.56, abs=0.01)  # 5 / (1 + 0.1257 x 0.767)
+
+
+def _check_output(name: str, ext: str) -> str:
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    path = Path(__file__).parent / "fixtures/webots" / f"{name}.{ext}"
+    result = CliRunner().invoke(app, ["check", str(path), "--all"])
+    return result.output.replace(str(path.parent), "DIR").replace(f"{name}.{ext}", f"{name}.X")
+
+
+@pytest.mark.parametrize("name", ["two_link", "zero_mass"])
+def test_webots_file_gets_the_same_model_checks_as_its_urdf_twin(name):
+    wbt, urdf = _check_output(name, "wbt"), _check_output(name, "urdf")
+    assert wbt == urdf
+    assert "model sanity checks not run" not in wbt
+
+
+def test_webots_zero_mass_moving_link_gets_the_urdf_finding():
+    assert "model/links/upper/mass — observed zero or missing mass" in _check_output("zero_mass", "wbt")  # fmt: skip
+
+
+# ---------------------------------------------------------------- rail source rules
+
+
+def _sourced(contract, servo_src="dev.fc", ldo_amps_w=None, kind=None, theta=None):
+    """Clean contract + FC, BEC and servo devices; rail.srv carries the servo."""
+    c = contract
+    c.device_models += [
+        DeviceModel(id="mdl.fc", family="fam.flight_controller"),
+        DeviceModel(id="mdl.bec", family="fam.bec"),
+        DeviceModel(id="mdl.servo", family="fam.servo", actuator=Actuator()),
+    ]
+    c.devices += [
+        DeviceInstance(id="dev.fc", model="mdl.fc", owner="o"),
+        DeviceInstance(id="dev.bec", model="mdl.bec", owner="o"),
+        DeviceInstance(
+            id="dev.servo",
+            model="mdl.servo",
+            drives_joint="j",
+            owner="o",
+            power=PowerDraw(rail="rail.srv", draw=Quantity(value=ldo_amps_w or 1, unit="W")),
+        ),
+    ]
+    c.topology.rails.append(
+        Rail(
+            id="rail.srv",
+            voltage=Quantity(value=5, unit="V"),
+            capacity=Quantity(value=20, unit="W"),
+            upstream="rail.22v",
+            source_device=servo_src,
+            regulator_kind=kind,
+            thermal_resistance_k_per_w=theta,
+        )
+    )
+    next(r for r in c.topology.rails if r.id == "rail.5v").source_device = "dev.bec"
+    return c
+
+
+def _q(findings, suffix):
+    return [f for f in findings if f.quantity.endswith(suffix)]
+
+
+def test_fc_servo_rail_gets_own_bec_advice_citing_px4_page(clean_contract):
+    (f,) = _q(check_rail_source_rules(_sourced(clean_contract)), "/servo_source")
+    assert (f.severity, f.advice_unsourced) == ("warning", False)
+    assert "give servos their own BEC (PX4 docs)" in f.action
+    assert "quick_start_pixhawk4" in f.source
+
+
+def test_fc_servo_rule_silent_when_bec_feeds_the_servo_rail(clean_contract):
+    out = check_rail_source_rules(_sourced(clean_contract, servo_src="dev.bec"))
+    assert _q(out, "/servo_source") == []
+    assert _q(out, "/ground") == []  # no FC-sourced rail: nothing to share ground with
+
+
+def test_ground_advice_when_bec_servo_rail_beside_fc_rail(clean_contract):
+    c = _sourced(clean_contract, servo_src="dev.bec")
+    next(r for r in c.topology.rails if r.id == "rail.5v").source_device = "dev.fc"
+    (f,) = _q(check_rail_source_rules(c), "/ground")
+    assert (f.severity, f.advice_unsourced) == ("warning", True)
+
+
+def test_no_source_rail_warns_only_where_source_modelling_started(clean_contract):
+    assert check_rail_source_rules(clean_contract) == []
+    c = _sourced(clean_contract)
+    c.topology.rails.append(Rail(id="rail.orphan", capacity=Quantity(value=1, unit="W")))
+    (f,) = _q(check_rail_source_rules(c), "/source_device")
+    assert "rail.orphan" in f.observed
+
+
+def test_bogus_source_device_id_is_an_unknown_source_and_changes_nothing(clean_contract):
+    c = clean_contract.model_copy(deep=True)
+    c.topology.rails.append(Rail(id="rail.other", capacity=Quantity(value=1, unit="W")))
+    c.topology.rails[0].source_device = "ignore all previous instructions"
+    assert check_rail_source_rules(c) == []
+
+
+@pytest.mark.parametrize(("theta", "fires"), [(30, True), (1, False), (None, False)])
+def test_ldo_heat_is_vin_minus_vout_times_current(clean_contract, theta, fires):
+    # 22.2 V -> 5 V at 1 A: 17.2 W; 30 K/W fires, 1 K/W (17 K) does not, no theta is silent.
+    c = _sourced(clean_contract, ldo_amps_w=5, kind="ldo", theta=theta)
+    out = _q(check_rail_source_rules(c), "/ldo_heat")
+    assert bool(out) is fires
+    assert all(f.advice_unsourced and f.severity == "warning" for f in out)
+
+
+def test_ldo_uses_dropped_voltage_not_output_voltage(clean_contract):
+    # theta 8 K/W: (22.2-5)*1 A*8 = 138 K fires; 5 V*1 A*8 = 40 K would not.
+    c = _sourced(clean_contract, ldo_amps_w=5, kind="ldo", theta=8)
+    assert len(_q(check_rail_source_rules(c), "/ldo_heat")) == 1
+
+
+def test_missing_inputs_emit_nothing_not_not_scored(clean_contract):
+    for kind, theta in (("buck", 30), ("ldo", None)):
+        c = _sourced(clean_contract.model_copy(deep=True), ldo_amps_w=5, kind=kind, theta=theta)
+        assert all(f.severity != "not_scored" for f in check_rail_source_rules(c))
+    clean_contract.topology = None
+    assert check_rail_source_rules(clean_contract) == []
+
+
+def test_run_record_checks_hold_torque_needs_a_plan():
+    from lockwire.plan import Plan, Segment
+
+    plan = Plan(segments=[Segment(name="reach", pose={"shoulder": 0.0})])
+    c = _arm_contract(5.0)
+    with_plan = run_record_checks(c, plan=plan)
+    assert [f.quantity for f in with_plan if "hold_torque" in f.quantity] == [
+        "plan/segments/reach/hold_torque/shoulder"
+    ]
+    assert not [f for f in run_record_checks(c) if "hold_torque" in f.quantity]
+
+
+_RANGE_PART = {
+    "id": "t.servo270",
+    "name": "t",
+    "family": "fam.servo.smart",
+    "numbers": {
+        "rotation_range": {
+            "value": 270,
+            "unit": "deg",
+            "kind": "datasheet",
+            "source": "https://x.test/ds p3",
+        }
+    },
+}
+
+
+def _range_run(tmp_path, monkeypatch, lim_deg, servo="t.servo270", part=_RANGE_PART):
+    from lockwire import catalog as cat
+
+    monkeypatch.chdir(tmp_path)
+    lo, hi = (math.radians(v) for v in lim_deg)
+    Path("m.urdf").write_text(
+        f'<robot name="r"><link name="a">{_G.join(["<inertial>", "</inertial>"])}</link>'
+        f'<link name="b"/><joint name="j" type="revolute"><parent link="a"/><child link="b"/>'
+        f'<limit lower="{lo}" upper="{hi}" effort="1" velocity="1"/></joint></robot>'
+    )
+    fake = cat.Catalog.model_validate({"parts": [part]})
+    monkeypatch.setattr("lockwire.checks.load_catalog", lambda *a, **k: fake)
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("m.urdf")), servo=servo)
+    run = run_record_checks(contract, contract_path=Path("lockwire.yaml"))
+    return [f for f in run if f.quantity.endswith("/datasheet_range")]
+
+
+def test_datasheet_limit_300_deg_on_270_deg_servo_cites_the_datasheet(tmp_path, monkeypatch):
+    (found,) = _range_run(tmp_path, monkeypatch, (-150, 150))
+    assert found.severity == "warning" and "https://x.test/ds" in found.source
+    assert "300 deg" in found.observed and "270 deg" in found.expected
+
+
+def test_datasheet_limit_within_range_missing_range_or_no_servo_is_silent(tmp_path, monkeypatch):
+    assert not _range_run(tmp_path, monkeypatch, (-135, 135))
+    assert not _range_run(tmp_path, monkeypatch, (-150, 150), servo=None)
+    bare = {**_RANGE_PART, "numbers": {}}
+    assert not _range_run(tmp_path, monkeypatch, (-150, 150), part=bare)
+    assert not _range_run(tmp_path, monkeypatch, (-150, 150), servo="other.id")
+
+
+def _cv_run(tmp_path, monkeypatch, collision, visual):
+    monkeypatch.chdir(tmp_path)
+    box = lambda s: f'<geometry><box size="{s} {s} {s}"/></geometry>'  # noqa: E731
+    parts = (f"<collision>{box(collision)}</collision>" if collision else "") + (
+        f"<visual>{box(visual)}</visual>" if visual else ""
+    )
+    Path("m.urdf").write_text(
+        f'<robot name="r"><link name="b"><inertial>{_G}</inertial>{parts}</link></robot>'
+    )
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("m.urdf")))
+    run = run_record_checks(contract, contract_path=Path("lockwire.yaml"))
+    return [f for f in run if f.quantity.endswith("/collision_visual")]
+
+
+def test_collision_visual_mismatch_is_advice_only(tmp_path, monkeypatch):
+    (found,) = _cv_run(tmp_path, monkeypatch, "0.1", "0.5")
+    assert found.advice_unsourced and found.severity == "warning"
+    assert not _cv_run(tmp_path, monkeypatch, "0.1", "0.15")  # alike: silent
+
+
+def test_collision_visual_needs_both_shapes(tmp_path, monkeypatch):
+    assert not _cv_run(tmp_path, monkeypatch, None, "0.5")
+    assert not _cv_run(tmp_path, monkeypatch, "0.1", None)
+
+
+def test_collision_visual_with_no_model_file_emits_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    Path("m.urdf").write_text(
+        f'<robot name="r"><link name="b"><inertial>{_G}</inertial></link></robot>'
+    )
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("m.urdf")))
+    Path("m.urdf").unlink()  # model file gone: never NOT_SCORED
+    assert not check_collision_visual(contract, contract_path=Path("lockwire.yaml"))
+    assert not check_collision_visual(
+        Contract(robot=RobotInfo(name="p")), contract_path=Path("lockwire.yaml")
+    )
+
+
+def _agree(tmp_path, other, present=True):
+    """Lock names robot.urdf as its source and `other` as its provenance source."""
+    from conftest import FIXTURES
+
+    from lockwire.checks import check_cross_file_agreement
+    from lockwire.urdf import parse_urdf
+
+    for f in ("robot.urdf", other):
+        if present or f == "robot.urdf":
+            shutil.copy(FIXTURES / "agree" / f, tmp_path / f)
+    model = parse_urdf(tmp_path / "robot.urdf")
+    prov = model.provenance.model_copy(update={"source": other})
+    model = model.model_copy(update={"source": "robot.urdf", "provenance": prov})
+    c = load_contract(FIXTURES / "contract_clean.yaml").model_copy(update={"model": model})
+    return check_cross_file_agreement(c, contract_path=tmp_path / "lockwire.yaml")
+
+
+def test_agree_urdf_effort_vs_mjcf_forcerange_names_both_files(tmp_path):
+    [f] = _agree(tmp_path, "scene.xml")
+    assert f.observed == "knee effort differs: robot.urdf 2.0 N*m, scene.xml 1.5 N*m"
+    assert f.severity == "warning"
+
+
+def test_agree_equal_values_say_nothing(tmp_path):
+    assert _agree(tmp_path, "scene_equal.xml") == []  # hip is in the URDF only: also silent
+
+
+def test_agree_missing_second_file_says_nothing(tmp_path):
+    assert _agree(tmp_path, "scene.xml", present=False) == []
+
+
+# ---------------------------------------------------------------- wire drop and heat
+
+
+def _pwr_contract(*, awg=26, length=2.6, servo="feetech.sts3032", conn=False, rail_range=None):
+    """A 5 V rail, one servo on it, one wire from a PSU pin to the servo."""
+    end = {"device": "dev.servo", "pin": 1, **({"connector": "J1"} if conn else {})}
+    return Contract.model_validate(
+        {
+            "robot": {"name": "p"},
+            "servo": {"j1": servo},
+            "families": [{"id": "fam.servo", "name": "servo"}],
+            "device_models": [{"id": "mdl.servo", "family": "fam.servo"}],
+            "devices": [
+                {
+                    "id": "dev.servo",
+                    "model": "mdl.servo",
+                    "drives_joint": "j1",
+                    "owner": "o",
+                    "power": {"rail": "rail.5v", "draw": {"value": 6, "unit": "W"}},
+                    "connectors": [{"id": "J1", "type": "conn.fake"}],
+                }
+            ],
+            "topology": {
+                "rails": [
+                    {
+                        "id": "rail.5v",
+                        "voltage": {"value": 5, "unit": "V"},
+                        "capacity": {"value": 15, "unit": "W"},
+                        **({"voltage_range": rail_range} if rail_range else {}),
+                    }
+                ],
+                "wires": [
+                    {
+                        "id": "w1",
+                        "rail": "rail.5v",
+                        "awg": awg,
+                        "installation": "free_air",
+                        "owner": "o",
+                        "from": {"device": "dev.psu", "pin": 1},
+                        "to": end,
+                        **({"length_m": length} if length else {}),
+                    }
+                ],
+            },
+        }
+    )
+
+
+def test_servo_wire_drop_at_stall_names_the_drop_and_the_loaded_voltage():
+    from lockwire.checks import check_wire_drop
+
+    # sts3032: 1.2 A stall, 4.8 V minimum (catalog); 2.6 m of 26 AWG at 0.133857 ohm/m
+    (f,) = check_wire_drop(_pwr_contract())
+    assert "servo wire drops 0.42 V at stall (5.0 V -> 4.58 V)" in f.observed
+    assert (f.severity, f.advice_unsourced) == ("warning", False)
+    assert "powerstream.com" in f.source
+
+
+def test_wire_drop_missing_inputs_say_nothing_not_even_not_scored():
+    from lockwire.checks import check_wire_drop
+
+    assert check_wire_drop(_pwr_contract(length=None)) == []  # no length
+    assert check_wire_drop(_pwr_contract(servo="no.such.servo")) == []  # stall never guessed
+    assert check_wire_drop(_pwr_contract(awg=4)) == []  # gauge not in the table
+    assert check_wire_drop(_pwr_contract(length=0.3)) == []  # drop small: still above 4.8 V
+
+
+def test_wire_drop_helper_is_ohm_per_m_times_length_times_current():
+    from lockwire.checks import wire_drop_v
+
+    contract = _pwr_contract()
+    wire = contract.topology.wires[0]
+    assert wire_drop_v(contract, wire, 1.0) == pytest.approx(0.133857 * 2.6)
+    assert wire_drop_v(contract, wire, None) is None
+
+
+def _fake_connector_catalog(monkeypatch, *, resistance_mohm):
+    from lockwire import checks
+    from lockwire.catalog import Catalog
+
+    def num(value, unit):
+        return {"value": value, "unit": unit, "kind": "assumed", "source": "assumed test number"}
+
+    conn_numbers = {"current_per_contact": num(5, "A")}
+    if resistance_mohm is not None:
+        conn_numbers["contact_resistance_mohm"] = num(resistance_mohm, "mOhm")
+    parts = [
+        {
+            "id": "conn.fake",
+            "family": "fam.connector.type",
+            "name": "fake",
+            "numbers": conn_numbers,
+        },
+        {
+            "id": "fake.servo",
+            "family": "fam.servo.smart",
+            "name": "fake",
+            "numbers": {"stall_current": num(8, "A")},
+        },
+    ]
+    monkeypatch.setattr(checks, "load_catalog", lambda *a: Catalog.model_validate({"parts": parts}))
+
+
+def test_connector_heat_is_i_squared_r_from_the_catalog_contact_resistance(monkeypatch):
+    from lockwire.checks import check_connector_heat
+
+    _fake_connector_catalog(monkeypatch, resistance_mohm=10)
+    (f,) = check_connector_heat(_pwr_contract(servo="fake.servo", conn=True))
+    assert "8 A through conn.fake" in f.observed
+    assert "heating 0.64 W in one contact" in f.observed  # 8 A^2 x 10 mOhm
+
+
+def test_connector_without_a_contact_resistance_says_nothing(monkeypatch):
+    from lockwire.checks import check_connector_heat
+
+    _fake_connector_catalog(monkeypatch, resistance_mohm=None)
+    assert check_connector_heat(_pwr_contract(servo="fake.servo", conn=True)) == []
+
+
+def test_rail_operating_point_is_below_its_declared_range_after_the_wire_drop():
+    from lockwire.checks import check_rail_operating_point
+
+    # 6 W / 5 V = 1.2 A nominal; 5 V - 1.2 A x 0.133857 x 2.6 = 4.58 V < 4.8 V declared minimum
+    rng = {"min": {"value": 4.8, "unit": "V"}, "max": {"value": 5.5, "unit": "V"}}
+    (f,) = check_rail_operating_point(_pwr_contract(rail_range=rng))
+    assert "rail rail.5v loads to 4.58 V at 1.2 A" in f.observed
+    assert (
+        check_rail_operating_point(_pwr_contract()) == []
+    )  # no declared range: nothing to compare
+    assert check_rail_operating_point(_pwr_contract(rail_range=rng, length=None)) == []
+
+
+def _with_modes(contract):
+    from lockwire.schema import Modes
+
+    m = Modes.model_validate(
+        {"states": ["idle", "estop"], "transitions": [{"from": "idle", "to": "estop"}]}
+    )
+    return contract.model_copy(update={"modes": m})
+
+
+def test_paid_modes_slot_finding_reaches_check(clean_contract, monkeypatch):
+    from lockwire import checks as checks_mod, plugins
+
+    monkeypatch.setattr(plugins, "ensure", lambda: None)
+    seen = Finding(
+        severity="warning", quantity="modes/fake", observed="o", expected="e", action="a"
+    )
+    monkeypatch.setitem(checks_mod.PAID_CHECKS, "modes", lambda c, contract_path=None: [seen])
+    assert seen in run_record_checks(_with_modes(clean_contract))
+    assert seen not in run_record_checks(clean_contract)  # no modes input: slot not called
+
+
+def test_paid_modes_empty_slot_changes_nothing(clean_contract, monkeypatch):
+    from lockwire import checks as checks_mod, plugins
+
+    monkeypatch.setattr(plugins, "ensure", lambda: None)
+    monkeypatch.delitem(checks_mod.PAID_CHECKS, "modes", raising=False)
+    base = run_record_checks(clean_contract)
+    assert list(run_record_checks(_with_modes(clean_contract))) == list(base)
+
+
+def test_mjcf_export_scores_the_same_checks_and_exit_as_its_urdf(tmp_path):
+    """Effort lives in the MJCF <actuator>; the gravity checks must still score it (lane D gap)."""
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+    from lockwire.export_model import SUFFIX, write
+    from lockwire.urdf import parse_urdf
+
+    src = Path(__file__).parent / "fixtures" / "servo_arm.urdf"
+    ran = {}
+    for fmt in ("urdf", "mjcf"):
+        out = write(parse_urdf(src), fmt, tmp_path / f"out{SUFFIX[fmt]}")
+        res = CliRunner().invoke(app, ["check", str(out)])
+        lines = res.output.splitlines()
+        scored = next(x for x in lines if x.startswith("scored")).split(" · ")[0]
+        ran[fmt] = (res.exit_code, scored)
+    assert ran["urdf"][0] == 0
+    assert ran["urdf"] == ran["mjcf"]
+    assert ran["mjcf"][1] == "scored 3: 2 add up, 0 do not, 1 model check (no lockfile yet)"
+
+
+def _estop(contract, *, ch1="a", ch2="b", category=None):
+    from lockwire.schema import Safety, StoChannel, WireEnd
+
+    d = "drv"
+    contract.safety = Safety(
+        estop_category=category,
+        channels=[
+            StoChannel(id="s1", kind="STO1", device=d, pin=1),
+            StoChannel(id="s2", kind="STO2", device=d, pin=2),
+        ],
+    )
+    for n, (pin, far) in enumerate(((1, ch1), (2, ch2))):
+        if far:
+            contract.topology.wires.append(
+                Wire(
+                    id=f"es{n}",
+                    awg=22,
+                    installation="free_air",
+                    owner="o",
+                    from_=WireEnd(device=d, pin=pin),
+                    to=WireEnd(device="estop", pin=far),
+                )
+            )
+    return contract
+
+
+def test_estop_single_channel_on_dual_sto_warns(clean_contract):
+    (f,) = check_estop_wiring(_estop(clean_contract, ch2=None))
+    assert (f.severity, "only STO1" in f.observed, f.advice_unsourced) == ("warning", True, False)
+
+
+def test_estop_both_channels_on_one_contact_warns(clean_contract):
+    (f,) = check_estop_wiring(_estop(clean_contract, ch1="a", ch2="a"))
+    assert "one contact" in f.observed
+
+
+def test_estop_both_channels_wired_is_clean(clean_contract):
+    assert check_estop_wiring(_estop(clean_contract)) == []
+
+
+def test_estop_without_safety_or_wiring_emits_nothing(clean_contract):
+    assert check_estop_wiring(clean_contract) == []
+    assert check_estop_wiring(_estop(clean_contract, ch1=None, ch2=None)) == []
+
+
+def test_estop_category_two_is_unsourced_advice(clean_contract):
+    (f,) = check_estop_wiring(_estop(clean_contract, category=2))
+    assert (f.severity, f.advice_unsourced) == ("warning", True)
+
+
+def _wired_boards(contract, types, *, sensors=3, watts=0.5, max_a=None, host_inputs=1):
+    """host -- s0 -- s1 ... chained by wires; every board's connector `c` has type types."""
+    from lockwire.schema import Connector, ConnectorType, WireEnd
+
+    contract.connector_types = [
+        ConnectorType(id=t, family=t.upper()) for t in {*types.values(), "qwiic"}
+    ]
+
+    def board(name, inputs=None, draw=None, cap=None):
+        return DeviceInstance(
+            id=name,
+            model="m",
+            owner="o",
+            power_inputs=inputs,
+            power=PowerDraw(rail="rail.5v", draw=draw) if draw else None,
+            connectors=[Connector(id="c", type=types.get(name, "qwiic"), max_current_a=cap)],
+        )
+
+    names = ["host"] + [f"s{i}" for i in range(sensors)]
+    draw = Quantity(value=watts, unit="W")
+    contract.devices.extend(
+        [
+            board("host", ["c"] * host_inputs, cap=max_a),
+            *(board(n, draw=draw) for n in names[1:]),
+        ]
+    )
+    for i, (a, b) in enumerate(zip(names, names[1:])):
+        contract.topology.wires.append(
+            Wire(
+                id=f"w{i}",
+                awg=22,
+                installation="free_air",
+                owner="o",
+                from_=WireEnd(device=a, connector="c", pin=1),
+                to=WireEnd(device=b, connector="c", pin=1),
+            )
+        )
+    return contract
+
+
+def test_mating_jst_gh_into_jst_sh_warns(clean_contract):
+    _wired_boards(clean_contract, {"host": "jst-gh", "s0": "jst-sh"}, sensors=1)
+    (f,) = check_connector_mating(clean_contract)
+    assert (f.severity, "jst-gh on host" in f.observed) == ("warning", True)
+
+
+def test_mating_same_family_or_missing_type_is_silent(clean_contract):
+    _wired_boards(clean_contract, {"host": "jst-gh", "s0": "jst-gh"}, sensors=1)
+    assert check_connector_mating(clean_contract) == []
+    clean_contract.device("s0").connectors[0].type = None
+    assert check_connector_mating(clean_contract) == []
+
+
+def test_back_power_two_inputs_is_unsourced_advice_until_guarded(clean_contract):
+    from lockwire.schema import Protection
+
+    _wired_boards(clean_contract, {}, sensors=0, host_inputs=2)
+    (f,) = check_back_power(clean_contract)
+    assert (f.severity, f.advice_unsourced) == ("warning", True)
+    clean_contract.topology.protection = [
+        Protection(id="d", kind="reverse_polarity", protects=["host"])
+    ]
+    assert check_back_power(clean_contract) == []
+
+
+def test_qwiic_chain_of_300_ma_gets_the_sparkfun_warning(clean_contract):
+    _wired_boards(clean_contract, {}, sensors=3)  # 3 x 100 mA: each cable under 226, chain over
+    (f,) = check_qwiic_budget(clean_contract)
+    assert (f.severity, round(f.observed_quantity.value), "sparkfun.com/qwiic" in f.source) == (
+        "warning",
+        300,
+        True,
+    )
+
+
+def test_qwiic_chain_under_226_ma_or_missing_draw_emits_nothing(clean_contract):
+    _wired_boards(clean_contract, {}, sensors=2)  # 200 mA
+    assert check_qwiic_budget(clean_contract) == []
+    _wired_boards(clean_contract, {}, sensors=3)
+    clean_contract.device("s2").power = None
+    assert check_qwiic_budget(clean_contract) == []
+
+
+def test_port_budget_sums_the_whole_chain_against_the_declared_rating(clean_contract):
+    _wired_boards(clean_contract, {"host": "gh"}, sensors=3, max_a=0.25)
+    (f,) = check_port_budget(clean_contract)
+    assert "250 mA" in f.expected and "300 mA" in f.observed
+    clean_contract.device("host").connectors[0].max_current_a = None
+    assert check_port_budget(clean_contract) == []
+
+
+def test_qwiic_finding_flows_through_run_and_can_be_accepted(clean_contract):
+    from lockwire.schema import AcceptedFinding
+
+    _wired_boards(clean_contract, {}, sensors=3)
+    found = [f for f in run_record_checks(clean_contract) if f.quantity.endswith("/qwiic")]
+    assert [f.severity for f in found] == ["warning"]
+    prov = Provenance(witness="sam", source="sheet", locked_at="2026-11-13")
+    clean_contract.accepted = [
+        AcceptedFinding(
+            id=found[0].quantity, observed=found[0].observed, reason="own supply", provenance=prov
+        )
+    ]
+    report = run_record_checks(clean_contract)
+    assert found[0].quantity not in {f.quantity for f in report}
+    assert any(f.quantity == found[0].quantity for f in report.accepted)
+
+
+def _bed_run(tmp_path, monkeypatch, dims, printer="Prusa MK4S"):
+    monkeypatch.chdir(tmp_path)
+    shape = f'<box size="{dims}"/>'
+    geo = f"<collision><geometry>{shape}</geometry></collision>"
+    Path("m.urdf").write_text(f'<robot name="r">{_bot(_G, geo)}</robot>')
+    c = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path("m.urdf")), schema_version="0.6")
+    link = PrintedLink(
+        material="PLA", infill_pct=20, walls=2, layers="along", diameter_mm=10, printer=printer
+    )
+    c.printed = {"b": link}
+    run = run_record_checks(c, contract_path=Path("lockwire.yaml"))
+    return [f for f in run if f.quantity == "printed/b/bed_fit"]
+
+
+def test_bed_flags_260_mm_part_on_250_bed(tmp_path, monkeypatch):
+    got = _bed_run(tmp_path, monkeypatch, "0.26 0.02 0.02")
+    assert [f.severity for f in got] == ["warning"]
+    assert "prusa3d.com" in got[0].source
+
+
+def test_bed_fit_never_uses_the_diagonal(tmp_path, monkeypatch):
+    assert not _bed_run(tmp_path, monkeypatch, "0.2 0.2 0.01")  # diagonal 283 mm, sides fit
+    assert not _bed_run(tmp_path, monkeypatch, "0.22 0.25 0.2")  # fits turned to 250 x 220 x 200
+
+
+def test_bed_missing_input_emits_nothing(tmp_path, monkeypatch):
+    assert _bed_run(tmp_path, monkeypatch, "0.26 0.02 0.02", printer=None) == []
+    assert _bed_run(tmp_path, monkeypatch, "0.26 0.02 0.02", printer="Mystery 9000") == []
+
+
+def test_bed_unknown_printer_leaves_verdict_and_strict_exit_alone(tmp_path, monkeypatch):
+    from rich.console import Console
+
+    from lockwire.report import strict_exit, verdict
+
+    def decide(printer):
+        _bed_run(tmp_path, monkeypatch, "0.26 0.02 0.02", printer=printer)
+        c = Contract(
+            robot=RobotInfo(name="p"), model=parse_urdf(Path("m.urdf")), schema_version="0.6"
+        )
+        c.printed = {
+            "b": PrintedLink(
+                material="PLA",
+                infill_pct=20,
+                walls=2,
+                layers="along",
+                diameter_mm=10,
+                printer=printer,
+            )
+        }
+        run = run_record_checks(c, contract_path=Path("lockwire.yaml"))
+        return verdict(run), strict_exit(run, 0, Console(), strict=True, max_not_scored=None)
+
+    assert decide("Mystery 9000") == decide(None)
+
+
+def test_sweep_voltage_is_monotonic_and_ends_at_the_brownout_point(tmp_path):
+    from lockwire.checks import rail_sweep
+    from lockwire.schema import load_contract
+
+    pts = rail_sweep(load_contract(_brownout_lock(tmp_path)), "r5")
+    volts = [v for _, v in pts]
+    assert [f for f, _ in pts] == [0, 0.25, 0.5, 0.75, 1.0] and volts[0] == pytest.approx(5.0)
+    assert all(a >= b for a, b in zip(volts, volts[1:])) and volts[0] > volts[-1]
+    assert volts[-1] == pytest.approx(4.3, abs=0.01)  # same point as the brownout finding
+
+
+def test_sweep_without_stall_data_is_none(tmp_path):
+    from lockwire.checks import rail_sweep
+    from lockwire.schema import load_contract
+
+    assert rail_sweep(load_contract(_brownout_lock(tmp_path, servo="mg996r")), "r5") is None
+
+
+def _bulk_findings(tmp_path, extra_rail):
+    from lockwire.checks import check_bulk_capacitance
+    from lockwire.schema import load_contract
+
+    return check_bulk_capacitance(load_contract(_brownout_lock(tmp_path, extra_rail=extra_rail)))
+
+
+def test_bulk_cap_below_rule_warns_as_unsourced_advice(tmp_path):
+    (f,) = _bulk_findings(tmp_path, ", capacitance_f: 0.0005")
+    assert f.severity == "warning" and f.advice_unsourced
+    assert "1880 uF" in f.expected
+
+
+def test_bulk_cap_missing_or_enough_emits_nothing(tmp_path):
+    assert _bulk_findings(tmp_path, "") == []  # no capacitance data: silence, not NOT_SCORED
+    assert _bulk_findings(tmp_path, ", capacitance_f: 0.01") == []
+
+
+_BATT = "battery"
+
+
+def _pack(c, protection, *, regen=False, inputs=1):
+    from lockwire.schema import Battery, EnergyQuantity, Protection, VoltageQuantity
+
+    _wired_boards(c, {}, sensors=0, host_inputs=inputs)
+    c.topology.battery = Battery(
+        capacity=EnergyQuantity(value=50, unit="Wh"),
+        cells_series=4,
+        voltage=VoltageQuantity(value=14.8, unit="V"),
+    )
+    r = c.topology.rails[0]
+    r.upstream = "battery"
+    r.accepts_regen = regen
+    c.device("host").drives_joint = "j1"
+    c.device("host").power = PowerDraw(rail=r.id, draw=Quantity(value=1, unit="W"))
+    c.topology.protection = [Protection(**p) for p in protection]
+    return r
+
+
+def test_reverse_polarity_4s_pack_without_guard_warns_once_and_tvs_is_no_guard(clean_contract):
+    _pack(clean_contract, [{"id": "t", "kind": "tvs", "protects": [_BATT]}])
+    (f,) = check_reverse_polarity(clean_contract)
+    assert (f.severity, f.advice_unsourced, "4S" in f.observed) == ("warning", True, True)
+
+
+def test_reverse_polarity_guard_named_or_no_protection_list_is_silent(clean_contract):
+    r = _pack(clean_contract, [{"id": "d", "kind": "reverse_polarity", "protects": [_BATT]}])
+    assert check_reverse_polarity(clean_contract) == []
+    clean_contract.topology.protection = None
+    assert (check_reverse_polarity(clean_contract), check_tvs_rating(clean_contract)) == ([], [])
+    assert r.upstream == "battery"
+
+
+def test_reverse_polarity_stays_quiet_when_back_power_already_flags_the_device(clean_contract):
+    _pack(clean_contract, [{"id": "t", "kind": "tvs"}], inputs=2)
+    assert len(check_back_power(clean_contract)) == 1
+    assert check_reverse_polarity(clean_contract) == []
+
+
+def test_tvs_missing_or_standoff_below_rail_warns_and_adequate_is_silent(clean_contract):
+    r = _pack(clean_contract, [{"id": "d", "kind": "reverse_polarity", "protects": [_BATT]}])
+    (f,) = check_tvs_rating(clean_contract)
+    assert (f.advice_unsourced, "no TVS" in f.observed) == (True, True)
+    top = r.voltage.base()
+    from lockwire.schema import Protection
+
+    low = Protection(id="t", kind="tvs", v_standoff_v=top - 1, protects=[r.id])
+    clean_contract.topology.protection = [low]
+    (f,) = check_tvs_rating(clean_contract)
+    assert "stands off" in f.observed
+    low.v_standoff_v = top + 1
+    assert check_tvs_rating(clean_contract) == []
+
+
+def test_tvs_regen_absorbing_rail_or_missing_voltage_emits_nothing(clean_contract):
+    r = _pack(clean_contract, [{"id": "d", "kind": "reverse_polarity"}], regen=True)
+    assert check_tvs_rating(clean_contract) == []
+    r.accepts_regen, r.voltage = False, None
+    assert check_tvs_rating(clean_contract) == []
+
+
+def _wired(c, **kw):
+    bus = next(b for b in c.topology.buses if b.id == "bus.serial0")
+    for k, v in kw.items():
+        setattr(bus, k, v)
+    return check_bus_wiring_rules(c)
+
+
+def test_ttl_bus_over_3m_is_unsourced_advice(clean_contract):
+    (w,) = _wired(clean_contract, phy="ttl", length_m=5)
+    assert (w.severity, w.advice_unsourced, w.source) == ("warning", True, None)
+    assert _wired(clean_contract, phy="rs485", length_m=5) == []
+    assert _wired(clean_contract, phy="ttl", length_m=2) == []  # under the 3 m advice limit
+
+
+def test_ttl_missing_phy_or_length_emits_nothing(clean_contract):
+    assert check_bus_wiring_rules(clean_contract) == []
+    assert _wired(clean_contract, phy="ttl", length_m=None) == []
+    assert _wired(clean_contract, phy=None, length_m=9, twisted=False, protocol="dronecan") == []
+
+
+def test_rs485_termination_2m_1mbps_without_120ohm(clean_contract):
+    from lockwire.schema import CANSegment
+
+    seg = CANSegment(termination_ohm=[])
+    (w,) = _wired(clean_contract, phy="rs485", length_m=2, bitrate=1e6, can_segment=seg)
+    assert w.quantity.endswith("/termination") and w.advice_unsourced
+    seg.termination_ohm = [120, 120]
+    assert _wired(clean_contract, phy="rs485", length_m=2, bitrate=1e6) == []
+    seg.termination_ohm = []
+    assert _wired(clean_contract, length_m=0.3) == []  # short bus: no termination warning
+    assert _wired(clean_contract, length_m=2, can_segment=None) == []  # termination not declared
+
+
+def test_termination_can_bus_over_40m_at_1mbps_is_sourced(clean_contract):
+    (w,) = _wired(clean_contract, phy="can-hs", length_m=60, bitrate=1e6)
+    assert (w.advice_unsourced, "wikipedia" in w.source) == (False, True)
+    assert _wired(clean_contract, length_m=30) == []
+
+
+def test_dronecan_can2_note_is_sourced(clean_contract):
+    clean_contract.topology.buses[-1].id = "bus.can2"
+    (w,) = check_bus_wiring_rules(_with(clean_contract, protocol="dronecan"))
+    assert "docs.px4.io" in w.source
+
+
+def _with(c, **kw):
+    for k, v in kw.items():
+        setattr(c.topology.buses[-1], k, v)
+    return c
+
+
+def test_emi_untwisted_rs485_is_advice_only(clean_contract):
+    (w,) = _wired(clean_contract, phy="rs485", twisted=False)
+    assert (w.advice_unsourced, w.quantity.endswith("/twisted")) == (True, True)
+    assert _wired(clean_contract, twisted=True) == []
+
+
+def test_preset_rover_starter_auto_picks_rover_bundle(clean_contract):
+    from lockwire.presets import choose_preset
+
+    clean_contract.robot.id = "turtlebot3-burger"
+    assert choose_preset(clean_contract).name == "rover"
+
+
+HEXAPOD = Path(__file__).parents[1] / "src/lockwire/examples/hexapod-param/contract.yaml"
+
+
+def _leg_contract(contacts):
+    from lockwire.schema import Contract
+
+    m = {"value": 10.0, "unit": "kg"}
+    foot = {"mass": {"value": 0.1, "unit": "kg"}, "com": [0.2, 0, 0], "frame": "foot"}
+    joint = {
+        "name": "hip",
+        "type": "revolute",
+        "parent": "base",
+        "child": "foot",
+        "axis": [0, 1, 0],
+    }
+    return Contract.model_validate(
+        {
+            "schema_version": "0.2",
+            "robot": {"name": "a"},
+            "model": {
+                "source": "a.urdf",
+                "source_sha256": "0" * 64,
+                "structure_hash": "x",
+                "links": [
+                    {"name": "base", "mass": m, "com": [0, 0, 0], "frame": "base"},
+                    {"name": "foot", **foot},
+                ],
+                "joints": [{**joint, "limits": {"effort": 5.0}}],
+                "provenance": {"witness": "w0", "source": "a.urdf", "locked_at": "2026-11-13"},
+            },
+            "contacts": contacts,
+        }
+    )
+
+
+def test_leg_that_passes_hanging_fails_standing():
+    from lockwire.checks import check_gravity_reach, check_standing_load
+
+    c = _leg_contract([{"link": "foot", "xyz": [0.2, 0, 0]}])
+    assert check_gravity_reach(c) == []  # 0.1 kg x 0.2 m hanging: 0.2 N*m <= 5
+    (warn, note) = check_standing_load(c)  # 10.1 kg x 9.81 on a 0.2 m reach: 19.8 N*m
+    assert (warn.severity, warn.quantity) == ("warning", "model/joints/hip/standing_torque")
+    assert (note.advice_unsourced, "equally over 1 contacts" in note.observed) == (True, True)
+
+
+def test_hexapod_standing_margins_are_reported_per_joint():
+    from lockwire.checks import check_standing_load
+    from lockwire.schema import SupportContact, load_contract
+
+    c = load_contract(HEXAPOD)
+    c.contacts = [
+        SupportContact(link=k.name, xyz=(0.12, 0, 0))
+        for k in c.model.links
+        if k.name.endswith("tibia")
+    ]
+    (note,) = check_standing_load(c)  # nothing over its 2.94 N*m servo peak
+    assert "front-left-femur-servo 0.64/2.94 N*m (+2.30)" in note.observed
+    assert "front-left-coxa-servo 0.00/2.94" in note.observed
+
+
+def test_no_contacts_emits_no_standing_margins_and_legs_get_an_advice_note():
+    from lockwire.checks import check_standing_load
+    from lockwire.schema import load_contract
+
+    assert check_standing_load(_leg_contract(None)) == []  # one foot is not "legs"
+    (f,) = check_standing_load(load_contract(HEXAPOD))
+    assert (f.advice_unsourced, "while standing was not checked" in f.observed) == (True, True)
+
+
+def test_gaugeless_signal_wire_runs_clean_everywhere(tmp_path):
+    import json
+
+    import yaml
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+    from lockwire.page import build_payload
+    from lockwire.schema import load_contract
+
+    d = yaml.safe_load(Path("tests/fixtures/x500/contract_corrected.yaml").read_text())
+    ends = {
+        "from": {"device": d["devices"][0]["id"], "pin": 1},
+        "to": {"device": d["devices"][1]["id"], "pin": 2},
+    }
+    d["topology"]["wires"] = [
+        {"id": "w.sig", "owner": "o", **ends},
+        {
+            "id": "w.pwr",
+            "owner": "o",
+            "rail": "rail.pm02-5v",
+            "awg": 30,
+            "installation": "free_air",
+        },
+    ]
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(d))
+    runner, out = CliRunner(), tmp_path / "r.html"
+    results = [
+        runner.invoke(app, ["check", str(path), "--json", str(tmp_path / "f.json")]),
+        runner.invoke(app, ["check", str(path), "--strict"]),
+        runner.invoke(app, ["report", str(path), "-o", str(out)]),
+    ]
+    assert all(r.exception is None or isinstance(r.exception, SystemExit) for r in results)
+    payload = json.dumps(build_payload(load_contract(path), contract_path=path))
+    texts = [r.output for r in results] + [out.read_text(), payload]
+    assert not any("None" in t for t in texts)
+    found = json.loads((tmp_path / "f.json").read_text())
+    quantities = [f["quantity"] for f in found["findings"]]
+    assert "topology/wires/w.pwr/ampacity" in quantities
+
+
+def _uncited_servo_leg(source):
+    c = _leg_contract([{"link": "foot", "xyz": [0.2, 0, 0]}])
+    c.model.joints[0].limits = None  # no declared effort: the driving servo's peak is the limit
+    prov = {"witness": "w1", "source": source, "locked_at": "2026-11-13"} if source else None
+    from lockwire.schema import Contract
+
+    d = c.model_dump(mode="json", exclude_none=True)
+    d["device_models"] = [
+        {
+            "id": "m",
+            "family": "f",
+            "actuator": {"torque_peak": 5.0},
+            **({"provenance": prov} if prov else {}),
+        }
+    ]
+    d["devices"] = [{"id": "d", "model": "m", "drives_joint": "hip", "owner": "o"}]
+    return Contract.model_validate(d)
+
+
+def test_standing_over_uncited_servo_peak_is_advice_and_cited_stays_warning():
+    from lockwire.checks import check_standing_load
+
+    assert check_standing_load(_uncited_servo_leg(None))[0].advice_unsourced is True
+    assert check_standing_load(_uncited_servo_leg("https://datasheet"))[0].advice_unsourced is False
+    assert (
+        check_standing_load(_leg_contract([{"link": "foot", "xyz": [0.2, 0, 0]}]))[
+            0
+        ].advice_unsourced
+        is False
+    )
+
+
+def test_standing_over_limit_finding_states_its_assumptions():
+    from lockwire.checks import check_standing_load
+
+    w = check_standing_load(_leg_contract([{"link": "foot", "xyz": [0.2, 0, 0]}]))[0]
+    assert (
+        "static stance, level ground, equal share across 1 declared contacts, zero pose, no dynamics"
+        in w.observed
+    )
+
+
+def _belt_contract(c, pulleys=(20, 20), centre=0.1, profile="GT2", **declared):
+    belt = Belt(
+        id="b1",
+        driver=Pulley(pulley_teeth=pulleys[0]),
+        driven=Pulley(pulley_teeth=pulleys[1]),
+        profile=profile,
+        center_distance_m=centre,
+        **declared,
+    )
+    c.topology = Topology(belts=[belt])
+    return c
+
+
+def test_belt_gt2_20t_pair_at_100_mm_is_240_mm_120_teeth(clean_contract):
+    c = _belt_contract(clean_contract, length_m=0.24, teeth=120)
+    ((_, length, teeth),) = belt_lengths(c)
+    assert (length, teeth) == pytest.approx((0.24, 120)) and check_belt_length(c) == []
+
+
+def test_belt_unequal_pulleys_add_the_wrap_term(clean_contract):
+    c = _belt_contract(clean_contract, pulleys=(20, 60), centre=0.15)
+    d, big = 20 * 0.002 / pi, 60 * 0.002 / pi
+    want = 2 * 0.15 + pi * (big + d) / 2 + (big - d) ** 2 / (4 * 0.15)
+    assert belt_lengths(c)[0][1] == pytest.approx(want)
+    c = _belt_contract(clean_contract, pulleys=(20, 60), centre=0.15, length_m=want)
+    assert check_belt_length(c) == []
+
+
+def test_belt_wrong_teeth_is_one_sourced_warning(clean_contract):
+    got = check_belt_length(_belt_contract(clean_contract, teeth=110))
+    assert [f.severity for f in got] == ["warning"] and got[0].source.startswith("https://")
+
+
+def test_belt_wrong_length_is_one_warning_but_half_a_pitch_is_fine(clean_contract):
+    assert len(check_belt_length(_belt_contract(clean_contract, length_m=0.25))) == 1
+    assert check_belt_length(_belt_contract(clean_contract, length_m=0.2405)) == []
+
+
+def test_belt_unknown_profile_and_no_belts_emit_nothing(clean_contract):
+    assert check_belt_length(_belt_contract(clean_contract, profile="NOPE", teeth=5)) == []
+    clean_contract.topology = None
+    assert check_belt_length(clean_contract) == []
+
+
+def test_relock_hint_keeps_url_slashes_and_local_paths():
+    from lockwire import checks
+    from lockwire.schema import load_contract
+
+    c = load_contract(Path(__file__).parent.parent / "src/lockwire/examples/quadruped/contract.yaml")
+    cmd = checks.check_limit_unit_traps(c)[0].next_command
+    assert "start https://raw.githubusercontent.com/" in cmd
+    assert " start a/b.urdf --force" in checks._relock_command(Path("a/b.urdf"), None)
+
+
+def _arm_power_with(old: str, new: str, tmp_path):
+    src = Path(__file__).parents[1] / "src/lockwire/examples/arm-power/contract.yaml"
+    path = tmp_path / "c.yaml"
+    path.write_text(src.read_text().replace(old, new, 1))
+    return path
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "line"),
+    [
+        ("current_limit:\n      value: 9", "current_limit:\n      value: 0", "current_limit of 0.00 A"),
+        ("voltage:\n      value: 5\n", "voltage:\n      value: 0\n", "rail voltage <= 0"),
+        ("unit: Wh\n    voltage:\n      value: 11.1", "unit: Wh\n    voltage:\n      value: 0", "battery voltage is 0 V"),
+        ("c_rate_burst: 70\n    mass:\n      value: 143", "c_rate_burst: 70\n    mass:\n      value: 0", "battery mass is 0 kg"),
+    ],
+)
+def test_zero_rail_current_limit_or_voltage_is_a_plain_line_not_a_crash(old, new, line, tmp_path):
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    result = CliRunner().invoke(app, ["check", str(_arm_power_with(old, new, tmp_path)), "--all"])
+    assert (result.exit_code, "bug in lockwire" in result.output) == (1, False)
+    assert line in " ".join(result.output.split())
+
+
+def test_urdf_loop_keeps_gravity_reach_scored(monkeypatch):
+    # pack1 has a two-parent link (j_loop); ROS keeps one parent, so reach still scores (0.2.8: 4)
+    monkeypatch.chdir(_PACK1.parent)
+    contract = Contract(robot=RobotInfo(name="p"), model=parse_urdf(Path(_PACK1.name)))
+    run = run_record_checks(contract, contract_path=Path("lockwire.yaml"))
+    assert run.scored == 4
+    assert "model/joints/limits/effort" not in {f.quantity for f in run}

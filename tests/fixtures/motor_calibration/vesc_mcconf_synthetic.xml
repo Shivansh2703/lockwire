@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC test file in the VESC Tool motor-configuration XML shape; not from a real motor. -->
+<MCConfiguration>
+  <foc_motor_r>0.0812</foc_motor_r>
+  <foc_motor_l>3.4e-05</foc_motor_l>
+  <foc_motor_flux_linkage>0.0061</foc_motor_flux_linkage>
+</MCConfiguration>

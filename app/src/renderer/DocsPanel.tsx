@@ -4,6 +4,7 @@ import type { DiffPayload, Finding, LogPayload, PagePayload } from "../shared/ap
 import { HistoryDrawer } from "./HistoryDrawer";
 import type { OnJump } from "./jump";
 import { EmptyState, Jumper, Panel, Segmented } from "./kit";
+import { pro } from "./proRegistry";
 import { ReferenceFace } from "./ReferenceFace";
 import { WaysFace } from "./WaysFace";
 
@@ -23,7 +24,7 @@ function DiffRows({ diff, onJump }: { diff: DiffPayload; onJump?: OnJump }) {
   ];
   return (
     <div className="history-diff-result" data-changed={diff.changed}>
-      {rows.length === 0 ? <EmptyState title="No changes" /> : rows.map(([r, path], i) => (
+      {rows.length === 0 ? <EmptyState title="No changes between these two versions. Pick another to compare." /> : rows.map(([r, path], i) => (
         <code key={i} className="history-diff-row">{path && onJump?.can({ path }) ? <Jumper label={`Go to ${path}`} onClick={() => onJump({ path })}>{r}</Jumper> : r}</code>
       ))}
     </div>
@@ -46,6 +47,7 @@ export function DocsPanel({
   onJump?: OnJump;
 }) {
   const [view, setView] = useState<View>("docs");
+  const HistoryMore = pro?.HistoryMore;
   return (
     <Panel title={VIEWS.find((v) => v.value === view)!.label} actions={<Segmented label="Docs view" options={VIEWS} value={view} onChange={setView} />}>
       {view === "docs" ? (
@@ -62,6 +64,7 @@ export function DocsPanel({
             onDiff={onDiff}
             onApplied={onApplied}
             onJump={onJump}
+            more={HistoryMore ? (e) => <HistoryMore page={page} contract={contract} sha={e.sha} /> : undefined}
             result={diff && <DiffRows diff={diff} onJump={onJump} />}
           />
         </>

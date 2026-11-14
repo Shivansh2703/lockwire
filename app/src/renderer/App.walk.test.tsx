@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import { mockMatchMedia, picked } from "./App.testkit";
+import { goMode, mockMatchMedia, picked } from "./App.testkit";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
 import { getSelectedGroup, getSelectedPartId, setSelectedPartId } from "./scene/selectionStore";
 import { getDesignView, resetDesignView, setDesignView } from "./scene/designView";
@@ -16,7 +16,7 @@ import SCENE_DOC from "./scene/fixtures/x500-check-payload.json";
 // the Declare row, the robot's light or camera, or ask the sidecar. A button that changes nothing is a false promise.
 vi.mock("./scene/Canvas", () => ({
   Canvas: ({ children }: { children?: React.ReactNode }) => <div data-testid="scene-canvas">{children}</div>,
-  useScene: () => ({}),
+  useScene: () => ({ meshes: [] }),
 }));
 vi.mock("./scene/robotScene", async (orig) => ({ ...(await orig<typeof import("./scene/robotScene")>()), applyHighlight: vi.fn(), applyDim: vi.fn(), focusCamera: vi.fn() }));
 
@@ -57,7 +57,7 @@ async function setup(tab: string, prep?: () => Promise<void> | void) {
   await act(async () => {}); // the engine's state arrives; Open robot waits for it
   await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Open robot")!.click());
   await act(async () => {});
-  act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click()); click([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === tab)!);
+  goMode(container, tab);
   await prep?.();
 }
 const state = () => JSON.stringify([document.documentElement.outerHTML, getSelectedPartId(), getSelectedGroup(), getDesignView(), calls, vi.mocked(focusCamera).mock.calls.length, vi.mocked(applyHighlight).mock.calls.length]);

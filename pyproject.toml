@@ -1,6 +1,6 @@
 [project]
 name = "lockwire"
-version = "0.2.8"
+version = "0.5.0"
 description = "The physical-assumption contract for robots: checks that a robot's declared parts (power, weight, bus, torque) add up"
 readme = "README.md"
 authors = [

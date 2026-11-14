@@ -1,0 +1,53 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: robotis-u2d2-power-hub
+name: ROBOTIS U2D2 Power Hub
+maker: ROBOTIS
+numbers:
+  operating_min:
+    value: 3.5
+    unit: V
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2_power_hub/ (U2D2 Power Hub (ROBOTIS e-Manual): "Operating Voltage 3.5V to 24.0V"; as stated), read 2026-11-13'
+  operating_max:
+    value: 24.0
+    unit: V
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2_power_hub/ (U2D2 Power Hub (ROBOTIS e-Manual): "Operating Voltage 3.5V to 24.0V"; as stated), read 2026-11-13'
+  max_current:
+    value: 10.0
+    unit: A
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2_power_hub/ (U2D2 Power Hub (ROBOTIS e-Manual): "Maximum current 10.0A"; board overall; no per-connector limit published), read 2026-11-13'
+connectors:
+- id: TTL
+  source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2_power_hub/ (U2D2 Power Hub (ROBOTIS e-Manual): TTL port)'
+  type: jst-eh-3
+  pins:
+  - number: 1
+    name: GND
+  - number: 2
+    name: VDD
+  - number: 3
+    name: DATA
+- id: RS485
+  source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2_power_hub/ (U2D2 Power Hub (ROBOTIS e-Manual): RS485 port)'
+  type: jst-eh-4
+  pins:
+  - number: 1
+    name: GND
+  - number: 2
+    name: VDD
+  - number: 3
+    name: DATA+
+  - number: 4
+    name: DATA-
+- id: POWER-MOLEX
+  source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2_power_hub/ (U2D2 Power Hub (ROBOTIS e-Manual): POWER-MOLEX port)'
+  pins:
+  - number: 1
+    name: GND
+  - number: 2
+    name: VDD
+- id: DC-JACK
+  source: 'https://emanual.robotis.com/docs/en/parts/interface/u2d2_power_hub/ (U2D2 Power Hub (ROBOTIS e-Manual): DC-JACK port)'
+  type: barrel-2.5x5.5

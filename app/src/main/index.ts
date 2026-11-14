@@ -1,10 +1,13 @@
 import { writeFile } from "node:fs/promises";
 
-import { BrowserWindow, Menu, app } from "electron";
+import { join } from "node:path";
+
+import { BrowserWindow, Menu, app, screen } from "electron";
 
 import { forwardSidecarState, registerIpc } from "./ipc";
 import { writeLogLine } from "./log";
 import { buildMenu } from "./menu";
+import { onMenuState } from "./menuState";
 import {
   registerRendererProtocol,
   registerRendererScheme,
@@ -13,7 +16,7 @@ import {
 import { applySecurity } from "./security";
 import { killTerminal } from "./terminal";
 import { startSidecar, stopSidecar } from "./sidecar";
-import { windowOptions } from "./window-options";
+import { loadBounds, saveBounds, windowOptions } from "./window-options";
 
 registerRendererScheme();
 
@@ -27,7 +30,10 @@ process.on("unhandledRejection", (reason) => {
 });
 
 function createWindow(hidden: boolean, onRendererLoaded?: () => void): BrowserWindow {
-  const win = new BrowserWindow(windowOptions(hidden));
+  const boundsFile = join(app.getPath("userData"), "window.json");
+  const bounds = hidden ? undefined : loadBounds(boundsFile, screen.getAllDisplays().map((d) => d.workArea));
+  const win = new BrowserWindow(windowOptions(hidden, bounds));
+  win.on("close", () => saveBounds(boundsFile, win.getNormalBounds()));
   let rendererLoadFailed = false;
   if (onRendererLoaded) {
     // did-finish-load also fires for Electron's error page.  Observe failure before
@@ -59,6 +65,7 @@ void app
     registerRendererProtocol();
     registerIpc();
     Menu.setApplicationMenu(buildMenu());
+    onMenuState(() => Menu.setApplicationMenu(buildMenu())); // an open or a recent-list change rebuilds the menu
     startSidecar();
     createWindow(hidden, readyFile ? () => void writeFile(readyFile, "") : undefined);
     app.on("activate", () => {

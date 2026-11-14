@@ -20,6 +20,20 @@ The label is worked out from the numbers, never typed in. Fix a source and the l
 
 ## Where you see it
 
+Browse the catalog first: `lockwire catalog parts raspberry` lists matching parts with their numbers.
+
+Add one part to your lockfile by its id, with no number typed:
+
+```bash
+lockwire add device lockwire.yaml --part rpi.pi5 --rail rail.controller-5v
+lockwire check lockwire.yaml
+```
+
+`--part` fills the model, mass, draw and source from the catalog. A part with a draw goes on a rail:
+if only one rail fits its voltage it is picked for you, and if several fit, `add` lists them and
+you pass `--rail`. Your lockfile needs rails, so start from `lockwire start --example <robot>`.
+A `--rail` the part cannot run on (say the 11.1 V battery for a 5 V part) is refused, and the message lists the rails that fit. A part with only a nominal voltage fits rails within ±5% of it. A part the catalog marks `unverified` is written with a source that starts "unverified catalog entry:", and `add` says so; check its numbers against the datasheet.
+
 Write one part per line (a count like `x6` or `6x` is read), then match the list:
 
 ```bash

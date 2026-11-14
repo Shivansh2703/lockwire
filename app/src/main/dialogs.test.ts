@@ -16,6 +16,13 @@ describe("dialogs (main process file picker)", () => {
     expect(opts.filters[0]!.extensions).toEqual(expect.arrayContaining(["glb", "gltf"]));
   });
 
+  it("test_open_filter_lists_mujoco_and_webots_extensions", async () => {
+    showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+    await pickRobot();
+    const opts = showOpenDialog.mock.calls.at(-1)![0] as { filters: { extensions: string[] }[] };
+    expect(opts.filters[0]!.extensions).toEqual(expect.arrayContaining(["xml", "mjcf", "wbt", "proto"]));
+  });
+
   it("test_a_cancelled_dialog_returns_null_not_an_empty_string", async () => {
     showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
     expect(await pickRobot()).toBeNull();

@@ -31,11 +31,15 @@ export interface DeclareSubmission {
   value: string;
   source: string;
   witness: string;
+  /** The Declare form is a sign-off: the engine requires a name. */
+  formal?: boolean;
 }
 
 export interface DeclareSubmitResult {
   written: boolean;
   refusal?: string | null;
+  /** Add part: the rail write went through before the device write was refused. */
+  railKept?: boolean;
 }
 
 export interface ReviewSubmission {
@@ -208,6 +212,7 @@ export function DeclareFace({
         value: submittedValue,
         source,
         witness,
+        formal: true,
       });
       if (result.written) {
         rememberCheckedBy(witness);
@@ -261,12 +266,12 @@ export function DeclareFace({
           label="Checked by"
           hint={witnessIsDefault ? "Who checked it (default)" : "Who checked it"}
           placeholder="Who checked it"
-          aria-label="witness"
+          aria-label="checked by"
           value={witness}
           onChange={(event: { target: { value: string } }) => setWitness(event.target.value)}
         />
         <div className="declare-actions">
-          <Button variant="primary" onClick={submit} disabled={status === "submitting" || !selectedPath}>Declare</Button>
+          <Button variant="primary" onClick={submit} disabled={status === "submitting" || !selectedPath || !witness.trim()}>Declare</Button>
           <MeasureCompareDeclare
             key={selectedPath}
             observation={selectedPath ? {
@@ -277,6 +282,7 @@ export function DeclareFace({
             } : null}
             contractPath={contractPath}
             expectedRevision={expectedRevision}
+            onValue={setValue}
           />
         </div>
         {status === "written" && <Notice kind="info">Written</Notice>}
@@ -288,7 +294,7 @@ export function DeclareFace({
                 rows={[
                   { label: "Declared", value: <Figure value={typeof selectedRow.value === "number" ? selectedRow.value : valueToString(selectedRow.value)} unit={selectedRow.unit ?? undefined} kind={selectedRow.kind} /> },
                   { label: "Source", value: selectedRow.provenance!.source },
-                  { label: "Witness", value: selectedRow.provenance!.witness },
+                  { label: "Checked by", value: selectedRow.provenance!.witness },
                 ]}
               />
             ) : selectedRow && <Notice kind="info">Nothing declared yet, so nothing to review.</Notice>}

@@ -23,7 +23,7 @@ export const PAID = [
   "health_words", "actuator-review-draft", "analysis:start",
 ];
 // Command-class strings that must not survive into a free build's bundles.
-export const BUNDLE_PAID = ["run:start", "run:poll", "run:cancel", "contract:preflight", "file:choose-recording", "analysis:start", "contract:actuator-review-draft", "analysis:poll", "analysis:cancel"];
+export const BUNDLE_PAID = ["run:start", "run:poll", "run:cancel", "contract:preflight", "file:choose-recording", "analysis:start", "contract:actuator-review-draft", "analysis:poll", "analysis:cancel", "tuner:autotune", "contract:at", "agent:review", "agent:part-search", "agent:brownout", "agent:pack-fit"];
 
 // Known exceptions, each with its reason. Remove an entry when its reason goes away.
 const SKIP_FILES = new Map([

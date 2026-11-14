@@ -21,8 +21,11 @@ import math
 from collections.abc import Mapping
 from dataclasses import replace
 import os
+from contextvars import ContextVar
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import numpy as np
 
 from lockwire.mesh_simple import MeshRefusal, read_obj, read_stl
 from lockwire.scene import Scene, ScenePart, SceneRefusal
@@ -180,10 +183,28 @@ def _sphere_mesh(radius: float, lat_segments: int = _SPHERE_LAT, lon_segments: i
 # --------------------------------------------------------------------------- mesh files
 
 
+#: Mesh files read by the parse in flight (collected so the scene cache can stamp them).
+_MESHES_READ: ContextVar[list[Path] | None] = ContextVar("_MESHES_READ", default=None)
+#: Parsed URDF/xacro scenes: key -> (model stamp, ((mesh path, stamp), ...), scene).
+#: ponytail: unbounded, one robot per run; SDF is not cached (its <include>d files are not stamped).
+_SCENE_CACHE: dict[tuple, tuple] = {}
+
+
+def _stamp(p: Path) -> tuple | None:
+    """Identity of a file on disk: mtime and size (None when absent)."""
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
 def _load_mesh_file(resolved: Path, source: Path) -> list[tuple]:
     """-> a list of (positions, normals_or_None, indices) submeshes — one for every
     reader except DAE, which may carry several geometries in one file."""
     suffix = resolved.suffix.lower()
+    if (seen := _MESHES_READ.get()) is not None:
+        seen.append(resolved)
     if suffix == ".stl":
         try:
             return [read_stl(resolved)]
@@ -377,7 +398,7 @@ def _scale_positions(
         return positions
     # ponytail: normals are not re-scaled by 1/scale (wrong under non-uniform scale) —
     # upgrade if a non-uniform-scaled mesh's shading visibly breaks.
-    return tuple(positions[i] * scale[i % 3] for i in range(len(positions)))
+    return tuple((np.asarray(positions, dtype=np.float64).reshape(-1, 3) * scale).ravel().tolist())
 
 
 # --------------------------------------------------------------------------- URDF
@@ -468,6 +489,21 @@ def _urdf_visual_to_parts(
     ]
 
 
+def _rotate(
+    r: tuple[tuple[float, float, float], ...],
+    flat: tuple[float, ...],
+    t: tuple[float, float, float] | None = None,
+) -> tuple[float, ...]:
+    """`_apply_r` (+ translation) over a flat xyz tuple; same operation order, so same floats."""
+    p = np.asarray(flat, dtype=np.float64).reshape(-1, 3)
+    out = np.empty_like(p)
+    for i in range(3):
+        out[:, i] = p[:, 0] * r[i][0] + p[:, 1] * r[i][1] + p[:, 2] * r[i][2]
+        if t is not None:
+            out[:, i] += t[i]
+    return tuple(out.ravel().tolist())
+
+
 def _make_part(
     link_name: str,
     link_pose: _Pose,
@@ -477,22 +513,13 @@ def _make_part(
     indices: tuple[int, ...],
     color: tuple[float, float, float, float],
 ) -> ScenePart:
-    world_pos: list[float] = []
-    for i in range(0, len(positions), 3):
-        x, y, z = _apply_pose(visual_pose, (positions[i], positions[i + 1], positions[i + 2]))
-        world_pos.extend((x, y, z))
-    world_norm: tuple[float, ...] | None = None
-    if normals is not None:
-        r_mat, _ = visual_pose
-        norm_out: list[float] = []
-        for i in range(0, len(normals), 3):
-            norm_out.extend(_apply_r(r_mat, (normals[i], normals[i + 1], normals[i + 2])))
-        world_norm = tuple(norm_out)
+    world_pos = _rotate(visual_pose[0], positions, visual_pose[1])
+    world_norm = _rotate(visual_pose[0], normals) if normals is not None else None
     return ScenePart(
         node=link_name,
         extras_id=link_name,
         name_chain=(link_name,),
-        positions=tuple(world_pos),
+        positions=world_pos,
         normals=world_norm,
         indices=indices,
         color=color,
@@ -670,14 +697,14 @@ def _scene_from_sdf(
 
 def _build_scene(parts: list[ScenePart], source: Path) -> Scene:
     if parts:
-        min_b = [math.inf, math.inf, math.inf]
-        max_b = [-math.inf, -math.inf, -math.inf]
+        # fmin/fmax skip NaN like the old min()/max() loop did
+        min_b = [math.inf] * 3
+        max_b = [-math.inf] * 3
         for part in parts:
-            for i in range(0, len(part.positions), 3):
-                for k in range(3):
-                    v = part.positions[i + k]
-                    min_b[k] = min(min_b[k], v)
-                    max_b[k] = max(max_b[k], v)
+            if part.positions:
+                p = np.asarray(part.positions, dtype=np.float64).reshape(-1, 3)
+                min_b = np.fmin(min_b, np.fmin.reduce(p, axis=0)).tolist()
+                max_b = np.fmax(max_b, np.fmax.reduce(p, axis=0)).tolist()
     else:
         min_b = [0.0, 0.0, 0.0]
         max_b = [0.0, 0.0, 0.0]
@@ -734,13 +761,52 @@ def _refuse_xacro(root: ET.Element, source: Path) -> None:
         raise SceneRefusal(str(exc)) from exc
 
 
+def _refuse_webots(path: Path) -> None:
+    if path.suffix.lower() in (".wbt", ".proto"):
+        raise SceneRefusal(
+            f"{path}: a Webots file has no meshes for the 3D scene; give a .urdf, .sdf or .xacro."
+        )
+
+
 def load_robot_scene(
     path: Path,
     *,
     package_roots: tuple[Path, ...] = (),
     external_assets: Mapping[Path, str] | None = None,
 ) -> Scene:
-    """A `.urdf`, `.sdf` or literal-XML `.xacro` file -> `Scene`."""
+    """A `.urdf`, `.sdf` or literal-XML `.xacro` file -> `Scene`.
+
+    URDF/xacro parses are cached on (file, args) and reused while the model file and every
+    mesh file it read keep their (mtime, size); the caller gets a fresh `Scene` each time."""
+    path = Path(path)
+    if path.suffix.lower() not in (".urdf", ".xacro"):
+        return _parse_robot_scene(path, package_roots, external_assets)
+    key = (
+        str(path.resolve()),
+        tuple(map(str, package_roots)),
+        None
+        if external_assets is None
+        else tuple(sorted((str(k), v) for k, v in external_assets.items())),
+    )
+    hit = _SCENE_CACHE.get(key)
+    if hit is not None and hit[0] == _stamp(path) and all(_stamp(m) == st for m, st in hit[1]):
+        return replace(hit[2], nodes_with_ids=dict(hit[2].nodes_with_ids))
+    model_stamp, seen = _stamp(path), []
+    token = _MESHES_READ.set(seen)
+    try:
+        scene = _parse_robot_scene(path, package_roots, external_assets)
+    finally:
+        _MESHES_READ.reset(token)
+    if model_stamp is not None and _stamp(path) == model_stamp:
+        _SCENE_CACHE[key] = (model_stamp, tuple((m, _stamp(m)) for m in dict.fromkeys(seen)), scene)
+    return replace(scene, nodes_with_ids=dict(scene.nodes_with_ids))
+
+
+def _parse_robot_scene(
+    path: Path,
+    package_roots: tuple[Path, ...],
+    external_assets: Mapping[Path, str] | None,
+) -> Scene:
     path = Path(path)
     if not path.is_file():
         raise SceneRefusal(f"{path}: file does not exist.")
@@ -783,6 +849,7 @@ def load_robot_scene(
             asset_sha256=hashlib.sha256(raw).hexdigest(),
         )
 
+    _refuse_webots(path)
     raise SceneRefusal(
         f"{path}: unsupported file extension {suffix!r} (expected .urdf, .sdf or .xacro)."
     )
@@ -803,6 +870,7 @@ def load_scene_any(
         return load_scene(path)
     if suffix in (".urdf", ".sdf", ".xacro"):
         return load_robot_scene(path, package_roots=package_roots, external_assets=external_assets)
+    _refuse_webots(path)
     raise SceneRefusal(
         f"{path}: unsupported scene file extension {suffix!r} "
         "(expected .glb, .gltf, .urdf, .sdf or .xacro)."

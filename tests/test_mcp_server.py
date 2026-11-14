@@ -7,7 +7,9 @@ covers the `lockwire mcp` CLI command including the missing-extra path."""
 import asyncio
 import json
 import sys
+from pathlib import Path
 
+import pytest
 from conftest import FIXTURES
 from typer.testing import CliRunner
 
@@ -81,7 +83,7 @@ def test_upgrade_contract_calls_library_and_refuses_stale_or_occupied_target(tmp
     assert result.structured_content["legacy_revision"] == arguments["expected_revision"]
     assert result.structured_content["notices"] == ""
     assert source.read_bytes() == original
-    assert load_contract(output).schema_version == "0.6"
+    assert load_contract(output).schema_version == "0.7"
 
     occupied = _call("upgrade_contract", arguments)
     assert occupied.is_error
@@ -96,6 +98,25 @@ def test_upgrade_contract_calls_library_and_refuses_stale_or_occupied_target(tmp
     assert "REFUSED" in stale.content[0].text
     assert source.read_bytes() == original
     assert not stale_output.exists()
+
+
+def test_upgrade_contract_refuses_out_outside_folder_or_not_yaml(tmp_path):
+    import hashlib
+
+    folder = tmp_path / "robot"
+    folder.mkdir()
+    source = folder / "legacy.yaml"
+    original = b'schema_version: "0.3"\nrobot: {name: legacy}\n'
+    source.write_bytes(original)
+    revision = hashlib.sha256(original).hexdigest()
+    for name in ("../planted.yaml", str(tmp_path / "abs.yaml"), "x.txt"):
+        out = _call(
+            "upgrade_contract",
+            {"contract": str(source), "out": str(folder / name), "expected_revision": revision},
+        )
+        assert out.is_error and "REFUSED" in out.content[0].text
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["robot"]
+    assert sorted(p.name for p in folder.iterdir()) == ["legacy.yaml"]
 
 
 def test_describe_device_has_role_heading():
@@ -528,3 +549,196 @@ def test_a_lockfile_mistake_reaches_an_agent_as_one_plain_line(tmp_path):
     bad.write_text(CLEAN_CONTRACT.read_text().replace("\nrobot:", "\nbogus_key: 1\nrobot:", 1))
     result = _call("describe_device", {"contract": str(bad), "device_id": "x"})
     assert result.is_error and "lock.yaml: bogus_key: unknown key" in result.content[0].text
+
+
+# ------------------------------------------------------------------ design actions
+
+DESIGN_TOOLS = {"add_link", "add_joint", "add_device", "delete_part", "rename", "export_model"}
+NEW_DESIGN_TOOLS = {"add_shape", "add_param", "set_dimension", "attach_part"}
+
+
+def _design_args(path, **more):
+    return {"contract": str(path), "source": "sketch", "witness": "Maya Chen", **more}
+
+
+def _blank(tmp_path):
+    from lockwire.start_operation import start_blank
+
+    return Path(start_blank(tmp_path / "lockwire.yaml")["path"])
+
+
+def _design_robot(tmp_path):
+    path = _blank(tmp_path)
+    for name in ("base", "arm"):
+        added = _call("add_link", _design_args(path, name=name, apply=True))
+        assert not added.is_error, added.content
+    return path
+
+
+def _joint(path, **more):
+    args = {"name": "j", "type": "revolute", "parent": "base", "child": "arm"}
+    return _call("add_joint", _design_args(path, **args, **more))
+
+
+def test_design_tools_and_export_are_all_listed():
+    assert DESIGN_TOOLS <= _registered_tool_names()
+
+
+def test_design_add_joint_then_export_returns_a_urdf_path(tmp_path):
+    path = _design_robot(tmp_path)
+    assert _joint(path, apply=True).structured_content["written"] is True
+    out = _call("export_model", {"contract": str(path)}).structured_content["written"]
+    assert Path(out).suffix == ".urdf"
+    assert 'joint name="j"' in Path(out).read_text()
+
+
+def test_design_edit_is_a_proposal_until_applied(tmp_path):
+    path = _design_robot(tmp_path)
+    before = path.read_bytes()
+    proposal = _joint(path).structured_content
+    assert proposal["written"] is False
+    assert "+" in proposal["diff"] and path.read_bytes() == before
+
+
+@pytest.mark.parametrize("witness", ["you", " "])
+def test_design_edit_refuses_a_non_human_witness(tmp_path, witness):
+    path = _blank(tmp_path)
+    before = path.read_bytes()
+    result = _call("add_link", _design_args(path, name="x", witness=witness, apply=True))
+    assert result.is_error and "REFUSED" in result.content[0].text
+    assert path.read_bytes() == before
+
+
+def test_design_edit_refuses_a_stale_revision(tmp_path):
+    path = _design_robot(tmp_path)
+    before = path.read_bytes()
+    result = _joint(path, expected_revision="0" * 64, apply=True)
+    assert result.is_error and "REFUSED" in result.content[0].text
+    assert path.read_bytes() == before
+
+
+def test_design_joint_refuses_a_loop_and_delete_refuses_a_held_link(tmp_path):
+    path = _design_robot(tmp_path)
+    assert not _joint(path, apply=True).is_error
+    loop = _call(
+        "add_joint",
+        _design_args(path, name="k", type="fixed", parent="arm", child="base", apply=True),
+    )
+    assert loop.is_error and "REFUSED" in loop.content[0].text
+    held = _call("delete_part", _design_args(path, kind="link", name="base", apply=True))
+    assert held.is_error and "base holds 1 part (arm by joint j)" in held.content[0].text
+    gone = _call("delete_part", _design_args(path, kind="link", name="arm", apply=True))
+    assert gone.structured_content["written"] is True
+
+
+def _rename(path, **more):
+    args = {"kind": "link", "name": "arm", "new_name": "forearm", **more}
+    return _call("rename", _design_args(path, **args))
+
+
+def test_rename_renames_a_link_and_the_joint_that_holds_it_in_one_write(tmp_path):
+    path = _design_robot(tmp_path)
+    assert not _joint(path, apply=True).is_error
+    result = _rename(path, apply=True)
+    text = path.read_text()
+    assert result.structured_content["written"] is True and "child: forearm" in text
+    assert "name: arm" not in text and "child: arm" not in text
+
+
+def test_rename_dry_run_writes_nothing(tmp_path):
+    path = _design_robot(tmp_path)
+    before = path.read_bytes()
+    result = _rename(path)
+    assert result.structured_content["written"] is False and result.structured_content["diff"]
+    assert path.read_bytes() == before
+
+
+def test_rename_refusals_carry_the_engine_text(tmp_path):
+    path = _design_robot(tmp_path)
+    kind = _rename(path, kind="gizmo")
+    assert kind.is_error and "unknown rename kind 'gizmo'" in kind.content[0].text
+    clash = _rename(path, new_name="base")
+    assert clash.is_error and "There is already a link named 'base'." in clash.content[0].text
+
+
+def test_check_model_with_a_datasheet_mass_never_returns_the_login_name(tmp_path, monkeypatch):
+    import getpass
+    import os
+    import shutil
+
+    for read in (getpass, os):
+        monkeypatch.setattr(read, "getuser" if read is getpass else "getlogin", lambda: "zz-login")
+    monkeypatch.setenv("USER", "zz-login")
+    model = tmp_path / "so101.urdf"
+    shutil.copy(FIXTURES / "so101" / "so101.urdf", model)
+    sc = _call("check_model", {"path": str(model), "datasheet_mass": "0.7 kg"}).structured_content
+    assert sc["verdict"] == "NO-GO" and "zz-login" not in json.dumps(sc)
+
+
+def _param_robot(tmp_path):
+    path = _design_robot(tmp_path)
+    made = _call("add_param", _design_args(path, name="arm_len", value=0.3, min=0.1, max=0.5, apply=True))
+    assert not made.is_error, made.content
+    return path
+
+
+def _params(path):
+    from lockwire.schema import load_contract
+
+    return {p.name: p.value for p in load_contract(path).params}
+
+
+def test_design_new_tools_are_listed():
+    assert NEW_DESIGN_TOOLS <= _registered_tool_names()
+
+
+def test_design_set_dimension_is_a_proposal_until_applied(tmp_path):
+    path = _param_robot(tmp_path)
+    before = path.read_bytes()
+    args = _design_args(path, name="arm_len", value=0.4)
+    assert _call("set_dimension", args).structured_content["written"] is False
+    assert path.read_bytes() == before
+    assert _call("set_dimension", {**args, "apply": True}).structured_content["written"] is True
+    assert _params(path)["arm_len"] == 0.4
+
+
+def test_design_set_dimension_refuses_out_of_range_unknown_and_stale(tmp_path):
+    path = _param_robot(tmp_path)
+    before = path.read_bytes()
+    for more in ({"value": 0.9}, {"name": "nope"}, {"expected_revision": "0" * 64}):
+        args = _design_args(path, name="arm_len", value=0.4, apply=True) | more
+        result = _call("set_dimension", args)
+        assert result.is_error and "REFUSED" in result.content[0].text
+    assert path.read_bytes() == before
+
+
+def test_design_add_shape_puts_a_named_dimension_on_a_link(tmp_path):
+    path = _param_robot(tmp_path)
+    shape = {"kind": "cylinder", "radius": 0.02, "length": "arm_len"}
+    done = _call("add_shape", _design_args(path, link="arm", shape=shape, apply=True))
+    assert done.structured_content["written"] is True
+    from lockwire.schema import load_contract
+
+    arm = next(k for k in load_contract(path).model.links if k.name == "arm")
+    assert arm.geometry[0].param_names() == ["arm_len"]
+
+
+def test_design_add_shape_refuses_an_unknown_link(tmp_path):
+    path = _param_robot(tmp_path)
+    shape = {"kind": "sphere", "radius": 0.02}
+    result = _call("add_shape", _design_args(path, link="ghost", shape=shape, apply=True))
+    assert result.is_error and "no link 'ghost'" in result.content[0].text
+
+
+def test_design_attach_part_joins_a_catalog_part_at_the_given_frame(tmp_path):
+    path = _param_robot(tmp_path)
+    joint = {"type": "revolute", "axis": [0, 0, 1], "limits": {"lower": -1, "upper": 1}}
+    frame = {"xyz": [0.1, 0.0, "arm_len"], "rpy": [0, 0, 0]}
+    args = _design_args(path, parent="arm", part="dynamixel.ax-12a", joint=joint, frame=frame, name="servo")
+    assert _call("attach_part", args).structured_content["written"] is False
+    assert _call("attach_part", {**args, "apply": True}).structured_content["written"] is True
+    from lockwire.schema import load_contract
+
+    assert "servo" in [k.name for k in load_contract(path).model.links]
+    nofr = _call("attach_part", {**args, "frame": None, "apply": True, "name": "s2"})
+    assert nofr.is_error and "no offset is guessed" in nofr.content[0].text

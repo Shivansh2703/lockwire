@@ -1,15 +1,78 @@
-import type { Finding, PlanPayload, RobotJoint } from "../shared/api.gen";
+import { useEffect, useState } from "react";
+
+import type { Finding, MotionJoint, MotionPreview, PlanPayload, RobotJoint } from "../shared/api.gen";
 import { FindingList, findingItems, useSelection } from "./FindingList";
 import type { OnJump } from "./jump";
-import { Button, StatusPill, type Status } from "./kit";
+import { Button, Chart, StatusPill, type Status } from "./kit";
+import { formatValue } from "./kit/chartMath";
+import { angleNum, angleUnit, useUnits } from "./units";
 
-const STEP: Record<string, [Status, string]> = { PASS: ["go", "Pass"], FAIL: ["bad", "Fail"], UNSCORED: ["muted", "Not scored"], ERROR: ["bad", "Error"] };
+const STEP: Record<string, [Status, string]> = { PASS: ["go", "Pass"], FAIL: ["bad", "Fails"], UNSCORED: ["muted", "Not scored"], ERROR: ["bad", "Error"] };
 
 /** The step kind only ("plan/steps/0/rail_load/draw" -> "Rail load"), the same label everywhere. */
 const humanise = (path: string) => {
   const text = (path.split("/")[3] ?? path).replace(/[_-]/g, " ");
   return text.charAt(0).toUpperCase() + text.slice(1);
 };
+
+/** `rate`: 0 not an angle, 1 per second, 2 per second squared. The engine sends radians; the chart shows the chosen angle unit. */
+type Quantity = { key: "velocity" | "acceleration" | "torque"; title: string; yLabel: string; unit: string; rate: 0 | 1 | 2 };
+const QUANTITIES: Quantity[] = [
+  { key: "torque", title: "Torque needed", yLabel: "Torque", unit: "N·m", rate: 0 },
+  { key: "velocity", title: "Speed", yLabel: "Speed", unit: "rad/s", rate: 1 },
+  { key: "acceleration", title: "Acceleration", yLabel: "Acceleration", unit: "rad/s²", rate: 2 },
+];
+const limitOf = (j: MotionJoint, key: Quantity["key"]) => j[`${key}_limit`];
+const per = (q: Quantity) => (q.rate ? `${angleUnit()}${q.rate === 2 ? "/s²" : "/s"}` : q.unit);
+const asShown = (v: number, q: Quantity) => (q.rate ? Number(angleNum(v, true)) : v); // 3 decimals in rad, 1 in deg
+
+/** First sample, over all joints, whose value is past its own joint's limit, in words. */
+function firstCrossing(m: MotionPreview, q: Quantity): string {
+  for (let i = 0; i < m.time_s.length; i++) {
+    const j = m.joints.find((jt) => { const lim = limitOf(jt, q.key); return lim != null && jt[q.key][i]! > lim; });
+    if (j) return `${q.title} goes over its limit first at ${formatValue(m.time_s[i]!, "s")}: ${j.name} reaches ${formatValue(asShown(j[q.key][i]!, q), per(q))}, its limit is ${formatValue(asShown(limitOf(j, q.key)!, q), per(q))}.`;
+  }
+  return m.joints.some((j) => limitOf(j, q.key) != null) ? `${q.title} stays inside every limit.` : `No ${q.title.toLowerCase()} limit is declared.`;
+}
+
+/** The move as three charts against time, each joint's limit drawn in; a scrub bar marks "now" on all three.
+ * ponytail: this scrub does not pose the 3D robot; Design's Pose sliders do (POSE-1). */
+function MotionCharts({ motion }: { motion: MotionPreview }) {
+  useUnits();
+  const end = motion.time_s[motion.time_s.length - 1]!;
+  const [now, setNow] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => {
+    if (!playing) return;
+    const id = window.setInterval(() => setNow((t) => (t + end / 60 >= end ? (setPlaying(false), end) : t + end / 60)), 50);
+    return () => window.clearInterval(id);
+  }, [playing, end]);
+  return (
+    <section className="plan-motion" aria-label="How the move runs">
+      <p className="plan-total">The fastest move the limits allow, one step after another.</p>
+      <div className="plan-motion-controls">
+        <Button variant="quiet" onClick={() => { if (now >= end) setNow(0); setPlaying(!playing); }}>{playing ? "Pause" : "Play"}</Button>
+        <input type="range" aria-label="Move to a time" min={0} max={end} step={end / 120} value={now} onChange={(e) => { setPlaying(false); setNow(Number(e.target.value)); }} />
+        <span>{formatValue(now, "s")}</span>
+      </div>
+      {QUANTITIES.map((q) => (
+        <div key={q.key}>
+          <Chart
+            title={q.title}
+            xLabel="Time"
+            xUnit="s"
+            yLabel={q.yLabel}
+            series={motion.joints.map((j) => ({ id: j.name, label: j.name, unit: per(q), points: motion.time_s.map((t, i) => [t, asShown(j[q.key][i]!, q)] as [number, number]) }))}
+            limits={motion.joints.flatMap((j) => { const y = limitOf(j, q.key); return y == null ? [] : [{ y: asShown(y, q), label: `${j.name} limit`, kind: "max" as const }]; })}
+            bands={[{ from: now, to: now + end / 100, label: "Now" }]}
+            height={170}
+          />
+          <p className="plan-total">{firstCrossing(motion, q)}</p>
+        </div>
+      ))}
+    </section>
+  );
+}
 
 /** Plan result: finding rows like Check's, then one compact row per plan step. */
 export function PlanFace({
@@ -65,6 +128,7 @@ export function PlanFace({
           : row;
       })}
       {total && <p className="plan-total">{total}</p>}
+      {payload.motion && <MotionCharts motion={payload.motion} />}
     </>
   );
 }

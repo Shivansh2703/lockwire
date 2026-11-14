@@ -46,6 +46,7 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
+    PrivateAttr,
     model_validator,
 )
 from ruamel.yaml import YAML
@@ -57,9 +58,10 @@ from lockwire import fieldpath, units
 
 # 0.5: a URDF <axis/> with no xyz reads (1, 0, 0) per the URDF spec (0.4 and older read 0 0 1).
 # 0.6: format bump for the optional ``servo:`` field (same shape).
-SCHEMA_VERSION = "0.6"
-SUPPORTED_SCHEMA_VERSIONS = frozenset({"0.2", "0.3", "0.4", "0.5", SCHEMA_VERSION})
-_V04_ON = frozenset({"0.4", "0.5", SCHEMA_VERSION})  # versions with the 0.4 sections
+# 0.7: format bump for pin-to-pin wires and the optional rail (what changes meaning).
+SCHEMA_VERSION = "0.7"
+SUPPORTED_SCHEMA_VERSIONS = frozenset({"0.2", "0.3", "0.4", "0.5", "0.6", SCHEMA_VERSION})
+_V04_ON = frozenset({"0.4", "0.5", "0.6", SCHEMA_VERSION})  # versions with the 0.4 sections
 
 
 def _declared_version(document: Any) -> object:
@@ -392,7 +394,7 @@ class ReviewNote(Base):
 
 
 class Provenance(Base):
-    witness: str  # w0..w6 | live | human
+    witness: str | None = None  # w0..w6 | live | human; None: an anonymous edit (0.7 and later only)
     source: str  # file path, datasheet, bag id
     locked_at: dt.date
     bag_sha256: str | None = None  # keep raw bags; re-deriving later must be possible
@@ -409,6 +411,17 @@ class Provenance(Base):
     # Optional so a contract with none is written back with the key
     # absent, not `reviews: []` -- exclude_none in save_contract then drops it.
     reviews: list[ReviewNote] | None = None
+
+
+def _has_witnessless(node: object) -> bool:
+    """True when any Provenance below `node` names no witness."""
+    if isinstance(node, Provenance):
+        return node.witness is None
+    if isinstance(node, BaseModel):
+        return any(_has_witnessless(getattr(node, f)) for f in type(node).model_fields)
+    if isinstance(node, (list, tuple)):
+        return any(_has_witnessless(v) for v in node)
+    return isinstance(node, dict) and any(_has_witnessless(v) for v in node.values())
 
 
 class ArtifactRef(Base):
@@ -479,6 +492,17 @@ def read_artifact(ref: ArtifactRef, root: Path, *, max_bytes: int = MAX_CONTRACT
 # ---------------------------------------------------------------- Tier A: model
 
 
+MassKind = Literal["estimated", "calculated", "measured"]
+
+
+class Material(Base):
+    """What a link is made of; optional and additive."""
+
+    name: str
+    density_kg_m3: float = Field(gt=0)
+    source: str  # where the density comes from
+
+
 class PrincipalInertia(Base):
     """Principal moments + axes, never raw tensor elements (spec: frame trap)."""
 
@@ -490,6 +514,123 @@ class PrincipalInertia(Base):
     ]  # rows = unit eigenvectors in the link inertial frame (URDF: about COM)
 
 
+# A dimension is a number or the name of a declared Contract.params entry.
+Dimension = float | str
+
+
+def _ref(name: str) -> str:
+    """PARAM-NEG: a dimension string "-name" is minus the param ``name``."""
+    return name.removeprefix("-")
+
+
+class JointOrigin(Base):
+    """Joint pose in its parent link frame; consumed by URDF drift.
+
+    an element may name a declared param; the Contract validator resolves it in memory
+    (``_raw`` keeps the names for saving)."""
+
+    xyz: tuple[Dimension, Dimension, Dimension] = (0.0, 0.0, 0.0)
+    rpy: tuple[Dimension, Dimension, Dimension] = (0.0, 0.0, 0.0)
+    _raw: dict[str, Any] | None = PrivateAttr(default=None)
+
+    def param_names(self) -> list[str]:
+        raw = self._raw or {"xyz": self.xyz, "rpy": self.rpy}
+        return [_ref(d) for d in (*raw["xyz"], *raw["rpy"]) if isinstance(d, str)]
+
+
+class Hole(Base):
+    """One hole in a shape's frame (0.7 only). A size is a plain diameter, or a fastener
+    plus a fit (the diameter is read from the catalog hole-size table at read time, never saved)."""
+
+    xyz: tuple[Dimension, Dimension, Dimension]
+    axis: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    diameter_m: float | None = Field(default=None, gt=0)
+    fastener: str | None = None  # e.g. "M3"
+    fit: Literal["clearance", "tap"] | None = None
+    depth_m: float | None = Field(default=None, gt=0)  # None: through
+    _raw: dict[str, Any] | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _one_size(self) -> "Hole":
+        plain = self.diameter_m is not None and self.fastener is None and self.fit is None
+        by_fastener = self.diameter_m is None and self.fastener is not None and self.fit is not None
+        if not (plain or by_fastener):
+            raise ValueError("a hole needs either a diameter_m or a fastener with a fit, not both")
+        return self
+
+    def _row(self) -> dict | None:
+        if self.fastener is None:
+            return None
+        from lockwire.catalog import hole_size  # lazy: catalog imports schema
+
+        return hole_size(self.fastener, self.fit)
+
+    @property
+    def resolved_diameter_m(self) -> float | None:
+        row = self._row()
+        return self.diameter_m if self.fastener is None else row and row["diameter_m"]
+
+    @property
+    def resolved_fit_class(self) -> str | None:
+        row = self._row()
+        return row and row["fit_class"]
+
+    @property
+    def resolved_source(self) -> str | None:
+        row = self._row()
+        return row and row["source"]
+
+    @property
+    def diameter_note(self) -> str | None:
+        if self.fastener is None or self._row() is not None:
+            return None
+        return f"diameter not on record for {self.fastener} {self.fit}"
+
+    def param_names(self) -> list[str]:
+        raw = self._raw or {"xyz": self.xyz}
+        return [_ref(d) for d in raw["xyz"] if isinstance(d, str)]
+
+
+class Shape(Base):
+    """One geometry or collision primitive on a link (URDF <geometry> kinds)."""
+
+    kind: Literal["box", "cylinder", "sphere", "mesh"]
+    size: tuple[Dimension, Dimension, Dimension] | None = None  # box, metres
+    radius: Dimension | None = None  # cylinder, sphere; metres
+    length: Dimension | None = None  # cylinder; metres
+    mesh: str | None = None  # mesh file path
+    # Mesh units to metres, written by `add link` from an explicit mm/m/number (0.7 only).
+    scale: float | None = None
+    origin: JointOrigin | None = None
+    holes: list[Hole] | None = None  # 0.7 only
+    _raw: dict[str, Any] | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _scale_is_a_mesh_factor(self) -> "Shape":
+        if self.scale is None:
+            return self
+        if self.kind != "mesh":
+            raise ValueError("scale is only valid on a mesh shape")
+        if not math.isfinite(self.scale) or self.scale <= 0:
+            raise ValueError("a mesh scale must be a positive number")
+        return self
+
+    @model_validator(mode="after")
+    def _needs_its_dimensions(self) -> "Shape":
+        need = {"box": ("size",), "cylinder": ("radius", "length"), "sphere": ("radius",)}
+        for name in need.get(self.kind, ("mesh",)):
+            if getattr(self, name) is None:
+                raise ValueError(f"a {self.kind} shape needs {name}")
+        return self
+
+    def param_names(self) -> list[str]:
+        raw = self._raw or {"size": self.size, "radius": self.radius, "length": self.length}
+        dims = [*(raw["size"] or ()), raw["radius"], raw["length"]]
+        named = [_ref(d) for d in dims if isinstance(d, str)]
+        named += self.origin.param_names() if self.origin else []
+        return named + [n for h in self.holes or () for n in h.param_names()]
+
+
 class Link(Base):
     name: str
     mass: MassQuantity | None = None  # None -> zero-mass, flagged at check time
@@ -497,13 +638,26 @@ class Link(Base):
     frame: str | None = None
     inertia: PrincipalInertia | None = None
     payload: MassQuantity | None = None  # carried load at this link's origin; gravity reach
+    # tolerance group: optional and additive; None so old files save unchanged.
+    mass_kind: MassKind | None = None  # absent reads as "estimated" (effective_mass_kind)
+    mass_override: MassQuantity | None = None
+    material: Material | None = None
+    # shape group: optional and additive; the structure hash reads link names only.
+    geometry: list[Shape] | None = None
+    collision: list[Shape] | None = None
+    _derived: set[str] = PrivateAttr(default_factory=set)  # mass/com derived, never saved
 
+    @property
+    def effective_mass_kind(self) -> MassKind:
+        return self.mass_kind or "estimated"
 
-class JointOrigin(Base):
-    """Joint pose in its parent link frame; consumed by URDF drift."""
-
-    xyz: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    rpy: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    @property
+    def mass_note(self) -> str | None:
+        """The plain marker a derived mass must carry (None for a declared one)."""
+        if "mass" not in self._derived:
+            return None
+        source = self.material.source if self.material else "no source"
+        return f"derived from its shapes and material (density source: {source})"
 
 
 class JointLimits(Base):
@@ -517,6 +671,8 @@ class JointLimits(Base):
     upper_enforced_by: DeclaredEnforcement | None = None
     effort_enforced_by: DeclaredEnforcement | None = None
     velocity_enforced_by: DeclaredEnforcement | None = None
+    # Optional and additive; rad/s^2 for rotary joints, m/s^2 for prismatic joints.
+    acceleration: float | None = Field(default=None, gt=0)
 
     @property
     def effort_limit(self) -> float | None:
@@ -533,6 +689,14 @@ class JointLimits(Base):
         return self
 
 
+class Mimic(Base):
+    """URDF <mimic>: this joint = multiplier * joint + offset."""
+
+    joint: str  # -> Joint.name; not cross-checked
+    multiplier: float = 1.0
+    offset: float = 0.0
+
+
 class Joint(Base):
     """Kinematic joint consumed by joint-limit dependency edges and URDF drift."""
 
@@ -543,6 +707,8 @@ class Joint(Base):
     origin: JointOrigin = JointOrigin()
     axis: tuple[float, float, float] | None = None
     limits: JointLimits | None = None
+    # URDF structure, so it is in the hash; None keeps old hashes unchanged.
+    mimic: Mimic | None = None
 
     @model_validator(mode="after")
     def _ordered(self) -> "Joint":
@@ -560,13 +726,21 @@ class Joint(Base):
         return self
 
 
+_NOT_STRUCTURE = {"limits": {"acceleration"}}
+
+
 def _model_structure_hash(links: list[Link], joints: list[Joint]) -> str:
-    """Canonical v0.2 hash; axis and limits are load-bearing joint structure."""
+    """Canonical v0.2 hash; axis and limits (except acceleration) are load-bearing structure."""
 
     payload = {
         "links": sorted(link.name for link in links),
         "joints": sorted(
-            (joint.model_dump(mode="json", exclude_none=True) for joint in joints),
+            # Acceleration is a declared fact the URDF cannot carry: keep it out of the
+            # hash so declaring it is not structure drift.
+            (
+                joint.model_dump(mode="json", exclude_none=True, exclude=_NOT_STRUCTURE)
+                for joint in joints
+            ),
             key=lambda joint: joint["name"],
         ),
     }
@@ -583,7 +757,7 @@ class MeshRef(Base):
 
 
 class ModelRecord(Base):
-    source: str
+    source: str  # the model file path, or "lockfile" when links/joints live only here
     source_sha256: str
     # The `--xacro-arg name=value` pairs `start` expanded the model with; None when none were given.
     xacro_args: dict[str, str] | None = None
@@ -596,7 +770,8 @@ class ModelRecord(Base):
     links: list[Link] = []
     joints: list[Joint] = []  # dependency edges target limits; URDF drift consumes the full row
     zero_mass_links: list[str] = []
-    provenance: Provenance
+    provenance: Provenance | None = None  # None: an anonymous edit (0.7 and later only)
+    _zero_raw: list[str] | None = PrivateAttr(default=None)  # the stored list
 
     @model_validator(mode="after")
     def _unique_names(self) -> "ModelRecord":
@@ -641,12 +816,42 @@ class ModelRecord(Base):
 class Tolerance(Base):
     rel_pct: Annotated[float, Field(strict=True, ge=0, le=100)] | None = None  # percent, 0-100
     abs: Quantity | None = None
+    # tolerance band: absolute corners in the toleranced value's own unit; typ is the nominal.
+    min: float | None = None
+    typ: float | None = None
+    max: float | None = None
 
     @model_validator(mode="after")
     def _exactly_one(self) -> "Tolerance":
-        if (self.rel_pct is None) == (self.abs is None):
-            raise ValueError("tolerance needs exactly one of rel_pct / abs")
+        band = self.min is not None or self.max is not None
+        if [self.rel_pct is not None, self.abs is not None, band].count(True) != 1:
+            raise ValueError("tolerance needs exactly one of rel_pct / abs / min-max")
+        if self.typ is not None and not band:
+            raise ValueError("tolerance typ needs min or max")
+        given = [v for v in (self.min, self.typ, self.max) if v is not None]
+        if given != sorted(given):
+            raise ValueError("tolerance needs min <= typ <= max")
         return self
+
+
+def tolerance_corners(
+    value: float, tolerance: Tolerance, unit: str | None = None
+) -> tuple[float, float]:
+    """The (low, high) corners of a declared value under its tolerance, low first.
+
+    rel_pct and abs spread both ways around ``value`` (abs converted to ``unit`` when
+    given); a band's min/max are the corners themselves, ``value`` standing in for an
+    absent side.
+    """
+    if tolerance.rel_pct is not None:
+        spread = abs(value) * tolerance.rel_pct / 100.0
+    elif tolerance.abs is not None:
+        a = tolerance.abs
+        spread = units.convert(a.value, a.unit, unit) if unit else a.value
+    else:
+        low = value if tolerance.min is None else tolerance.min
+        return low, value if tolerance.max is None else tolerance.max
+    return value - spread, value + spread
 
 
 class DependencyEdge(Base):
@@ -660,6 +865,14 @@ class DependencyEdge(Base):
     tolerance: Tolerance
     code: list[str]  # repo paths that assume this quantity
     owner: str
+
+    @field_validator("tolerance")
+    @classmethod
+    def _scorable(cls, v: Tolerance) -> Tolerance:
+        # check_edge_tolerance scores rel_pct or abs only; a min/max band has no drift rule.
+        if v.rel_pct is None and v.abs is None:
+            raise ValueError("edge tolerance needs rel_pct or abs")
+        return v
 
     @field_validator("code")
     @classmethod
@@ -718,6 +931,33 @@ class Actuator(Base):
     torque_continuous: float | None = None
     torque_peak: float | None = None
     encoder_cpr: int | None = None
+    # motor group: optional and additive; absent -> nothing reads it. SI units.
+    terminal_resistance_ohm: float | None = Field(default=None, gt=0)
+    inductance_h: float | None = Field(default=None, gt=0)
+    kv_rpm_per_v: float | None = Field(default=None, gt=0)
+    kt_convention: Literal["trap", "sine"] | None = None  # commutation the kt figure assumes
+    rotor_inertia_kgm2: float | None = Field(default=None, gt=0)
+    viscous_friction: float | None = Field(default=None, ge=0)  # N*m*s/rad at the motor
+    coulomb_friction: float | None = Field(default=None, ge=0)  # N*m at the motor
+    no_load_speed_rad_s: float | None = Field(default=None, gt=0)
+    no_load_current_a: float | None = Field(default=None, gt=0)
+    stall_current_a: float | None = Field(default=None, gt=0)
+    peak_current_a: float | None = Field(default=None, gt=0)
+    continuous_current_a: float | None = Field(default=None, gt=0)
+    winding_thermal_resistance_k_per_w: float | None = Field(default=None, gt=0)
+    thermal_time_constant_s: float | None = Field(default=None, gt=0)
+    winding_temp_limit_c: float | None = None  # Celsius; any finite value
+    encoder_max_rate_hz: float | None = Field(default=None, gt=0)
+    # Optional tolerance per float above, keyed by its field name.
+    tolerances: dict[str, Tolerance] | None = None
+
+    @field_validator("tolerances")
+    @classmethod
+    def _known_floats(cls, v: dict[str, Tolerance] | None) -> dict[str, Tolerance] | None:
+        unknown = sorted(set(v or ()) - _ACTUATOR_FLOATS)
+        if unknown:
+            raise ValueError(f"tolerances name no actuator float field: {', '.join(unknown)}")
+        return v
 
     @field_validator(
         "gear_ratio",
@@ -744,6 +984,11 @@ class Actuator(Base):
                 f"torque_continuous ({self.torque_continuous})"
             )
         return self
+
+
+_ACTUATOR_FLOATS = frozenset(
+    name for name, f in Actuator.model_fields.items() if f.annotation == float | None
+)
 
 
 class InputVoltageRange(Base):
@@ -1096,6 +1341,14 @@ class Physical(Base):
     mount_xyz: tuple[LengthQuantity, LengthQuantity, LengthQuantity] | None = None
     """Device offset in ``mount_frame``; consumed by severity-free CG reporting."""
     mount_shape: MountShape | None = None
+    mount_rpy: tuple[float, float, float] | None = None  # Radians, beside mount_xyz
+    # tolerance group: optional and additive; None so old files save unchanged.
+    mass_kind: MassKind | None = None  # absent reads as "estimated" (effective_mass_kind)
+    mass_override: MassQuantity | None = None
+
+    @property
+    def effective_mass_kind(self) -> MassKind:
+        return self.mass_kind or "estimated"
 
     @model_validator(mode="after")
     def _mount_xyz_needs_a_frame(self) -> "Physical":
@@ -1193,7 +1446,7 @@ class SignalEnvelope(EnvelopeEvidence):
 
 
 class FittedBandEvidence(Base):
-    """Locked operands for the §5 fitted-band decision."""
+    """Locked operands for the fitted-band decision."""
 
     rank: int
     n_eff: int
@@ -1312,6 +1565,81 @@ class DeviceThermal(Base):
         return self
 
 
+# ---------------------------------------------------------------- connectors & pins
+
+# KiCad's electrical pin types, verbatim.
+KicadPinType = Literal[
+    "input",
+    "output",
+    "bidirectional",
+    "tri_state",
+    "passive",
+    "free",
+    "unspecified",
+    "power_in",
+    "power_out",
+    "open_collector",
+    "open_emitter",
+    "no_connect",
+]
+
+
+class ConnectorType(Base):
+    """one connector part in the library (top-level ``connector_types``); optional."""
+
+    id: str
+    family: str | None = None  # e.g. "JST-GH", "XT60"
+    gender: str | None = None  # e.g. "male", "female"
+    pitch_mm: float | None = Field(default=None, gt=0)
+    pin_count: int | None = Field(default=None, gt=0)
+    rated_current_a: float | None = Field(default=None, gt=0)  # per contact
+    contact_resistance_mohm: float | None = Field(default=None, gt=0)
+    pin_labels: list[str] | None = None
+    colours: list[str] | None = None
+
+
+class Pin(Base):
+    """one pin on an installed connector; optional and additive."""
+
+    number: int | str  # "1" or "A3"
+    name: str | None = None
+    functions: list[str] | None = None  # e.g. ["UART1_TX", "GPIO14"]
+    type: KicadPinType | None = None
+    direction: Literal["in", "out", "inout"] | None = None
+    voltage_v: float | None = None  # fixed level, V (0 for a ground pin)
+    voltage_range: InputVoltageRange | None = None  # or a min/max range, never both
+    vih: float | None = None  # input-high threshold, V
+    vil: float | None = None  # input-low threshold, V
+    voh: float | None = None  # output-high level, V
+    vol: float | None = None  # output-low level, V
+    max_current_ma: float | None = Field(default=None, gt=0)
+    capabilities: list[str] | None = None  # e.g. ["pwm", "adc"]
+    reserved: bool | None = None
+    reason: str | None = None  # why it is reserved; required when reserved is true
+    net: str | None = None
+    aliases: list[str] | None = None
+    os_device: str | None = None  # e.g. "/dev/ttyAMA0"
+
+    @model_validator(mode="after")
+    def _one_voltage_and_a_reason(self) -> "Pin":
+        if self.voltage_v is not None and self.voltage_range is not None:
+            raise ValueError(f"pin {self.number}: give voltage_v or voltage_range, not both")
+        if self.reserved and not (self.reason or "").strip():
+            raise ValueError(f"pin {self.number} is reserved: say why in reason")
+        return self
+
+
+class Connector(Base):
+    """a connector installed on a device; optional and additive."""
+
+    id: str
+    type: str | None = None  # -> ConnectorType.id; not cross-checked
+    placement: str | None = None  # where it sits, e.g. "left edge"
+    max_current_a: float | None = Field(default=None, gt=0)  # whole connector
+    shared_budget_group: str | None = None  # connectors sharing one current budget
+    pins: list[Pin] | None = None
+
+
 class DeviceInstance(Base):
     """Local facts; identity is optional for devices that do not sit on a data bus.
 
@@ -1333,6 +1661,12 @@ class DeviceInstance(Base):
     provenance: Provenance | None = None
     thermal: DeviceThermal | None = None  # installed RθJA + ambient; thermal-budget check
     link_budget: LinkBudget | None = None  # mission RF requirements + installed antennas
+    # Connector group: optional and additive; absent -> nothing reads it.
+    connectors: list[Connector] | None = None
+    gpio_total_ma: float | None = Field(default=None, gt=0)  # all GPIO together, mA
+    power_inputs: list[str] | None = None  # -> Connector.id(s) that feed the device power
+    radio_on: bool | None = None  # its radio transmits when powered
+    kicad_project: str | None = None  # path to the device's KiCad project
 
 
 # ---------------------------------------------------------------- topology & budgets
@@ -1393,6 +1727,11 @@ class Bus(Base):
     provenance: Provenance | None = None
     i2c_segment: I2CSegment | None = None
     can_segment: CANSegment | None = None
+    # electrical group: optional and additive; absent -> nothing reads it.
+    phy: str | None = None  # physical layer, e.g. "rs485", "ttl", "can-hs"
+    length_m: float | None = Field(default=None, gt=0)  # cable run, metres
+    protocol: str | None = None  # wire protocol on the bus, e.g. "dynamixel2"
+    twisted: bool | None = None  # twisted-pair cabling
 
     @field_validator("bitrate")
     @classmethod
@@ -1419,6 +1758,14 @@ class Rail(Base):
     )
     charged_by: str | None = None  # -> Device.id of an alternator/generator feeding this rail
     provenance: Provenance | None = None
+    # electrical group: optional and additive; absent -> nothing reads it.
+    source_device: str | None = None  # -> Device.id of the regulator/supply making this rail
+    regulator_kind: str | None = None  # e.g. "ldo", "buck", "boost"
+    dropout_v: float | None = Field(default=None, gt=0)  # regulator dropout, V
+    min_input_v: float | None = Field(default=None, gt=0)  # lowest input the regulator holds at, V
+    capacitance_f: float | None = Field(default=None, gt=0)  # bulk capacitance on the rail, F
+    accepts_regen: bool | None = None  # rail can absorb regenerated current
+    thermal_resistance_k_per_w: float | None = Field(default=None, gt=0)  # regulator theta, K/W
 
     @field_validator("capacity")
     @classmethod
@@ -1475,6 +1822,13 @@ class CapacityDerating(Base):
         return v
 
 
+class OcvPoint(Base):
+    """One open-circuit-voltage point: pack voltage at a state of charge."""
+
+    soc_pct: float = Field(ge=0, le=100)
+    voltage_v: float = Field(gt=0)
+
+
 class Battery(Base):
     """Pack facts consumed by endurance and rail-voltage consistency checks."""
 
@@ -1498,6 +1852,13 @@ class Battery(Base):
     charger_current: CurrentQuantity | None = None  # charger's charge current
     charger_float: bool | None = None  # charger holds a float / trickle charge when full
     cutoff_voltage: VoltageQuantity | None = None  # BMS or ESC low-voltage cutoff, whole pack
+    # electrical group: optional and additive like the chemistry group.
+    cells_parallel: int | None = Field(default=None, gt=0)
+    reserve_pct: float | None = Field(default=None, ge=0, lt=100)  # capacity held back, %
+    ocv_curve: list[OcvPoint] | None = None  # open-circuit voltage vs state of charge
+    r1_mohm: float | None = Field(default=None, gt=0)  # RC-model polarisation resistance, mOhm
+    c1_f: float | None = Field(default=None, gt=0)  # RC-model polarisation capacitance, F
+    regen_current_max_a: float | None = Field(default=None, gt=0)  # max charge current from regen
 
     @field_validator("charger_voltage", "charger_current", "cutoff_voltage")
     @classmethod
@@ -1505,6 +1866,14 @@ class Battery(Base):
         if v is not None and v.base() <= 0:
             raise ValueError("must be greater than 0")
         return v
+
+
+class WireEnd(Base):
+    """one end of a wire: a device, optionally a connector on it, and a pin."""
+
+    device: str  # -> DeviceInstance.id; not cross-checked
+    connector: str | None = None  # -> Connector.id on that device
+    pin: int | str  # -> Pin.number
 
 
 class Wire(Base):
@@ -1520,18 +1889,42 @@ class Wire(Base):
     """
 
     id: str
-    awg: int  # American Wire Gauge (positive integer sizes; e.g. 16)
-    installation: Literal["free_air", "enclosed"]  # no default — required at validation
+    awg: int | None = None  # American Wire Gauge; required when the wire names a rail
+    installation: Literal["free_air", "enclosed"] | None = None  # no default; required with a rail
     connector: Literal["xt60", "jst-xh"] | None = None  # additive; maker-rated current check
-    rail: str  # -> Rail.id; computed draw is the rolled-up load on this rail
+    rail: str | None = None  # -> Rail.id; a signal wire has none and uses from/to
     draw_mode: str = "nominal"  # retained; ampacity evaluates worst declared mode
     owner: str
     provenance: Provenance | None = None
+    # electrical group: optional and additive; absent -> nothing reads it.
+    length_m: float | None = Field(default=None, gt=0)  # conductor run, metres
+    net_class: str | None = None  # e.g. "power", "motor", "logic"
+    # Connector group: optional and additive; absent -> nothing reads it.
+    from_: WireEnd | None = Field(default=None, alias="from")
+    to: WireEnd | None = None
+    net: str | None = None
+    cable: str | None = None  # the cable or harness this conductor runs in
+    colour: str | None = None
+    shielded: bool | None = None
+
+    model_config = ConfigDict(serialize_by_alias=True, validate_by_name=True)
+
+    @model_validator(mode="after")
+    def _rail_or_both_ends(self) -> "Wire":
+        if (self.from_ is None) != (self.to is None):
+            raise ValueError(f"wire {self.id!r} needs both from and to, or neither")
+        if self.rail is None and self.from_ is None:
+            raise ValueError(f"wire {self.id!r} has no rail and no from/to pins: give it one")
+        if self.rail is not None:
+            for name in ("awg", "installation"):
+                if getattr(self, name) is None:
+                    raise ValueError(f"wire {self.id!r} names a rail, so it needs {name}")
+        return self
 
     @field_validator("awg")
     @classmethod
-    def _positive_awg(cls, v: int) -> int:
-        if v <= 0:
+    def _positive_awg(cls, v: int | None) -> int | None:
+        if v is not None and v <= 0:
             raise ValueError(f"awg must be a positive gauge number, got {v}")
         return v
 
@@ -1543,13 +1936,77 @@ class Wire(Base):
         return v
 
 
+class Protection(Base):
+    """A fuse, breaker, TVS diode or reverse-polarity guard; optional and additive."""
+
+    id: str
+    kind: Literal["fuse", "breaker", "tvs", "reverse_polarity"]
+    rating_a: float | None = Field(default=None, gt=0)  # trip/blow current, A
+    curve: str | None = None  # trip curve, e.g. "fast", "slow", "C"
+    i2t_a2s: float | None = Field(default=None, gt=0)  # melting I2t, A2s
+    v_standoff_v: float | None = Field(default=None, gt=0)  # TVS standoff, V
+    v_clamp_v: float | None = Field(default=None, gt=0)  # TVS clamp, V
+    protects: list[str] | None = None  # -> Rail.id / Wire.id / Device.id it guards
+
+
+class Pulley(Base):
+    """One belt pulley; names the link or joint it sits on (at most one)."""
+
+    pulley_teeth: int = Field(gt=0)
+    link: str | None = None
+    joint: str | None = None
+
+    @model_validator(mode="after")
+    def _one_seat(self) -> "Pulley":
+        if self.link is not None and self.joint is not None:
+            raise ValueError("a pulley sits on a link or a joint, not both")
+        return self
+
+
+class Belt(Base):
+    """A belt drive; the belt-length check reads it, pitch comes from the profile catalog.
+
+    ``center_distance_m`` may name a declared param (resolved in memory, ``_raw`` keeps it)."""
+
+    id: str
+    driver: Pulley
+    driven: Pulley
+    profile: str = Field(min_length=1)  # e.g. "GT2"
+    center_distance_m: Dimension
+    length_m: float | None = Field(default=None, gt=0)
+    teeth: int | None = Field(default=None, gt=0)
+    provenance: Provenance | None = None
+    _raw: dict[str, Any] | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _centre_positive(self) -> "Belt":
+        if not isinstance(self.center_distance_m, str) and self.center_distance_m <= 0:
+            raise ValueError("belt center_distance_m must be positive")
+        return self
+
+    def param_names(self) -> list[str]:
+        value = (self._raw or {"center_distance_m": self.center_distance_m})["center_distance_m"]
+        return [_ref(value)] if isinstance(value, str) else []
+
+
 class Topology(Base):
     hosts: list[Host] = []
     buses: list[Bus] = []
     logic_pairs: list[LogicPair] = []
     rails: list[Rail] = []
     wires: list[Wire] = []
+    protection: list[Protection] | None = None  # None so old files save unchanged
     battery: Battery | None = None
+    belts: list[Belt] | None = None  # None so old files save unchanged
+
+    @field_validator("belts")
+    @classmethod
+    def _unique_belt_ids(cls, belts: list[Belt] | None) -> list[Belt] | None:
+        ids = [b.id for b in belts or []]
+        dupes = sorted({i for i in ids if ids.count(i) > 1})
+        if dupes:
+            raise ValueError(f"duplicate belt id(s): {', '.join(dupes)}")
+        return belts
 
 
 class Budget(Base):
@@ -3419,6 +3876,7 @@ class Gearbox(Base):
     input_joint: str
     output_joint: str
     provenance: Provenance | None = None
+    efficiency: float | None = Field(default=None, gt=0, le=1)  # optional and additive
 
     @field_validator("ratio")
     @classmethod
@@ -3441,6 +3899,9 @@ class PrintedLink(Base):
     height_mm: float | None = Field(default=None, gt=0)
     diameter_mm: float | None = Field(default=None, gt=0)
     threadlocker: bool | None = None  # additive; anaerobic threadlocker used on this part's screws
+    printer: str | None = (
+        None  # additive; name of the printer this part is printed on (bed-fit check)
+    )
 
     @field_validator("material")
     @classmethod
@@ -3455,6 +3916,252 @@ class PrintedLink(Base):
         if box == (self.diameter_mm is not None) or (not box and (self.width_mm or self.height_mm)):
             raise ValueError("needs width_mm+height_mm (box) or diameter_mm (round)")
         return self
+
+
+class JointController(Base):
+    """One joint's servo loop gains and rates; optional and additive."""
+
+    joint: str  # -> Joint.name; not cross-checked
+    kp: float | None = Field(default=None, ge=0)
+    ki: float | None = Field(default=None, ge=0)
+    kd: float | None = Field(default=None, ge=0)
+    loop_rate_hz: float | None = Field(default=None, gt=0)  # position loop
+    velocity_loop_hz: float | None = Field(default=None, gt=0)
+    current_loop_hz: float | None = Field(default=None, gt=0)
+
+
+class MobileBase(Base):
+    """Wheeled-base facts; optional and additive."""
+
+    wheel_radius_m: float | None = Field(default=None, gt=0)
+    track_width_m: float | None = Field(default=None, gt=0)
+    tyre_friction_mu: float | None = Field(default=None, ge=0)
+    rolling_resistance: float | None = Field(default=None, ge=0)  # coefficient, dimensionless
+
+
+class SupportContact(Base):
+    """A declared support point overriding the auto-found ones; optional and additive."""
+
+    link: str  # -> Link.name; not cross-checked
+    xyz: tuple[float, float, float]  # metres, in the link frame
+
+
+class Assertion(Base):
+    """A channel on an instance must stay inside a band over a window; optional."""
+
+    id: str
+    instance: str  # -> DeviceInstance.id; not cross-checked
+    channel: str
+    band: Band
+    window_s: float = Field(gt=0)
+
+
+class ModeTransition(Base):
+    model_config = ConfigDict(serialize_by_alias=True)
+
+    from_: str = Field(alias="from")
+    to: str
+
+
+class Modes(Base):
+    """The robot's operating states and allowed transitions; optional and additive."""
+
+    states: list[str]
+    transitions: list[ModeTransition] | None = None
+    safe: list[str] | None = None  # the safe state(s); not cross-checked
+
+    @model_validator(mode="after")
+    def _transitions_name_states(self) -> "Modes":
+        named = {n for t in self.transitions or () for n in (t.from_, t.to)}
+        undeclared = sorted(named - set(self.states))
+        if undeclared:
+            raise ValueError(f"transition names undeclared state(s): {', '.join(undeclared)}")
+        return self
+
+
+class StoChannel(Base):
+    """one safe-torque-off channel and the device that takes it."""
+
+    id: str
+    kind: Literal["STO1", "STO2"]
+    device: str  # -> DeviceInstance.id; not cross-checked
+    connector: str | None = None  # -> Connector.id on that device, like WireEnd
+    pin: int | str | None = None  # -> Pin.number
+
+
+class Safety(Base):
+    """emergency-stop facts; optional and additive."""
+
+    estop_category: Literal[0, 1, 2] | None = None  # IEC 60204-1 stop category
+    channels: list[StoChannel] | None = None
+
+
+class Param(Base):
+    """A named design number (customizer style); shapes use it by name."""
+
+    name: str
+    value: float
+    unit: str | None = None
+    min: float | None = None
+    max: float | None = None
+    step: float | None = Field(default=None, gt=0)
+    provenance: Provenance | None = None
+
+    @model_validator(mode="after")
+    def _in_range(self) -> "Param":
+        given = [v for v in (self.min, self.value, self.max) if v is not None]
+        if given != sorted(given):
+            raise ValueError(f"param {self.name!r} needs min <= value <= max")
+        return self
+
+
+class CollisionPair(Base):
+    """Two links never collision-checked against each other (SRDF disable_collisions)."""
+
+    link1: str  # -> Link.name; not cross-checked
+    link2: str
+    reason: str
+
+
+class Group(Base):
+    """A named set of links and devices selected, moved, hidden and deleted together (0.7 only)."""
+
+    name: str
+    members: list[str]  # link names or device ids; no mass, inertia or joint changes
+
+    @field_validator("members")
+    @classmethod
+    def _has_members(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("a group needs at least one member")
+        return v
+
+
+class Pattern(Base):
+    """A circular or linear pattern of one link; the copies are ordinary links and joints."""
+
+    id: str
+    kind: Literal["circular", "linear"]
+    of: str  # -> Link.name, the seed; not cross-checked
+    count: int = Field(ge=2)
+    axis: tuple[float, float, float]
+    angle_deg: float | None = None  # circular; absent reads as 360 / count
+    pitch_m: float | None = None  # linear, required
+    joint_type: str | None = None
+
+    @model_validator(mode="after")
+    def _shape(self) -> "Pattern":
+        if not any(self.axis):
+            raise ValueError(f"pattern {self.id!r} needs a non-zero axis")
+        if self.kind == "linear" and self.pitch_m is None:
+            raise ValueError(f"linear pattern {self.id!r} needs pitch_m")
+        return self
+
+
+class Variant(Base):
+    """A named set of param overrides; `check` runs the design once per variant."""
+
+    name: str
+    params: dict[str, float]
+    note: str | None = None
+
+
+_SHAPE_DIMS = {"size": "length", "radius": "length", "length": "length"}
+_ORIGIN_DIMS = {"xyz": "length", "rpy": "angle"}
+_BELT_DIMS = {"center_distance_m": "length"}
+
+
+def _param_value(name: str, dimension: str, params: dict[str, Param], where: str) -> float:
+    """A param as a number in the field's own unit (metres or radians); unitless is already it."""
+    param = params[name]
+    if param.unit is None:
+        return param.value
+    if units.dimension(param.unit) != dimension:
+        raise ValueError(
+            f"{where} uses param {name!r}, whose unit {param.unit!r} is not a {dimension}"
+        )
+    return units.to_base(param.value, param.unit)
+
+
+def _resolve_fields(obj: Any, dims: dict[str, str], params: dict[str, Param], where: str) -> bool:
+    """Put param values in place of names on one Shape/JointOrigin, from its saved raw names so a
+    rerun after a param change picks the new value. True when it holds any name."""
+    raw = obj._raw or {field: getattr(obj, field) for field in dims}
+
+    def one(value: Any, dimension: str) -> Any:
+        if not isinstance(value, str):
+            return value
+        number = _param_value(_ref(value), dimension, params, where)
+        return -number if value.startswith("-") else number
+
+    out = {}
+    for field, dimension in dims.items():
+        value = raw[field]
+        out[field] = (
+            tuple(one(v, dimension) for v in value)
+            if isinstance(value, tuple)
+            else one(value, dimension)
+        )
+    named = any(
+        isinstance(v, str)
+        for value in raw.values()
+        for v in (value if isinstance(value, tuple) else (value,))
+    )
+    if named:
+        obj._raw = raw
+        for field, value in out.items():
+            object.__setattr__(obj, field, value)
+    return named
+
+
+def _resolve_shape(shape: Shape, params: dict[str, Param], where: str) -> bool:
+    named = _resolve_fields(shape, _SHAPE_DIMS, params, where)
+    if shape.origin is not None:
+        named |= _resolve_fields(shape.origin, _ORIGIN_DIMS, params, where)
+    for hole in shape.holes or ():
+        named |= _resolve_fields(hole, {"xyz": "length"}, params, where)
+    return named
+
+
+def _restore_names(obj: Any) -> None:
+    for field, value in (obj._raw or {}).items():
+        object.__setattr__(obj, field, value)
+
+
+def mass_derivation(link: Link) -> tuple[float, tuple[float, float, float]] | str | None:
+    """(mass kg, CoM in the link frame) from the link's resolved geometry x its material
+    density; a "mass not derived: why" line when it cannot be; None when there is nothing to
+    derive (a mass is declared, or no geometry). Never a guess: a mesh or a missing density
+    gives the reason, not a number."""
+    if link.mass is not None or link.mass_override is not None or not link.geometry:
+        return None
+    if link.effective_mass_kind != "estimated":
+        return (
+            f"mass not derived: mass kind is {link.mass_kind}, so the mass is the owner's to give"
+        )
+    if link.material is None:
+        return "mass not derived: no material density"
+    if link.frame not in (None, link.name):
+        return "mass not derived: the link is described in another frame"
+    parts = []
+    for shape in link.geometry:
+        if shape.kind == "mesh":
+            return "mass not derived: a mesh shape has no known volume"
+        dims = [*(shape.size or ()), shape.radius, shape.length]
+        if any(isinstance(d, str) for d in dims):
+            return "mass not derived: a dimension names a param that is not resolved"
+        if shape.kind == "box":
+            volume = math.prod(shape.size)  # type: ignore[arg-type]
+        elif shape.kind == "cylinder":
+            volume = math.pi * shape.radius**2 * shape.length  # type: ignore[operator]
+        else:
+            volume = 4 / 3 * math.pi * shape.radius**3  # type: ignore[operator]
+        parts.append((volume, shape.origin.xyz if shape.origin else (0.0, 0.0, 0.0)))
+    total = sum(v for v, _ in parts)
+    if not total > 0:
+        return "mass not derived: the geometry has no volume"
+    com = tuple(sum(v * xyz[i] for v, xyz in parts) / total for i in range(3))
+    return total * link.material.density_kg_m3, com  # type: ignore[return-value]
 
 
 class Contract(Base):
@@ -3483,6 +4190,79 @@ class Contract(Base):
     printed: dict[str, PrintedLink] | None = None
     # Additive, like `servo`: flight-controller failsafe parameters (Check Pack 3).
     autopilot: Autopilot | None = None
+    # actuator facts, additive like `autopilot`: None so old files save unchanged.
+    controllers: list[JointController] | None = None
+    base: MobileBase | None = None
+    contacts: list[SupportContact] | None = None
+    # tolerances, additive: None so old files save unchanged.
+    assertions: list[Assertion] | None = None
+    modes: Modes | None = None
+    # Connector fields, additive: None so old files save unchanged.
+    connector_types: list[ConnectorType] | None = None
+    safety: Safety | None = None
+    # shape facts, additive: None so old files save unchanged.
+    params: list[Param] | None = None
+    collision_pairs: list[CollisionPair] | None = None
+    # Additive: None so old files save unchanged.
+    patterns: list[Pattern] | None = None
+    # Additive: None so old files save unchanged.
+    variants: list[Variant] | None = None
+    active_variant: str | None = None
+    # Additive (0.7 only): None so old files save unchanged. No check reads it.
+    groups: list[Group] | None = None
+    # True once a param name was resolved in memory (to_file_data then restores names).
+    _resolved: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="after")
+    def _params_declared(self) -> "Contract":
+        names = [p.name for p in self.params or []]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate param name(s): {', '.join(duplicates)}")
+        for link in self.model.links if self.model else []:
+            for shape in [*(link.geometry or []), *(link.collision or [])]:
+                for name in shape.param_names():
+                    if name not in names:
+                        raise ValueError(
+                            f"link {link.name!r} uses param {name!r}, which params does not declare"
+                        )
+        for joint in self.model.joints if self.model else []:
+            for name in joint.origin.param_names():
+                if name not in names:
+                    raise ValueError(
+                        f"joint {joint.name!r} uses param {name!r}, which params does not declare"
+                    )
+        for belt in self.topology.belts or [] if self.topology else []:
+            for name in belt.param_names():
+                if name not in names:
+                    raise ValueError(
+                        f"belt {belt.id!r} uses param {name!r}, which params does not declare"
+                    )
+        return self
+
+    @model_validator(mode="after")
+    def _variants_declared(self) -> "Contract":
+        declared = {p.name for p in self.params or []}
+        names = [v.name for v in self.variants or []]
+        if len(set(names)) != len(names):
+            raise ValueError("duplicate variant name(s)")
+        for variant in self.variants or []:
+            for name in variant.params:
+                if name not in declared:
+                    raise ValueError(
+                        f"variant {variant.name!r} sets param {name!r}, which params does not declare"
+                    )
+        by_name = {p.name: p for p in self.params or []}
+        for variant in self.variants or []:
+            for name, value in variant.params.items():
+                p = by_name[name]
+                if (p.min is not None and value < p.min) or (p.max is not None and value > p.max):
+                    raise ValueError(
+                        f"variant {variant.name!r} sets param {name!r} to {value:g}, outside its range {p.min} to {p.max}"
+                    )
+        if self.active_variant is not None and self.active_variant not in names:
+            raise ValueError(f"active_variant {self.active_variant!r} is not a declared variant")
+        return self
 
     @model_validator(mode="after")
     def _unique_ids(self) -> "Contract":
@@ -3582,8 +4362,73 @@ class Contract(Base):
         if self.printed and legacy and not (info.context or {}).get("upgrading"):
             raise ValueError(
                 f"printed: needs lockfile format 0.6 or later (this file is "
-                f"{self.schema_version}); `lockwire upgrade` writes a 0.6 copy"
+                f"{self.schema_version}); `lockwire upgrade` writes a 0.7 copy"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _anonymous_model_needs_07(self) -> "Contract":
+        if self.model is not None and self.model.provenance is None and self.schema_version != SCHEMA_VERSION:
+            raise ValueError(
+                f"model without provenance needs lockfile format {SCHEMA_VERSION} "
+                f"(this file is {self.schema_version})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _witnessless_needs_07(self) -> "Contract":
+        if self.schema_version != SCHEMA_VERSION and _has_witnessless(self):
+            raise ValueError(
+                f"a provenance without a witness needs lockfile format {SCHEMA_VERSION} "
+                f"(this file is {self.schema_version})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _mesh_scale_needs_07(self) -> "Contract":
+        links = self.model.links if self.model is not None else []
+        shapes = [s for link in links for s in (*(link.geometry or ()), *(link.collision or ()))]
+        if self.schema_version != SCHEMA_VERSION and any(s.scale is not None for s in shapes):
+            raise ValueError(
+                f"a mesh scale needs lockfile format {SCHEMA_VERSION} "
+                f"(this file is {self.schema_version})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _holes_need_07(self) -> "Contract":
+        links = self.model.links if self.model is not None else []
+        shapes = [s for link in links for s in (*(link.geometry or ()), *(link.collision or ()))]
+        if self.schema_version != SCHEMA_VERSION and any(s.holes is not None for s in shapes):
+            raise ValueError(
+                f"holes need lockfile format {SCHEMA_VERSION} "
+                f"(this file is {self.schema_version})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _valid_groups(self) -> "Contract":
+        if not self.groups:
+            return self
+        if self.schema_version != SCHEMA_VERSION:
+            raise ValueError(
+                f"groups need lockfile format {SCHEMA_VERSION} (this file is {self.schema_version})"
+            )
+        names = [g.name for g in self.groups]
+        if dup := sorted({n for n in names if names.count(n) > 1}):
+            raise ValueError(f"duplicate group name(s): {', '.join(dup)}")
+        parts = {x.name for x in self.model.links} if self.model else set()
+        parts |= {d.id for d in self.devices}
+        owner: dict[str, str] = {}
+        for g in self.groups:
+            for m in g.members:
+                if m not in parts:
+                    raise ValueError(f"group {g.name!r} names {m!r}, which is no link or device")
+                if m in owner:
+                    raise ValueError(
+                        f"{m!r} is already in group {owner[m]!r}; it cannot also be in {g.name!r}"
+                    )
+                owner[m] = g.name
         return self
 
     @model_validator(mode="after")
@@ -3593,7 +4438,7 @@ class Contract(Base):
         if legacy and not upgrading and any(m.thrust_table for m in self.device_models):
             raise ValueError(
                 f"device_models thrust_table needs lockfile format 0.6 or later (this file is "
-                f"{self.schema_version}); `lockwire upgrade` writes a 0.6 copy"
+                f"{self.schema_version}); `lockwire upgrade` writes a 0.7 copy"
             )
         return self
 
@@ -3692,6 +4537,82 @@ class Contract(Base):
             else:
                 raise KeyError(f"{path!r}: {seg!r} reached a leaf")
         return node
+
+    @model_validator(mode="after")
+    def _resolve_params(self) -> "Contract":
+        """Param names in shapes and joint origins become numbers, in memory only."""
+        params = {p.name: p for p in self.params or []}
+        named = False
+        for belt in self.topology.belts or [] if self.topology else []:
+            where = f"belt {belt.id!r}"
+            named |= _resolve_fields(belt, _BELT_DIMS, params, where)
+            if belt.center_distance_m <= 0:
+                raise ValueError(f"{where} center_distance_m must be positive")
+        if self.model is None:
+            self._resolved = named
+            return self
+        for link in self.model.links:
+            where = f"link {link.name!r}"
+            for shape in [*(link.geometry or []), *(link.collision or [])]:
+                named |= _resolve_shape(shape, params, where)
+        for joint in self.model.joints:
+            named |= _resolve_fields(joint.origin, _ORIGIN_DIMS, params, f"joint {joint.name!r}")
+        derived = self._derive_masses()
+        self._resolved = named or derived
+        return self
+
+    def _derive_masses(self) -> bool:
+        """Fill an undeclared estimated link's mass and CoM from its geometry; memory only."""
+        model = self.model
+        if model._zero_raw is not None:  # type: ignore[union-attr]
+            object.__setattr__(model, "zero_mass_links", model._zero_raw)  # type: ignore[union-attr]
+            model._zero_raw = None  # type: ignore[union-attr]
+        done: list[str] = []
+        for link in model.links:  # type: ignore[union-attr]
+            for field in link._derived:
+                object.__setattr__(link, field, None)
+            link._derived = set()
+            got = mass_derivation(link)
+            if isinstance(got, tuple):
+                object.__setattr__(link, "mass", Quantity(value=got[0], unit="kg"))
+                link._derived = {"mass"}
+                if link.com is None:
+                    object.__setattr__(link, "com", got[1])
+                    link._derived.add("com")
+                done.append(link.name)
+        if set(done) & set(model.zero_mass_links):  # type: ignore[union-attr]
+            model._zero_raw = list(model.zero_mass_links)  # type: ignore[union-attr]
+            kept = [n for n in model.zero_mass_links if n not in done]  # type: ignore[union-attr]
+            object.__setattr__(model, "zero_mass_links", kept)
+        return bool(done)
+
+    def to_file_data(self, **dump: Any) -> dict[str, Any]:
+        """The dump to persist: param names back where they were written (the one place save
+        and revalidate both go through, so a round trip never turns resolved numbers into
+        declared ones)."""
+        source = self
+        if self._resolved:
+            source = self.model_copy(deep=True)
+            for belt in source.topology.belts or [] if source.topology else []:
+                _restore_names(belt)
+        if self._resolved and self.model is not None:
+            if source.model._zero_raw is not None:  # type: ignore[union-attr]
+                object.__setattr__(source.model, "zero_mass_links", source.model._zero_raw)
+            for link in source.model.links:  # type: ignore[union-attr]
+                for field in link._derived:
+                    object.__setattr__(link, field, None)
+                for shape in [*(link.geometry or []), *(link.collision or [])]:
+                    _restore_names(shape)
+                    if shape.origin is not None:
+                        _restore_names(shape.origin)
+                    for hole in shape.holes or ():
+                        _restore_names(hole)
+            for joint in source.model.joints:  # type: ignore[union-attr]
+                _restore_names(joint.origin)
+        return source.model_dump(**dump)
+
+    def revalidate(self) -> Self:
+        return type(self).model_validate(self.to_file_data(mode="python"))
 
 
 # ---------------------------------------------------------------- io
@@ -3918,10 +4839,10 @@ def upgrade_contract_text(text: str) -> str:
     if not isinstance(data, dict):
         raise ValueError("contract document must be a mapping")
     proposed = upgrade_contract_document(data)
-    if _declared_version(data) == "0.5":  # same shape, so edit the version line only
+    if _declared_version(data) in {"0.5", "0.6"}:  # same shape, so edit the version line only
         edited, count = re.subn(
-            r"^(schema_version:[ \t]*[\"']?)0\.5(?=[\"']?[ \t]*(?:#[^\r\n]*)?\r?$)",  # CRLF too
-            r"\g<1>0.6",
+            r"^(schema_version:[ \t]*[\"']?)0\.[56](?=[\"']?[ \t]*(?:#[^\r\n]*)?\r?$)",  # CRLF too
+            r"\g<1>0.7",
             text,
             count=1,
             flags=re.MULTILINE,
@@ -3938,7 +4859,7 @@ def upgrade_contract_text(text: str) -> str:
 
 def save_contract(contract: Contract, path: Path) -> None:
     """Write a fresh dump atomically (temp file + replace); comments are not kept."""
-    data: Any = contract.model_dump(mode="json", exclude_none=True)
+    data: Any = contract.to_file_data(mode="json", exclude_none=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:

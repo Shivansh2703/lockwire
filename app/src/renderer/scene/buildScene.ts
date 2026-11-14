@@ -8,9 +8,12 @@
  * `decodePackedIndices` (./decode.ts) do it. `translation` on a part is a label-placement
  * origin (docs/wire-format.md) and is never applied to the mesh's geometry or transform.
  */
+import { typing } from "../shortcuts";
+import { getViewState } from "./viewState";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
+import type { RobotLink } from "../../shared/api.gen";
 import {
   decodePackedIndices,
   decodePackedVectors,
@@ -41,6 +44,8 @@ export interface SceneContext {
   inset?: ViewInset;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
+  /** GAP-views: made the first time the flat view is switched on; see `activeCamera`. */
+  orthoCamera?: THREE.OrthographicCamera;
   controls: OrbitControls;
   renderer: THREE.WebGLRenderer;
   /** Owned exclusively by `handleResize` below — in CSS pixels, matching `LineMaterial`'s
@@ -84,11 +89,11 @@ export function applyViewInset(ctx: SceneContext, inset: ViewInset, width: numbe
 }
 
 /** Fit the whole robot in the open area (the initial framing, again after the inset changes). */
-export function refit(ctx: SceneContext): void {
+export function refit(ctx: SceneContext, viewDirection?: readonly [number, number, number]): void {
   ctx.needsRender = true;
   const { x: w, y: h } = ctx.resolution;
   const visible = visibleRect(ctx.inset ?? NO_INSET, w, h);
-  fitCameraToBounds(ctx.camera, ctx.controls, ctx.meshes, FIT_FILL_FRACTION, ctx.renderer, ctx.scene, visible);
+  fitCameraToBounds(ctx.camera, ctx.controls, ctx.meshes, FIT_FILL_FRACTION, ctx.renderer, ctx.scene, visible, [], viewDirection && new THREE.Vector3(...viewDirection).normalize());
 }
 
 function defaultViewDirection(): THREE.Vector3 {
@@ -295,6 +300,26 @@ function measurePaintedSilhouette(
   };
 }
 
+/** One mesh for one decoded part (TEAM-02's ghost of an older revision is built through the same door). */
+export function partMesh(part: ScenePart): THREE.Mesh {
+  const positions = decodePartPositions(part);
+  const indices = decodePackedIndices(part.indices);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(Array.from(positions), 3));
+  if (part.normals) {
+    const normals = decodePackedVectors(part.normals);
+    geometry.setAttribute("normal", new THREE.Float32BufferAttribute(Array.from(normals), 3));
+  } else {
+    geometry.computeVertexNormals();
+  }
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x8899aa }));
+  mesh.userData.partId = part.id ?? null;
+  return mesh;
+}
+
 export function buildScene(
   canvas: HTMLCanvasElement,
   parts: ScenePart[],
@@ -310,7 +335,7 @@ export function buildScene(
   camera.position.set(3, -3, 1.2); // low and far, so the Open floor recedes to a horizon
   camera.lookAt(0, 0, 0);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true }) /* Save picture reads the canvas between frames */;
   // Capped at 2: uncapped, a 4x-DPR machine pays 4x the fragments for no visible gain.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(width, height, false);
@@ -322,21 +347,7 @@ export function buildScene(
 
   // One mesh per decoded part (charter #4) — do not collapse, skip or merge parts here.
   const meshes: THREE.Mesh[] = parts.map((part) => {
-    const positions = decodePartPositions(part);
-    const indices = decodePackedIndices(part.indices);
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(Array.from(positions), 3));
-    if (part.normals) {
-      const normals = decodePackedVectors(part.normals);
-      geometry.setAttribute("normal", new THREE.Float32BufferAttribute(Array.from(normals), 3));
-    } else {
-      geometry.computeVertexNormals();
-    }
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-
-    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x8899aa }));
-    mesh.userData.partId = part.id ?? null;
+    const mesh = partMesh(part);
     scene.add(mesh);
     return mesh;
   });
@@ -357,15 +368,16 @@ export function buildScene(
   return ctx;
 }
 
-/** WASD walk: hold W/S/A/D to move camera and target together over the ground plane (Z-up),
- * speed scaled to the framing (camera-to-target distance per second). Keyboard-only; never while typing. */
-const WASD = { w: [1, 0], s: [-1, 0], d: [0, 1], a: [0, -1], arrowup: [1, 0], arrowdown: [-1, 0], arrowright: [0, 1], arrowleft: [0, -1] } as const;
-const typing = (el: Element | null) => !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || (el as HTMLElement).isContentEditable);
+/** Arrow-key walk: hold the arrows to move camera and target together over the ground plane (Z-up),
+ * speed scaled to the framing (camera-to-target distance per second). Keyboard-only; only while the
+ * 3D view has focus, never while typing. (W/A/S/D are kept free for later tools.) */
+const WASD = { arrowup: [1, 0], arrowdown: [-1, 0], arrowright: [0, 1], arrowleft: [0, -1] } as const;
 export function attachWasd(ctx: SceneContext): { step: (dt: number) => void; dispose: () => void } {
   const held = new Set<keyof typeof WASD>();
   const down = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase() as keyof typeof WASD;
-    if (!(k in WASD) || e.metaKey || e.ctrlKey || e.altKey || typing(document.activeElement)) return;
+    if (!(k in WASD) || e.metaKey || e.ctrlKey || e.altKey || document.activeElement !== ctx.renderer.domElement || typing(document.activeElement)) return;
+    e.preventDefault(); // the page must not scroll
     held.add(k);
     ctx.needsRender = true;
   };
@@ -444,11 +456,32 @@ export function pickPart(ctx: SceneContext, ndcX: number, ndcY: number): string 
   return pickHit(ctx, ndcX, ndcY)?.id ?? null;
 }
 
+/**
+ * GAP-views: the camera to draw and pick with. The perspective camera stays the one pose (orbit, fit,
+ * view keys all move it); with the flat view on, a real orthographic camera copies that pose and is
+ * sized to show what the perspective camera shows at the orbit target, so the framing does not jump.
+ */
+export function activeCamera(ctx: SceneContext): THREE.PerspectiveCamera | THREE.OrthographicCamera {
+  if (!getViewState().ortho) return ctx.camera;
+  const p = ctx.camera;
+  const o = (ctx.orthoCamera ??= new THREE.OrthographicCamera(-1, 1, 1, -1));
+  const halfH = p.position.distanceTo(ctx.controls.target) * Math.tan((p.fov * Math.PI) / 360);
+  Object.assign(o, { left: -halfH * p.aspect, right: halfH * p.aspect, top: halfH, bottom: -halfH, near: p.near, far: p.far });
+  o.position.copy(p.position);
+  o.quaternion.copy(p.quaternion);
+  o.up.copy(p.up);
+  if (p.view?.enabled) o.setViewOffset(p.view.fullWidth, p.view.fullHeight, p.view.offsetX, p.view.offsetY, p.view.width, p.view.height);
+  else o.clearViewOffset();
+  o.updateProjectionMatrix();
+  o.updateMatrixWorld();
+  return o;
+}
+
 /** The part under the pointer and the world point the ray meets it at (a drop's mount point). */
 export function pickHit(ctx: SceneContext, ndcX: number, ndcY: number): SceneHit | null {
   ctx.camera.updateMatrixWorld(); // the pose may have moved since the last render (refit, orbit); never ray from a stale one
   const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), ctx.camera);
+  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), activeCamera(ctx));
   const hit = raycaster.intersectObjects(ctx.meshes, false)[0];
   const id = hit?.object.userData.partId;
   return hit && typeof id === "string" ? { id, point: hit.point.toArray() } : null;
@@ -464,4 +497,83 @@ export function disposeScene(ctx: SceneContext): void {
     (mesh.material as THREE.Material).dispose();
   }
   ctx.renderer.dispose();
+}
+
+// ---------------------------------------------------------------- torque headroom and support polygon (CHK-06u)
+
+/** Torque to spare, as the engine sends it (`RobotJoint.headroom`): available / needed. */
+export interface HeadroomJoint { name: string; headroom?: { ratio: number } | null }
+
+// ponytail: 2x and 3x are conventions (hobby-servo rule of thumb), not sourced numbers; move them here.
+const HEADROOM_BAD = 2;
+const HEADROOM_WARN = 3;
+
+/** The glow level for a joint's headroom ratio, never its absolute torque. */
+export const headroomLevel = (ratio: number): "bad" | "warn" | "pass" => (ratio < HEADROOM_BAD ? "bad" : ratio < HEADROOM_WARN ? "warn" : "pass");
+
+/** One highlight per joint the engine has headroom for; a joint with none gets no colour. */
+export const headroomHighlights = (joints: HeadroomJoint[]): { id: string; level: "bad" | "warn" | "pass" }[] =>
+  joints.flatMap((j) => (j.headroom ? [{ id: j.name, level: headroomLevel(j.headroom.ratio) }] : []));
+
+/** The number in the callout, in plain words: "wrist: 1.5x torque to spare". */
+export function headroomText(name: string, ratio: number): string {
+  const word = name.replace(/_/g, " ");
+  const x = ratio >= 100 ? "99x or more" : `${ratio.toFixed(1)}x`;
+  if (ratio < 1) return `${word}: only ${x}, cannot hold the pose`;
+  return `${word}: ${x} spare torque${ratio < HEADROOM_WARN ? " (rule of thumb)" : ""}`; // the 2x/3x colours are advice, not a sourced limit
+}
+
+/** The support polygon as a flat translucent fill and an outline on the ground plane. */
+export function supportPolygonObject(poly: { z: number; points: number[][] }, color: THREE.Color): THREE.Group {
+  const shape = new THREE.Shape(poly.points.map((p) => new THREE.Vector2(p[0], p[1])));
+  const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
+  const edge = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(poly.points.map((p) => new THREE.Vector3(p[0], p[1], 0))), new THREE.LineBasicMaterial({ color }));
+  const group = new THREE.Group();
+  group.add(fill, edge);
+  group.position.z = poly.z;
+  group.name = "support-polygon";
+  group.userData.decor = true; // not the robot: the pixel readers skip it
+  group.traverse((o) => { o.raycast = () => {}; }); // never picked
+  return group;
+}
+
+// ---------------------------------------------------------------- link primitives (CAD-02)
+
+/** One mesh per link solid. The engine resolves a named dimension to metres on every payload, so
+ * call this on every payload: a size edited after load must redraw the link (see `syncPrimitives`). Cylinders run along the
+ * shape's own z (URDF). Meshes carry `userData.partId` = the link name, so a pick finds the link. */
+export function primitiveMeshes(links: readonly RobotLink[]): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  for (const link of links) {
+    for (const shape of link.solids ?? []) {
+      const [a, b, c] = shape.kind === "box" ? [0, 1, 2].map((i) => shape.size?.[i] ?? NaN) : [shape.radius ?? NaN, shape.length ?? 0, 0];
+      if (![a, b, c].every(Number.isFinite)) continue; // a size the engine could not resolve: draw nothing, not a guess
+      const geometry = shape.kind === "box" ? new THREE.BoxGeometry(a, b, c)
+        : shape.kind === "cylinder" ? new THREE.CylinderGeometry(a, a, b, 32).rotateX(Math.PI / 2)
+          : new THREE.SphereGeometry(a, 32, 16);
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x8899aa }));
+      const r = shape.rotation;
+      mesh.setRotationFromMatrix(new THREE.Matrix4().set(r[0]!, r[1]!, r[2]!, 0, r[3]!, r[4]!, r[5]!, 0, r[6]!, r[7]!, r[8]!, 0, 0, 0, 0, 1));
+      mesh.position.set(shape.position[0]!, shape.position[1]!, shape.position[2]!);
+      mesh.userData = { partId: link.name, primitive: true };
+      out.push(mesh);
+    }
+  }
+  return out;
+}
+
+/** Swap the drawn primitives for `next` without rebuilding the scene (the camera stays where the
+ * user put it, unless this is the first primitive drawn). */
+export function syncPrimitives(ctx: SceneContext, next: THREE.Mesh[]): void {
+  const first = !ctx.meshes.some((m) => m.userData.primitive);
+  for (const old of ctx.meshes.filter((m) => m.userData.primitive)) {
+    ctx.scene.remove(old);
+    old.geometry.dispose();
+    (old.material as THREE.Material).dispose();
+  }
+  ctx.meshes = ctx.meshes.filter((m) => !m.userData.primitive);
+  for (const m of next) ctx.scene.add(m);
+  ctx.meshes.push(...next);
+  ctx.needsRender = true;
+  if (first && next.length) refit(ctx);
 }

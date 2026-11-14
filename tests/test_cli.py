@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 import typer
 from conftest import plain, strip_ansi
@@ -15,7 +16,9 @@ from ruamel.yaml import YAML
 from typer.testing import CliRunner
 
 import lockwire
+from lockwire import export_model
 from lockwire.cli import app
+from lockwire.schema import load_contract
 
 runner = CliRunner()
 BAGS = Path(__file__).parent / "fixtures" / "bags"
@@ -27,7 +30,7 @@ def test_init_then_check(testbot_urdf, tmp_path):
 
     result = runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract_path)])
     assert result.exit_code == 0, result.output
-    assert 'schema_version: "0.6"' in contract_path.read_text().replace("'", '"')
+    assert 'schema_version: "0.7"' in contract_path.read_text().replace("'", '"')
     assert contract_path.exists()
     assert "zero-mass link(s)" in plain(result.output)
 
@@ -66,7 +69,7 @@ def test_explicit_upgrade_writes_new_v04_without_changing_legacy_bytes(tmp_path)
         assert source.read_bytes() == original
         assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
         assert load_contract(source).schema_version == version
-        assert load_contract(output).schema_version == "0.6"
+        assert load_contract(output).schema_version == "0.7"
         assert output.read_bytes() != original
 
 
@@ -104,8 +107,8 @@ def test_explicit_upgrade_refuses_changed_source_and_occupied_targets(tmp_path):
 
 def test_explicit_upgrade_refuses_nonlegacy_and_unsupported_content(tmp_path):
     for version, extra, refusal in (
-        ("0.6", "", "requires an explicit legacy"),
-        ("0.7", "", "REFUSED"),
+        ("0.7", "", "requires an explicit legacy"),
+        ("0.8", "", "REFUSED"),
         ("0.3", "structural: {}\n", "must not contain structural"),
         ("0.3", "actuator_cases: [{id: hidden}]\n", "actuator_cases"),
     ):
@@ -151,7 +154,7 @@ def test_explicit_upgrade_refuses_nonlegacy_and_unsupported_content(tmp_path):
 
 
 def test_init_from_anymal_d_records_joints_and_root(tmp_path):
-    """P1 (audit 2): `init` on a 96-link/95-joint URDF must record every joint,
+    """`init` on a 96-link/95-joint URDF must record every joint,
     not just links, so `check`/scene-import can find a single root link."""
     from lockwire.schema import load_contract
 
@@ -378,6 +381,27 @@ def test_report_accepts_no_open_as_a_no_op(tmp_path):
     result = runner.invoke(app, ["report", str(X500_CONTRACT), "--out", str(out), "--no-open"])
     assert result.exit_code == 0, result.output
     assert out.exists()
+
+
+def test_report_plan_reaches_the_report_writer(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        lockwire.cli, "write_html_report", lambda *a, **k: seen.append(k.get("plan"))
+    )
+    plan = tmp_path / "plan.yaml"
+    plan.write_text("segments:\n  - name: reach\n    pose: {shoulder: 0.0}\n")
+    args = ["report", str(X500_CONTRACT), "--out", str(tmp_path / "r.html")]
+    assert runner.invoke(app, [*args, "--plan", str(plan)]).exit_code == 0
+    assert runner.invoke(app, args).exit_code == 0
+    assert seen[0].segments[0].name == "reach"
+    assert seen[1] is None
+
+
+def test_report_plan_unreadable_exits_2_in_one_line(tmp_path):
+    args = ["report", str(X500_CONTRACT), "--out", str(tmp_path / "r.html")]
+    result = runner.invoke(app, [*args, "--plan", str(tmp_path / "gone.yaml")])
+    assert result.exit_code == 2
+    assert len(plain(result.output).strip().splitlines()) == 1
 
 
 # --------------------------------------------------------------------------- scene import
@@ -948,6 +972,126 @@ def test_add_rail_cli(tmp_path):
     assert "added rail rail.new-5v" in plain(result.output)
 
 
+def _add(tmp_path, kind, *extra):
+    lock = tmp_path / "contract.yaml"
+    if not lock.exists():
+        lock.write_bytes(X500_CONTRACT.read_bytes())
+    ident = [] if kind == "battery" else ["--id", f"{kind}.new"]
+    base = ["add", kind, str(lock), *ident, "--source", "s", "--witness", "w1"]
+    return lock, runner.invoke(app, [*base, *extra])
+
+
+def test_add_rail_dropout_and_min_input_write_volts(tmp_path):
+    args = ["--capacity", "10 W", "--dropout", "300 mV", "--min-input", "5 V"]
+    lock, result = _add(tmp_path, "rail", *args, "--regulator-kind", "ldo")
+    assert result.exit_code == 0, result.output
+    rail = load_contract(lock).rail("rail.new")
+    assert (rail.dropout_v, rail.min_input_v, rail.regulator_kind) == (0.3, 5.0, "ldo")
+
+
+def test_add_bus_length_converts_to_metres_and_twisted_is_a_bool(tmp_path):
+    args = ["--bus-kind", "serial", "--host", "dev.flight-controller.pixhawk-6c"]
+    lock, result = _add(tmp_path, "bus", *args, "--length", "150 cm", "--twisted")
+    assert result.exit_code == 0, result.output
+    bus = next(b for b in load_contract(lock).topology.buses if b.id == "bus.new")
+    assert (bus.length_m, bus.twisted) == (1.5, True)
+
+
+def test_add_battery_cells_parallel_and_reserve_percent(tmp_path):
+    args = ["--capacity", "74 Wh", "--cells-parallel", "2", "--reserve", "10 %"]
+    lock, result = _add(tmp_path, "battery", *args)
+    assert result.exit_code == 0, result.output
+    battery = load_contract(lock).topology.battery
+    assert (battery.cells_parallel, battery.reserve_pct) == (2, 10.0)
+
+
+def test_add_wire_writes_length_in_metres_and_the_typed_fields(tmp_path):
+    args = ["--awg", "16", "--installation", "enclosed", "--owner", "pwr", "--rail", "rail.pm02-5v"]
+    lock, result = _add(tmp_path, "wire", *args, "--length", "50 cm", "--net-class", "power")
+    assert result.exit_code == 0, result.output
+    wire = next(w for w in load_contract(lock).topology.wires if w.id == "wire.new")
+    assert (wire.length_m, wire.awg, wire.installation) == (0.5, 16, "enclosed")
+    assert wire.net_class == "power"
+    assert wire.rail == "rail.pm02-5v"
+
+
+def test_add_wire_pin_to_pin_ends_and_connector_are_written(tmp_path):
+    args = ["--awg", "22", "--installation", "free_air", "--owner", "pwr", "--connector", "xt60"]
+    lock, result = _add(tmp_path, "wire", *args, "--from", "dev.a:J1:3", "--to", "dev.b:p1")
+    assert result.exit_code == 0, result.output
+    wire = next(w for w in load_contract(lock).topology.wires if w.id == "wire.new")
+    assert (wire.from_.connector, wire.from_.pin, wire.to.device, wire.to.pin) == (
+        "J1",
+        3,
+        "dev.b",
+        "p1",
+    )
+    assert wire.connector == "xt60"
+
+
+def test_add_connector_writes_pins_named_from_the_type_labels(tmp_path):
+    args = ["--device", "dev.gnss.here3-plus", "--type", "qwiic", "--placement", "left edge"]
+    lock, result = _add(tmp_path, "connector", *args)
+    assert result.exit_code == 0, result.output
+    conn = load_contract(lock).device("dev.gnss.here3-plus").connectors[0]
+    assert (conn.id, conn.type, conn.placement) == ("connector.new", "qwiic", "left edge")
+    assert [p.name for p in conn.pins] == ["GND", "3V3", "SDA", "SCL"]
+    assert "--type qwiic" in plain(result.output).split("ran:")[1].replace("'", "")
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--device", "dev.gnss.here3-plus", "--type", "nope-zz"],
+        ["--device", "dev.nope", "--type", "qwiic"],
+    ],
+)
+def test_add_connector_unknown_type_or_device_is_one_line_exit_2_and_unchanged(tmp_path, extra):
+    lock = tmp_path / "contract.yaml"
+    lock.write_bytes(X500_CONTRACT.read_bytes())
+    before = lock.read_bytes()
+    _, result = _add(tmp_path, "connector", *extra)
+    lines = [line for line in plain(result.output).splitlines() if line.strip()]
+    assert result.exit_code == 2 and len(lines) == 1, result.output
+    assert lock.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("kind", "extra"),
+    [
+        (
+            "wire",
+            [
+                "--awg",
+                "16",
+                "--installation",
+                "enclosed",
+                "--owner",
+                "p",
+                "--rail",
+                "r",
+                "--length",
+                "far",
+            ],
+        ),
+        ("wire", ["--awg", "16", "--installation", "enclosed", "--owner", "p", "--from", "nopin"]),
+        ("rail", ["--capacity", "10 W", "--dropout", "lots"]),
+        ("rail", ["--capacity", "10 W", "--min-input", "5 m"]),
+        ("bus", ["--bus-kind", "serial", "--host", "h", "--length", "far"]),
+        pytest.param("battery", ["--capacity", "74 Wh", "--cells-parallel", "2.5"]),
+        pytest.param("battery", ["--capacity", "74 Wh", "--reserve", "10 V"]),
+    ],
+)
+def test_add_unreadable_flag_value_is_one_line_exit_2_and_lockfile_unchanged(tmp_path, kind, extra):
+    lock = tmp_path / "contract.yaml"
+    lock.write_bytes(X500_CONTRACT.read_bytes())
+    before = lock.read_bytes()
+    _, result = _add(tmp_path, kind, *extra)
+    lines = [line for line in plain(result.output).splitlines() if line.strip()]
+    assert result.exit_code == 2 and len(lines) == 1, result.output
+    assert lock.read_bytes() == before
+
+
 def test_gearbox_cli_writes_gearbox_template(tmp_path):
     contract_path = tmp_path / "contract.yaml"
     contract_path.write_bytes((FIXTURES / "armtree.yaml").read_bytes())
@@ -1257,6 +1401,11 @@ def _contract_at_version(tmp_path: Path, version: str) -> Path:
     return path
 
 
+# Named gap, not a door: undo/redo swap journalled bytes back (edit._journal_move) and never parse
+# the lockfile, so an unsupported schema_version is not theirs to refuse (a rescue must still work).
+_BYTE_RESTORE_COMMANDS = {"undo", "redo"}
+
+
 def _contract_taking_commands() -> set[str]:
     """Every leaf command in the typer app that takes a ``contract`` parameter,
     read off the app itself.
@@ -1281,7 +1430,7 @@ def _contract_taking_commands() -> set[str]:
             found.add(prefix)
 
     walk(typer.main.get_command(app))
-    return found
+    return found - _BYTE_RESTORE_COMMANDS
 
 
 def _doors_that_did_not_refuse(doors: dict[str, list[str]]) -> dict[str, str]:
@@ -1828,7 +1977,12 @@ def test_check_replays_the_recorded_xacro_args(tmp_path):
     body = '<robot xmlns:xacro="x" name="r"><xacro:arg name="foo" default="1"/><link name="a">'
     xacro.write_text(body + '<inertial><mass value="$(arg foo)"/></inertial></link></robot>')
     lock = tmp_path / "lockwire.yaml"
-    assert runner.invoke(app, ["start", str(xacro), "--out", str(lock), "--xacro-arg", "foo=2"]).exit_code == 0
+    assert (
+        runner.invoke(
+            app, ["start", str(xacro), "--out", str(lock), "--xacro-arg", "foo=2"]
+        ).exit_code
+        == 0
+    )
     assert runner.invoke(app, ["check", str(lock)]).exit_code == 0
     xacro.write_text(xacro.read_text().replace("$(arg foo)", "$(arg foo)0"))
     assert runner.invoke(app, ["check", str(lock)]).exit_code == 1
@@ -2059,9 +2213,24 @@ def test_free_help_lists_five_verbs_and_hidden_ones_still_run():
     rows = re.findall(r"^│ ([a-z][\w-]*)\s", out.stdout, re.M)  # conftest pins COLUMNS=200
     assert " ".join(rows) == "check start accept mcp agent-setup"  # at most ten names
     assert "More: lockwire help --all" in out.stdout and "docs/" not in out.stdout
+    assert "lockwire report" in out.stdout and "--format 'bom|budget'" in out.stdout  # GAP-helpvis
     assert "check-sim " in runner.invoke(app, ["help", "--all"]).output
     for name, command in typer.main.get_command(app).commands.items():
         assert not command.hidden or runner.invoke(app, [name, "--help"]).exit_code == 0, name
+
+
+def test_catalog_parts_lists_and_narrows(tmp_path):
+    out = runner.invoke(app, ["catalog", "parts", "RASPBERRY"]).output
+    assert "rpi.pi5" in out and "feetech.sts3215" not in out and "lockwire swap" in out
+    assert "· 5 V" in out
+    assert "no part matches 'xyz'" in runner.invoke(app, ["catalog", "parts", "xyz"]).output
+    assert "arm|drone|rover" in runner.invoke(app, ["start"], catch_exceptions=False).output
+    assert (
+        "Parts: "
+        in runner.invoke(
+            app, ["start", "--example", "rover", "--out", str(tmp_path / "l.yaml")]
+        ).output
+    )
 
 
 def test_cli_survives_a_cp1252_console_on_a_finding_with_a_delta():
@@ -2135,7 +2304,10 @@ def test_accept_records_a_known_gap_so_check_passes_and_still_shows_it(tmp_path,
     assert runner.invoke(app, ["check"]).exit_code == 1
     args = ["accept", gap, "--reason", "sheet counts the battery", "--witness", "sam"]
     assert runner.invoke(app, args).exit_code == 0
-    assert {p.name for p in tmp_path.iterdir()} == {"lockwire.yaml", "turtlebot3_waffle_pi.urdf"}
+    assert {p.name for p in tmp_path.iterdir() if not p.name.endswith(".lockwire-undo.json")} == {
+        "lockwire.yaml",
+        "turtlebot3_waffle_pi.urdf",
+    }  # the journal is the only extra
     result = runner.invoke(app, ["check"])
     assert result.exit_code == 0, result.output
     assert f"accepted: {gap}: URDF sum of link masses: 1.554; accepted (sheet counts" in plain(
@@ -2368,3 +2540,1005 @@ def test_check_torque_flag_compares_a_joint_with_the_published_figure(testbot_ur
     assert bad.exit_code == 2 and "no joint named knee; the joints are: hip" in bad.output
     assert "no effort limit" in plain(runner.invoke(app, [*args, "mount_fix=8 N*m"]).output)
     assert "above 0" in plain(runner.invoke(app, [*args, "hip=0 N*m"]).output)
+
+
+def test_add_device_part_picks_numbers_from_catalog_and_the_check_catches_it(tmp_path):
+    lock = str(tmp_path / "l.yaml")
+    assert runner.invoke(app, ["start", "--example", "rover", "--out", lock]).exit_code == 0
+    base = ["add", "device", lock, "--part", "rpi.pi5"]
+    two = runner.invoke(app, base)
+    assert two.exit_code == 2 and "rail.controller-5v, rail.jetson-header-5v" in plain(two.output)
+    clash = runner.invoke(app, [*base, "--rail", "rail.controller-5v", "--draw", "1 W"])
+    assert clash.exit_code == 2 and "drop --draw" in plain(clash.output)
+    assert runner.invoke(app, ["add", "device", lock, "--id", "x"]).exit_code == 2
+    assert runner.invoke(app, ["add", "device", lock, "--part", "nosuch"]).exit_code == 2
+    added = runner.invoke(app, [*base, "--rail", "rail.controller-5v"])
+    assert added.exit_code == 0 and "Next: lockwire check" in plain(added.output)
+    checked = plain(runner.invoke(app, ["check", lock]).output)
+    assert "observed 21.55 W" in checked and "dev.rpi-pi5-1" in checked
+    arm = str(tmp_path / "a.yaml")
+    runner.invoke(app, ["start", "--example", "arm", "--out", arm])
+    jetson = runner.invoke(app, ["add", "device", arm, "--part", "nvidia.jetson-orin-nano-devkit"])
+    assert "rail: rail.supply-12v" in plain(jetson.output)
+    none = runner.invoke(app, ["add", "device", arm, "--part", "rpi.pi5"])
+    assert none.exit_code == 2 and "no rail here fits" in plain(none.output)
+
+
+def test_add_device_part_refuses_a_rail_the_part_cannot_run_on(tmp_path):
+    lock = tmp_path / "l.yaml"
+    runner.invoke(app, ["start", "--example", "rover", "--out", str(lock)])
+    before = lock.read_bytes()
+    args = ["add", "device", str(lock), "--part", "rpi.pi5", "--rail", "rail.battery-input"]
+    bad = runner.invoke(app, args)
+    out = " ".join(plain(bad.output).split())
+    assert (
+        bad.exit_code == 2
+        and "(lockwire allows ±5%: 4.75 to 5.25 V) but rail.battery-input is 11.1 V" in out
+    )
+    assert "rails that fit: rail.controller-5v" in out and "--rail rail.controller-5v" in out
+    assert lock.read_bytes() == before
+    assert "rpi.pi5 is 5 V nominal" in out
+
+
+def test_add_device_part_says_when_the_catalog_marks_a_part_unverified(tmp_path):
+    lock = tmp_path / "x.yaml"
+    runner.invoke(app, ["start", "--example", "x500", "--out", str(lock)])
+    args = ["add", "device", str(lock), "--part", "x500.radio.rfd900x", "--rail", "rail.supply-5v"]
+    out = " ".join(plain(runner.invoke(app, args).output).split())
+    assert "x500.radio.rfd900x is marked unverified in the catalog; check its numbers" in out
+    assert "unverified catalog entry: " in lock.read_text()
+    rover = tmp_path / "r.yaml"
+    runner.invoke(app, ["start", "--example", "rover", "--out", str(rover)])
+    cited = runner.invoke(
+        app, ["add", "device", str(rover), "--part", "rpi.pi5", "--rail", "rail.controller-5v"]
+    )
+    assert "unverified" not in plain(cited.output)
+    bare = tmp_path / "b.yaml"
+    runner.invoke(app, ["start", "--example", "x500", "--out", str(bare)])
+    kept = bare.read_bytes()
+    imu = runner.invoke(app, ["add", "device", str(bare), "--part", "x500.imu.bmi088"])
+    assert imu.exit_code == 2 and "nothing to fill in" in " ".join(plain(imu.output).split())
+    assert bare.read_bytes() == kept
+
+
+def _export_setup(testbot_urdf, tmp_path):
+    robot = tmp_path / "robot.urdf"
+    robot.write_bytes(testbot_urdf.read_bytes())
+    lock = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["init", str(robot), "--out", str(lock)]).exit_code == 0
+    return lock, robot
+
+
+def test_export_refuses_to_overwrite_without_force(testbot_urdf, tmp_path):
+    lock, _ = _export_setup(testbot_urdf, tmp_path)
+    target = tmp_path / "out.urdf"
+    target.write_text("mine")
+    result = runner.invoke(app, ["export", str(lock), "--format", "urdf", "--out", str(target)])
+    assert result.exit_code != 0
+    assert "already exists" in plain(result.output)
+    assert target.read_text() == "mine"
+
+
+def test_export_force_overwrites(testbot_urdf, tmp_path):
+    lock, _ = _export_setup(testbot_urdf, tmp_path)
+    target = tmp_path / "out.urdf"
+    target.write_text("mine")
+    args = ["export", str(lock), "--format", "urdf", "--out", str(target), "--force"]
+    assert runner.invoke(app, args).exit_code == 0
+    assert target.read_text().startswith("<?xml")
+
+
+def test_export_never_writes_the_source_model(testbot_urdf, tmp_path):
+    lock, robot = _export_setup(testbot_urdf, tmp_path)
+    before = robot.read_bytes()
+    args = ["export", str(lock), "--format", "urdf", "--out", str(robot), "--force"]
+    result = runner.invoke(app, args)
+    assert result.exit_code != 0
+    assert "source model" in plain(result.output)
+    assert robot.read_bytes() == before
+
+
+def test_export_default_out_sits_beside_lockfile(testbot_urdf, tmp_path):
+    lock, _ = _export_setup(testbot_urdf, tmp_path)
+    assert runner.invoke(app, ["export", str(lock), "--format", "sdf"]).exit_code == 0
+    assert (tmp_path / "lockwire.sdf").is_file()
+
+
+@pytest.mark.parametrize("fmt", ["urdf", "sdf"])
+def test_export_then_check_gives_the_lockfile_verdict(testbot_urdf, tmp_path, fmt):
+    # MJCF is left out: lane D records a known check-parity exception for check's MJCF path.
+    lock, _ = _export_setup(testbot_urdf, tmp_path)
+    assert runner.invoke(app, ["export", str(lock), "--format", fmt]).exit_code == 0
+    exported = runner.invoke(app, ["check", str(tmp_path / f"lockwire.{fmt}")])
+    locked = runner.invoke(app, ["check", str(lock)])
+    assert exported.exit_code == locked.exit_code
+    verdict = lambda r: re.search(r"\b(NO-GO|GO)\b[^\n]*", plain(r.output)).group(0)  # noqa: E731
+    assert verdict(exported).startswith(verdict(locked).split(" — ")[0])
+
+
+BASELINE_PAIR = FIXTURES / "baseline_pair"
+
+
+def _baseline_compare(base, head):
+    argv = ["check", str(BASELINE_PAIR / head), "--compare-to", str(BASELINE_PAIR / base)]
+    return plain(runner.invoke(app, argv).output)
+
+
+def test_baseline_compare_prints_only_the_changed_check():
+    out = _baseline_compare("base.yaml", "head.yaml")
+    assert "devices/dev.imu/drives_joint: GO -> NO-GO" in out
+    assert out.count(" -> ") == 1
+
+
+def test_baseline_compare_direction_is_base_then_head():
+    out = _baseline_compare("head.yaml", "base.yaml")
+    assert "devices/dev.imu/drives_joint: NO-GO -> GO" in out
+
+
+def test_baseline_compare_identical_lockfiles_print_no_change_lines():
+    assert " -> " not in _baseline_compare("base.yaml", "base.yaml")
+
+
+def test_baseline_compare_same_inputs_for_base_and_head_print_no_change_lines():
+    head = str(BASELINE_PAIR / "base.yaml")
+    argv = ["check", head, "--compare-to", head, "--servo", "feetech.sts3215"]
+    assert " -> " not in plain(runner.invoke(app, argv).output)
+
+
+def test_baseline_compare_github_format_annotates_each_changed_check():
+    argv = ["check", str(BASELINE_PAIR / "head.yaml"), "--compare-to"]
+    argv += [str(BASELINE_PAIR / "base.yaml"), "--format", "github"]
+    got = plain(runner.invoke(app, argv).output)
+    assert "::error::devices/dev.imu/drives_joint: GO -> NO-GO" in got
+
+
+def _describe_with_servos(tmp_path, ids):
+    from lockwire.schema import (
+        DeviceIdentity,
+        DeviceInstance,
+        DeviceModel,
+        load_contract,
+        save_contract,
+    )
+
+    c = load_contract(FIXTURES / "contract_clean.yaml")
+    c.device_models.append(DeviceModel(id="mdl.dynamixel", family="fam.esc"))
+    for n, sid in enumerate(ids):
+        identity = DeviceIdentity(bus_ref="bus.serial0", host="nav-computer", address=sid)
+        c.devices.append(
+            DeviceInstance(id=f"dev.s{n}", model="mdl.dynamixel", owner="o", identity=identity)
+        )
+    path = tmp_path / "lock.yaml"
+    save_contract(c, path)
+    return plain(runner.invoke(app, ["describe", str(path)]).output)
+
+
+def test_describe_address_map_shows_each_bus_id_device_row(tmp_path):
+    out = _describe_with_servos(tmp_path, ["3", "4"])
+    assert "Bus address map" in out
+    assert re.search(r"bus\.serial0\s+│ serial\s+│ 3\s+│ dev\.s0", out)
+    assert re.search(r"bus\.serial0\s+│ serial\s+│ 4\s+│ dev\.s1", out)
+
+
+def test_describe_address_map_makes_a_duplicate_address_visible(tmp_path):
+    out = _describe_with_servos(tmp_path, ["3", "0x03"])
+    assert len(re.findall(r"dev\.s[01]", out.split("Bus address map")[1])) == 2
+
+
+def test_describe_address_map_absent_without_addresses(tmp_path):
+    from lockwire.schema import load_contract, save_contract
+
+    c = load_contract(FIXTURES / "contract_clean.yaml")
+    for d in c.devices:
+        if d.identity:
+            d.identity.address = None
+    path = tmp_path / "lock.yaml"
+    save_contract(c, path)
+    assert "Bus address map" not in plain(runner.invoke(app, ["describe", str(path)]).output)
+
+
+def _plan_flag_case(tmp_path, effort):
+    from lockwire.schema import save_contract
+    from test_checks import _arm_contract
+
+    lock, plan = tmp_path / "arm.yaml", tmp_path / "plan.yaml"
+    save_contract(_arm_contract(effort), lock)
+    plan.write_text("segments:\n  - name: reach\n    pose: {shoulder: 0.0}\n")
+    return lock, plan
+
+
+def test_plan_flag_shows_the_hold_torque_warning_only_with_the_plan(tmp_path):
+    lock, plan = _plan_flag_case(tmp_path, 5.0)
+    with_plan = plain(runner.invoke(app, ["check", str(lock), "--plan", str(plan), "--all"]).output)
+    without = plain(runner.invoke(app, ["check", str(lock), "--all"]).output)
+    assert "plan/segments/reach/hold_torque/shoulder" in with_plan
+    assert "hold_torque" not in without
+
+
+def test_plan_flag_unreadable_plan_exits_2_in_one_line(tmp_path):
+    lock, _ = _plan_flag_case(tmp_path, 5.0)
+    result = runner.invoke(app, ["check", str(lock), "--plan", str(tmp_path / "gone.yaml")])
+    assert result.exit_code == 2
+    assert len(plain(result.output).strip().splitlines()) == 1
+
+
+def test_plan_flag_gives_the_compare_to_base_run_the_same_plan(tmp_path):
+    lock, plan = _plan_flag_case(tmp_path, 5.0)
+    argv = ["check", str(lock), "--compare-to", str(lock), "--plan", str(plan)]
+    assert " -> " not in plain(runner.invoke(app, argv).output)
+
+
+@pytest.mark.parametrize("name", ["a:b:c:d.yaml", "[red]x.yaml"])
+def test_refusal_echoes_user_text_literally(tmp_path, name):
+    result = runner.invoke(
+        app, ["review", str(tmp_path / name), "a/b", "--approve", "--witness", "w"]
+    )
+    assert result.exit_code == 2, result.output
+    assert name in plain(result.output).replace("\n", "")
+
+
+def test_folder_refusal_echoes_user_path_literally(tmp_path):
+    folder = tmp_path / "[red]d"
+    folder.mkdir()
+    result = runner.invoke(app, ["check", str(folder)])
+    assert "[red]d' is a folder" in plain(result.output).replace("\n", "")
+
+
+def _budget_lock(tmp_path):
+    from lockwire.schema import (
+        Contract,
+        DeviceInstance,
+        PowerDraw,
+        Rail,
+        RobotInfo,
+        Topology,
+        save_contract,
+    )
+
+    power = {"rail": "r5", "draw": {"value": 10, "unit": "W"}}
+    dev = DeviceInstance(id="motor", model="m", owner="t", power=PowerDraw.model_validate(power))
+    rail = Rail(id="r5", capacity={"value": 50, "unit": "W"}, voltage={"value": 5, "unit": "V"})
+    lock = tmp_path / "lockwire.yaml"
+    save_contract(
+        Contract(robot=RobotInfo(name="t"), topology=Topology(rails=[rail]), devices=[dev]), lock
+    )
+    return lock
+
+
+def _budget_rows(text):
+    import csv
+    import io
+
+    return {r["device"]: r for r in csv.DictReader(io.StringIO(text))}
+
+
+def test_export_budget_csv_has_light_typical_max(tmp_path):
+    lock = _budget_lock(tmp_path)
+    assert runner.invoke(app, ["export", str(lock), "--format", "budget"]).exit_code == 0
+    row = _budget_rows((tmp_path / "lockwire.budget.csv").read_text())["motor"]
+    assert (row["rail"], row["light_w"], row["typical_w"], row["max_w"]) == ("r5", "10", "10", "10")
+
+
+def test_export_budget_plan_fills_duty(tmp_path):
+    lock = _budget_lock(tmp_path)
+    plan = tmp_path / "plan.yaml"
+    plan.write_text("segments:\n  - duration_s: 10\n    device_modes: {motor: 0.5}\n")
+    args = ["export", str(lock), "--format", "budget", "--plan", str(plan), "--out", "-"]
+    row = _budget_rows(runner.invoke(app, args).stdout)["motor"]
+    assert (row["duty_derived_typical_over_nominal"], row["typical_w"]) == ("0.5", "5")
+
+
+def test_export_budget_refuses_overwrite_without_force(tmp_path):
+    lock = _budget_lock(tmp_path)
+    target = tmp_path / "lockwire.budget.csv"
+    target.write_text("mine")
+    result = runner.invoke(app, ["export", str(lock), "--format", "budget"])
+    assert result.exit_code == 2 and target.read_text() == "mine"
+
+
+def _plan_timing_run(tmp_path, monkeypatch, fake):
+    from lockwire import plugins
+
+    lock, plan = _plan_flag_case(tmp_path, 5.0)
+    monkeypatch.delitem(plugins.OVERRIDES, "time_optimal_plan", raising=False)
+    if fake:
+        monkeypatch.setitem(plugins.OVERRIDES, "time_optimal_plan", fake)
+    return plain(runner.invoke(app, ["plan", str(lock), str(plan)]).output)
+
+
+def test_plan_prints_the_pro_shortest_time_line(tmp_path, monkeypatch):
+    from collections import namedtuple
+
+    r = namedtuple("R", "scale total_s")(0.5, 5.0)
+    out = _plan_timing_run(tmp_path, monkeypatch, lambda model, plan: r)
+    assert "Pro: shortest feasible plan time 5.0 s (segment durations x0.50)" in out
+
+
+def test_plan_prints_nothing_extra_when_pro_returns_none_or_is_absent(tmp_path, monkeypatch):
+    none_out = _plan_timing_run(tmp_path, monkeypatch, lambda model, plan: None)
+    assert "Pro:" not in none_out
+    assert none_out == _plan_timing_run(tmp_path, monkeypatch, None)
+
+
+def _esc_start(tmp_path, monkeypatch, bad):
+    from lockwire import start_operation
+
+    real = start_operation.start_contract
+
+    def noted(*a, **k):
+        return {**real(*a, **k), "note": f"{bad} has no mass"}
+
+    monkeypatch.setattr(start_operation, "start_contract", noted)
+    return [
+        "start",
+        str(FIXTURES / "testbot.urdf"),
+        "--out",
+        str(tmp_path / "c.yaml"),
+        "--no-check",
+    ]
+
+
+def _esc_upgrade(tmp_path, monkeypatch, bad):
+    monkeypatch.setattr("lockwire.api.upgrade", lambda *a, **k: [f"{bad} is odd"])
+    (tmp_path / "x.yaml").write_text("x")
+    return [
+        "upgrade",
+        str(tmp_path / "x.yaml"),
+        "--out",
+        str(tmp_path / "u.yaml"),
+        "--expected-revision",
+        "r",
+    ]
+
+
+def _esc_swap(tmp_path, monkeypatch, bad):
+    from lockwire import swap
+
+    real = swap.preview
+
+    def noted(*a, **k):
+        pv = real(*a, **k)
+        pv.notes.append(f"{bad} link")
+        return pv
+
+    monkeypatch.setattr(swap, "preview", noted)
+    lock = tmp_path / "s.yaml"
+    assert (
+        runner.invoke(
+            app, ["start", str(FIXTURES / "testbot.urdf"), "--out", str(lock), "--no-check"]
+        ).exit_code
+        == 0
+    )
+    return ["swap", str(lock), "hip"]
+
+
+def _esc_swap_names(field):
+    def build(tmp_path, monkeypatch, bad):
+        from lockwire import swap
+
+        real = swap.preview
+
+        def named(*a, **k):
+            pv = real(*a, **k)
+            if field == "current":
+                pv.current = bad
+            elif field == "joint":
+                pv.knock_on = [swap.KnockOn(bad, 1.0, 2.0)]
+            elif field == "unscored":
+                pv.knock_on = [swap.KnockOn(bad, None, None)]
+            elif field == "flags":
+                pv.candidates[1].flags = [bad]
+            else:
+                setattr(
+                    pv.candidates[0 if field == "chosen" else 1],
+                    "id" if field == "chosen" else field,
+                    bad,
+                )
+                pv.chosen = pv.candidates[0]
+            return pv
+
+        monkeypatch.setattr(swap, "preview", named)
+        return _esc_swap(tmp_path, monkeypatch, bad)
+
+    build.n = (
+        4 if field == "chosen" else 2
+    )  # the note, plus for chosen: table row, "With" line, preview-only line
+    return build
+
+
+def _esc_gap(tmp_path, monkeypatch, bad):
+    from lockwire import servo_bus
+
+    monkeypatch.setattr(servo_bus, "_port_open", lambda *a, **k: None)
+    monkeypatch.setattr(
+        servo_bus,
+        "record_servos",
+        lambda *a, **k: {"generator": {"gaps": [{"message": bad, "from_s": 1}]}},
+    )
+    return ["record-servos", "--port", "p", "--out", str(tmp_path / "rec")]
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        _esc_start,
+        _esc_upgrade,
+        _esc_swap,
+        _esc_gap,
+        *map(_esc_swap_names, ("current", "id", "label", "joint", "chosen", "unscored", "flags")),
+    ],
+)
+def test_user_names_in_notes_print_literally(build, tmp_path, monkeypatch):
+    bad = "[red]up:b:"
+    result = runner.invoke(app, build(tmp_path, monkeypatch, bad))
+    assert plain(result.output).count(bad) == getattr(build, "n", 1), result.output
+
+
+def test_from_parts_prints_the_tie_note_on_the_no_match_line_only(tmp_path):
+    (tmp_path / "p.txt").write_text("3S 2200 XT60 pack\nU2D2 power hub\n")
+    out = plain(runner.invoke(app, ["from-parts", str(tmp_path / "p.txt")]).output)
+    assert "NO MATCH could be: pack.gensace.3s-2200-" in out
+    assert out.count("could be") == 1
+
+
+SRC_ARGS = ["--source", "sketch", "--witness", "Maya Chen"]
+
+
+def _blank_lock(tmp_path):
+    from lockwire.start_operation import start_blank
+
+    return Path(start_blank(tmp_path / "lockwire.yaml")["path"])
+
+
+def _edit(*argv):
+    return runner.invoke(app, [*argv, *SRC_ARGS])
+
+
+def _robot(tmp_path, *links):
+    lock = _blank_lock(tmp_path)
+    for name in links:
+        assert _edit("add", "link", str(lock), "--name", name).exit_code == 0
+    return lock
+
+
+def test_add_link_writes_the_link_with_its_mass(tmp_path):
+    lock = _robot(tmp_path)
+    out = _edit("add", "link", str(lock), "--name", "base", "--mass", "120 g")
+    assert out.exit_code == 0, out.output
+    link = load_contract(lock).model.links[0]
+    assert link.name == "base" and link.mass is not None
+
+
+def test_add_link_takes_id_as_its_name(tmp_path):
+    lock = _blank_lock(tmp_path)
+    assert _edit("add", "link", str(lock), "--id", "base").exit_code == 0
+    assert load_contract(lock).model.links[0].name == "base"
+
+
+def test_add_joint_writes_every_flag(tmp_path):
+    lock = _robot(tmp_path, "base", "arm")
+    out = _edit(
+        *("add", "joint", str(lock), "--name", "j", "--type", "revolute"),
+        *("--parent", "base", "--child", "arm", "--axis", "0 0 1"),
+        *("--lower", "-1", "--upper", "1", "--effort", "5", "--velocity", "2"),
+    )
+    assert out.exit_code == 0, out.output
+    joint = load_contract(lock).model.joints[0]
+    assert (joint.parent, joint.child, joint.type) == ("base", "arm", "revolute")
+    assert list(joint.axis) == [0, 0, 1]
+    assert (joint.limits.lower, joint.limits.upper) == (-1, 1)
+    assert (joint.limits.effort, joint.limits.velocity) == (5, 2)
+
+
+def _join(lock, name, parent, child):
+    return ["add", "joint", str(lock), "--name", name, "--type", "fixed",
+            "--parent", parent, "--child", child]  # fmt: skip
+
+
+def _refusal_loop(tmp_path):
+    lock = _robot(tmp_path, "a", "b")
+    assert _edit(*_join(lock, "j", "a", "b")).exit_code == 0
+    return lock, _join(lock, "k", "b", "a"), "would close a loop"
+
+
+def _refusal_self(tmp_path):
+    lock = _robot(tmp_path, "a")
+    return lock, _join(lock, "j", "a", "a"), "cannot join link 'a' to itself"
+
+
+def _refusal_second_parent(tmp_path):
+    lock = _robot(tmp_path, "a", "b", "c")
+    assert _edit(*_join(lock, "j", "a", "c")).exit_code == 0
+    return lock, _join(lock, "k", "b", "c"), "a link has one parent"
+
+
+def _refusal_still_joined(tmp_path):
+    lock = _robot(tmp_path, "a", "b")
+    assert _edit(*_join(lock, "j", "a", "b")).exit_code == 0
+    return lock, ["delete", "link", str(lock), "--id", "a"], "a holds 1 part (b by joint j)"
+
+
+def _rover(tmp_path):
+    lock = tmp_path / "l.yaml"
+    assert runner.invoke(app, ["start", "--example", "rover", "--out", str(lock)]).exit_code == 0
+    return lock
+
+
+def _refusal_imported(tmp_path):
+    lock = _rover(tmp_path)
+    return lock, ["add", "link", str(lock), "--name", "x"], "edit that file"
+
+
+def _refusal_device_named(tmp_path):
+    lock = tmp_path / "x500.yaml"
+    lock.write_bytes((Path(__file__).parent / "fixtures" / "x500" / "contract.yaml").read_bytes())
+    edge = "edges:\n  - quantity: devices/dev.radio.rfd900x/physical/mass\n    tolerance: {rel_pct: 5.0}\n    code: [src/a.py]\n    owner: w1\n"
+    lock.write_text(lock.read_text().replace("\ndevices:\n", f"\n{edge}devices:\n", 1))
+    argv = ["delete", "device", str(lock), "--id", "dev.radio.rfd900x"]
+    return lock, argv, "is still named by"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        _refusal_loop,
+        _refusal_self,
+        _refusal_second_parent,
+        _refusal_still_joined,
+        _refusal_imported,
+        _refusal_device_named,
+    ],
+)
+def test_add_and_delete_refusals_print_the_engine_line_and_write_nothing(tmp_path, build):
+    lock, argv, words = build(tmp_path)
+    before = lock.read_bytes()
+    out = _edit(*argv)
+    assert out.exit_code == 2 and words in " ".join(out.output.split()), out.output
+    assert out.output.count("failed:") == 1 and lock.read_bytes() == before
+
+
+def test_delete_removes_a_joint_then_its_links(tmp_path):
+    lock = _robot(tmp_path, "a", "b")
+    assert _edit(*_join(lock, "j", "a", "b")).exit_code == 0
+    for kind, name in (("joint", "j"), ("link", "a"), ("link", "b")):
+        out = _edit("delete", kind, str(lock), "--id", name)
+        assert out.exit_code == 0 and f"deleted {kind} {name}" in out.output, out.output
+    assert not load_contract(lock).model.links
+
+
+def test_delete_dry_run_writes_nothing(tmp_path):
+    lock = _robot(tmp_path, "a")
+    before = lock.read_bytes()
+    out = _edit("delete", "link", str(lock), "--id", "a", "--dry-run")
+    assert out.exit_code == 0 and lock.read_bytes() == before
+
+
+def _rename(lock, *rest):
+    return _edit("rename", *rest, str(lock), "--source", "s", "--witness", "me")
+
+
+def test_rename_link_updates_every_joint_reference_in_one_write(tmp_path):
+    lock = _robot(tmp_path, "a", "b", "c")
+    assert _edit(*_join(lock, "j", "a", "b")).exit_code == 0
+    assert _edit(*_join(lock, "k", "b", "c")).exit_code == 0
+    out = _rename(lock, "link", "b", "bb")
+    assert out.exit_code == 0, out.output
+    joints = {j.name: (j.parent, j.child) for j in load_contract(lock).model.joints}
+    assert joints == {"j": ("a", "bb"), "k": ("bb", "c")}
+
+
+@pytest.mark.parametrize(
+    "args, words",
+    [
+        (("bogus", "a", "z"), "unknown rename kind"),
+        (("link", "nope", "z"), "nope"),
+        (("link", "a", "b"), "b"),
+    ],
+)
+def test_rename_refusals_print_the_engine_line_and_write_nothing(tmp_path, args, words):
+    lock = _robot(tmp_path, "a", "b")
+    before = lock.read_bytes()
+    out = _rename(lock, *args)
+    assert out.exit_code == 2 and words in " ".join(out.output.split()), out.output
+    assert out.output.count("failed:") == 1 and lock.read_bytes() == before
+
+
+def test_rename_dry_run_writes_nothing(tmp_path):
+    lock = _robot(tmp_path, "a")
+    before = lock.read_bytes()
+    out = _edit(
+        "rename", "link", "a", "z", str(lock), "--source", "s", "--witness", "me", "--dry-run"
+    )
+    assert out.exit_code == 0 and lock.read_bytes() == before
+
+
+def test_walk_empty_folder_to_two_link_arm_verdict(tmp_path):
+    lock = str(tmp_path / "lockwire.yaml")
+    src = ["--source", "me", "--witness", "me"]
+    metal = ["--material", "Aluminium 6061-T6"]
+    link = lambda n, shape: ["add", "link", lock, "--name", n, "--shape", shape, *metal, *src]  # noqa: E731
+    arm = "box 0.04 0.04 0.3 at 0 0 0.15"
+    joint = lambda n, p, c, z: [  # noqa: E731
+        *("add", "joint", lock, "--name", n, "--type", "revolute", "--parent", p, "--child", c),
+        *("--axis", "0 1 0", "--origin", f"0 0 {z}", "--lower", "-1.5", "--upper", "1.5"),
+        *("--effort", "2", "--velocity", "3", *src),
+    ]
+    steps = [
+        ["start", "--blank", "--out", lock],
+        link("base", "box 0.1 0.1 0.05"),
+        link("upper", arm),
+        link("fore", arm),
+        joint("shoulder", "base", "upper", 0.05),
+        joint("elbow", "upper", "fore", 0.3),
+    ]
+    for step in steps:
+        done = runner.invoke(app, step)
+        assert done.exit_code == 0, done.output
+    out = runner.invoke(app, ["check", lock])
+    assert out.exit_code == 1 and "NO-GO" in out.output, out.output
+    assert "model/joints/shoulder/limits/effort" in plain(out.output)
+    assert "7.61 N*m static gravity torque" in plain(out.output)  # needs the joint origins
+
+
+def test_start_blank_keeps_an_existing_lockfile(tmp_path):
+    lock = tmp_path / "lockwire.yaml"
+    lock.write_text("keep me")
+    out = runner.invoke(app, ["start", "--blank", "--out", str(lock)])
+    assert out.exit_code == 0 and "kept as is" in out.output and lock.read_text() == "keep me"
+    assert runner.invoke(app, ["start", "--blank", "--force", "--out", str(lock)]).exit_code == 0
+    assert load_contract(lock).robot.name == "New robot"
+
+
+@pytest.mark.parametrize("bad", ["cone 1", "box 1 2", "box a b c", "sphere 1 at 0 0"])
+def test_add_link_refuses_a_bad_shape_in_one_line(tmp_path, bad):
+    lock = str(tmp_path / "l.yaml")
+    runner.invoke(app, ["start", "--blank", "--out", lock])
+    out = runner.invoke(app, ["add", "link", lock, "--name", "a", "--shape", bad, *SRC_ARGS])
+    assert out.exit_code == 2 and "--shape must be" in plain(out.output), out.output
+
+
+def test_version_prints_the_package_version_and_exits_0():
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert plain(result.output).startswith(f"lockwire {lockwire.__version__}")
+
+
+def test_check_help_lists_every_exit_code():
+    text = " ".join(plain(runner.invoke(app, ["check", "--help"]).output).split())
+    for want in ("0 GO", "1 NO-GO", "2 contract could not be found", "3 NOT SCORED"):
+        assert want in text
+
+
+def test_check_quiet_prints_only_the_verdict_line_and_keeps_the_exit_code(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["start", "--example", "servo-bench"])
+    loud = runner.invoke(app, ["check"])
+    quiet = runner.invoke(app, ["check", "--quiet"])
+    lines = strip_ansi(quiet.output).splitlines()
+    assert quiet.exit_code == loud.exit_code == 1
+    assert len(lines) == 1 and lines[0].startswith("NO-GO")
+    runner.invoke(app, ["start", "--example", "drone", "--out", "d.yaml"])
+    go = runner.invoke(app, ["check", "d.yaml", "--quiet"])
+    assert go.exit_code == 0 and len(strip_ansi(go.output).splitlines()) == 1
+
+
+def _variant_rover(tmp_path):
+    from lockwire import edit
+
+    lock = tmp_path / "rover.yaml"
+    shutil.copy(lockwire.__path__[0] + "/examples/rover-param/contract.yaml", lock)
+    for name, p in (("long", 0.2), ("short", 0.1)):
+        edit.add_entry(
+            lock,
+            "variant",
+            {"name": name, "params": {"half_wheelbase": p}},
+            source="design choice",
+            witness="w1",
+        )
+    return lock
+
+
+def test_check_prints_a_line_per_variant_and_exits_with_the_worst(tmp_path, monkeypatch):
+    lock = _variant_rover(tmp_path)
+    plain_run = runner.invoke(app, ["check", str(lock)])
+    assert "variant long: GO" in plain_run.output and "variant short: GO" in plain_run.output
+    assert plain_run.exit_code == 0
+    rows = [("long", "GO", []), ("short", "NO_GO", [])]
+    monkeypatch.setattr("lockwire.variants.check_variants", lambda c, **k: rows)
+    result = runner.invoke(app, ["check", str(lock)])
+    assert "variant long: GO" in result.output and "variant short: NO-GO" in result.output
+    assert result.exit_code == 1
+    assert "variant short: NO-GO" in runner.invoke(app, ["check", str(lock), "--quiet"]).output
+
+
+def test_check_hands_its_own_arguments_to_the_variant_runs(tmp_path, monkeypatch):
+    lock = _variant_rover(tmp_path)
+    plan = tmp_path / "plan.yaml"
+    plan.write_text("segments:\n  - name: reach\n    pose: {shoulder: 0.0}\n")
+    seen = []
+    monkeypatch.setattr("lockwire.variants.check_variants", lambda c, **k: seen.append(k) or [])
+    runner.invoke(app, ["check", str(lock), "--plan", str(plan)])
+    assert seen[0]["plan"].segments[0].name == "reach" and seen[0]["contract_path"] == lock
+
+
+def test_check_torque_is_refused_on_a_variant_lock_so_no_variant_line_can_skip_it(tmp_path):
+    result = runner.invoke(app, ["check", str(_variant_rover(tmp_path)), "--torque", "a=1 N*m"])
+    assert result.exit_code == 2 and "works on a model file only" in result.output
+    assert "variant" not in result.output.replace("--torque", "")
+
+
+def test_check_without_variants_prints_no_variant_line():
+    result = runner.invoke(
+        app, ["check", lockwire.__path__[0] + "/examples/rover-param/contract.yaml"]
+    )
+    assert "variant" not in result.output and result.exit_code == 0
+
+
+def _rover_lock(tmp_path):
+    lock = tmp_path / "lockwire.yaml"
+    lock.write_bytes(
+        (Path(export_model.__file__).parent / "examples/rover-param/contract.yaml").read_bytes()
+    )
+    return lock
+
+
+def _chassis_extent(folder):
+    from lockwire.mesh_simple import read_stl
+
+    pts = np.array(read_stl(folder / "chassis.stl")[0]).reshape(-1, 3)
+    return pts.max(axis=0) - pts.min(axis=0)
+
+
+def test_export_stl_writes_triangles_and_names_the_units(tmp_path):
+    lock = _rover_lock(tmp_path)
+    result = runner.invoke(app, ["export", str(lock), "--format", "stl"])
+    text = " ".join(plain(result.output).split())
+    assert result.exit_code == 0 and "units: metres" in text
+    assert len(_chassis_extent(tmp_path / "lockwire-stl")) == 3
+    assert (tmp_path / "lockwire-stl" / "assembly.stl").stat().st_size > 84
+
+
+def test_export_stl_mm_scales_a_thousand_times_and_says_so(tmp_path):
+    lock = _rover_lock(tmp_path)
+    runner.invoke(app, ["export", str(lock), "--format", "stl", "--out", str(tmp_path / "m")])
+    mm = runner.invoke(
+        app,
+        ["export", str(lock), "--format", "stl", "--units", "mm", "--out", str(tmp_path / "mm")],
+    )
+    assert "units: millimetres" in " ".join(plain(mm.output).split())
+    ratio = _chassis_extent(tmp_path / "mm") / _chassis_extent(tmp_path / "m")
+    assert np.allclose(ratio, 1000.0, rtol=1e-4)
+
+
+def test_export_stl_refuses_existing_folder_files_without_force(tmp_path):
+    lock = _rover_lock(tmp_path)
+    args = ["export", str(lock), "--format", "stl"]
+    assert runner.invoke(app, args).exit_code == 0
+    again = runner.invoke(app, args)
+    assert again.exit_code == 2 and "already exists" in plain(again.output)
+    assert runner.invoke(app, [*args, "--force"]).exit_code == 0
+
+
+def test_export_obj_writes_obj_files(tmp_path):
+    lock = _rover_lock(tmp_path)
+    assert runner.invoke(app, ["export", str(lock), "--format", "obj"]).exit_code == 0
+    assert (tmp_path / "lockwire-obj" / "assembly.obj").is_file()
+
+
+def test_export_step_is_refused_in_one_line(tmp_path):
+    result = runner.invoke(app, ["export", str(_rover_lock(tmp_path)), "--format", "step"])
+    lines = [x for x in plain(result.output).splitlines() if x.strip()]
+    assert result.exit_code == 2 and len(lines) == 1
+    assert export_model.STEP_REFUSAL in " ".join(lines[0].split())
+
+
+def _mesh_lock(tmp_path):
+    lock = _blank_lock(tmp_path)
+    (tmp_path / "m.stl").write_text(
+        "solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 100 0 0\n"
+        "vertex 0 50 0\nendloop\nendfacet\nendsolid t\n"
+    )
+    return lock, tmp_path / "m.stl"
+
+
+def test_add_link_mesh_writes_the_link_and_prints_the_box(tmp_path):
+    lock, stl = _mesh_lock(tmp_path)
+    out = _edit("add", "link", str(lock), "--name", "arm", "--mesh", str(stl), "--scale", "mm")
+    text = plain(out.output)
+    assert out.exit_code == 0 and "imported m.stl: 0.100 x 0.050 x 0.000 m (1 triangles)" in text, (
+        text
+    )
+    assert "mass not derived for a mesh; declare one with: lockwire declare" in text
+    assert "m.stl" in lock.read_text()
+
+
+def test_add_link_mesh_without_scale_refuses_in_one_line(tmp_path):
+    lock, stl = _mesh_lock(tmp_path)
+    before = lock.read_text()
+    out = _edit("add", "link", str(lock), "--name", "arm", "--mesh", str(stl))
+    lines = [x for x in plain(out.output).splitlines() if x.strip()]
+    assert out.exit_code == 2 and len(lines) == 1 and "--mesh needs --scale" in lines[0], out.output
+    assert lock.read_text() == before
+
+
+def test_add_link_mesh_over_the_cap_refuses_in_one_line(tmp_path, monkeypatch):
+    lock, stl = _mesh_lock(tmp_path)
+    monkeypatch.setattr("lockwire.meshread.MAX_TRIANGLES", 0)
+    out = _edit("add", "link", str(lock), "--name", "arm", "--mesh", str(stl), "--scale", "m")
+    lines = [x for x in plain(out.output).splitlines() if x.strip()]
+    assert out.exit_code == 2 and len(lines) == 1 and "over 0 triangles" in lines[0], out.output
+
+
+def _quadruped_check(tmp_path, monkeypatch, *flags):
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["start", "--example", "quadruped"]).exit_code == 0
+    return runner.invoke(app, ["check", "--json", "-", *flags])
+
+
+def test_check_strict_json_carries_process_exit_code(tmp_path, monkeypatch):
+    result = _quadruped_check(tmp_path, monkeypatch, "--strict")
+    doc = json.loads(result.stdout[result.stdout.index("{") :])
+    assert result.exit_code == 1 and doc["exit_code"] == 1
+    assert doc["verdict"] == "NO-GO"
+    plain_run = _quadruped_check(tmp_path, monkeypatch)
+    loose = json.loads(plain_run.stdout[plain_run.stdout.index("{") :])
+    assert loose["exit_code"] == 0 and loose["verdict"] != "NO-GO"
+
+
+def test_add_group_passes_name_and_members_through(tmp_path):
+    lock = _robot(tmp_path, "a", "b")
+    assert _edit("add", "group", str(lock), "--name", "g", "--members", "a, b").exit_code == 0
+    assert [g.members for g in load_contract(lock).groups] == [["a", "b"]]
+
+
+def test_add_mirror_passes_of_plane_rename_and_subtree_through(tmp_path):
+    lock = _robot(tmp_path, "base", "left-arm", "left-hand")
+    for name, parent, child in (("j1", "base", "left-arm"), ("j2", "left-arm", "left-hand")):
+        assert _edit(*_join(lock, name, parent, child)).exit_code == 0
+    flags = ("--of", "left-arm", "--plane", "xz", "--rename", "left=right", "--no-subtree")
+    assert _edit("add", "mirror", str(lock), *flags).exit_code == 0
+    assert {x.name for x in load_contract(lock).model.links} == {
+        "base", "left-arm", "left-hand", "right-arm"  # --no-subtree: the hand is not copied
+    }  # fmt: skip
+
+
+def test_add_mirror_refuses_a_rename_without_an_equals(tmp_path):
+    lock = _robot(tmp_path, "base", "arm")
+    assert _edit(*_join(lock, "j", "base", "arm")).exit_code == 0
+    out = _edit("add", "mirror", str(lock), "--of", "arm", "--plane", "xz", "--rename", "arm")
+    assert out.exit_code == 2 and "--rename must look like" in plain(out.output)
+
+
+def test_add_promote_turns_a_placed_device_into_a_link_and_joint(tmp_path):
+    lock = _robot(tmp_path, "base")
+    dev = ("--id", "dev.x", "--model", "m.x", "--family", "f.x", "--owner", "me")
+    assert _edit("add", "device", str(lock), *dev, "--mount-frame", "base").exit_code == 0
+    out = _edit("add", "promote", str(lock), "--device", "dev.x", "--name", "pl", "--type", "fixed")
+    assert out.exit_code == 0, out.output
+    model = load_contract(lock).model
+    assert [j.child for j in model.joints] == ["pl"]
+    out = _edit("add", "promote", str(lock), "--device", "dev.x", "--name", "p2")
+    assert out.exit_code == 2 and "joint type must be" in plain(out.output)
+
+
+def test_strict_prints_the_word_that_matches_exit_3(testbot_urdf, tmp_path, monkeypatch):
+    contract = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["init", str(testbot_urdf), "--out", str(contract)]).exit_code == 0
+    _go_with_one_not_scored(monkeypatch)
+    loose = plain(runner.invoke(app, ["check", str(contract)]).output)
+    assert "NOT SCORED" not in loose and "GO" in loose  # non-strict GO unchanged
+    strict = runner.invoke(app, ["check", str(contract), "--strict"])
+    assert strict.exit_code == 3 and "NOT SCORED — under --strict" in plain(strict.output)
+
+
+def test_identical_not_scored_lines_collapse_to_one_with_a_count(tmp_path, monkeypatch):
+    from lockwire.report import Finding, RecordReport, render
+
+    def gap(joint):
+        return Finding(
+            quantity=f"model/joints/{joint}/limits/velocity",
+            severity="not_scored",
+            observed="velocity limit 1000 rad/s",
+            expected="a joint speed in rad/s",
+            action=f"confirm {joint}",
+            next_command=None,
+        )
+
+    from rich.console import Console
+
+    console = Console(record=True, width=200)
+    render(RecordReport([gap(f"J{i}") for i in range(12)]), console)
+    text = console.export_text()
+    assert text.count("velocity limit 1000 rad/s") == 2  # one finding line, one gap line
+    assert "12 findings" in text and "12 checks:" in text
+
+
+def _twin(tmp_path, kind, fields, *flags):
+    """The CLI flags and add_entry with the MCP tool's field names write the same lockfile."""
+    from lockwire.edit import add_entry
+    from lockwire.start_operation import start_blank
+
+    paths = []
+    for tag in ("cli", "api"):
+        path = Path(start_blank(tmp_path / f"{tag}.yaml")["path"])
+        add_entry(path, "link", {"name": "arm"}, source="s", witness="w1")
+        paths.append(path)
+    base = ["add", kind, str(paths[0]), "--source", "s", "--witness", "w1"]
+    result = runner.invoke(app, [*base, *flags])
+    assert result.exit_code == 0, result.output
+    add_entry(paths[1], kind, fields, source="s", witness="w1")
+    return load_contract(paths[0]), load_contract(paths[1]), paths
+
+
+def test_add_param_flags_write_what_the_mcp_tool_writes(tmp_path):
+    flags = ["--name", "arm_len", "--value", "30", "--unit", "mm", "--min", "10", "--max", "50"]
+    fields = {"name": "arm_len", "value": 30.0, "unit": "mm", "min": 10.0, "max": 50.0}
+    cli, api, _ = _twin(tmp_path, "param", fields, *flags)
+    assert cli.params == api.params
+    assert [(p.name, p.value, p.unit, p.min, p.max) for p in cli.params] == [
+        ("arm_len", 30.0, "mm", 10.0, 50.0)
+    ]
+
+
+def test_add_shape_flags_write_what_the_mcp_tool_writes(tmp_path):
+    fields = {"link": "arm", "shape": {"kind": "cylinder", "radius": 0.02, "length": 0.3}}
+    cli, api, _ = _twin(tmp_path, "shape", fields, "--link", "arm", "--shape", "cylinder 0.02 0.3")
+    assert cli.model.links == api.model.links
+    assert [g.kind for g in cli.model.links[0].geometry] == ["cylinder"]
+
+
+def test_add_attach_flags_write_what_the_mcp_tool_writes(tmp_path):
+    joint = {"type": "revolute", "axis": [0.0, 0.0, 1.0], "limits": {"lower": -1.0, "upper": 1.0}}
+    fields = {
+        "parent": "arm",
+        "part": "dynamixel.ax-12a",
+        "name": "servo",
+        "joint": joint,
+        "frame": {"xyz": [0.1, 0.0, 0.2]},
+    }
+    flags = [
+        "--parent",
+        "arm",
+        "--part",
+        "dynamixel.ax-12a",
+        "--name",
+        "servo",
+        "--type",
+        "revolute",
+        "--axis",
+        "0 0 1",
+        "--lower",
+        "-1",
+        "--upper",
+        "1",
+        "--frame",
+        "0.1 0 0.2",
+    ]
+    cli, api, _ = _twin(tmp_path, "attach", fields, *flags)
+    assert cli.model.joints == api.model.joints
+    assert "servo" in [k.name for k in cli.model.links]
+
+
+def test_add_attach_without_a_frame_refuses_and_add_shape_wants_one_shape(tmp_path):
+    from lockwire.edit import add_entry
+    from lockwire.start_operation import start_blank
+
+    path = Path(start_blank(tmp_path / "r.yaml")["path"])
+    add_entry(path, "link", {"name": "arm"}, source="s", witness="w1")
+    head = ["--source", "s", "--witness", "w1"]
+    attach = [
+        "add",
+        "attach",
+        str(path),
+        *head,
+        "--parent",
+        "arm",
+        "--part",
+        "dynamixel.ax-12a",
+        "--type",
+        "fixed",
+    ]
+    result = runner.invoke(app, attach)
+    assert result.exit_code == 2 and "no offset is guessed" in plain(result.output)
+    shape = runner.invoke(app, ["add", "shape", str(path), *head, "--link", "arm"])
+    assert shape.exit_code == 2 and "exactly one --shape" in plain(shape.output)

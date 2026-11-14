@@ -1,0 +1,25 @@
+#VRML_SIM R2023b utf8
+WorldInfo { basicTimeStep 16 }
+Viewpoint { position 0 0 2 }
+Robot {
+  name "two_link"
+  physics Physics { mass 0.5 centerOfMass [ 0 0 0.02 ] inertiaMatrix [ 1e-3 1e-3 1e-3 0 0 0 ] }
+  children [
+    Shape { geometry Box { size 0.1 0.1 0.1 } }
+    HingeJoint {
+      jointParameters HingeJointParameters { axis 0 1 0 anchor 0 0 0 }
+      device [ RotationalMotor { name "shoulder" minPosition -1.9 maxPosition 1.9 maxTorque 10 maxVelocity 10 } PositionSensor { name "shoulder_s" } ]
+      endPoint Solid {
+        name "upper"
+        physics Physics { mass 0.1 inertiaMatrix [ 1e-4 1e-4 1.5e-4 0 0 0 ] }
+        children [
+          HingeJoint {
+            jointParameters HingeJointParameters { axis 0 1 0 anchor 0 0 0.1 }
+            device [ RotationalMotor { name "wrist" minPosition -1.6 maxPosition 1.6 maxTorque 1 maxVelocity 10 } ]
+            endPoint Solid { translation 0 0 0.1 name "hand" physics Physics { mass 0.05 inertiaMatrix [ 1e-5 1e-5 1.5e-5 0 0 0 ] } }
+          }
+        ]
+      }
+    }
+  ]
+}

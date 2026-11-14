@@ -78,7 +78,7 @@ describe("HistoryDrawer", () => {
     act(() => {
       root.render(<HistoryDrawer gitAvailable entries={[]} onDiff={noopDiff} />);
     });
-    expect(container.querySelector(".history-drawer-empty")!.textContent).toBe("No saved versions");
+    expect(container.querySelector(".history-drawer-empty")!.textContent).toBe("No saved versions yet. Make a change and save, and it appears here.");
     expect(container.querySelectorAll(".history-entry").length).toBe(0);
   });
 

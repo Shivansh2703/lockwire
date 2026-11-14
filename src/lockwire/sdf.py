@@ -1,4 +1,4 @@
-"""SDF -> Tier A extraction (`lockwire init`/`start`, F3). Stdlib only for XML.
+"""SDF -> Tier A extraction (`lockwire init`/`start`). Stdlib only for XML.
 
 Reuses `urdf._principal` (inertia tensor -> principal moments/axes, same trap
 as URDF: inertia is about the COM in the inertial frame) and `urdf._model_structure_hash`
@@ -253,6 +253,33 @@ def read_sdf_root(path: Path) -> tuple[ET.Element, ET.Element]:
     return root, model_el
 
 
+def loop_cuts(path: Path) -> dict[str, tuple[float, float, float]]:
+    """Each joint that closes a kinematic loop -> its pin, a point in its child link's frame.
+
+    A record places a link at the joint above it, which is only true for a joint with no
+    ``<pose>`` of its own. So into a link with several parent joints exactly one must sit on the
+    link's frame (it is kept) and the others are the cuts, wherever the file declares them.
+    ValueError for a file the torque walk would misplace: a looped link with no such joint, or a
+    kept joint anywhere that carries a ``<pose>``.
+    """
+    _root, model_el = read_sdf_root(path)
+    into: dict[str, list[ET.Element]] = {}
+    for el in model_el.findall("joint"):
+        into.setdefault(el.findtext("child") or "?", []).append(el)
+    here = _sdf_pose(None)
+    cuts: dict[str, tuple[float, float, float]] = {}
+    for link, els in into.items():
+        off = [e for e in els if _sdf_pose(e.find("pose")) != here]
+        if len(els) > 1 and len(off) != len(els) - 1:
+            raise ValueError(f"closed chain: link '{link}' needs one parent joint with no <pose>")
+        if len(els) == 1 and off:
+            raise ValueError(
+                f"closed chain: joint '{off[0].get('name', '?')}' has a <pose> off its child link"
+            )
+        cuts.update({e.get("name", "?"): _sdf_pose(e.find("pose"))[0] for e in off if len(els) > 1})
+    return cuts
+
+
 def _urdf_geometry(geometry: ET.Element | None) -> ET.Element | None:
     shape = geometry[0] if geometry is not None and len(geometry) else None
     if shape is None:
@@ -286,6 +313,18 @@ def urdf_view(path: Path) -> ET.Element:
     robot = ET.Element("robot", name=model_el.get("name", "?"))
     for link in model_el.findall("link"):
         out = ET.SubElement(robot, "link", name=link.get("name", "?"))
+        if (mass := link.findtext("inertial/mass")) is not None:
+            inertial = ET.SubElement(out, "inertial")
+            ET.SubElement(inertial, "mass", value=mass)
+            if (tensor := link.find("inertial/inertia")) is not None:
+                ET.SubElement(
+                    inertial,
+                    "inertia",
+                    {
+                        k: tensor.findtext(k) or "0"
+                        for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+                    },
+                )
         for kind in ("collision", "visual"):
             for el in link.findall(kind):
                 geometry = _urdf_geometry(el.find("geometry"))

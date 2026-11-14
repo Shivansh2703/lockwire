@@ -99,6 +99,15 @@ REVISION = Annotated[
 ]
 
 
+DESIGN_SOURCE = Annotated[str | None, _arg("Where the values come from (a file, a person's note).")]
+DESIGN_WITNESS = Annotated[
+    str | None, _arg("The real person who vouches; never blank, 'you' or an assistant.")
+]
+DESIGN_APPLY = Annotated[
+    bool, _arg("false (default): a proposal, nothing written; true: write it.")
+]
+
+
 def _plain(error: Exception) -> str:
     """The CLI's plain line for a file-system failure (no Errno); other errors as they are."""
     if isinstance(error, OSError):
@@ -121,7 +130,7 @@ def _load_contract(contract: str) -> Contract:
         raise ToolError(f"no contract at {path}")
     if path.is_dir():
         raise ToolError(f"{path} is a folder; pass the lockfile or model inside it")
-    if path.suffix.lower() in (".urdf", ".xacro", ".sdf"):
+    if path.suffix.lower() in (".urdf", ".xacro", ".sdf", ".wbt", ".proto"):
         raise ToolError(f"{path} is a robot model, not a lockfile; use check_model on it")
     try:
         return api.load(path)
@@ -236,6 +245,7 @@ def build_server() -> MCPServer:
                     source=source,
                     tolerance_pct=tolerance_pct,
                     warnings=warned,
+                    anonymous=True,  # an agent tool never returns the computer's login name
                 )
                 loaded = load_contract(lock)
                 document = api.check(
@@ -280,6 +290,52 @@ def build_server() -> MCPServer:
         return {"robots": robots, "cli_line": _cli_line("catalog", "robots")}
 
     @server.tool()
+    def list_parts(
+        query: Annotated[
+            str | None, _arg("Words the part id, name or family must all hold (any case).")
+        ] = None,
+    ) -> dict[str, Any]:
+        """The catalog parts (private ones too) with their sourced numbers, then the stock shapes
+        (kind "stock": add one by its id with named_dimensions, mass_basis and material_required);
+        servos go on a joint via swap."""
+        from lockwire.catalog import load_catalog, stock
+
+        words = (query or "").lower().split()
+        parts = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "kind": "part",
+                "label": p.label,
+                "numbers": {k: f"{n.value:g} {n.unit}" for k, n in p.numbers.items()},
+            }
+            for p in load_catalog().parts
+            if all(w in f"{p.id} {p.name} {p.family}".lower() for w in words)
+        ]
+        solid = ("plate", "round_rod")  # mass follows a named dimension only here (edit._stock_link)
+        parts += [
+            {
+                "id": r.id,
+                "name": r.name,
+                "kind": "stock",
+                "recipe": r.shape,
+                "dimensions": r.dimensions,
+                "named_dimensions": r.shape in solid,
+                "mass_basis": (
+                    "derived from material density"
+                    if r.shape in solid
+                    else "maker's mass per metre"
+                    if r.mass_from == "mass_per_length"
+                    else "true cross-section x length x material density"
+                ),
+                "material_required": r.mass_from == "material",
+            }
+            for r in stock()
+            if all(w in f"{r.id} {r.name} {r.shape}".lower() for w in words)
+        ]
+        return {"parts": parts, "cli_line": _cli_line("catalog", "parts", *words)}
+
+    @server.tool()
     def upgrade_contract(
         contract: CONTRACT,
         out: Annotated[
@@ -297,6 +353,12 @@ def build_server() -> MCPServer:
         if out is None or expected_revision is None:
             missing = "out" if out is None else "expected_revision"
             raise ToolError(f"REFUSED — upgrade_contract requires {missing}")
+        # confine() refuses every lockfile target, and this output is one: keep its folder rule.
+        target = Path(out).resolve()
+        if target.suffix.lower() not in (".yaml", ".yml"):
+            raise ToolError(f"REFUSED — upgrade_contract writes a .yaml file: {out}")
+        if not target.is_relative_to(Path(contract).resolve().parent):
+            raise ToolError(f"REFUSED — refusing to write outside the contract's folder: {out}")
         try:
             notices = api.upgrade(contract, out=out, expected_revision=expected_revision)
         except (OSError, UnicodeError, ValueError, YAMLError) as error:
@@ -349,6 +411,409 @@ def build_server() -> MCPServer:
         if witness is not None:
             line += ["--witness", witness]
         return _with_cli_line(document, _cli_line(*line))
+
+    @server.tool()
+    def export_model(
+        contract: CONTRACT,
+        format: Annotated[str, _arg("urdf, sdf, mjcf, stl, obj or dae.")] = "urdf",
+    ) -> dict[str, Any]:
+        """Write the contract's robot model as a standard URDF, SDF or MJCF file beside the contract, or (stl, obj, dae) a folder of one mesh file per link plus an assembly file in metres; refuses to overwrite an existing file. URDF, SDF and MJCF carry no geometry."""
+        from lockwire.export_model import default_out, default_stl_dir, write, write_mesh
+
+        loaded = _load_contract(contract)
+        if loaded.model is None:
+            raise ToolError(f"{contract} records no robot model; run start on a model first")
+        try:
+            if format in ("stl", "obj", "dae"):
+                out = default_stl_dir(Path(contract), format)
+                _, skipped = write_mesh(
+                    loaded.model, out, format, source_root=Path(contract).parent
+                )
+            else:
+                skipped = []
+                out = write(
+                    loaded.model,
+                    format,
+                    default_out(Path(contract), format),
+                    source_root=Path(contract).parent,
+                )
+        except (OSError, ValueError) as error:
+            raise ToolError(_plain(error)) from error
+        result: dict[str, Any] = {
+            "written": str(out),
+            "cli_line": _cli_line("export", contract, "--format", format),
+        }
+        if skipped:
+            result["not_exported"] = skipped
+        return result
+
+    def _design_edit(
+        contract: str,
+        kind: str,
+        name: str,
+        *,
+        delete: bool,
+        witness: str,
+        source: str,
+        expected_revision: str | None,
+        apply: bool,
+        fields: dict[str, Any] | None = None,
+        need: dict[str, Any] | None = None,
+        rename_to: str | None = None,
+        changes: list[Change] | None = None,
+    ) -> dict[str, Any]:
+        """One design action through the CLI's own edit engine: a proposal (diff, nothing
+        written) unless apply is true; a stale revision or bad witness is refused."""
+        from lockwire import edit
+
+        _load_contract(contract)
+        # optional in the signatures only so a missing one refuses here (REFUSED, named
+        # field) after the shared contract door, like upgrade_contract
+        missing = [
+            k
+            for k, v in {"source": source, "witness": witness, **(need or {})}.items()
+            if v is None
+        ]
+        if missing:
+            raise ToolError(f"REFUSED — the {kind} edit requires {', '.join(missing)}")
+        try:
+            witness = resolve_witness(witness)
+            if rename_to is not None:
+                result = edit.rename_entry(
+                    Path(contract),
+                    kind,
+                    name,
+                    rename_to,
+                    source=source,
+                    witness=witness,
+                    dry_run=not apply,
+                    expected_revision=expected_revision,
+                )
+            elif changes is not None:  # a declared-value edit: the same atomic writer as `declare`
+                for change in changes:
+                    change.witness = witness
+                result = edit.apply_changes(
+                    Path(contract), changes, dry_run=not apply, expected_revision=expected_revision
+                )
+            elif delete:
+                result = edit.delete_entry(
+                    Path(contract),
+                    kind,
+                    name,
+                    source=source,
+                    witness=witness,
+                    dry_run=not apply,
+                    expected_revision=expected_revision,
+                )
+            else:
+                result = edit.add_entry(
+                    Path(contract),
+                    kind,
+                    fields or {},
+                    source=source,
+                    witness=witness,
+                    dry_run=not apply,
+                    expected_revision=expected_revision,
+                )
+        except (EditRefusal, UnsupportedSchemaVersion, OSError, YAMLError) as error:
+            raise ToolError(f"REFUSED — {_plain(error)}") from error
+        return {
+            "written": result.written,
+            "diff": result.diff,
+            "lines": result.lines,
+            "cli_line": (
+                _cli_line("rename", kind, name, rename_to, contract)
+                if rename_to is not None
+                else _cli_line("declare", contract, changes[0].path, str(changes[0].value))
+                if changes is not None
+                else _cli_line("delete" if delete else "add", kind, contract, "--id", name)
+            ),
+        }
+
+    @server.tool()
+    def add_link(
+        contract: CONTRACT,
+        name: Annotated[str | None, _arg("The new link's name.")] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        mass: Annotated[str | None, _arg("e.g. '120 g'.")] = None,
+        geometry: Annotated[
+            list[dict[str, Any]] | None,
+            _arg("Shapes: {kind: box|cylinder|sphere|mesh, size/radius/length/mesh}."),
+        ] = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Add one link (a shape with a mass) to the contract's robot model. A proposal by default
+        (diff, nothing written); writes only with apply=true. Refuses a duplicate name, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            "link",
+            name,
+            delete=False,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            fields={"name": name, "mass": mass, "geometry": geometry},
+            need={"name": name},
+        )
+
+    @server.tool()
+    def add_joint(
+        contract: CONTRACT,
+        name: Annotated[str | None, _arg("The new joint's name.")] = None,
+        type: Annotated[
+            str | None, _arg("fixed, revolute, continuous, prismatic, floating, planar, ball.")
+        ] = None,
+        parent: Annotated[str | None, _arg("An existing link name.")] = None,
+        child: Annotated[str | None, _arg("An existing link name that has no parent yet.")] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        origin: Annotated[
+            dict[str, Any] | None, _arg("{xyz: [x, y, z], rpy: [r, p, y]}, metres and radians.")
+        ] = None,
+        axis: Annotated[list[float] | None, _arg("Joint axis [x, y, z].")] = None,
+        limits: Annotated[
+            dict[str, Any] | None, _arg("{lower, upper, effort, velocity}, SI units.")
+        ] = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Join two existing links with a joint. A proposal by default (diff, nothing written); writes
+        only with apply=true. Refuses an unknown link, a second parent, a loop, a bad type, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            "joint",
+            name,
+            delete=False,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            fields={
+                "name": name,
+                "type": type,
+                "parent": parent,
+                "child": child,
+                "origin": origin,
+                "axis": axis,
+                "limits": limits,
+            },
+            need={"name": name, "type": type, "parent": parent, "child": child},
+        )
+
+    @server.tool()
+    def add_device(
+        contract: CONTRACT,
+        id: Annotated[str | None, _arg("The new device's id.")] = None,
+        model: Annotated[str | None, _arg("A device model id already in the contract.")] = None,
+        owner: Annotated[str | None, _arg("The owning team.")] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        mass: Annotated[str | None, _arg("e.g. '25 g'.")] = None,
+        rail: Annotated[str | None, _arg("A power rail id.")] = None,
+        draw: Annotated[str | None, _arg("e.g. '5 W'.")] = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Add one device to the contract. A proposal by default (diff, nothing written); writes only
+        with apply=true. Refuses a duplicate id, an unknown model or rail, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            "device",
+            id,
+            delete=False,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            fields={
+                "id": id,
+                "model": model,
+                "owner": owner,
+                "physical_mass": mass,
+                "power_rail": rail,
+                "power_draw": draw,
+            },
+            need={"id": id, "model": model, "owner": owner},
+        )
+
+    @server.tool()
+    def add_shape(
+        contract: CONTRACT,
+        link: Annotated[str | None, _arg("An existing link to add the shape to.")] = None,
+        shape: Annotated[
+            dict[str, Any] | None,
+            _arg("{kind: box|cylinder|sphere|mesh, size/radius/length/mesh}; a number may name a param."),
+        ] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Add one shape to an existing link. A proposal by default (diff, nothing written); writes only
+        with apply=true. Refuses an unknown link, a bad shape, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            "shape",
+            link,
+            delete=False,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            fields={"link": link, "shape": shape},
+            need={"link": link, "shape": shape},
+        )
+
+    @server.tool()
+    def add_param(
+        contract: CONTRACT,
+        name: Annotated[str | None, _arg("The new named dimension's name.")] = None,
+        value: Annotated[float | None, _arg("Its value, in its unit (metres if none).")] = None,
+        unit: Annotated[str | None, _arg("e.g. 'mm'; leave out for metres or radians.")] = None,
+        min: Annotated[float | None, _arg("Lowest allowed value.")] = None,
+        max: Annotated[float | None, _arg("Highest allowed value.")] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Declare a named dimension a shape or joint origin can use by name. A proposal by default (diff,
+        nothing written); writes only with apply=true. Refuses a duplicate name, a value outside min..max, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            "param",
+            name,
+            delete=False,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            fields={"name": name, "value": value, "unit": unit, "min": min, "max": max},
+            need={"name": name, "value": value},
+        )
+
+    @server.tool()
+    def set_dimension(
+        contract: CONTRACT,
+        name: Annotated[str | None, _arg("An existing named dimension (param).")] = None,
+        value: Annotated[float | None, _arg("The new value, in the param's own unit.")] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Set a named dimension to a new value; every shape and joint using it follows. A proposal by
+        default (diff, nothing written); writes only with apply=true. Refuses an unknown name, a value outside min..max, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            "param",
+            name,
+            delete=False,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            need={"name": name, "value": value},
+            changes=None
+            if name is None or value is None
+            else [Change(f"params/{name}/value", str(value), source or "", None)],
+        )
+
+    @server.tool()
+    def attach_part(
+        contract: CONTRACT,
+        parent: Annotated[str | None, _arg("An existing link to attach the part to.")] = None,
+        part: Annotated[str | None, _arg("A catalog part id from list_parts.")] = None,
+        joint: Annotated[
+            dict[str, Any] | None,
+            _arg("{type: revolute|continuous|prismatic|fixed, axis, limits, name}."),
+        ] = None,
+        frame: Annotated[
+            dict[str, Any] | None, _arg("Where it sits on the parent: {xyz: [x, y, z], rpy: [r, p, y]}.")
+        ] = None,
+        frame_id: Annotated[str | None, _arg("Or a named frame on the catalog part.")] = None,
+        name: Annotated[str | None, _arg("The new link's name; default: from the part id.")] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Attach a catalog part to a link at a given frame and join it with a joint; no offset or limit is guessed. A
+        proposal by default (diff, nothing written); writes only with apply=true. Refuses an unknown part or link, a missing frame, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            "attach",
+            name or part,
+            delete=False,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            fields={
+                "parent": parent,
+                "part": part,
+                "joint": joint,
+                "frame": frame,
+                "frame_id": frame_id,
+                "name": name,
+            },
+            need={"parent": parent, "part": part, "joint": joint},
+        )
+
+    @server.tool()
+    def delete_part(
+        contract: CONTRACT,
+        kind: Annotated[str | None, _arg("link, joint or device.")] = None,
+        name: Annotated[str | None, _arg("The link or joint name, or the device id.")] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Delete one link, joint or device. A proposal by default (diff, nothing written); writes only
+        with apply=true. Refuses a link a joint still holds, a device still named elsewhere, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            kind,
+            name,
+            delete=True,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            need={"kind": kind, "name": name},
+        )
+
+    @server.tool()
+    def rename(
+        contract: CONTRACT,
+        kind: Annotated[
+            str | None, _arg("link, joint, device, rail, wire, param or group.")
+        ] = None,
+        name: Annotated[str | None, _arg("The current name.")] = None,
+        new_name: Annotated[str | None, _arg("The new name.")] = None,
+        source: DESIGN_SOURCE = None,
+        witness: DESIGN_WITNESS = None,
+        expected_revision: REVISION = None,
+        apply: DESIGN_APPLY = False,
+    ) -> dict[str, Any]:
+        """Rename one link, joint, device, rail, wire, param or group and every reference to it, in one write.
+        A proposal by default (diff, nothing written); writes only with apply=true. Refuses an unknown kind or name, a name already taken, a bad witness or a stale expected_revision."""
+        return _design_edit(
+            contract,
+            kind,
+            name,
+            delete=False,
+            witness=witness,
+            source=source,
+            expected_revision=expected_revision,
+            apply=apply,
+            need={"kind": kind, "name": name, "new_name": new_name},
+            rename_to=new_name,
+        )
 
     @server.tool()
     def describe_device(

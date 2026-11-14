@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { dialog } from "electron";
 
 const ROBOT_FILTERS = [
-  { name: "Robot model or lockfile", extensions: ["urdf", "sdf", "xacro", "glb", "gltf", "yaml", "yml"] },
+  { name: "Robot model or lockfile", extensions: ["urdf", "sdf", "xacro", "xml", "mjcf", "wbt", "proto", "glb", "gltf", "yaml", "yml"] },
   { name: "All files", extensions: ["*"] },
 ];
 
@@ -28,5 +28,11 @@ export async function pickNewRobotLocation(name: string): Promise<string | null>
     defaultPath: join(homedir(), `lockwire-${name}`, "lockwire.yaml"),
     filters: [{ name: "Lockfile", extensions: ["yaml"] }],
   });
+  return result.canceled || !result.filePath ? null : result.filePath;
+}
+
+/** A save dialog for an export or a copy: the chosen path, or null if the user cancelled. */
+export async function pickSaveTarget(title: string, defaultPath: string, name: string, ext: string): Promise<string | null> {
+  const result = await dialog.showSaveDialog({ title, defaultPath, filters: [{ name, extensions: [ext] }] });
   return result.canceled || !result.filePath ? null : result.filePath;
 }

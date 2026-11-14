@@ -42,14 +42,14 @@ describe("ReferenceFace", () => {
     expect(sheet.querySelector("td")?.textContent).toBe("j1");
   });
 
-  it("groups devices under one searchable Devices disclosure and middle-ellipsises a long command", () => {
+  it("groups devices under one searchable Parts disclosure and middle-ellipsises a long command", () => {
     const long = "lockwire describe /Users/someone/very/long/path/to/the/contract/lockwire.yaml";
     act(() => root.render(<ReferenceFace payload={{ ...payload, drawers: [payload.drawers[0]!, { ...payload.drawers[0]!, title: "Engineer report", cli_line: long }] }} />));
     expect(container.querySelector(".kit-cli-text")!.textContent).toMatch(/^.{20}….+/);
     expect(container.querySelector(".kit-cli-text")!.textContent!.length).toBeLessThan(long.length);
-    expect(container.querySelector(".reference-face-devices summary")!.textContent).toBe("Devices (1)");
+    expect(container.querySelector(".reference-face-devices summary")!.textContent).toBe("Parts (1)");
     expect(container.querySelector(".reference-device summary")!.textContent).toBe("Camera"); // the name, never dev.camera
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="Search devices"]')!;
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Search parts"]')!;
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "zzz");
       input.dispatchEvent(new Event("input", { bubbles: true }));

@@ -134,7 +134,7 @@ def test_a_message_type_alone_is_allowed():
 
 def test_schema_version_did_not_move():
     """Typed units remain additive: legacy documents stay supported at schema v0.4."""
-    assert SCHEMA_VERSION == "0.6"
+    assert SCHEMA_VERSION == "0.7"
     assert {"0.2", "0.3", "0.4", "0.5", "0.6"} <= SUPPORTED_SCHEMA_VERSIONS
 
 

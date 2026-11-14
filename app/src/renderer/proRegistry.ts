@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 
-import type { CheckPayload, PagePayload, PlanPayload, RobotJoint } from "../shared/api.gen";
+import type { CheckPayload, GraphNode, PagePayload, PlanPayload, RobotJoint } from "../shared/api.gen";
 import type { Highlight } from "./scene/robotScene";
 
 // The seam between the free app and the optional paid UI in ./pro/. Free code only ever sees these
@@ -45,6 +45,16 @@ export interface ProPlugin {
   DesignTools?: ComponentType<{ canAnalyse: boolean }>;
   /** Extra panel on the Design page, shown when the design view asks for it. */
   DesignAnalysis?: ComponentType<{ contract: string; expectedRevision: string }>;
+  /** Extra section at the foot of the Power panel (the battery chart). */
+  PowerMore?: ComponentType<{ page: PagePayload; contract?: string; revision?: string; onDeclare?: (path: string, value: string, source: string) => Promise<string | null> }>;
+  /** Extra section at the foot of the Controls panel (the tuning sliders). */
+  ControlsMore?: ComponentType<{ page: PagePayload; contract?: string }>;
+  /** Under one link's Compare materials table (Mass and balance): extra rows for the same link. */
+  MaterialCompareMore?: ComponentType<{ page: PagePayload; link: string }>;
+  /** Under one saved version in the history list: show it against the open one (3D ghost, mass, wires). */
+  HistoryMore?: ComponentType<{ page: PagePayload; contract?: string; sha: string }>;
+  /** Extra column in the parts list; a part whose cell is null shows nothing. */
+  bomColumn?: { label: string; cell: (node: GraphNode) => string | null };
 }
 
 const found = import.meta.glob<ProPlugin>("./pro/index.tsx", { eager: true, import: "default" });

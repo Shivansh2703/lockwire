@@ -1,0 +1,22 @@
+# Example plan for the Two-joint desk arm: hold the arm out level, then fold the elbow, and ask for one pick point.
+# All poses are in radians inside the joint limits (+/-pi). The hold is scored against each joint's effort limit
+# (catalog dynamixel.xl330-m288 stall torque, 0.52 N*m).
+# No segment duration is scored: the catalog has no cited joint acceleration, so a minimum move time cannot be computed.
+steps:
+- kind: joint_target
+  joint: shoulder
+  position: 0.5
+- kind: joint_target
+  joint: elbow
+  position: -1.2
+segments:
+- name: hold
+  duration_s: 2.0
+  pose:
+    shoulder: 0.0
+    elbow: 0.0
+- name: fold
+  duration_s: 2.0
+  pose:
+    shoulder: 0.5
+    elbow: -1.2

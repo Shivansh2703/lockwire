@@ -210,7 +210,7 @@ describe("the app opens real lockfiles through the IPC door and both tabs read t
           expect(readFileSync(shot.path).subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
         }
       }
-      expect(result.tabOrder).toEqual(["Design", "Declare", "Check", "Plan", ...(hasPro ? ["Test", "Run"] : []), "Docs"]);
+      expect(result.tabOrder).toEqual(["Design", "Check", "Plan", ...(hasPro ? ["Test", "Run"] : [])]);
       expect(result.modeStates).toEqual([
         { mode: "Design", targetSelector: ".kit-tree", targetPresent: true },
         { mode: "Declare", targetSelector: ".declare-face input, .declare-face select", targetPresent: true },

@@ -239,3 +239,37 @@ def test_forces_reads_and_renders_the_declared_mount_shape(tmp_path):
         "mount shape dev.fore: custom-mesh, (80.000, 40.000, 2.500) mm "
         "(kind: declared), fasteners 4x M3, mesh cad/fore-mount.stl"
     ) in rendered
+
+
+def test_merged_inertia_includes_the_parallel_axis_term():
+    """2 kg at x=0 and 6 kg at x=1 (CG x=0.75): point masses, so Ixx=0 and
+    Iyy=Izz = 2*0.75^2 + 6*0.25^2 = 1.125 + 0.375 = 1.5 kg*m^2. Without the parallel-axis
+    term every entry would be 0."""
+    figure = api.check(TWO_MASS)["forces"]["inertia"]
+    assert figure["unit"] == "kg*m^2"
+    assert figure["value"] == pytest.approx([0.0, 1.5, 1.5, 0.0, 0.0, 0.0], abs=1e-12)
+
+
+def test_inertia_is_not_scored_when_the_cg_is_incomplete():
+    from lockwire.checks import compute_system_cg
+
+    contract = load_contract(TWO_MASS)
+    contract.devices[0].physical.mount_xyz = None  # type: ignore[union-attr]
+    figure = force_document(contract, compute_system_cg(contract))["inertia"]
+    assert figure["value"] is None and "incomplete" in figure["not_scored_because"]
+
+
+def test_a_robot_with_moving_joints_gets_its_zero_pose_centre_of_mass_and_says_so():
+    """servo-bench has link masses but no mass_total budget and three revolute joints.
+
+    Zero pose link COMs (m): base (0, 0, .025), upper_arm (.1, 0, .05), forearm (.3, 0, .05),
+    hand (.57, 0, .05). x = (.1*.1 + .07*.3 + .09*.57) / .46 = .0823 / .46, z = (.2*.025 + .26*.05) / .46.
+    """
+    from lockwire.page import build_payload
+
+    path = Path(__file__).parents[1] / "src/lockwire/examples/servo-bench.yaml"
+    document = build_payload(load_contract(path), contract_path=path)["forces"]
+    assert document["mass_total"]["value"] == pytest.approx(0.46)
+    assert document["cg"]["value"] == pytest.approx([0.0823 / 0.46, 0.0, 0.018 / 0.46])
+    assert "joints at zero" in document["cg"]["note"]
+    assert document["inertia"]["value"][1] > 0.02  # the arm's spread dominates Iyy

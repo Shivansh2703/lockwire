@@ -1,4 +1,4 @@
-"""The drift guard for the app's TypeScript types (e1-d3).
+"""The drift guard for the app's TypeScript types.
 
 `emit_ts.emit()` is the single source of truth: `app/src/shared/api.gen.ts` is
 committed, and this file is what proves a regenerate matches it — the same

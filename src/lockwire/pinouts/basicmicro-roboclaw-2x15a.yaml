@@ -1,0 +1,95 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: basicmicro-roboclaw-2x15a
+name: Basicmicro RoboClaw 2x15A
+maker: Basicmicro
+numbers:
+  continuous_per_channel:
+    value: 15
+    unit: A
+    kind: datasheet
+    source: 'https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x15A.pdf (RoboClaw 2x15A, 34VDC Dual Channel Brushed DC Motor Controller Data Sheet v3.0: "15 Amps Continuous Per Channel"; as stated),
+      read 2026-11-13'
+  peak_per_channel:
+    value: 30
+    unit: A
+    kind: datasheet
+    source: 'https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x15A.pdf (RoboClaw 2x15A, 34VDC Dual Channel Brushed DC Motor Controller Data Sheet v3.0: "30 Amps Peak Per Channel"; as stated), read
+      2026-11-13'
+  main_battery_min:
+    value: 6
+    unit: V
+    kind: datasheet
+    source: 'https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x15A.pdf (RoboClaw 2x15A, 34VDC Dual Channel Brushed DC Motor Controller Data Sheet v3.0: "from 6VDC to 34VDC on a standard RoboClaw";
+      as stated), read 2026-11-13'
+  main_battery_max:
+    value: 34
+    unit: V
+    kind: datasheet
+    source: 'https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x15A.pdf (RoboClaw 2x15A, 34VDC Dual Channel Brushed DC Motor Controller Data Sheet v3.0: "from 6VDC to 34VDC on a standard RoboClaw";
+      as stated), read 2026-11-13'
+  logic_battery_min:
+    value: 6
+    unit: V
+    kind: datasheet
+    source: 'https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x15A.pdf (RoboClaw 2x15A, 34VDC Dual Channel Brushed DC Motor Controller Data Sheet v3.0: "maximum input voltage is 34VDC with a minimum
+      input voltage of 6VDC"; as stated), read 2026-11-13'
+  logic_battery_max:
+    value: 34
+    unit: V
+    kind: datasheet
+    source: 'https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x15A.pdf (RoboClaw 2x15A, 34VDC Dual Channel Brushed DC Motor Controller Data Sheet v3.0: "maximum input voltage is 34VDC with a minimum
+      input voltage of 6VDC"; as stated), read 2026-11-13'
+  bec_output:
+    value: 1
+    unit: A
+    kind: datasheet
+    source: 'https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x15A.pdf (RoboClaw 2x15A, 34VDC Dual Channel Brushed DC Motor Controller Data Sheet v3.0: "Regulated 5VDC, 1A User Available Output";
+      as stated), read 2026-11-13'
+note: Control I/O only outputs a high of 3.3 V; inputs are 5 V tolerant. Pins are keyed by name.
+connectors:
+- id: CONTROL
+  source: 'https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x15A.pdf (RoboClaw 2x15A, 34VDC Dual Channel Brushed DC Motor Controller Data Sheet v3.0: control header S1-S5, +5V BEC)'
+  pins:
+  - name: S1
+    functions:
+    - uart_rx
+    - rc_in
+    - analog_in
+    type: input
+    voltage_v: 3.3
+    number: S1
+  - name: S2
+    functions:
+    - uart_tx
+    - rc_in
+    - analog_in
+    type: output
+    voltage_v: 3.3
+    number: S2
+  - name: S3
+    functions:
+    - estop
+    - flip_switch
+    type: input
+    number: S3
+  - name: S4
+    functions:
+    - estop
+    - home
+    - limit
+    type: input
+    number: S4
+  - name: S5
+    functions:
+    - estop
+    - home
+    - limit
+    type: input
+    number: S5
+  - name: +5V (BEC)
+    functions:
+    - power_out
+    type: power_out
+    voltage_v: 5
+    max_current_ma: 1000
+    number: +5V (BEC)

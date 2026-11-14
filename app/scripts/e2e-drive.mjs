@@ -13,13 +13,22 @@ import pkg from "../package.json" with { type: "json" };
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Env for the launched app: never the real ~/.config/lockwire witness config unless the caller chose one. */
+export function witnessEnv(env, userDataDir) {
+  if (env.LOCKWIRE_WITNESS_CONFIG ?? process.env.LOCKWIRE_WITNESS_CONFIG) return env;
+  return { ...env, LOCKWIRE_WITNESS_CONFIG: join(userDataDir, "witness.toml") };
+}
+
 /** Launch the app hidden. `executablePath` = packaged binary; or pass `args: ["."], cwd` for a built tree. */
 export async function launchApp({ executablePath, args = [], cwd, env = {} }) {
   const readyFile = join(mkdtempSync(join(tmpdir(), "lockwire-e2e-")), "ready");
   // Always isolate from the owner's real userData/logs unless the caller passed its own dir.
-  if (!args.some((a) => a.startsWith("--user-data-dir"))) {
-    args = [...args, `--user-data-dir=${mkdtempSync(join(tmpdir(), "lockwire-e2e-ud-"))}`];
+  let userDataDir = args.find((a) => a.startsWith("--user-data-dir="))?.slice("--user-data-dir=".length);
+  if (!userDataDir) {
+    userDataDir = mkdtempSync(join(tmpdir(), "lockwire-e2e-ud-"));
+    args = [...args, `--user-data-dir=${userDataDir}`];
   }
+  env = witnessEnv(env, userDataDir);
   const app = await _electron.launch({
     executablePath, args, cwd, timeout: 60_000,
     env: { ...process.env, ...env, LOCKWIRE_GATE_READY_FILE: readyFile },
@@ -54,8 +63,9 @@ export async function waitForSidecar(page) {
 }
 
 const paint = (page) => page.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+// A mode is a pill tab, or a row of the More menu (Declare, Docs); the menu closes itself on a pick.
 const clickTab = (page, name) => page.evaluate(
-  `(async () => { document.querySelector('.shell-more')?.click(); await new Promise((r) => setTimeout(r, 0)); Array.from(document.querySelectorAll('.shell-tabs [role="tab"]')).find((b) => b.textContent === ${JSON.stringify(name)})?.click(); })()`);
+  `(async () => { const find = () => Array.from(document.querySelectorAll('.shell-tabs [role="tab"], .shell-menu-list [role="menuitem"]')).find((b) => b.textContent === ${JSON.stringify(name)}); let el = find(); if (!el) { document.querySelector('.shell-more')?.click(); await new Promise((r) => setTimeout(r, 0)); el = find(); } el?.click(); })()`);
 const isVisible = (app) => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible());
 
 // Main-process capture, as the old in-app hook did: Playwright's page.screenshot hangs on a hidden
@@ -124,7 +134,7 @@ export async function driveUrdf({ app, page, scenario, urdfPath, externalWrite, 
     if (!state.openFace || state.check || state.error) throw new Error("URDF cancel changed the first-launch screen: " + JSON.stringify(state));
     return { urdfCancel: true, ...state, screenshot: await checkpoint(app, screenshotBase, "cancel"), visible: await isVisible(app) };
   }
-  await waitSelector(page, ".check-headline");
+  await waitSelector(page, ".check-headline:not(.verdict-pending)");
   if (!await noPrompt(page)) throw new Error("re-opening a model with a lockfile beside it asked a question");
   if (scenario === "reopen") {
     if (await page.evaluate(`Boolean(document.querySelector('.overwrite-from-model'))`)) throw new Error("an unchanged model offered Update from model file");
@@ -159,7 +169,7 @@ export async function driveFresh({ app, page, urdfPath, expectText }) {
   const t0 = Date.now();
   await clickButton(page, "Open robot");
   // A first open of a big model (ANYmal) took 6-11 s on a loaded box; msToFirstCard still reports the real time.
-  await waitSelector(page, ".check-headline", "attached", 45_000);
+  await waitSelector(page, ".check-headline:not(.verdict-pending)", "attached", 45_000);
   await waitSelector(page, ".finding-card", "attached", 45_000);
   const ms = Date.now() - t0;
   const cardTop = await page.evaluate(`document.querySelector('.finding-card').getBoundingClientRect().top`);
@@ -177,7 +187,7 @@ export async function driveFresh({ app, page, urdfPath, expectText }) {
   const cards = await page.evaluate(`Array.from(document.querySelectorAll('.finding-card')).map((c) => c.innerText.trim())`);
   if (expectText && !cards.some((c) => c.includes(expectText))) throw new Error(`no finding card mentions "${expectText}": ${JSON.stringify(cards.slice(0, 6))}`);
   return { clicks: opened ? 2 : 1, dialogPicks: await app.evaluate(() => globalThis.__lwDialogCalls), msToFirstCard: ms, firstCard: cards[0],
-    headline: await page.evaluate(`document.querySelector('.check-headline').textContent.trim()`), visible: await isVisible(app) };
+    headline: await page.evaluate(`document.querySelector('.check-headline:not(.verdict-pending)').textContent.trim()`), visible: await isVisible(app) };
 }
 
 /**
@@ -197,7 +207,7 @@ export async function driveOpen({ app, page, openPath, planPath, planStepPath, r
   const result = await page.evaluate(`new Promise((resolve, reject) => {
     const startedAt = Date.now();
     (function poll() {
-      const el = document.querySelector(".check-headline");
+      const el = document.querySelector(".check-headline:not(.verdict-pending)");
       if (el) {
         const verdictClass = Array.from(el.classList).find((c) => c.startsWith("verdict-"));
         return resolve({ headlineText: el.textContent, verdictClass });
@@ -300,7 +310,9 @@ export async function driveOpen({ app, page, openPath, planPath, planStepPath, r
   }
 
   // The free app has no Test or Run tab (they come from the optional pro/ folder): visit only the tabs present.
-  const present = await page.evaluate(`[...document.querySelectorAll('.shell-tabs [role="tab"]')].map((t) => t.textContent?.trim() ?? "")`);
+  const pills = await page.evaluate(`[...document.querySelectorAll('.shell-tabs [role="tab"]')].map((t) => t.textContent?.trim() ?? "")`);
+  const more = await page.evaluate(`(async () => { document.querySelector('.shell-more')?.click(); await new Promise((r) => setTimeout(r, 0)); const rows = [...document.querySelectorAll('.shell-menu-list [role="menuitem"]')].map((t) => t.textContent?.trim() ?? ""); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); return rows; })()`);
+  const present = [...pills, ...more];
   let testVerdict;
   if (recordingPath && present.includes("Test")) {
     await clickTab(page, "Test");
@@ -336,16 +348,16 @@ export async function driveOpen({ app, page, openPath, planPath, planStepPath, r
   }
 
   const canonical = ["Design", "Declare", "Check", "Plan", "Test", "Run", "Docs"].filter((n) => present.includes(n));
-  const names = present;
-  if (JSON.stringify(names) !== JSON.stringify(canonical)) throw new Error(`unexpected tab set: ${JSON.stringify(present)}`);
+  const names = canonical;
+  if (new Set(present).size !== canonical.length) throw new Error(`unexpected tab set: ${JSON.stringify(present)}`);
   await clickTab(page, "Design"); // arrows move from the selected pill
   await page.evaluate(`document.querySelector('.shell-tabs [role="tab"]')?.focus()`);
   const tabOrder = [await page.evaluate(`document.activeElement?.textContent?.trim() ?? ""`)];
-  for (let i = 1; i < names.length; i += 1) {
+  for (let i = 1; i < pills.length; i += 1) {
     await page.keyboard.press("ArrowRight"); // roving tabindex: arrows move between pill tabs
     await paint(page);
     const focused = await page.evaluate(`document.activeElement?.textContent?.trim() ?? ""`);
-    if (focused !== names[i]) throw new Error(`keyboard tab order mismatch at ${i}: ${focused}`);
+    if (focused !== pills[i]) throw new Error(`keyboard tab order mismatch at ${i}: ${focused}`);
     tabOrder.push(focused);
   }
   const modeStates = [];
@@ -354,7 +366,7 @@ export async function driveOpen({ app, page, openPath, planPath, planStepPath, r
     await paint(page);
     const state = await page.evaluate(`(() => {
       const targets = { Design: ${JSON.stringify(analysisE2e || emptyDesignExpected ? ".design-face-empty, .design-face, .kit-tree" : ".kit-tree")}, Declare: '.declare-face input, .declare-face select', Check: '.check-headline', Plan: ${JSON.stringify(planPath ? ".verdict-word" : ".plan-input")}, Test: ${JSON.stringify(recordingPath ? ".verdict-word" : ".test-input")}, Run: ${JSON.stringify(run ? ".run-face" : ".run-panel")}, Docs: '.reference-face' };
-      const activeMode = document.querySelector('.shell-tabs [role="tab"][aria-selected="true"]')?.textContent?.trim() ?? '';
+      const activeMode = document.querySelector('.shell-tabs [role="tab"][aria-selected="true"]')?.textContent?.trim() ?? document.querySelector('.shell-more[data-active]')?.textContent?.replace('▾', '').trim() ?? '';
       const targetSelector = targets[${JSON.stringify(mode)}];
       return { activeMode, targetSelector, targetPresent: Boolean(document.querySelector(targetSelector)) };
     })()`);

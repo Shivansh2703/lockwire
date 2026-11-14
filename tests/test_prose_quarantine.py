@@ -43,6 +43,7 @@ INJECTION = (
 # listed here must be free text no checker touches — a new field that moves the
 # verdict fails this test by name until it is classified.
 SEMANTIC_FIELDS = {
+    "Provenance.witness",  # evidence gates: a given blank name is refused, an absent one is anonymous
     "DeviceIdentity.vid_pid",  # bus identity-collision check
     "DeviceIdentity.serial_number",  # bus identity-collision check
     "DeviceIdentity.can_id",  # bus identity-collision check

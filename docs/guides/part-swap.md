@@ -20,12 +20,11 @@ lockwire swap lockwire.yaml wrist
 ```text
 wrist: feetech.scs0009, gravity load 0.15 N*m (fit = stall >= 2x load)
   fit      dynamixel.xl330-m288   cited      0.52 N*m  3.4x  18 g  different bus
+  fit      dynamixel.xc330-m288   cited      0.93 N*m  6.1x  23 g  different bus
   fit      feetech.sts3032        cited      0.44 N*m  2.9x  20.6 g  different bus, rated at 6 V; your supply is 5 V, expect less (needs new supply)
-  fit      dynamixel.xc330-t288   cited      1.00 N*m  6.6x  23 g  different bus, needs at least 6.5 V, above your supply's 5 V
-  fit      dynamixel.xl430-w250   cited      1.50 N*m  9.9x  57.2 g  different bus, needs at least 6.5 V, above your supply's 5 V
-  fit      dynamixel.xc430-w150   cited      1.60 N*m  10.6x  65 g  different bus, needs at least 6.5 V, above your supply's 5 V
-  fit      feetech.sts3250        cited      4.90 N*m  32.6x  74.5 g  different bus, needs at least 6 V, above your supply's 5 V
-  fit      dynamixel.xm430-w350   cited      4.10 N*m  27.3x  82 g  different bus, needs at least 10 V, above your supply's 5 V
+  fit      feetech.st3215         cited      2.94 N*m  19.6x  55 g  different bus, rated at 12 V; your supply is 5 V, expect less (needs new supply)
+  tight    dynamixel.xl330-m077   cited      0.21 N*m  1.4x  18 g  different bus
+  ...
   fit      feetech.sts3215        unverified 1.91 N*m  12.7x  55 g  different bus, needs at least 6 V, above your supply's 5 V
 With dynamixel.xl330-m288 (+4.8 g on wrist's child link), the joints above:
   elbow 0.40 → 0.40 N*m, still fit (4.7x)
@@ -34,7 +33,7 @@ note: supply 5 V, as declared for its power rail
 preview only; write it with: lockwire swap lockwire.yaml wrist --use dynamixel.xl330-m288
 ```
 
-Each row is a servo from the catalog with a stall torque and a mass: its status, whether its
+The preview lists every candidate (17 here; shortened above). Each row is a servo from the catalog with a stall torque and a mass: its status, whether its
 numbers are cited, its stall torque, stall over load (rounded down, so 1.97 shows as 1.9x), its
 mass, and flags.
 
@@ -148,7 +147,7 @@ the hand link now carries the servo's mass difference
 different problem.
 
 ```text
-scored 7: 6 add up, 1 do not · 2 not scored
+scored 9: 8 add up, 1 do not · 2 not scored
 NO-GO — 1 violation(s), 0 warning(s)
 ```
 

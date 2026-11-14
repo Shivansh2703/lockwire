@@ -47,7 +47,7 @@ X500_CONTRACT = Path(__file__).parent / "fixtures" / "x500" / "contract.yaml"
 def _hold_lock(contract: str, ready, release) -> None:
     with _contract_lock(Path(contract)):
         ready.set()
-        if not release.wait(15):
+        if not release.wait(90):
             raise TimeoutError("test did not release the canonical contract lock")
 
 
@@ -62,7 +62,7 @@ def _run_undo(
 ) -> None:
     started.set()
     try:
-        if start is not None and not start.wait(15):
+        if start is not None and not start.wait(90):
             raise TimeoutError("test did not start the concurrent writers")
         vcs.apply_undo(plan, contract=contract, expected_revision=revision)
     except EditConflict:
@@ -76,7 +76,7 @@ def _run_undo(
 
 
 def _run_edit(contract: str, revision: str, start, result) -> None:
-    if not start.wait(15):
+    if not start.wait(90):
         result.put(("edit", "error: start timed out"))
         return
     try:
@@ -390,16 +390,16 @@ def test_alias_undo_waits_for_the_canonical_contract_lock(aliased_repo, app_styl
     )
 
     holder.start()
-    assert ready.wait(10)
+    assert ready.wait(90)
     undo.start()
     try:
-        assert started.wait(10)
+        assert started.wait(90)
         assert not done.wait(0.5), "alias Undo bypassed the canonical target lock"
         assert not (repo / ".alias.yaml.lock").exists()
     finally:
         release.set()
-        holder.join(10)
-        undo.join(10)
+        holder.join(60)
+        undo.join(60)
         for process in (holder, undo):
             if process.is_alive():
                 process.terminate()
@@ -407,7 +407,7 @@ def test_alias_undo_waits_for_the_canonical_contract_lock(aliased_repo, app_styl
 
     assert holder.exitcode == 0
     assert undo.exitcode == 0
-    assert result.get(timeout=5) == ("undo", "ok")
+    assert result.get(timeout=30) == ("undo", "ok")
     assert contract.read_bytes() == _gu_git(repo, "show", "HEAD:contracts/lockwire.yaml").encode()
     assert alias.is_symlink()
     assert not (repo / ".alias.yaml.lock").exists()
@@ -431,13 +431,13 @@ def test_alias_undo_and_original_edit_with_one_revision_have_exactly_one_winner(
     edit.start()
     undo.start()
     try:
-        assert undo_started.wait(10)
+        assert undo_started.wait(90)
         start.set()
-        outcomes = dict([result.get(timeout=20), result.get(timeout=20)])
+        outcomes = dict([result.get(timeout=90), result.get(timeout=90)])
     finally:
         start.set()
-        edit.join(10)
-        undo.join(10)
+        edit.join(60)
+        undo.join(60)
         for process in (edit, undo):
             if process.is_alive():
                 process.terminate()

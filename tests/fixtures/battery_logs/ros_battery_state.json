@@ -1,0 +1,2 @@
+[{"header":{"stamp":{"sec":1700000000,"nanosec":0}},"voltage":25.2,"current":-10.0,"percentage":1.0},
+ {"header":{"stamp":{"sec":1700000010,"nanosec":500000000}},"voltage":24.9,"current":-10.0,"percentage":0.97}]

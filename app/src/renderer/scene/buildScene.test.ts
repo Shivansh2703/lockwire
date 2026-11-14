@@ -39,7 +39,7 @@ vi.mock("three", async () => {
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };
 });
 
-const { FRAME_INSET, applyViewInset, refit, buildScene, disposeScene, handleResize, updatePixelRatio, attachWasd, attachWheel } = await import("./buildScene");
+const { FRAME_INSET, applyViewInset, refit, buildScene, disposeScene, handleResize, updatePixelRatio, attachWasd, attachWheel, headroomHighlights, headroomText, supportPolygonObject, primitiveMeshes, syncPrimitives } = await import("./buildScene");
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.resolve(here, "../../../../tests/fixtures/scene_roundtrip.json");
@@ -229,34 +229,44 @@ describe("buildScene", () => {
   });
 });
 
-describe("WASD walk", () => {
+describe("arrow-key walk", () => {
   const press = (key: string, type = "keydown") => window.dispatchEvent(new KeyboardEvent(type, { key }));
   function setup() {
-    const ctx = buildScene(document.createElement("canvas"), makeParts(), 400, 300);
+    const canvas = document.body.appendChild(document.createElement("canvas"));
+    canvas.tabIndex = 0;
+    canvas.focus();
+    const ctx = buildScene(canvas, makeParts(), 400, 300);
     return { ctx, wasd: attachWasd(ctx) };
   }
-  it("W moves camera and target together and asks for a frame", () => {
+  it("ArrowUp moves camera and target together and asks for a frame; W does nothing", () => {
     const { ctx, wasd } = setup();
     const cam = ctx.camera.position.clone(), tgt = ctx.controls.target.clone();
-    ctx.needsRender = false;
     press("w");
     wasd.step(0.1);
-    press("w", "keyup");
+    expect(ctx.camera.position.equals(cam)).toBe(true);
+    ctx.needsRender = false;
+    press("ArrowUp");
+    wasd.step(0.1);
+    press("ArrowUp", "keyup");
     expect(ctx.camera.position.equals(cam)).toBe(false);
     expect(ctx.controls.target.equals(tgt)).toBe(false);
     expect(ctx.camera.position.z).toBeCloseTo(cam.z); // ground plane only
     expect(ctx.needsRender).toBe(true);
     wasd.dispose();
   });
-  it("W while an input is focused changes nothing", () => {
+  it("an arrow while an input is focused, or the view is not, changes nothing", () => {
     const { ctx, wasd } = setup();
     const input = document.body.appendChild(document.createElement("input"));
     input.focus();
     const cam = ctx.camera.position.clone();
-    press("w");
+    press("ArrowUp");
     wasd.step(0.1);
     expect(ctx.camera.position.equals(cam)).toBe(true);
     input.remove();
+    ctx.renderer.domElement.blur();
+    press("ArrowUp");
+    wasd.step(0.1);
+    expect(ctx.camera.position.equals(cam)).toBe(true);
     wasd.dispose();
   });
 });
@@ -278,5 +288,59 @@ describe("trackpad wheel", () => {
     ctx.controls.update();
     expect(dist()).toBeLessThan(d0 * 0.9);
     off();
+  });
+});
+
+describe("torque headroom and support polygon", () => {
+  it("colours by the headroom ratio, so the joint needing the most torque is not the red one", () => {
+    const joints = [{ name: "shoulder", headroom: { ratio: 5 } }, { name: "wrist", headroom: { ratio: 1.5 } }, { name: "elbow", headroom: { ratio: 2.5 } }, { name: "tip", headroom: null }, { name: "pan" }];
+    expect(headroomHighlights(joints)).toEqual([{ id: "shoulder", level: "pass" }, { id: "wrist", level: "bad" }, { id: "elbow", level: "warn" }]);
+  });
+  it("puts the number in the callout, with a plain warning under 1x", () => {
+    expect(headroomText("upper_wrist", 1.51)).toBe("upper wrist: 1.5x spare torque (rule of thumb)");
+    expect(headroomText("wrist", 0.62)).toBe("wrist: only 0.6x, cannot hold the pose");
+    expect(headroomText("pan", 3768833)).toBe("pan: 99x or more spare torque")
+    expect(headroomText("elbow", 3.8)).not.toContain("rule of thumb");
+    expect(headroomText("wrist", 2.5)).toContain("rule of thumb");;
+  });
+  it("draws the polygon flat at the ground height the engine gave", () => {
+    const g = supportPolygonObject({ z: 0.006, points: [[-0.08, 0], [0, -0.08], [0, 0.08]] }, new THREE.Color("#ff0000"));
+    expect(g.position.z).toBe(0.006);
+    expect(g.children.map((c) => c.type)).toEqual(["Mesh", "LineLoop"]);
+    expect(g.userData.decor).toBe(true);
+  });
+});
+
+describe("link solids drawn from each payload (CAD-02)", () => {
+  const ROT = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const link = (solids: object[]) => [{ name: "arm", position: [0, 0, 0], solids }] as never;
+  const arm = (length: number) => link([{ kind: "cylinder", radius: 0.02, length, position: [0, 0, 0.1], rotation: ROT }]);
+  const sizeOf = (m: THREE.Mesh) => new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
+
+  it("draws each kind at its size, a cylinder along its own z, and nothing for an unresolved size", () => {
+    const [box, cyl, ball] = primitiveMeshes(link([
+      { kind: "box", size: [0.1, 0.2, 0.3], position: [1, 2, 3], rotation: ROT },
+      { kind: "cylinder", radius: 0.02, length: 0.22, position: [0, 0, 0], rotation: ROT },
+      { kind: "sphere", radius: 0.05, position: [0, 0, 0], rotation: ROT },
+      { kind: "sphere", radius: null, position: [0, 0, 0], rotation: ROT },
+    ])) as THREE.Mesh[];
+    expect(sizeOf(box!).toArray().map((v) => +v.toFixed(3))).toEqual([0.1, 0.2, 0.3]);
+    expect(box!.position.toArray()).toEqual([1, 2, 3]);
+    expect(sizeOf(cyl!).z).toBeCloseTo(0.22);
+    expect(sizeOf(ball!).x).toBeCloseTo(0.1);
+    expect(box!.userData.partId).toBe("arm");
+    expect(primitiveMeshes(link([{ kind: "sphere", radius: null, position: [0, 0, 0], rotation: ROT }]))).toHaveLength(0);
+  });
+  it("redraws the link when the size changes after load: 220 mm then 300 mm", () => {
+    const canvas = document.createElement("canvas");
+    const ctx = buildScene(canvas, [], 800, 600);
+    syncPrimitives(ctx, primitiveMeshes(arm(0.22)));
+    expect(sizeOf(ctx.meshes[0]!).z).toBeCloseTo(0.22);
+    syncPrimitives(ctx, primitiveMeshes(arm(0.3)));
+    expect(ctx.meshes).toHaveLength(1);
+    expect(sizeOf(ctx.meshes[0]!).z).toBeCloseTo(0.3);
+    expect(ctx.scene.children.filter((c) => c.userData.primitive)).toHaveLength(1);
+    syncPrimitives(ctx, []);
+    expect(ctx.meshes).toHaveLength(0);
   });
 });

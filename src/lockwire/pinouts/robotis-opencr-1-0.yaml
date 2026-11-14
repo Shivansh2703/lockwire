@@ -1,0 +1,177 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: robotis-opencr-1-0
+name: ROBOTIS OpenCR 1.0
+maker: ROBOTIS
+numbers:
+  gpio_total_sink:
+    value: 120
+    unit: mA
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/controller/opencr10/ (OpenCR 1.0 (ROBOTIS e-Manual): "sum of all I/O pins is 120 mA sunk and -120 mA sourced"; wording is the summariser''s; re-read
+      before merge), read 2026-11-13'
+  gpio_total_source:
+    value: 120
+    unit: mA
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/controller/opencr10/ (OpenCR 1.0 (ROBOTIS e-Manual): "sum of all I/O pins is 120 mA sunk and -120 mA sourced"; wording is the summariser''s; re-read
+      before merge), read 2026-11-13'
+  v12_max:
+    value: 4.5
+    unit: A
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/controller/opencr10/ (OpenCR 1.0 (ROBOTIS e-Manual): "12 V output 4.5 A max"; as stated), read 2026-11-13'
+  v5_max:
+    value: 4
+    unit: A
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/controller/opencr10/ (OpenCR 1.0 (ROBOTIS e-Manual): "5 V output 4 A max"; supplied from the regulated 12 V; 12 V + 5 V ports combined should not exceed
+      55 W), read 2026-11-13'
+  v3v3_max:
+    value: 800
+    unit: mA
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/controller/opencr10/ (OpenCR 1.0 (ROBOTIS e-Manual): "3.3 V output 800 mA"; as stated), read 2026-11-13'
+  battery_in_min:
+    value: 5
+    unit: V
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/controller/opencr10/ (OpenCR 1.0 (ROBOTIS e-Manual): "5–24 V (battery or SMPS)"; input fuse 125 V 10 A), read 2026-11-13'
+  battery_in_max:
+    value: 24
+    unit: V
+    kind: datasheet
+    source: 'https://emanual.robotis.com/docs/en/parts/controller/opencr10/ (OpenCR 1.0 (ROBOTIS e-Manual): "5–24 V (battery or SMPS)"; input fuse 125 V 10 A), read 2026-11-13'
+note: Pins marked FT are 5 V tolerant except in analog mode. Dynamixel port pin order is an image on the page, not recorded.
+connectors:
+- id: ARDUINO-HEADER
+  source: 'https://emanual.robotis.com/docs/en/parts/controller/opencr10/ (OpenCR 1.0 (ROBOTIS e-Manual): Arduino header pin table)'
+  pins:
+  - number: 0
+    functions:
+    - uart_rx
+    capabilities:
+    - 5v_tolerant
+  - number: 1
+    functions:
+    - uart_tx
+    capabilities:
+    - 5v_tolerant
+  - number: 2
+    functions:
+    - gpio
+    - exti
+    capabilities:
+    - 5v_tolerant
+  - number: 3
+    functions:
+    - pwm
+    - exti
+    capabilities:
+    - 5v_tolerant
+  - number: 4
+    functions:
+    - gpio
+    - exti
+    capabilities:
+    - 5v_tolerant
+  - number: 5
+    functions:
+    - pwm
+    capabilities:
+    - 5v_tolerant
+  - number: 6
+    functions:
+    - pwm
+    capabilities:
+    - 5v_tolerant
+  - number: 7
+    functions:
+    - gpio
+    - exti
+    capabilities:
+    - 5v_tolerant
+  - number: 8
+    functions:
+    - gpio
+    - exti
+    capabilities:
+    - 5v_tolerant
+  - number: 9
+    functions:
+    - pwm
+    capabilities:
+    - 5v_tolerant
+  - number: 10
+    functions:
+    - pwm
+    - spi_cs
+    capabilities:
+    - 5v_tolerant
+  - number: 11
+    functions:
+    - pwm
+    - spi_mosi
+    capabilities:
+    - 5v_tolerant
+  - number: 12
+    functions:
+    - spi_miso
+    capabilities:
+    - 5v_tolerant
+  - number: 13
+    functions:
+    - spi_sck
+    capabilities:
+    - 5v_tolerant
+  - number: 14
+    functions:
+    - i2c_sda
+    capabilities:
+    - 5v_tolerant
+  - number: 15
+    functions:
+    - i2c_scl
+    capabilities:
+    - 5v_tolerant
+  - number: 16
+    functions:
+    - adc
+    capabilities:
+    - 5v_tolerant
+    aliases:
+    - A0
+  - number: 17
+    functions:
+    - adc
+    capabilities:
+    - 5v_tolerant
+    aliases:
+    - A1
+  - number: 18
+    functions:
+    - adc
+    capabilities:
+    - 5v_tolerant
+    aliases:
+    - A2
+  - number: 19
+    functions:
+    - adc
+    capabilities:
+    - 5v_tolerant
+    aliases:
+    - A3
+  - number: 20
+    functions:
+    - adc
+    capabilities:
+    - 5v_tolerant
+    aliases:
+    - A4
+  - number: 21
+    functions:
+    - adc
+    capabilities:
+    - 5v_tolerant
+    aliases:
+    - A5

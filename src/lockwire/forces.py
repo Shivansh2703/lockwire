@@ -19,10 +19,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from lockwire.checks import _fixed_frame_transforms, _point_in_root
 from lockwire.report import CGReport
 from lockwire.schema import Contract
-from lockwire.statics import STANDARD_G, Indeterminate, support_reactions, weight_n
+from lockwire.statics import STANDARD_G, Indeterminate, merge_inertia, support_reactions, weight_n
 
 # A source of a figure -> the kind it must be labelled with. The whole
 # point of the mapping is that "catalog" and "projected" cannot be spelled
@@ -34,7 +36,7 @@ _KIND_BY_SOURCE = {
     "estimate": "projected",  # a projection, not an observation
 }
 
-_KINDS = set(_KIND_BY_SOURCE.values()) | {"not_scored"}
+_KINDS = set(_KIND_BY_SOURCE.values()) | {"not_scored", "derived"}
 
 # Stage one is slender, in-plane, static. Named
 # here so the payload discloses its own ceilings instead of a reader inferring
@@ -122,6 +124,8 @@ def _mass_rows(contract: Contract, sources: str) -> list[dict[str, Any]]:
                         id=quantity,
                     )
                 )
+            elif link.mass_note:  # a mass derived from shapes is not "declared"
+                rows.append(number(link.mass.base(), "kg", "derived", id=quantity))
             else:
                 rows.append(
                     number(link.mass.base(), "kg", kind_for_source("contract"), id=quantity)
@@ -234,9 +238,114 @@ def _mount_shape_rows(contract: Contract) -> list[dict[str, Any]]:
     return rows
 
 
+_IDENTITY = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+_ZERO_POSE = "all joints at zero; the real centre of mass moves as the joints move"
+
+
+def _own_inertia(link: Any, rotation: Any) -> np.ndarray:
+    """A link's principal inertia as a 3x3 in the root frame (zero when it declares none)."""
+    if link is None or link.inertia is None:
+        return np.zeros((3, 3))
+    axes = np.array(link.inertia.axes)
+    own = axes.T @ np.diag(link.inertia.moments_kgm2) @ axes
+    return np.array(rotation) @ own @ np.array(rotation).T
+
+
+def _parts(contract: Contract, report: CGReport, poses: dict[str, Any]) -> list | None:
+    """(mass, COM in root, inertia in root) per contributor, or None when one has no position."""
+    from lockwire.scene_urdf import _apply_pose  # noqa: PLC0415
+
+    links = {k.name: k for k in contract.model.links} if contract.model is not None else {}
+    parts = []
+    for item in report.contributors:
+        link = (
+            links.get(item.quantity.split("/")[2])
+            if item.quantity.startswith("model/links/")
+            else None
+        )
+        position, rotation = item.position_m, _IDENTITY
+        if link is not None and link.com is not None:
+            pose = poses.get(link.frame or link.name)
+            if pose is not None:
+                position, rotation = _apply_pose(pose, link.com), pose[0]
+        if position is None:
+            return None
+        parts.append((item.mass_kg, position, _own_inertia(link, rotation)))
+    return parts
+
+
+def _inertia_figure(
+    parts: list | None, report: CGReport | None, note: str | None = None
+) -> dict[str, Any]:
+    """Merged inertia about the system CG, [Ixx, Iyy, Izz, Ixy, Ixz, Iyz] in kg*m^2.
+
+    Every contributor enters ``statics.merge_inertia`` (parallel-axis theorem); a link's own
+    principal inertia is rotated into the root frame, a device or a link with no declared
+    inertia counts as a point mass. A gap is named, never summed as 0.
+    """
+    if not parts or report is None:
+        return not_scored("kg*m^2", "the centre of mass is incomplete, so no inertia is merged")
+    tensor = merge_inertia(parts)[2]
+    value = [float(tensor[i, j]) for i, j in ((0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2))]
+    extra = {"note": note} if note else {}
+    return number(
+        value,
+        "kg*m^2",
+        derived_by("merge_inertia"),
+        frame=report.frame,
+        quantity=report.quantity,
+        **extra,
+    )
+
+
+def _zero_poses(contract: Contract) -> dict[str, Any]:
+    """Every link's pose in the root with all joints at zero (the pose the 3D view draws)."""
+    from lockwire.scene_urdf import _IDENTITY_POSE, _compose  # noqa: PLC0415
+
+    model = contract.model
+    if model is None:
+        return {}
+    kids: dict[str, list[Any]] = {}
+    for joint in model.joints:
+        kids.setdefault(joint.parent, []).append(joint)
+    children = {joint.child for joint in model.joints}
+    poses = {k.name: _IDENTITY_POSE for k in model.links if k.name not in children}
+    stack = list(poses)
+    while stack:
+        for joint in kids.get(stack.pop(), []):
+            if joint.child not in poses:
+                poses[joint.child] = _compose(
+                    poses[joint.parent], joint.origin.xyz, joint.origin.rpy
+                )
+                stack.append(joint.child)
+    return poses
+
+
+def _budgetless_cg(contract: Contract) -> CGReport | None:
+    """The CG of a robot that declares no mass_total budget: link masses if the model has them,
+    else device masses. The panel shows the robot's mass whether or not a budget checks it."""
+    from lockwire.checks import compute_system_cg  # noqa: PLC0415
+    from lockwire.schema import Budget  # noqa: PLC0415
+
+    links = [k.mass.base() for k in contract.model.links if k.mass] if contract.model else []
+    devices = [d.physical.mass.base() for d in contract.devices if d.physical and d.physical.mass]
+    total = sum(links) or sum(devices)
+    if total <= 0:
+        return None
+    budget = Budget(
+        id="mass",
+        kind="mass_total",
+        limit={"value": total, "unit": "kg"},  # type: ignore[arg-type]
+        sources="links" if links else "devices",
+        owner="the mass panel",
+    )
+    reports = compute_system_cg(contract.model_copy(update={"budgets": [budget]}))
+    return reports[0] if reports else None
+
+
 def force_document(contract: Contract, cg_reports: list[CGReport]) -> dict[str, Any]:
     """The force lane of the check document: mass, CG and mount reactions with kinds."""
-    report = cg_reports[0] if cg_reports else None
+    report = cg_reports[0] if cg_reports else _budgetless_cg(contract)
     sources = report.sources if report is not None else "links+devices"
     if report is None:
         mass_total = not_scored("kg", "no mass_total budget is declared")
@@ -273,6 +382,26 @@ def force_document(contract: Contract, cg_reports: list[CGReport]) -> dict[str, 
                 quantity=report.quantity,
             )
         )
+    inertia_note = None
+    if report is not None and not report.complete:
+        # Joints move, so the engine will not name one centre. Show the one with every joint at
+        # zero, the pose the 3D view draws, and say so on the figure.
+        zero = _parts(contract, report, _zero_poses(contract))
+        if zero:
+            total, com, _ = merge_inertia(zero)
+            centre = number(
+                [float(v) for v in com],
+                "m",
+                derived_by("merge_inertia"),
+                frame=report.frame,
+                quantity=report.quantity,
+                complete=True,
+                note=_ZERO_POSE,
+            )
+            inertia_note = _ZERO_POSE
+        parts = zero
+    else:
+        parts = report and _parts(contract, report, _fixed_frame_transforms(contract)[1])
     return {
         "gravity": number(
             STANDARD_G,
@@ -282,6 +411,7 @@ def force_document(contract: Contract, cg_reports: list[CGReport]) -> dict[str, 
         ),
         "mass_total": mass_total,
         "cg": centre,
+        "inertia": _inertia_figure(parts, report, inertia_note),
         "masses": _mass_rows(contract, sources),
         "mounts": _mount_rows(contract, report),
         "mount_shapes": _mount_shape_rows(contract),

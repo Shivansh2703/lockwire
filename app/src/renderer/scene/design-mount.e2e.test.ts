@@ -142,8 +142,9 @@ describe("the Design tab mounts the real scene from a real check payload", () =>
       expect(fill).toBeLessThanOrEqual(0.95);
       expect(minX).toBeGreaterThanOrEqual(inset.left);
       expect(maxX).toBeLessThanOrEqual(width - inset.right);
-      expect(minY).toBeGreaterThanOrEqual(inset.top);
-      expect(maxY).toBeLessThanOrEqual(height - inset.bottom);
+      // minY/maxY are GL rows, counted from the BOTTOM of the canvas; the insets are measured from the top.
+      expect(height - maxY).toBeGreaterThanOrEqual(inset.top);
+      expect(height - minY).toBeLessThanOrEqual(height - inset.bottom);
     } finally {
       rmSync(outDir, { recursive: true, force: true });
     }

@@ -14,17 +14,19 @@ import base64
 import hashlib
 import math
 import re
-import struct
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from lockwire.catalog import _cached, _stamp
 from lockwire.copy import human_name
 from lockwire.scene import Scene, ScenePart, SceneRefusal
 from lockwire.schema import Contract
 
 _ROUND = 4
-_DISPLAY_TRIANGLES = 150_000
+# Measured on a 1.09M-triangle robot (XYZ DEUX): the app draws all of it at 60 fps, so the cap sits
+# above that; only models bigger than this are clustered down.
+_DISPLAY_TRIANGLES = 2_000_000
 
 
 def contract_ids(contract: Contract) -> set[str]:
@@ -219,26 +221,28 @@ def _pack_vectors(values: tuple[float, ...], *, normals: bool = False) -> dict[s
     Positions use a local midpoint and one scale per part. Normals already lie
     in [-1, 1], so their fixed 1/32767 scale is implicit in the page decoder.
     Packing affects the picture only, never the placement checks.
+
+    numpy, not a per-element Python loop (1.09M triangles took 22 s that way); every step is
+    the same double arithmetic and round-half-even as before, so the bytes are identical.
     """
+    import numpy as np
+
+    flat = np.asarray(values, dtype=np.float64)
     if normals:
         # File normals need not be unit length (STL/OBJ/DAE); unscaled they overflow int16.
-        values = tuple(
-            c / n if (n := math.hypot(*values[i : i + 3])) else c
-            for i in range(0, len(values), 3)
-            for c in values[i : i + 3]
-        )
+        xyz = flat.reshape(-1, 3)
+        # math.hypot, not np.sqrt: its rounding is what the bytes were pinned with
+        length = np.fromiter(map(math.hypot, *(c.tolist() for c in xyz.T)), dtype=np.float64, count=len(xyz))
+        flat = np.divide(xyz, length[:, None], out=xyz.copy(), where=length[:, None] != 0).ravel()
         offset = [0.0, 0.0, 0.0]
         scale = 1 / 32767
     else:
-        low = [min(values[i::3], default=0) for i in range(3)]
-        high = [max(values[i::3], default=0) for i in range(3)]
+        low = flat.reshape(-1, 3).min(axis=0).tolist() if flat.size else [0, 0, 0]
+        high = flat.reshape(-1, 3).max(axis=0).tolist() if flat.size else [0, 0, 0]
         offset = [(a + b) / 2 for a, b in zip(low, high, strict=True)]
         scale = max((b - a) / 65534 for a, b in zip(low, high, strict=True)) or 1.0
-    integers = [round((v - offset[i % 3]) / scale) for i, v in enumerate(values)]
-    result = {
-        "type": "i16",
-        "data": base64.b64encode(struct.pack(f"<{len(integers)}h", *integers)).decode("ascii"),
-    }
+    integers = np.rint((flat.reshape(-1, 3) - offset) / scale).astype("<i2")
+    result = {"type": "i16", "data": base64.b64encode(integers.tobytes()).decode("ascii")}
     if not normals:
         result["scale"] = scale
         result["offset"] = offset
@@ -253,46 +257,139 @@ def scene_hash(scene: Scene) -> str:
     caller's ``scene.have`` is compared against: same geometry, same hash, so a
     client that already has it need not re-download 86% of the reply.
     """
+    import numpy as np
+
+    def doubles(values: tuple[float, ...]) -> bytes:
+        return np.asarray(values, dtype="<f8").tobytes()
+
     hasher = hashlib.sha256()
     for part in scene.parts:
         hasher.update(part.node.encode("utf-8"))
-        hasher.update(struct.pack(f"<{len(part.positions)}d", *part.positions))
+        hasher.update(doubles(part.positions))
         if part.normals is not None:
-            hasher.update(struct.pack(f"<{len(part.normals)}d", *part.normals))
-        hasher.update(struct.pack(f"<{len(part.indices)}I", *part.indices))
-        hasher.update(struct.pack("<4d", *part.color))
-        hasher.update(struct.pack("<3d", *part.translation))
+            hasher.update(doubles(part.normals))
+        hasher.update(np.asarray(part.indices, dtype="<u4").tobytes())
+        hasher.update(doubles(part.color))
+        hasher.update(doubles(part.translation))
     return hasher.hexdigest()
 
 
 def _pack_indices(values: tuple[int, ...]) -> dict[str, str]:
+    import numpy as np
+
     wide = max(values, default=0) > 65535
-    raw = struct.pack(f"<{len(values)}{'I' if wide else 'H'}", *values)
+    raw = np.asarray(values, dtype="<u4" if wide else "<u2").tobytes()
     return {"type": "u32" if wide else "u16", "data": base64.b64encode(raw).decode("ascii")}
 
 
-def _display_part(part: ScenePart, stride: int) -> ScenePart:
-    """Uniform face sampling for the picture only; compact all vertex attributes.
+_MIN_SHARE = 64  # a part this small (or with a smaller share) is never thinned below this
 
-    ponytail: sampling preserves individual faces, not a watertight surface.
-    Use mesh simplification if display fidelity needs more than this bounded view.
+
+def _cluster(pos: Any, tri: Any, origin: Any, cell: float) -> tuple[Any, Any]:
+    """Vertex clustering on a uniform grid: one averaged vertex per occupied cell;
+    triangles remapped, degenerate (two or more corners in one cell) and duplicate
+    (same cells, either winding; first wins) triangles dropped."""
+    import numpy as np
+
+    cells = np.floor((pos - origin) / cell).astype(np.int64)
+    span = cells.max(axis=0) + 1
+    key = (cells[:, 0] * span[1] + cells[:, 1]) * span[2] + cells[:, 2]
+    _, first, inverse = np.unique(key, return_index=True, return_inverse=True)
+    inverse = inverse.reshape(-1)
+    count = len(first)
+    sums = np.stack([np.bincount(inverse, pos[:, k], count) for k in range(3)], axis=1)
+    centre = sums / np.bincount(inverse, minlength=count)[:, None]
+    corner = inverse[tri]
+    keep = (
+        (corner[:, 0] != corner[:, 1])
+        & (corner[:, 1] != corner[:, 2])
+        & (corner[:, 0] != corner[:, 2])
+    )
+    corner = corner[keep]
+    ordered = np.sort(corner, axis=1)
+    if count**3 < 2**62:
+        ident = (ordered[:, 0] * count + ordered[:, 1]) * count + ordered[:, 2]
+        _, unique_rows = np.unique(ident, return_index=True)
+    else:
+        _, unique_rows = np.unique(ordered, axis=0, return_index=True)
+    return centre, corner[np.sort(unique_rows)]
+
+
+def _normals(pos: Any, tri: Any) -> Any:
+    import numpy as np
+
+    face = np.cross(pos[tri[:, 1]] - pos[tri[:, 0]], pos[tri[:, 2]] - pos[tri[:, 0]])
+    out = np.zeros_like(pos)
+    for k in range(3):  # area-weighted: the cross product's length is twice the face area
+        for axis in range(3):
+            out[:, axis] += np.bincount(tri[:, k], face[:, axis], len(pos))
+    length = np.linalg.norm(out, axis=1, keepdims=True)
+    return np.divide(out, length, out=np.zeros_like(out), where=length > 0)
+
+
+def _display_part(part: ScenePart, share: int) -> ScenePart:
+    """Honest simplification for the picture only: grid vertex clustering, the cell
+    size found by bisection so the shown triangles stay within ``share``. Returns the
+    part itself when it already fits. Never drops a part; if no cell size fits it
+    keeps the part whole.
+
+    ponytail: clustering is not guaranteed manifold on thin features and moves
+    vertices; use quadric edge collapse if display fidelity needs more.
     """
-    if stride == 1:
+    import numpy as np
+
+    count = len(part.indices) // 3
+    if count <= share:
         return part
-    kept = [
-        index
-        for start in range(0, len(part.indices), 3 * stride)
-        for index in part.indices[start : start + 3]
-    ]
-    remap = {index: i for i, index in enumerate(dict.fromkeys(kept))}
+    pos = np.asarray(part.positions, dtype=np.float64).reshape(-1, 3)
+    tri = np.asarray(part.indices, dtype=np.int64).reshape(-1, 3)
+    origin = pos.min(axis=0)
+    extent = float((pos.max(axis=0) - origin).max())
+    area = float(
+        np.linalg.norm(
+            np.cross(pos[tri[:, 1]] - pos[tri[:, 0]], pos[tri[:, 2]] - pos[tri[:, 0]]), axis=1
+        ).sum()
+        / 2
+    )
+    if extent <= 0 or area <= 0:
+        return part
+    # a closed surface keeps about two triangles per occupied cell: start the search there
+    low, high, best = min(extent, math.sqrt(2 * area / share) / 4), extent, None
+    for _ in range(12):
+        mid = math.sqrt(low * high)  # geometric: the useful sizes span decades
+        found = _cluster(pos, tri, origin, mid)
+        if 0 < len(found[1]) <= share:
+            best, high = found, mid  # fits: try a finer cell for more detail
+        elif len(found[1]) == 0:
+            high = mid  # too coarse: nothing survives
+        else:
+            low = mid
+    if best is None:
+        return part
+    centre, faces = best
+    used, faces = np.unique(faces, return_inverse=True)
+    faces = faces.reshape(-1, 3)
+    centre = centre[used]
     return replace(
         part,
-        positions=tuple(v for i in remap for v in part.positions[i * 3 : i * 3 + 3]),
-        normals=tuple(v for i in remap for v in part.normals[i * 3 : i * 3 + 3])
+        positions=tuple(centre.ravel().tolist()),
+        normals=tuple(_normals(centre, faces).ravel().tolist())
         if part.normals is not None
         else None,
-        indices=tuple(remap[i] for i in kept),
+        indices=tuple(faces.ravel().tolist()),
     )
+
+
+def _display_parts(parts: tuple[ScenePart, ...], budget: int) -> list[ScenePart]:
+    """Spend ``budget`` over the whole robot in proportion to each part's triangles;
+    every part keeps at least ``_MIN_SHARE`` (or all of itself when smaller)."""
+    total = sum(len(part.indices) // 3 for part in parts)
+    if total <= budget:
+        return list(parts)
+    return [
+        _display_part(part, max(_MIN_SHARE, budget * (len(part.indices) // 3) // total))
+        for part in parts
+    ]
 
 
 def scene_asset_identity(
@@ -331,7 +428,7 @@ def scene_payload(
 ) -> dict[str, Any]:
     """Everything a client draws for the scene, in one deterministic dict.
 
-    ``decimate`` gates the 150,000-triangle display cap: ``gui --out`` (a
+    ``decimate`` gates the display cap (``_DISPLAY_TRIANGLES``): ``gui --out`` (a
     static page, one shot, no re-fetch) wants it; the sidecar's API wants the
     parts un-decimated (v8 line 317) since the app can re-sample for its own
     viewport. The hash covers the source geometry regardless of ``decimate``
@@ -348,23 +445,44 @@ def scene_payload(
         if d.physical and d.physical.mount_frame
     }
     triangles = sum(len(part.indices) // 3 for part in scene.parts)
-    stride = max(1, (triangles + _DISPLAY_TRIANGLES - 1) // _DISPLAY_TRIANGLES) if decimate else 1
-    display_parts = [_display_part(part, stride) for part in scene.parts]
+    digest = scene_hash(scene)
+    # Cached per model file state (path, mtime, size) like the catalog; the geometry hash
+    # also keys it because a URDF's meshes are separate files the root stamp does not cover.
+    display_parts = (
+        _cached(
+            ("display", _stamp(Path(scene.asset_path)) if scene.asset_path else None, digest),
+            lambda: _display_parts(scene.parts, _DISPLAY_TRIANGLES),
+        )
+        if decimate
+        else scene.parts
+    )
     display_triangles = sum(len(part.indices) // 3 for part in display_parts)
+    simplified = display_triangles < triangles
     honesty = "shapes come from the model; positions are declared only where the contract says so"
-    if stride > 1:
+    if simplified:
         honesty += f"; model simplified for display: {display_triangles} of {triangles} triangles"
+    # Packing 1M triangles is the page's biggest repeat cost: pack once per geometry hash,
+    # model file state and display mode (a mesh file edit changes the hash; so does a path).
+    packed = _cached(
+        ("packed", _stamp(Path(scene.asset_path)) if scene.asset_path else None, digest, decimate),
+        lambda: [
+            (
+                _pack_vectors(p.positions),
+                _pack_vectors(p.normals, normals=True) if p.normals is not None else None,
+                _pack_indices(p.indices),
+            )
+            for p in display_parts
+        ],
+    )
     parts = [
         {
             "id": part_id,
             "node": part.node,
             "name": human_name(re.sub(r"\.\d+$", "", part.node)),
             "state": states.get(part_id, "plain") if part_id is not None else "plain",
-            "positions": _pack_vectors(part.positions),
-            "normals": _pack_vectors(part.normals, normals=True)
-            if part.normals is not None
-            else None,
-            "indices": _pack_indices(part.indices),
+            "positions": dict(pos_pack),
+            "normals": dict(norm_pack) if norm_pack is not None else None,
+            "indices": dict(idx_pack),
             "color": _round(part.color),
             "translation": _round(part.translation),
             # structure with no contract id earns mechanical-only (plus
@@ -372,13 +490,17 @@ def scene_payload(
             "group": group,
             "lenses": lenses.get(part_id, sorted({"mechanical", *_OVERLAY_LENSES})),
             "mount_frame": mounts.get(part_id),
+            "triangles_original": len(original.indices) // 3,
+            "triangles_shown": len(part.indices) // 3,
         }
-        for part, part_id, group in zip(display_parts, resolved.part_ids, groups, strict=True)
+        for original, part, part_id, group, (pos_pack, norm_pack, idx_pack) in zip(
+            scene.parts, display_parts, resolved.part_ids, groups, packed, strict=True
+        )
     ]
     return {
         **scene_asset_identity(contract, scene, contract_path),
         "source": source,
-        "hash": scene_hash(scene),
+        "hash": digest,
         "parts": parts,
         "labels": labels,
         "scene_only": list(resolved.scene_only),
@@ -387,5 +509,8 @@ def scene_payload(
         "triangles": scene.triangles,
         "vertices": scene.vertices,
         "display_triangles": display_triangles,
+        "triangles_original": triangles,
+        "triangles_shown": display_triangles,
+        "simplified": simplified,
         "honesty": honesty,
     }

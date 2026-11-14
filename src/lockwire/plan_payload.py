@@ -85,6 +85,25 @@ class FindingLabel(_Strict):
     fix: str = ""
 
 
+class MotionJoint(_Strict):
+    """One joint's absolute speed, acceleration and torque per sample, with its own limits."""
+
+    name: str
+    velocity: list[float]  # rad/s
+    acceleration: list[float]  # rad/s^2
+    torque: list[float]  # N*m
+    velocity_limit: float | None = None
+    acceleration_limit: float | None = None
+    torque_limit: float | None = None
+
+
+class MotionPreview(_Strict):
+    """The plan's fastest moves, sampled (``page.motion_preview``); sidecar-only like finding_labels."""
+
+    time_s: list[float]
+    joints: list[MotionJoint]
+
+
 class PlanPayload(_VerdictDocument):
     """``api.plan`` / ``lockwire plan --json``. ``outcomes`` rides along only
     when the report carries them (``plan.PlanReport``), exactly as
@@ -95,6 +114,7 @@ class PlanPayload(_VerdictDocument):
     outcomes: list[AssertionOutcome] | None = None
     steps: list[PlanStepPayload] = []
     finding_labels: list[FindingLabel] = []
+    motion: MotionPreview | None = None
 
     @model_validator(mode="after")
     def _join_steps(self) -> "PlanPayload":

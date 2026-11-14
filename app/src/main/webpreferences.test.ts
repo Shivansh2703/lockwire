@@ -5,6 +5,7 @@ const created: Record<string, unknown>[] = [];
 vi.mock("electron", () => ({
   app: {
     whenReady: () => Promise.resolve(),
+    getPath: () => "/nonexistent-lockwire-test-userdata", // the saved window bounds are read from here; none there
     on: vi.fn(),
   },
   BrowserWindow: class {
@@ -18,10 +19,13 @@ vi.mock("electron", () => ({
       return Promise.resolve();
     }
     once() {}
+    on() {}
+    webContents = { once() {} };
     static getAllWindows() {
       return [];
     }
   },
+  screen: { getAllDisplays: () => [] },
   Menu: { setApplicationMenu: vi.fn() },
   protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
 }));

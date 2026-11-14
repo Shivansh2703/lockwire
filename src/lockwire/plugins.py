@@ -44,6 +44,8 @@ PRO_COMMANDS = frozenset(
     {
         "preflight", "baseline", "baseline-review", "baseline-check", "sample", "health",
         "actuator-review-draft", "bag", "doctor", "tune", "battery", "print-check", "fly", "fleet-drift",
+        "generate", "package", "bringup", "tip", "requirements", "fit", "timing", "power", "corners",
+        "autotune", "release", "impact", "wokwi", "kicad", "loads", "cable", "bend", "srdf", "envelope", "drawing",
     }
 )  # fmt: skip
 WAITLIST_URL = "https://lockwirerobotics.com"  # the website, until a waitlist page exists
@@ -79,5 +81,8 @@ def load(app: Any = None, mcp: Any = None) -> None:
         except ImportError as error:
             FAILED.append(error)
             from rich.console import Console
+            from rich.markup import escape
 
-            Console(stderr=True).print(f"[dim]plugin {ep.name} not loaded: {error}[/]")
+            Console(stderr=True, emoji=False).print(
+                f"[dim]plugin {escape(ep.name)} not loaded: {escape(str(error))}[/]"
+            )

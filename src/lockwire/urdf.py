@@ -11,7 +11,9 @@ Traps handled here (spec v3):
 
 import datetime as dt
 import hashlib
+import os
 import re
+import threading
 import typing
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -89,6 +91,45 @@ def _find_in_checkout(model: Path, pkg: str) -> Path | None:
     return None
 
 
+_XACRO_LOCK = threading.Lock()
+
+
+def _refusal(path: Path, what: str) -> UnresolvedXacroError:
+    return UnresolvedXacroError(
+        f"{path}: refused: {what}. Lockwire does not run code from robot files. "
+        f"Expand it yourself (xacro {path.name} > model.urdf), then check the result."
+    )
+
+
+def _model_root(path: Path) -> Path:
+    """The ROS package folder holding the model (nearest ``package.xml``), else its own folder."""
+    d = path.resolve().parent
+    return next((a for a in (d, *d.parents) if (a / "package.xml").is_file()), d)
+
+
+def _get(o, name):  # a module attribute or a dict entry, whichever o is
+    return o[name] if isinstance(o, dict) else getattr(o, name)
+
+
+def _set(o, name, value):
+    if isinstance(o, dict):
+        o[name] = value
+    else:
+        setattr(o, name, value)
+
+
+def _refuse_find_escape(path: Path, name: str) -> None:
+    """``$(find pkg)/../..`` must stay inside the robot's package or the found package's."""
+    head, _, rest = name.partition(")")
+    if ".." not in rest.split("/"):
+        return
+    base = _find_in_checkout(path, head.split("$(find", 1)[1].strip())
+    roots = [_model_root(path), *([base.resolve()] if base else [])]
+    f = os.path.realpath((base or path.parent) / rest.lstrip("/"))
+    if not any(Path(f).is_relative_to(r) for r in roots):
+        raise _refusal(path, f"it reads {f}, outside the robot's package")
+
+
 def read_model_bytes(
     path: Path, xacro_args: dict[str, str] | None = None, warnings: list[str] | None = None
 ) -> bytes:
@@ -104,6 +145,10 @@ def read_model_bytes(
     if path.suffix.lower() != ".xacro" and not any(
         t in stripped for t in (b"${", b"$(", b"<xacro:")
     ):
+        for name in _FIND_INCLUDE.findall(
+            raw
+        ):  # an include that climbs out is refused, not skipped
+            _refuse_find_escape(path, name.decode(errors="replace"))
         for name in _FIND_INCLUDE.findall(raw) if warnings is not None else ():
             warnings.append(
                 f"skipped <xacro:include filename={name.decode(errors='replace')!r}>: it needs "
@@ -115,26 +160,75 @@ def read_model_bytes(
 
     from xacro import substitution_args as sub
 
-    ros_find = sub._eval_find
-
     def find(pkg):  # the ROS environment first, then the checkout; else the ROS error
         try:
-            return ros_find(pkg)
+            return orig["_eval_find"](pkg)
         except Exception:
             if (d := _find_in_checkout(path, pkg)) is None:
                 raise
             return str(d)
 
     mappings, wanted = dict(xacro_args or {}), {}
+    refused: list[str] = []
+    roots = [_model_root(path)]
+
+    def refuse(what):
+        refused.append(what)
+        raise ValueError(what)
+
+    def inside(f):  # a file the model reads must sit in its package (or a $(find) folder)
+        if not any(Path(os.path.realpath(f)).is_relative_to(r) for r in roots):
+            refuse(f"it reads {f}, outside the robot's package")
+        return f
+
+    def find_root(pkg):
+        roots.append(Path(find(pkg)).resolve())
+        return str(roots[-1])
+
+    def no_eval(*_):
+        refuse("it uses $(eval ...)")
+
+    def no_env(*_, **__):
+        refuse("it reads an environment variable with $(env) or $(optenv)")
+
+    def includes(spec, symbols):
+        for f in orig["get_include_files"](spec, symbols):
+            inside(f)
+            if _has_doctype_entity(Path(f).read_bytes()):  # before xacro parses it
+                refuse(f"{f} has a DOCTYPE or ENTITY declaration, which is not allowed")
+            yield f
+
+    def safe_eval(expr, *a, **k):
+        if len(expr) > 10000:
+            refuse("it has an expression too big to compute")
+        return orig["safe_eval"](expr, *a, **k)
+
+    def load_yaml(f):
+        return orig["load_yaml"](inside(xacro.abs_filename_spec(f)))
+
+    gs = xacro._global_symbols  # holds load_yaml under xacro.load_yaml and, deprecated, bare
+
+    patches = [  # (where, name, replacement); keyed by name in orig (both load_yaml share one)
+        (sub, "_eval_find", find_root), (sub, "_eval", no_eval), (sub, "_eval_env", no_env),
+        (sub, "_eval_optenv", no_env), (xacro, "get_include_files", includes),
+        (xacro, "safe_eval", safe_eval),
+        (gs["xacro"], "load_yaml", load_yaml), (gs, "load_yaml", load_yaml),
+    ]  # fmt: skip
     while True:
-        sub._eval_find = find
-        try:
-            out = xacro.process_file(str(path), mappings=mappings).toxml().encode()
-            failure = None
-        except Exception as exc:  # xacro raises XacroException, ParseError, even SystemExit-ish
-            out, failure = b"", exc
-        finally:
-            sub._eval_find = ros_find
+        with _XACRO_LOCK:  # the patches are process-global
+            orig = {n: _get(o, n) for o, n, _ in reversed(patches)}  # pre-patch values
+            for o, n, f in patches:
+                _set(o, n, f)
+            try:
+                out = xacro.process_file(str(path), mappings=mappings).toxml().encode()
+                failure = None
+            except Exception as exc:  # xacro raises XacroException, ParseError, RecursionError
+                out, failure = b"", exc
+            finally:
+                for o, n, _ in patches:
+                    _set(o, n, orig[n])
+        if refused:
+            raise _refusal(path, refused[0])
         undefined = re.fullmatch(r"Undefined substitution argument (\S+)", str(failure))
         if undefined and undefined[1] not in mappings:
             # ponytail: declarations in this file only; an <xacro:include>d file's defaults are not read

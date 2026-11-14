@@ -91,3 +91,19 @@ def test_obj_face_normal_index_bad_token_refuses(tmp_path):
     path.write_text("v 0 0 0\nv 1 0 0\nv 1 1 0\nvn 0 0 1\nf 1//x 2//1 3//1\n")
     with pytest.raises(MeshRefusal):
         read_obj(path)
+
+
+def test_binary_reader_values_and_order(tmp_path):
+    path = tmp_path / "robot.stl"
+    path.write_bytes(_binary_stl_bytes(2, 2))
+    pos, nrm, idx = read_stl(path)
+    assert pos == (0, 0, 0, 1, 0, 0, 1, 1, 0) * 2
+    assert nrm == (0.0, 0.0, 1.0) * 6
+    assert idx == tuple(range(6))
+
+
+def test_binary_reader_never_reads_past_the_buffer(tmp_path):
+    from lockwire.mesh_simple import _read_stl_binary
+
+    with pytest.raises(MeshRefusal, match="truncated"):
+        _read_stl_binary(_binary_stl_bytes(5, 2), 5, tmp_path / "x.stl")

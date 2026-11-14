@@ -17,15 +17,28 @@ describe("Shell without the pro folder", () => {
     const root = createRoot(box);
     const onModeChange = vi.fn();
     act(() => root.render(<Shell mode="Check" onModeChange={onModeChange} connected robotName="QArm" />));
-    expect([...box.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(["Design", "Declare", "Check", "Plan", "Docs"]);
+    expect([...box.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(["Design", "Check", "Plan"]);
     expect(box.textContent).not.toContain("Pro");
     expect(box.querySelector('[role="dialog"]')).toBeNull();
-    act(() => root.render(<Shell mode="Declare" tabs={["Check", "Reference"]} onModeChange={onModeChange} connected robotName="QArm" />));
-    const tabs = () => [...box.querySelectorAll('[role="tab"]')].map((t) => t.textContent);
-    expect(tabs()).toEqual(["Declare", "Check", "Docs"]); // the open tab always shows
-    act(() => box.querySelector<HTMLButtonElement>(".shell-more")!.click());
-    expect(tabs()).toEqual(["Design", "Declare", "Check", "Plan", "Docs"]);
-    expect(box.querySelector(".shell-more")).toBeNull();
+    const more = () => box.querySelector<HTMLButtonElement>(".shell-more")!;
+    expect(more().textContent).toContain("More");
+    act(() => more().click());
+    expect([...box.querySelectorAll('[role="menuitem"]')].map((t) => t.textContent)).toEqual(["Declare", "Docs"]);
+    act(() => box.querySelectorAll<HTMLElement>('[role="menuitem"]')[1]!.click());
+    expect(onModeChange).toHaveBeenCalledWith("Reference");
+    expect(box.querySelector('[role="menu"]')).toBeNull();
+    act(() => root.render(<Shell mode="Declare" onModeChange={onModeChange} connected robotName="QArm" />));
+    expect(more().textContent).toContain("Declare"); // the active screen is named on the button
+    expect(more().hasAttribute("data-active")).toBe(true);
+    const info = () => box.querySelector<HTMLButtonElement>(".shell-info")!;
+    act(() => info().click());
+    expect(box.querySelector('[role="note"]')?.textContent).toContain("a number it should check against");
+    act(() => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+    expect(box.querySelector('[role="note"]')).toBeNull();
+    act(() => root.render(<Shell mode="Check" onModeChange={onModeChange} connected robotName="QArm" />));
+    act(() => info().click());
+    act(() => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    expect(box.querySelector('[role="note"]')).toBeNull(); // a click away closes it
     act(() => root.unmount());
     box.remove();
   });

@@ -95,10 +95,20 @@ export const TEXT_PAIRS = [
   ["go", "canvas-a"],
   ["go", "panel"],
   ["on-accent", "accent"],
+  ["accent", "field"],
+  ["bad", "field"],
+  ["warn", "field"],
+  ["go", "field"],
+  ["bad", "canvas-b"],
+  ["warn", "canvas-b"],
+  ["go", "canvas-b"],
+  ["accent", "canvas-b"],
 ];
 export const STATE_EDGE_PAIRS = [
   ["accent", "canvas-a"],
   ["accent", "panel"],
+  // chart series colours: non-text marks on the panel (WCAG 1.4.11)
+  ...[1, 2, 3, 4, 5, 6].map((n) => [`chart-${n}`, "panel"]),
 ];
 
 export function checkPalette(name, tokens, requiredKeys) {

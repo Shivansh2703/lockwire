@@ -1,10 +1,16 @@
 import type { IpcMainInvokeEvent } from "electron";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { PERMITTED_COMMAND_CLASSES } from "../shared/ipc-contract";
 
 vi.mock("electron", () => ({
-  app: { isPackaged: false },
+  app: { isPackaged: false, getPath: () => process.env.TEST_USER_DATA },
+  safeStorage: { isEncryptionAvailable: () => true, encryptString: (k: string) => Buffer.from(k) },
+  BrowserWindow: { getAllWindows: () => [] },
   dialog: { showOpenDialog: vi.fn() },
   ipcMain: { handle: vi.fn() },
 }));
@@ -24,6 +30,7 @@ const TRUSTED_EVENT = { senderFrame: { url: "http://localhost:5173/" } } as IpcM
 
 // The whole free IPC surface, spelled out: a class added to the free list must be added here too.
 const FREE_CLASSES = [
+  "agent:power-design",
   "agent:start",
   "agent:stop",
   "assistant:apply",
@@ -47,6 +54,8 @@ const FREE_CLASSES = [
   "file:new-robot",
   "file:open",
   "file:open-dropped",
+  "file:print-part",
+  "file:save-picture",
   "file:start-urdf",
   "file:starters",
   "robot:command",
@@ -68,5 +77,24 @@ describe("the free IPC surface (no pro/ folder)", () => {
       expect(isPermittedCommand(name)).toBe(false);
       await expect(dispatch(TRUSTED_EVENT, name, {})).rejects.toThrow(`permission denied: unknown command "${name}"`);
     }
+  });
+
+  it("agent:power-design is the free power-design handler, not another class's", async () => {
+    await expect(dispatch(TRUSTED_EVENT, "agent:power-design", { contract: "c", revision: "r", spec: " " })).rejects.toThrow("agent:power-design: invalid arguments");
+  });
+
+  it("a read-only settings folder returns one plain line", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lw-ro-"));
+    chmodSync(dir, 0o500);
+    process.env.TEST_USER_DATA = dir;
+    const r = (await dispatch(TRUSTED_EVENT, "assistant:settings-set", { model: "m" })) as { error?: string };
+    expect(r.error).toBe(`Lockwire cannot save settings because ${dir} is read-only. Make it writable or move it, then try again.`);
+  });
+
+  it("other write errors still surface as thrown errors", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "lw-file-")), "f");
+    writeFileSync(file, "");
+    process.env.TEST_USER_DATA = file; // a folder under a plain file: ENOTDIR
+    await expect(dispatch(TRUSTED_EVENT, "assistant:settings-set", { model: "m" })).rejects.toThrow("ENOTDIR");
   });
 });

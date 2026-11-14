@@ -121,7 +121,7 @@ describe("kit", () => {
 
   it("StatusPill always has a word", () => {
     mount(<StatusPill status="bad">{""}</StatusPill>);
-    expect(box.textContent).toBe("Problem");
+    expect(box.textContent).toBe("Fails");
   });
 
   it("status is never colour alone: a failing row says Fails, an OK tree row has no dot", () => {

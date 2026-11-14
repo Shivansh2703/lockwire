@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import os
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,7 +65,7 @@ def _console() -> Console:
     """
     from rich.console import Console
 
-    return Console()
+    return Console(emoji=False)
 
 
 def format_magnitude(value: float, unit: str) -> str:
@@ -170,7 +171,7 @@ class Finding(BaseModel):
     next_tool: str | None = None
     cluster_root: str | None = None
     cluster_members: tuple[str, ...] = ()
-    # Preflight stage identity (contract §3.2). Record-check findings leave this
+    # Preflight stage identity (per the preflight contract). Record-check findings leave this
     # None; render groups/labels only when set. Additive to report.py — not a
     # lockfile/schema change, no further sign-off.
     stage: int | None = None
@@ -179,6 +180,9 @@ class Finding(BaseModel):
     # lockfile/schema change. Empty for every finding except a rail_power
     # budget violation.
     alternatives: tuple[Alternative, ...] = ()
+    # A rule whose number has no traced source. Shown, never judged: verdict,
+    # exit code and --strict ignore it.
+    advice_unsourced: bool = False
 
     @model_validator(mode="after")
     def _keep_compared_magnitudes_visibly_distinct(self) -> Self:
@@ -316,6 +320,22 @@ class RecordReport(list[Finding]):
         self.scored_keys = scored_keys
         self.scored_records = scored_records or []
         self.actuator_case_reports = list(actuator_case_reports or [])
+
+
+_REFERENCE_QUANTITY = re.compile(
+    r"devices/[^/]+/(model|power/rail|identity/(bus_ref|host)|physical/mount_frame|drives_joint)"
+    r"|device_models/[^/]+/family|topology/buses/[^/]+/host"
+    r"|topology/rails/[^/]+/(charged_by|upstream)|budgets/[^/]+/rail|topology/wires/[^/]+/rail"
+)
+
+
+def _is_reference(finding: Finding) -> bool:
+    """A dangling reference, as ``checks.check_reference_integrity`` reports it
+    (a real NO-GO like a brownout is a violation but not a broken reference)."""
+    return (
+        _REFERENCE_QUANTITY.fullmatch(finding.quantity) is not None
+        or finding.expected == "a contract path that resolves"
+    )
 
 
 def _vector(values: tuple[float, float, float]) -> str:
@@ -471,9 +491,40 @@ def _render_finding_detail(
 
 
 def _render_finding_groups(groups: list[tuple[Finding, ...]], console: Console) -> None:
+    # Text only: identical lone findings (same observed/expected, e.g. 12 joints at
+    # "velocity 1000 rad/s") print once with a count; JSON and CSV keep every row.
+    seen: dict[tuple, int] = {}
+    count: dict[tuple, int] = {}
+    for group in groups:
+        f = group[0]
+        if f.cluster_root is None and len(group) == 1:
+            key = (f.severity, f.observed, f.expected, f.delta, f.advice_unsourced)
+            count[key] = count.get(key, 0) + 1
     for group in groups:
         finding = group[0]
+        if finding.cluster_root is None and len(group) == 1:
+            key = (
+                finding.severity,
+                finding.observed,
+                finding.expected,
+                finding.delta,
+                finding.advice_unsourced,
+            )
+            if count[key] > 1:
+                if key in seen:
+                    continue
+                seen[key] = 1
+                tag = (
+                    "[dim]advice: not yet sourced[/]"
+                    if finding.advice_unsourced
+                    else _severity_tag(finding.severity)
+                )
+                console.print(f"{tag} {count[key]} findings (first: {finding.quantity}) — ", end="")
+                _render_finding_detail(finding, console)
+                continue
         tag = _severity_tag(finding.severity)
+        if finding.advice_unsourced:
+            tag = "[dim]advice: not yet sourced[/]"
         members = _cluster_members(group)
         if finding.cluster_root is not None and len(members) > 1:
             console.print(
@@ -520,9 +571,10 @@ class Verdict:
 
 def verdict(findings: list[Finding]) -> Verdict:
     """Decide GO/NO-GO and the summary line, without printing anything."""
-    violations = sum(f.severity == "violation" for f in findings)
-    warnings = sum(f.severity == "warning" for f in findings)
-    not_scored = sum(f.severity == "not_scored" for f in findings)
+    judged = [f for f in findings if not f.advice_unsourced]
+    violations = sum(f.severity == "violation" for f in judged)
+    warnings = sum(f.severity == "warning" for f in judged)
+    not_scored = sum(f.severity == "not_scored" for f in judged)
     scored = findings.scored if isinstance(findings, RecordReport) else None
     errors = getattr(findings, "errors", 0)
 
@@ -572,7 +624,7 @@ def verdict(findings: list[Finding]) -> Verdict:
     # cannot launder it.
     caps = [
         f"{f.observed}; "
-        for f in findings
+        for f in judged
         if f.severity == "not_scored"
         and (
             f.quantity == "preflight/recording"
@@ -787,7 +839,9 @@ def render(
             for finding in findings
             if finding.severity == "violation" and finding.quantity in scored_keys
         )
-        reference_violations = decision.violations - comparison_violations
+        reference_violations = sum(
+            1 for finding in findings if finding.severity == "violation" and _is_reference(finding)
+        )
         # A scored comparison can also end in a warning: the third bucket, so
         # add up + do not + warn always equals "scored N".
         comparison_warnings = sum(
@@ -842,8 +896,18 @@ def render(
     gaps = not_compared(findings)
     if gaps:
         console.print(f"Not compared yet ({len(gaps)}):", highlight=False)
+    same = {}  # identical reasons print once with a count (text only)
     for gap in gaps:
-        line = f"  {gap['quantity']}: {gap['reason']}"
+        same.setdefault(gap["reason"], []).append(gap)
+    for gap in gaps:
+        if len(same[gap["reason"]]) > 1:
+            if same[gap["reason"]][0] is not gap:
+                continue
+            line = (
+                f"  {len(same[gap['reason']])} checks: {gap['reason']} (first: {gap['quantity']})"
+            )
+        else:
+            line = f"  {gap['quantity']}: {gap['reason']}"
         if gap["next_command"] and not more:
             line += f" -> {gap['next_command']}"
         console.print(line, highlight=False, markup=False, soft_wrap=" -> " in line)
@@ -1060,7 +1124,7 @@ def github_summary(findings: list[Finding], exit_code: int | None = None) -> str
         return (text or "").replace("|", "\\|").replace("\n", " ")
 
     rows = [
-        f"| {f.severity} | {cell(f.quantity)} | {cell(f.observed)} | {cell(f.expected)} | "
+        f"| {'advice: not yet sourced' if f.advice_unsourced else f.severity} | {cell(f.quantity)} | {cell(f.observed)} | {cell(f.expected)} | "
         f"{'`' + cell(f.next_command) + '`' if f.next_command else ''} |"
         for f in findings
         if f.severity in ("violation", "warning")

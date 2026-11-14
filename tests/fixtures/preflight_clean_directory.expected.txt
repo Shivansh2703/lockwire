@@ -21,35 +21,7 @@ SignalEnvelope.oneshot_variance_min declared for this context
   owner: shivansh
   action: declare oneshot_variance_min on the context envelope — do not treat 
 variance_floor as a preflight pass/fail threshold
-not scored devices/dev.imu/signals/accel_x/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
-CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
-threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
-context
-  owner: shivansh
-  action: declare oneshot_variance_min on the context envelope — do not treat 
-variance_floor as a preflight pass/fail threshold
-not scored devices/dev.imu/signals/accel_y/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
-CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
-threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
-context
-  owner: shivansh
-  action: declare oneshot_variance_min on the context envelope — do not treat 
-variance_floor as a preflight pass/fail threshold
-not scored devices/dev.imu/signals/gyro_x/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
-CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
-threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
-context
-  owner: shivansh
-  action: declare oneshot_variance_min on the context envelope — do not treat 
-variance_floor as a preflight pass/fail threshold
-not scored devices/dev.imu/signals/gyro_y/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
-CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
-threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
-context
-  owner: shivansh
-  action: declare oneshot_variance_min on the context envelope — do not treat 
-variance_floor as a preflight pass/fail threshold
-not scored devices/dev.imu/signals/gyro_z/variance — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
+not scored 5 findings (first: devices/dev.imu/signals/accel_x/variance) — observed oneshot_variance_min undeclared; SignalEnvelope.variance_floor is the 
 CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
 threshold, expected SignalEnvelope.oneshot_variance_min declared for this 
 context
@@ -61,13 +33,7 @@ not scored budgets/bud.mass.devices — observed mass unknown for dev.barometer,
 scored, expected every device and link in this budget to declare a mass
   owner: shivansh
   action: declare the missing masses, or accept this budget unchecked
-not scored devices/dev.barometer/physical/mass — observed mass not declared, expected a positive mass with units
-  owner: shivansh
-  action: declare the device's mass, or accept it excluded from this budget
-not scored devices/dev.esc.busless/physical/mass — observed mass not declared, expected a positive mass with units
-  owner: shivansh
-  action: declare the device's mass, or accept it excluded from this budget
-not scored devices/dev.gnss/physical/mass — observed mass not declared, expected a positive mass with units
+not scored 3 findings (first: devices/dev.barometer/physical/mass) — observed mass not declared, expected a positive mass with units
   owner: shivansh
   action: declare the device's mass, or accept it excluded from this budget
 not scored devices/dev.imu/envelopes/nominal-op/conditions — observed axes temp_c, condition_altitude_m verified independently; interaction 
@@ -121,26 +87,12 @@ cannot fail here; a LiveSource or a RecordedSource wrapping a rosbag2 .mcap bag
 order — this disclosure fires only when no such capture was loaded
   preflight/stage/2/timestamps/wall_clock_currency: wall-clock currency is a 
 live-path property; not scored against a recording
-  devices/dev.imu/signals/accel_x/variance: oneshot_variance_min undeclared; 
-SignalEnvelope.variance_floor is the CUSUM reference value 
-(docs/stats_design.md), not a one-shot preflight threshold
-  devices/dev.imu/signals/accel_y/variance: oneshot_variance_min undeclared; 
-SignalEnvelope.variance_floor is the CUSUM reference value 
-(docs/stats_design.md), not a one-shot preflight threshold
-  devices/dev.imu/signals/gyro_x/variance: oneshot_variance_min undeclared; 
-SignalEnvelope.variance_floor is the CUSUM reference value 
-(docs/stats_design.md), not a one-shot preflight threshold
-  devices/dev.imu/signals/gyro_y/variance: oneshot_variance_min undeclared; 
-SignalEnvelope.variance_floor is the CUSUM reference value 
-(docs/stats_design.md), not a one-shot preflight threshold
-  devices/dev.imu/signals/gyro_z/variance: oneshot_variance_min undeclared; 
-SignalEnvelope.variance_floor is the CUSUM reference value 
-(docs/stats_design.md), not a one-shot preflight threshold
+  5 checks: oneshot_variance_min undeclared; SignalEnvelope.variance_floor is 
+the CUSUM reference value (docs/stats_design.md), not a one-shot preflight 
+threshold (first: devices/dev.imu/signals/accel_x/variance)
   devices/dev.barometer/signals/pressure_pa/variance: oneshot_variance_min 
 undeclared
-  devices/dev.barometer/physical/mass: mass not declared
-  devices/dev.gnss/physical/mass: mass not declared
-  devices/dev.esc.busless/physical/mass: mass not declared
+  3 checks: mass not declared (first: devices/dev.barometer/physical/mass)
   budgets/bud.mass.devices: mass unknown for dev.barometer, dev.gnss, 
 dev.esc.busless; total not scored
   devices/dev.imu/envelopes/nominal-op/conditions: axes temp_c, 

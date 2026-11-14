@@ -14,8 +14,13 @@ and the remedy); ``scene_urdf.py`` re-wraps it as a ``SceneRefusal``.
 import struct
 from pathlib import Path
 
+import numpy as np
+
 _STL_HEADER = 80
 _STL_RECORD = 50  # 12 floats (normal + 3 verts) + uint16 attribute byte count
+
+
+_STL_DTYPE = np.dtype([("n", "<f4", 3), ("v", "<f4", 9), ("a", "<u2")])  # packed, 50 bytes
 
 
 class MeshRefusal(ValueError):
@@ -51,21 +56,13 @@ def read_stl(path: Path) -> tuple[tuple[float, ...], tuple[float, ...], tuple[in
 def _read_stl_binary(
     raw: bytes, count: int, path: Path
 ) -> tuple[tuple[float, ...], tuple[float, ...], tuple[int, ...]]:
-    positions: list[float] = []
-    normals: list[float] = []
-    offset = _STL_HEADER + 4
-    try:
-        for _ in range(count):
-            nx, ny, nz, v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z, _attr = struct.unpack_from(
-                "<12fH", raw, offset
-            )
-            positions.extend((v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z))
-            normals.extend((nx, ny, nz) * 3)
-            offset += _STL_RECORD
-    except struct.error as exc:
-        raise MeshRefusal(f"{path}: binary STL is truncated mid-triangle. Re-export it.") from exc
-    indices = tuple(range(len(positions) // 3))
-    return tuple(positions), tuple(normals), indices
+    # read_stl checked count against the file length; re-checked here so this never reads past raw
+    if len(raw) < _STL_HEADER + 4 + _STL_RECORD * count:
+        raise MeshRefusal(f"{path}: binary STL is truncated mid-triangle. Re-export it.")
+    rec = np.frombuffer(raw, _STL_DTYPE, count=count, offset=_STL_HEADER + 4)
+    positions = np.ascontiguousarray(rec["v"]).ravel().tolist()  # float32 -> exact Python float
+    normals = np.repeat(rec["n"], 3, axis=0).ravel().tolist()
+    return tuple(positions), tuple(normals), tuple(range(len(positions) // 3))
 
 
 def _read_stl_ascii(

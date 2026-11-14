@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -179,6 +180,28 @@ describe("the Assistant", () => {
     const { proposals } = await send();
     await handleApply({ id: proposals[0]!.id, witness: "Ada" });
     expect(JSON.parse(ran()[1]![1].body).args.dry_run).toBeUndefined();
+  });
+
+  const turn = async (reDiff: string) => { // cards a, b, c from one turn; a dry run on a file we have since written returns reDiff
+    const F = join(dir, "lockwire.yaml"), sha = () => createHash("sha256").update(readFileSync(F)).digest("hex"), hello = callSidecar.getMockImplementation()!, v0 = (writeFileSync(F, "v0"), sha());
+    callSidecar.mockImplementation(async (p: string, init: { body: string }) => {
+      if (p === "/v1/hello") return hello(p, init);
+      const a = JSON.parse(init.body).args, refusal = a.expected_revision !== sha() ? "revision changed; reload first" : null;
+      if (!refusal && !a.dry_run) writeFileSync(F, readFileSync(F, "utf8") + a.target);
+      return json({ version: "1", cli_line: "x", verdict: null, exit_code: refusal ? 2 : 0, payload: refusal ? null : { diff: sha() === v0 ? "-a\n+b\n" : reDiff }, refusal });
+    });
+    await handleSettingsSet({ key: KEY, model: "m-1", enableRobot: F });
+    const send = async () => { modelSays(["a", "b", "c"].map((id) => ({ type: "tool_use", id, name: "move", input: { target: id } })), "tool_use"); modelSays([{ type: "text", text: "ok" }]); return (await handleSend({ contract: F, revision: sha(), mode: "plan", text: "hi" })).proposals; };
+    return { F, send, apply: (c: { id: string }) => handleApply({ id: c.id, witness: "Ada" }) };
+  };
+  const STALE = { ok: false, error: "revision changed; reload first" };
+
+  it("one turn's cards apply in turn (context shifts fine); outside edit, changed diff, or a new send refuse", async () => {
+    const { F, send, apply } = await turn("--- f\n+++ f\n@@ -9 +9 @@\n ctx\n-a\n+b\n");
+    const [a, b, c] = await send(); await apply(a!);
+    expect(await apply(b!)).toEqual({ ok: true });
+    writeFileSync(F, "edited by hand"); expect(await apply(c!)).toEqual(STALE);
+    const t = await turn("-a\n+z\n"), [d, e, f] = await t.send(); await t.apply(d!); expect(await t.apply(e!)).toEqual({ ok: false, error: "This change no longer matches what you read. Ask again." }); expect(readFileSync(t.F, "utf8")).toBe("v0a"); await t.send(); expect(await t.apply(f!)).toEqual(STALE);
   });
 
   it("a proposal whose dry run is refused is no card; the model is told why", async () => {

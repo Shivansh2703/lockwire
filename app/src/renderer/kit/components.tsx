@@ -97,6 +97,7 @@ export function PillTabs<T extends string>({
   label?: string;
   disabled?: boolean;
 }) {
+  const stop = tabs.some((t) => t.id === value) ? value : tabs[0]?.id; // one tab stays reachable when the mode is not a tab
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = tabs.findIndex((t) => t.id === value);
     const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
@@ -115,7 +116,7 @@ export function PillTabs<T extends string>({
           type="button"
           role="tab"
           aria-selected={t.id === value}
-          tabIndex={t.id === value ? 0 : -1}
+          tabIndex={t.id === stop ? 0 : -1}
           disabled={disabled}
           className="kit-tab"
           onClick={() => onChange(t.id)}
@@ -208,7 +209,7 @@ export function Segmented<T extends string>({
 
 export function StatusPill({ status, children }: { status: Status; children: ReactNode }) {
   // Status never by colour alone: an empty pill still says its state.
-  return <span className={`kit-pill kit-s-${status}`}>{children || { go: "OK", warn: "Check", bad: "Problem", muted: "None" }[status]}</span>;
+  return <span className={`kit-pill kit-s-${status}`}>{children || { go: "OK", warn: "Check", bad: "Fails", muted: "None" }[status]}</span>;
 }
 
 /* ---------- findings and numbers ---------- */
@@ -284,7 +285,7 @@ export function FindingRow({
 // Status never by colour alone: bad and warn get an icon and a word; a grey row says why it is grey.
 const MARK: Partial<Record<Status, IconName>> = { go: "ok", warn: "alert", bad: "fail" };
 const VISIBLE_WORD: Partial<Record<Status, string>> = { warn: "Check", bad: "Fails", muted: "Not checked" };
-const SEVERITY_WORD: Record<Status, string> = { go: "Pass", warn: "Warning", bad: "Problem", muted: "Info" };
+const SEVERITY_WORD: Record<Status, string> = { go: "Pass", warn: "Warning", bad: "Fails", muted: "Info" };
 
 export type FigureKind = "declared" | "measured" | "derived" | "catalog" | "projected";
 
@@ -330,7 +331,7 @@ export function FindingDetail({ rows }: { rows: { label: string; value: ReactNod
 export const Inspector = FindingDetail;
 
 type TreePart = { id: string; name: string; meta?: ReactNode; state?: Status; depth?: number; tip?: string; sel?: string; sels?: string[]; group?: { id: string; label: string; kind?: string; note?: string; open?: boolean } };
-const KIND_RANK: Record<string, number> = { device: 1, rail: 2, bus: 3, link: 4, other: 5 };
+const KIND_RANK: Record<string, number> = { device: 1, rail: 2, bus: 3, link: 4, other: 5, unplaced: 9 };
 const WORST_FIRST: Status[] = ["bad", "warn", "go", "muted"];
 
 /** The part list. Rows carrying a `group` render as collapsible drop-downs: chevron, label,
@@ -406,7 +407,7 @@ export function PartTree({
       <ul>
         {ordered.map(([id, g]) => {
           // one-row groups (Declare) and a group of one part (Design) are just the row
-          const solo = g.kind === "solo" || g.all.length === 1; if (solo) return row(g.all[0]!);
+          const solo = g.kind === "solo" || (g.all.length === 1 && g.kind !== "unplaced"); if (solo) return row(g.all[0]!);
           const open = isOpen(id, g);
           const worst = WORST_FIRST.find((st) => g.all.some((p) => p.state === st));
           const members = [...new Set(g.all.map(pick))];

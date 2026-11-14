@@ -4,10 +4,15 @@ import type { FileOpenResult, StartUrdfResult } from "../main/ipc";
 import type { SidecarState } from "../main/sidecar";
 import type { DeclareFormPayload, DiffPayload, LogPayload, PagePayload, PlanPayload, Starter, SwapPreviewPayload, WhatIfPayload } from "../shared/api.gen";
 import { proApi } from "./proRegistry";
+
+type MenuPush = { result: StartUrdfResult } | { error: string } | { stepped: string };
 import {
   AGENT_EVENT_CHANNEL,
   ASSISTANT_EVENT_CHANNEL,
   MENU_OPENED_CHANNEL,
+  SHORTCUTS_CHANNEL,
+  THEME_CHANNEL,
+  CLOSE_ROBOT_CHANNEL,
   RUN_CHANNEL,
   TERMINAL_EVENT_CHANNEL,
   SIDECAR_STATE_CHANGED_CHANNEL,
@@ -52,6 +57,8 @@ const lockwire = {
   checkPlan: (request: PlanRequest): Promise<PlanPayload | null> => run("contract:plan", request),
   diffContract: (request: DiffRequest): Promise<DiffPayload> => run("contract:diff", request),
   getHistory: (request: HistoryRequest): Promise<LogPayload> => run("contract:history", request),
+  savePicture: (name: string, png: string): Promise<boolean> => run("file:save-picture", { name, png }),
+  printPart: (contract: string, link: string): Promise<string> => run("file:print-part", { contract, link }),
   choosePlan: (): Promise<string | null> => run("file:choose-plan", undefined),
   sendRobotCommand: (args: { commandName: string; params?: Record<string, unknown> }) =>
     run("robot:command", args),
@@ -61,14 +68,32 @@ const lockwire = {
   getStarters: (): Promise<Starter[]> => run("file:starters", undefined),
   choosePackageFolder: (): Promise<StartUrdfResult> => run("file:choose-package-folder", undefined),
   // Drag-to-open: pathForFile turns a dropped File into its path (webUtils), openDroppedPath
-  // runs the same start/open+check flow; main refuses any extension but urdf/sdf/xacro/yaml/yml.
+  // runs the same start/open+check flow; main refuses any extension but urdf/sdf/xacro/xml/mjcf/wbt/proto/yaml/yml.
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
   openDroppedPath: (path: string): Promise<StartUrdfResult> => run("file:open-dropped", { path }),
-  // File > Open Robot...: fires with the same result startFromUrdf() returns, or { error }.
-  onOpenedFromMenu: (cb: (payload: { result: StartUrdfResult } | { error: string }) => void): (() => void) => {
-    const listener = (_event: unknown, payload: { result: StartUrdfResult } | { error: string }) => cb(payload);
+  // File > Open Robot...: fires with the same result startFromUrdf() returns, or { error }; Edit > Undo/Redo fires { stepped: contract }.
+  onOpenedFromMenu: (cb: (payload: MenuPush) => void): (() => void) => {
+    const listener = (_event: unknown, payload: MenuPush) => cb(payload);
     ipcRenderer.on(MENU_OPENED_CHANNEL, listener);
     return () => ipcRenderer.removeListener(MENU_OPENED_CHANNEL, listener);
+  },
+  // File > Close robot: back to the start screen.
+  onCloseRobot: (cb: () => void): (() => void) => {
+    const listener = () => cb();
+    ipcRenderer.on(CLOSE_ROBOT_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(CLOSE_ROBOT_CHANNEL, listener);
+  },
+  // Help > Keyboard shortcuts.
+  onShowShortcuts: (cb: () => void): (() => void) => {
+    const listener = () => cb();
+    ipcRenderer.on(SHORTCUTS_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(SHORTCUTS_CHANNEL, listener);
+  },
+  // View > Toggle Light/Dark.
+  onToggleTheme: (cb: () => void): (() => void) => {
+    const listener = () => cb();
+    ipcRenderer.on(THEME_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(THEME_CHANNEL, listener);
   },
   // e9-join: the renderer is sandboxed (no nodeIntegration) and can't import "./sidecar"
   // itself -- these three are its only legal reach into the sidecar's state.
@@ -85,6 +110,7 @@ const lockwire = {
     return () => ipcRenderer.removeListener(ASSISTANT_EVENT_CHANNEL, listener);
   },
   startAgent: (contract: string, text: string, revision: string): Promise<{ ok: true } | { ok: false; error: string }> => run("agent:start", { contract, text, revision }),
+  designPower: (contract: string, spec: string, revision: string): Promise<{ ok: true } | { ok: false; error: string }> => run("agent:power-design", { contract, spec, revision }),
   stopAgent: (contract: string): Promise<{ ok: true }> => run("agent:stop", { contract }),
   onAgentEvent: (cb: (push: AgentPush) => void): (() => void) => {
     const listener = (_event: unknown, payload: AgentPush) => cb(payload);

@@ -78,6 +78,14 @@ def _isolate_sidecar_log_dir(tmp_path_factory):
     os.environ["LOCKWIRE_LOG_DIR"] = str(tmp_path_factory.mktemp("lockwire-logs"))
 
 
+@pytest.fixture(autouse=True)
+def _isolate_witness_config(monkeypatch, tmp_path):
+    """edit.py's witness default reads the user's real config.toml; point it at a
+    file that does not exist so no test sees a machine-specific default witness.
+    Tests that need a config setenv their own path after this runs."""
+    monkeypatch.setenv("LOCKWIRE_WITNESS_CONFIG", str(tmp_path / "no-such-config.toml"))
+
+
 def strip_ansi(output: str) -> str:
     """Colour codes removed, line structure INTACT.
 

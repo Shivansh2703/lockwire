@@ -2,7 +2,7 @@
 never Lockwire code, and is superseded by tests/test_sim_jazzy_admission.py
 (jobs.start_motion_job). Kept until cycle 3 deletes it.
 
-E5.10: controller-driven traces from the sim-jazzy CI job.
+Controller-driven traces from the sim-jazzy CI job.
 
 Reads the evidence packaging/sim_jazzy/run_e5_10.py wrote to LOCKWIRE_SIM_OUT
 (X500 pose while climbing, ANYmal /joint_states and controller_state while
@@ -31,7 +31,7 @@ LEG_JOINTS = [
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("LOCKWIRE_SIM") != "1",
-    reason="E5.10 runs only in the sim-jazzy CI job (LOCKWIRE_SIM=1); local Docker stays paused",
+    reason="runs only in the sim-jazzy CI job (LOCKWIRE_SIM=1); local Docker stays paused",
 )
 
 

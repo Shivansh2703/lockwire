@@ -1,0 +1,420 @@
+# Pinout card, converted by script from the checked staging file; every figure read 2026-11-13.
+id: esp32-devkitc-wroom-32
+name: ESP32-DevKitC V4 (ESP32-WROOM-32)
+maker: Espressif
+numbers:
+  gpio_total_abs_max:
+    value: 1200
+    unit: mA
+    kind: datasheet
+    source: 'https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf (ESP32 Series Datasheet Version 5.3: "Cumulative IO output current 1200 mA"; chip absolute maximum (ESP32
+      series DS v5.3); WROOM-32 module datasheet v3.8 says 1,100 mA), read 2026-11-13'
+  gpio_per_pin_source_typ:
+    value: 40
+    unit: mA
+    kind: datasheet
+    source: 'https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf (ESP32 Series Datasheet Version 5.3: "High-level source current 40 mA"; typical, VDD=3.3 V, VOH>=2.64 V, drive
+      strength max, VDD3P3_CPU/RTC domains; falls to ~29 mA as more pins source (Table 5-3 note 2); VDD_SDIO domain 20 mA typ. Sink IOL 28 mA typ.), read 2026-11-13'
+  supply_abs_max:
+    value: 3.6
+    unit: V
+    kind: datasheet
+    source: 'https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf (ESP32 Series Datasheet Version 5.3: "Allowed input voltage -0.3 3.6 V"; as stated), read 2026-11-13'
+  operating_min:
+    value: 3.0
+    unit: V
+    kind: datasheet
+    source: 'https://www.espressif.com/sites/default/files/documentation/esp32-wroom-32_datasheet_en.pdf (ESP32-WROOM-32 Datasheet Version 3.8 (NRND): "Operating voltage/Power supply: 3.0 ~ 3.6 V"; as stated),
+      read 2026-11-13'
+  operating_max:
+    value: 3.6
+    unit: V
+    kind: datasheet
+    source: 'https://www.espressif.com/sites/default/files/documentation/esp32-wroom-32_datasheet_en.pdf (ESP32-WROOM-32 Datasheet Version 3.8 (NRND): "Operating voltage/Power supply: 3.0 ~ 3.6 V"; as stated),
+      read 2026-11-13'
+note: Datasheet states allowed input voltage -0.3 to 3.6 V and no 5 V tolerance. VIH min 0.75*VDD, VIL max 0.25*VDD, VOH min 0.8*VDD, VOL max 0.1*VDD. GPIO6-11 are wired to the module flash; ADC2 is unusable
+  while Wi-Fi runs (ESP-IDF docs).
+connectors:
+- id: J2
+  source: 'https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html (ESP32-DevKitC V4 - ESP32 - esp-dev-kits latest documentation: J2 header table)'
+  type: header-2.54-1x19
+  pins:
+  - number: 1
+    name: 3V3
+    functions:
+    - power_in
+    - power_out
+    type: power_in
+    voltage_v: 3.3
+  - number: 2
+    name: EN
+    functions:
+    - reset
+    type: input
+  - number: 3
+    name: VP
+    aliases:
+    - GPIO36
+    - S_VP
+    - SENSOR_VP
+    functions:
+    - adc
+    type: input
+    capabilities:
+    - input_only
+    - adc
+    - adc1
+  - number: 4
+    name: VN
+    aliases:
+    - GPIO39
+    - S_VN
+    - SENSOR_VN
+    functions:
+    - adc
+    type: input
+    capabilities:
+    - input_only
+    - adc
+    - adc1
+  - number: 5
+    name: IO34
+    aliases:
+    - GPIO34
+    - VDET_1
+    functions:
+    - adc
+    type: input
+    capabilities:
+    - input_only
+    - adc
+    - adc1
+  - number: 6
+    name: IO35
+    aliases:
+    - GPIO35
+    - VDET_2
+    functions:
+    - adc
+    type: input
+    capabilities:
+    - input_only
+    - adc
+    - adc1
+  - number: 7
+    name: IO32
+    aliases:
+    - GPIO32
+    - XTAL_32K_P
+    functions:
+    - gpio
+    - adc
+    - touch
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc1
+  - number: 8
+    name: IO33
+    aliases:
+    - GPIO33
+    - XTAL_32K_N
+    functions:
+    - gpio
+    - adc
+    - touch
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc1
+  - number: 9
+    name: IO25
+    aliases:
+    - GPIO25
+    - DAC_1
+    functions:
+    - gpio
+    - adc
+    - dac
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+  - number: 10
+    name: IO26
+    aliases:
+    - GPIO26
+    - DAC_2
+    functions:
+    - gpio
+    - adc
+    - dac
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+  - number: 11
+    name: IO27
+    aliases:
+    - GPIO27
+    functions:
+    - gpio
+    - adc
+    - touch
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+  - number: 12
+    name: IO14
+    aliases:
+    - GPIO14
+    - MTMS
+    functions:
+    - gpio
+    - adc
+    - touch
+    - jtag_tms
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+  - number: 13
+    name: IO12
+    aliases:
+    - GPIO12
+    - MTDI
+    functions:
+    - gpio
+    - adc
+    - touch
+    - jtag_tdi
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+    - strapping
+    reserved: true
+    reason: 'strapping pin, default pull-down: 0 (default) = VDD_SDIO from VDD3P3_RTC (3.3 V); 1 selects 1.8 V flash voltage (can stop a 3.3 V flash from booting) (Espressif ESP32 datasheet Table 3-1)'
+  - number: 14
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 15
+    name: IO13
+    aliases:
+    - GPIO13
+    - MTCK
+    functions:
+    - gpio
+    - adc
+    - touch
+    - jtag_tck
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+  - number: 16
+    name: D2
+    aliases:
+    - GPIO9
+    type: bidirectional
+    reserved: true
+    reason: internal flash/SPI RAM use
+  - number: 17
+    name: D3
+    aliases:
+    - GPIO10
+    type: bidirectional
+    reserved: true
+    reason: internal flash/SPI RAM use
+  - number: 18
+    name: CMD
+    aliases:
+    - GPIO11
+    type: bidirectional
+    reserved: true
+    reason: internal flash/SPI RAM use
+  - number: 19
+    name: 5V
+    functions:
+    - power_in
+    - power_out
+    type: power_in
+    voltage_v: 5
+- id: J3
+  source: 'https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html (ESP32-DevKitC V4 - ESP32 - esp-dev-kits latest documentation: J3 header table)'
+  type: header-2.54-1x19
+  pins:
+  - number: 1
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 2
+    name: IO23
+    aliases:
+    - GPIO23
+    functions:
+    - gpio
+    - spi_mosi
+    type: bidirectional
+  - number: 3
+    name: IO22
+    aliases:
+    - GPIO22
+    functions:
+    - gpio
+    type: bidirectional
+  - number: 4
+    name: TX
+    aliases:
+    - GPIO1
+    - U0TXD
+    functions:
+    - gpio
+    - uart_tx
+    type: bidirectional
+  - number: 5
+    name: RX
+    aliases:
+    - GPIO3
+    - U0RXD
+    functions:
+    - gpio
+    - uart_rx
+    type: bidirectional
+  - number: 6
+    name: IO21
+    aliases:
+    - GPIO21
+    functions:
+    - gpio
+    type: bidirectional
+  - number: 7
+    name: GND
+    functions:
+    - ground
+    type: power_in
+  - number: 8
+    name: IO19
+    aliases:
+    - GPIO19
+    functions:
+    - gpio
+    type: bidirectional
+  - number: 9
+    name: IO18
+    aliases:
+    - GPIO18
+    functions:
+    - gpio
+    type: bidirectional
+  - number: 10
+    name: IO5
+    aliases:
+    - GPIO5
+    functions:
+    - gpio
+    type: bidirectional
+    capabilities:
+    - strapping
+    reserved: true
+    reason: 'strapping pin, default pull-up: SDIO slave timing, with MTDO (Espressif ESP32 datasheet Table 3-1)'
+  - number: 11
+    name: IO17
+    aliases:
+    - GPIO17
+    functions:
+    - gpio
+    - uart_tx
+    type: bidirectional
+  - number: 12
+    name: IO16
+    aliases:
+    - GPIO16
+    functions:
+    - gpio
+    - uart_rx
+    type: bidirectional
+  - number: 13
+    name: IO4
+    aliases:
+    - GPIO4
+    functions:
+    - gpio
+    - adc
+    - touch
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+  - number: 14
+    name: IO0
+    aliases:
+    - GPIO0
+    - Boot
+    functions:
+    - gpio
+    - adc
+    - touch
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+    - strapping
+    reserved: true
+    reason: 'strapping pin, default pull-up: 1 = SPI boot (normal run); 0 together with GPIO2=0 = download boot (Espressif ESP32 datasheet Table 3-1)'
+  - number: 15
+    name: IO2
+    aliases:
+    - GPIO2
+    functions:
+    - gpio
+    - adc
+    - touch
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+    - strapping
+    reserved: true
+    reason: 'strapping pin, default pull-down: any value for SPI boot; must be 0 with GPIO0=0 for download boot (Espressif ESP32 datasheet Table 3-1)'
+  - number: 16
+    name: IO15
+    aliases:
+    - GPIO15
+    - MTDO
+    functions:
+    - gpio
+    - adc
+    - touch
+    type: bidirectional
+    capabilities:
+    - adc
+    - adc2
+    - strapping
+    reserved: true
+    reason: 'strapping pin, default pull-up: controls U0TXD boot-log printing; also SDIO slave timing with GPIO5 (Espressif ESP32 datasheet Table 3-1)'
+  - number: 17
+    name: D1
+    aliases:
+    - GPIO8
+    type: bidirectional
+    reserved: true
+    reason: internal flash/SPI RAM use
+  - number: 18
+    name: D0
+    aliases:
+    - GPIO7
+    type: bidirectional
+    reserved: true
+    reason: internal flash/SPI RAM use
+  - number: 19
+    name: CLK
+    aliases:
+    - GPIO6
+    type: bidirectional
+    reserved: true
+    reason: internal flash/SPI RAM use

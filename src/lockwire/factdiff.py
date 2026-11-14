@@ -142,6 +142,9 @@ def flatten(contract: Contract) -> dict[str, Any]:
     """Every declared scalar in the contract, by path."""
     out: dict[str, Any] = {}
     _flatten(contract.model_dump(mode="json", exclude_none=True), "", out)
+    for link in contract.model.links if contract.model else []:
+        if link.mass_note:  # private attrs are not dumped, so say it beside the mass
+            out[f"model/links/{link.name}/mass_note"] = link.mass_note
     return out
 
 
@@ -178,9 +181,12 @@ def _provenance_for(path: str, flat: dict[str, Any]) -> tuple[str | None, str | 
     segments = path.split("/")
     for cut in range(len(segments) - 1, 0, -1):
         stem = "/".join(segments[:cut])
-        witness = flat.get(f"{stem}/provenance/witness")
-        if witness is not None:
-            return witness, flat.get(f"{stem}/provenance/source")
+        witness, source = (
+            flat.get(f"{stem}/provenance/witness"),
+            flat.get(f"{stem}/provenance/source"),
+        )
+        if witness is not None or source is not None:
+            return witness, source
     return None, None
 
 
@@ -229,7 +235,7 @@ def render_lines(diff: FactDiff) -> list[str]:
     for change in diff.changes:
         provenance = ""
         if change.witness or change.source:
-            provenance = f"  [{change.witness or '?'} · {change.source or '?'}]"
+            provenance = f"  [{change.witness or 'no name on record'} · {change.source or '?'}]"
         flag = "  limit raised" if change.limit_raised else ""
         lines.append(f"~ {change.path}: {change.old} -> {change.new}{provenance}{flag}")
     for entry in diff.added:

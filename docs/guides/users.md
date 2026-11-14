@@ -14,11 +14,11 @@ after `pip install lockwire`.
 lockwire check robot.urdf
 ```
 
-`check` takes a `.urdf`, `.xacro` or `.sdf` file as well as a lockfile. On a model file it
+`check` takes a URDF, xacro, SDF, MuJoCo (`.xml`, `.mjcf`) or Webots (`.wbt`, `.proto`) file as well as a lockfile. On a model file it
 locks it in a temporary place, runs the model checks and prints the verdict. Nothing is
 written next to your model. Pass `--lock path/to/lockwire.yaml` to keep that lock instead.
 
-No URDF handy? `uvx --from "lockwire[robots]" lockwire check ur5e` checks a public robot by
+No model file handy? `uvx --from "lockwire[robots]" lockwire check ur5e` checks a public robot by
 name from `robot_descriptions` (`go2`, `panda`, ...); a real file of that name always wins.
 
 ## Compare with a datasheet
@@ -54,7 +54,7 @@ lockwire start robot.urdf
 This writes `lockwire.yaml` and then runs the check (`--no-check` skips it). An existing
 lockfile is kept; `--force` starts over from the model and discards what was declared in it
 by hand. `--out` writes the lockfile somewhere else. `lockwire start --example drone` writes
-a ready example instead (also `rover`, `arm`, `quadruped`, `humanoid`).
+a ready example instead (also `rover`, `arm`, `quadruped`, `humanoid`, `arm-power`, `servo-bench`, `hexapod-param`, `rover-param`).
 
 Then check the lockfile, locally and in CI:
 
@@ -70,7 +70,7 @@ re-declare every fact in the lockfile by hand, because no command carries those 
 Any field you hand-edited (including `robot.name`) is silently overwritten back to the URDF-derived value.
 
 A lockfile whose `schema_version` this lockwire does not recognise is refused before any check
-runs: `check` prints `REFUSED — contract declares schema_version '0.99'; this lockwire supports 0.2, 0.3, 0.4, 0.5, 0.6`
+runs: `check` prints `REFUSED — contract declares schema_version '0.99'; this lockwire supports 0.2, 0.3, 0.4, 0.5, 0.6, 0.7`
 and exits 2. A lockfile at an older supported version is accepted as-is, with no automatic upgrade.
 
 ## Xacro templates
@@ -82,6 +82,11 @@ arguments with `--xacro-arg`, once per argument:
 lockwire check arm.urdf.xacro --xacro-arg name=myarm --xacro-arg arm_type=ur5e
 lockwire start arm.urdf.xacro --xacro-arg name=myarm --xacro-arg arm_type=ur5e
 ```
+
+Lockwire does not run code from robot files: `$(eval ...)`, `$(env)` and `$(optenv)` are
+refused, and includes or YAML loads may only reach files inside the robot's package (the nearest
+folder above the file that holds a `package.xml`, else the file's own folder). A file built to
+waste memory can still make a check slow or fail; open files from people you trust.
 
 ## Read the verdict
 

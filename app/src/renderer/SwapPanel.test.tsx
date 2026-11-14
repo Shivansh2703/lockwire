@@ -29,7 +29,7 @@ it("groups fit / tight / too weak, warns only on a status drop, and Use this wri
 
   swapPreview.mockResolvedValue({ ...FIXTURE, candidates: [], chosen: null, knock_on: [] });
   await act(async () => root.render(<SwapPanel contract="/r.yaml" revision="rev1" joint="elbow" onClose={() => {}} onApplied={onApplied} />));
-  expect(el.textContent).toContain("no cited alternatives yet");
+  expect(el.textContent).toContain("No alternatives with a source yet");
   act(() => root.unmount());
   el.remove();
 });

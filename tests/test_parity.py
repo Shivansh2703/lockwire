@@ -16,15 +16,20 @@ TOOLS_BY_COMMAND = {
     "review": {"review_value"},
     "upgrade": {"upgrade_contract"},
     "swap": {"swap"},
+    "add": {"add_link", "add_joint", "add_device", "add_param", "add_shape", "attach_part"},
+    "declare": {"set_dimension"},
+    "rename": {"rename"},
     "catalog robots": {"list_robots"},
+    "catalog parts": {"list_parts"},
 }
 NAMED_GAPS = {
     "agent-setup": "writes files into the user's repo; no MCP door by the no-public-door rule",
     "hook-check": "reads a Claude Code hook payload on stdin; an agent's MCP door is check_model",
     "help": "lists the CLI's own commands; an agent has the MCP tool list",
+    "materials compare": "CLI first; compare_materials is a library door, no MCP tool yet",
 }
 for _names, _why in {
-    "accept add gearbox declare apply scene~import": "contract write door",
+    "accept delete gearbox apply scene~import undo redo": "contract write door",
     "mount-shape move place reparent rotate": "pose edit, a contract write door",
     "export init start report": "writes a file for the user, not a question",
     "hw scan record-servos": "probes attached hardware",

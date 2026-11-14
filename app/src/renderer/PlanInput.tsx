@@ -1,10 +1,17 @@
 import { useState } from "react";
 
 import type { Finding, PlanPayload, RobotJoint } from "../shared/api.gen";
-import { verdictPill } from "./FindingList";
-import { Button, EmptyState, IconButton, Notice, Panel } from "./kit";
+import { VERDICT } from "./FindingList";
+import { Button, EmptyState, IconButton, Notice, Panel, StatusPill } from "./kit";
 import type { OnJump } from "./jump";
 import { PlanFace } from "./PlanFace";
+
+/** The plan's own result, never the robot's verdict word: "Plan passes" cannot be read as the robot being GO. */
+const PLAN_WORD: Record<string, string> = { GO: "Plan passes", GO_WITH_NOTES: "Plan passes with notes", "NO-GO": "Plan fails" };
+const planPill = (verdict: string) => {
+  const [status, label] = VERDICT[verdict] ?? ["muted", verdict];
+  return <StatusPill status={status}>{PLAN_WORD[verdict] ?? label}</StatusPill>;
+};
 
 export interface PlanInputProps {
   /** The router supplies the real file-picker and served-plan request. */
@@ -55,8 +62,8 @@ export function PlanInput({ onChoosePlan, payload, autoName, robotName, autoErro
   const firstProblem = payload?.findings.findIndex((f) => f.severity === "violation" || f.severity === "warning") ?? -1;
   return (
     <Panel title="Plan" actions={payload && <span className="verdict-word" role="status">{firstProblem >= 0 && onSelect && selected !== firstProblem
-      ? <button type="button" className="kit-pill-btn" aria-label="Show the first problem" onClick={() => onSelect(firstProblem)}>{verdictPill(payload.verdict)}</button>
-      : verdictPill(payload.verdict)}{payload.verdict === "GO" && unscored > 0 && <small className="plan-unscored"> {unscored} step{unscored > 1 ? "s" : ""} not scored</small>}</span>}>
+      ? <button type="button" className="kit-pill-btn" aria-label="Show the first finding" onClick={() => onSelect(firstProblem)}>{planPill(payload.verdict)}</button>
+      : planPill(payload.verdict)}{payload.verdict === "GO" && unscored > 0 && <small className="plan-unscored"> {unscored} step{unscored > 1 ? "s" : ""} not scored</small>}</span>}>
       <div className="plan-input">
         <span className="kit-filepick">
         <Button variant="quiet" onClick={choosePlan}>Choose plan</Button>
@@ -68,7 +75,7 @@ export function PlanInput({ onChoosePlan, payload, autoName, robotName, autoErro
         )}
         </span>
       </div>
-      {!plan && !payload && !error && <EmptyState title="No plan chosen" />}
+      {!plan && !payload && !error && <EmptyState title="No plan chosen yet. Tap Choose plan above." />}
       {autoError && !payload && !plan && <p className="plan-total">The example plan couldn't be read: {autoError}</p>}
       {error && <Notice kind="error">Plan failed: {error}</Notice>}
       {payload && <PlanFace payload={payload} joints={joints} selected={selected} onSelect={onSelect} onSelectFinding={onSelectFinding} onJump={onJump} />}

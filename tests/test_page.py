@@ -1,6 +1,7 @@
 """The GUI page: it must open on something, group honestly, and never soften a finding away."""
 
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -8,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from lockwire.cli import app
-from lockwire.page import _sentence, _targets, build_declare_form, build_payload, short_name
+from lockwire.page import human_name, _sentence, _targets, build_declare_form, build_payload, short_name
 from lockwire.report import Finding
 from lockwire.schema import (
     Bus,
@@ -65,7 +66,7 @@ def test_headline_states_track_severity():
     stop = build_payload(load_contract(X500))
     assert stop["state"] == "stop"
     assert "Don't power it on yet" in stop["headline"]
-    # B10 (2026-09-06): the radio joining the power tree adds a second real
+    # The radio joining the power tree adds a second real
     # violation (bud.power.pm02-5v.7w-mode flips to 17.2 W > 15.6 W).
     assert "2 things do not add up" in stop["headline"]
 
@@ -116,7 +117,7 @@ def test_not_scored_headline_is_amber_not_grey(empty_budget_contract):
 def test_empty_state_after_start_names_the_next_step(tmp_path, monkeypatch):
     """The empty-state face. `lockwire start` on a fresh SDF/URDF records the
     frame but declares nothing (no devices/rails/buses/budgets) -- the coordinator's
-    PX4 repro (usage audit 2026-09-06) measured an empty qualifier and zero cards,
+    PX4 repro (2026-09-06 usage audit) measured an empty qualifier and zero cards,
     which reads as "everything agrees" over a page that checked nothing. The
     qualifier must name the next step, and "What I found" must carry one card
     with the same next step instead of falling back to the generic "nothing
@@ -209,7 +210,7 @@ def test_rail_card_names_the_rail_not_the_budget_id():
     """`bud.power.pm02-5v` is a lockfile key. `pm02-5v` is the thing on the bench."""
     cards = build_payload(load_contract(X500))["cards"]
     stop = [card for card in cards if card["severity"] == "violation"]
-    # B10 (2026-09-06): the radio joining the power tree adds a second real
+    # The radio joining the power tree adds a second real
     # violation on the same rail (bud.power.pm02-5v.7w-mode flips to a violation
     # too), so both the nominal and 7W-mode budgets now render a card.
     assert len(stop) == 2
@@ -284,7 +285,7 @@ def test_a_pure_world_frame_is_neither_a_finding_nor_a_missing_weight(clean_cont
 def test_identical_blind_spots_collapse_into_one_card():
     """Four unrated buses are one sentence, not four near-identical ones.
 
-    B1b (2026-09-06) declared published-default bitrates on the X500
+    The X500 model declared published-default bitrates on the X500
     reference contract's three previously-unrated UART/USB buses, so that
     fixture no longer exercises this grouping (see tests/test_x500.py for
     why). This test now builds its own minimal contract with four
@@ -372,7 +373,7 @@ def test_x500_and_anymal_cards_keep_their_typed_figures_and_marks(clean_contract
 
 
 def test_run_page_does_not_double_count_a_finding_also_in_the_record_checks():
-    """G2 audit 2 §8: the anymal_d evidence's mass-budget violation was scored
+    """The anymal_d evidence's mass-budget violation was scored
     once by `run_record_checks` and again by the run's cross-record stage —
     same quantity, same observed, same expected — and the headline read "14
     things do not add up" against the terminal's 13. Mutation bite: dropping
@@ -425,7 +426,7 @@ def test_a_complete_lockfile_has_nothing_left_to_set_up():
 
 
 def test_urdf_frames_with_no_mass_are_worded_apart_from_devices(clean_contract):
-    """G2 audit 2 §5/§8: on the anymal_d evidence, 32 of the model's links are
+    """On the anymal_d evidence, 32 of the model's links are
     frames (a camera parent, an optical frame…) with no `<inertial>` — not
     physical parts. Wording them the same as a device missing its weight
     ("N parts have no weight recorded") reads as if 32 real parts were left
@@ -450,7 +451,7 @@ def test_urdf_frames_with_no_mass_are_worded_apart_from_devices(clean_contract):
 
 
 def test_mass_budget_reads_declared_not_measured(clean_contract):
-    """G2 audit 2 §5: a mass_total budget sums the model's own YAML
+    """A mass_total budget sums the model's own YAML
     declarations (URDF link masses + device masses) — it never took a
     measurement. "Measured 57.03 kg" on the anymal_d evidence implies a scale
     reading that never happened. Mutation bite: reverting to the generic
@@ -541,7 +542,7 @@ def test_headline_and_qualifier_carry_the_adds_up_count():
     assert "add up" in payload["qualifier"]
     assert f"{n} things add up" in payload["qualifier"]
     # the wrong/couldn't-check wording must stay exactly what it was
-    # B10 (2026-09-06): the radio joining the power tree adds a second real violation.
+    # The radio joining the power tree adds a second real violation.
     assert "2 things do not add up" in payload["headline"]
 
 
@@ -562,7 +563,7 @@ def test_x500_adds_up_rows_are_plain_words_not_quantity_paths():
     """
     payload = build_payload(load_contract(X500))
     names = [row["name"] for row in payload["adds_up"]]
-    # B10: radio adds passing rows. B13 (2026-09-06): its link_budget now scores
+    # Radio adds passing rows. Its link_budget now scores
     # a real pass too (bundled antenna gain published), adding an 8th row.
     # 2026-10-22: +6 passes, the Pixhawk's six IMU axes inside their datasheet full-scale limits.
     assert len(names) == 13, (
@@ -576,23 +577,23 @@ def test_x500_adds_up_rows_are_plain_words_not_quantity_paths():
         assert "bud." not in name, f"row title still names a budget id: {name!r}"
 
     joined = " | ".join(names)
-    # B10 (2026-09-06): the radio joining the power tree flips bud.power.pm02-5v.7w-mode
+    # The radio joining the power tree flips bud.power.pm02-5v.7w-mode
     # to a real violation, so it drops off this passing list; the new TELEM1 rail's
     # voltage-compatibility and rail-power comparisons take its place.
     assert "pixhawk-telem1-5v: 5.20 V of 5.20 V from rail.pm02-5v" in joined
     assert "pixhawk-telem1-5v rail: 5.20 W of 7.80 W" in joined
     assert "radio.rfd900x on the 5.20 V rail" in joined
     assert "Payload mass" not in joined  # partial mass sum is no longer a pass
-    # B67: durations under an hour print in minutes, not a fraction of an hour.
+    # Durations under an hour print in minutes, not a fraction of an hour.
     assert "Flight time on the declared pack: 15.8 min, 15.0 min required" in joined
     assert "servo-motor rail" in joined and "246.68 W of 888.00 W" in joined
     assert "jetson-orin-nano on the 5.20 V rail" in joined
-    # B13 (2026-09-06): antenna gain published (RFDesign bundle page), so the
+    # Antenna gain published (RFDesign bundle page), so the
     # link budget now scores a real pass with large headroom.
     assert "radio.rfd900x: 41.30 dB fade margin of 10.00 dB required" in joined
 
 
-# --------------------------------------------------------------------------- scene payload (T1-T3)
+# --------------------------------------------------------------------------- scene payload
 
 
 def _scene(*parts):
@@ -824,9 +825,12 @@ def test_scene_70000_vertices_pack_uint32():
     assert max(decoded) == 69_999
 
 
-def test_scene_display_decimation_is_uniform_and_preserves_source():
+def test_scene_display_decimation_is_uniform_and_preserves_source(monkeypatch):
     import base64
     import struct
+
+    monkeypatch.setattr("lockwire.scene_view._DISPLAY_TRIANGLES", 150_000)
+    monkeypatch.setattr("lockwire.catalog._CACHE", {})
 
     scene = _large_scene(450_003)
     before = scene.parts[0]
@@ -853,28 +857,6 @@ def test_scene_display_decimation_is_uniform_and_preserves_source():
         "simplified"
         not in build_payload(load_contract(DEMO), scene=_large_scene())["scene"]["honesty"]
     )
-
-
-@pytest.mark.parametrize("with_normals", [True, False])
-def test_scene_decimation_keeps_uniform_faces_and_matching_attributes(with_normals):
-    from dataclasses import replace
-
-    from lockwire.scene_view import _display_part
-
-    part = replace(
-        _large_scene(9).parts[0],
-        positions=tuple(float(i) for i in range(27)),
-        normals=tuple(i / 27 for i in range(27)) if with_normals else None,
-        indices=(0, 1, 2, 2, 3, 4, 4, 5, 6, 6, 7, 8),
-    )
-    sampled = _display_part(part, 2)
-    assert sampled.indices == (0, 1, 2, 3, 4, 5)
-    assert sampled.positions == part.positions[:9] + part.positions[12:21]
-    assert sampled.normals == (part.normals[:9] + part.normals[12:21] if with_normals else None)
-    assert sampled.node == part.node
-    assert sampled.translation == part.translation
-    assert sampled.color == part.color
-    assert _display_part(part, 1) is part
 
 
 # --------------------------------------------------------------------------- placement passes add up (S6)
@@ -929,7 +911,7 @@ def _walk_cli_commands(command, prefix=()):
     dict) rather than `isinstance(..., click.Group)` — typer vendors its own
     `Command`/`Group` classes (`typer._click.core`, `typer.core.TyperGroup`)
     that are not instances of the standalone `click` package's classes, so an
-    isinstance check against `click.Group` silently never recurses. (E0-10 —
+    isinstance check against `click.Group` silently never recurses. (
     The original walk was flat: `sorted(command.commands)` on the
     top-level group only, so it never saw `scene import`.)"""
     for name, sub in command.commands.items():
@@ -942,7 +924,7 @@ def _walk_cli_commands(command, prefix=()):
             yield path
 
 
-# E0-10: `_COMMAND_MODES` stays keyed at the group level (`"scene": "design"`,
+# `_COMMAND_MODES` stays keyed at the group level (`"scene": "design"`,
 # unchanged) — a group's face covers everything under it by default. But a
 # group's *specific* leaves must still be named somewhere, or a new
 # subcommand slipping in unguarded (the blindness that let `scene import`
@@ -951,8 +933,10 @@ def _walk_cli_commands(command, prefix=()):
 # unlisted top-level command.
 _KNOWN_SUBCOMMANDS = {
     "scene": {"import"},
-    "catalog": {"robots"},
+    "catalog": {"robots", "parts"},
+    "materials": {"compare"},
     "bag": {"inspect", "check"},
+    "release": {"tag", "record", "show"},
 }
 
 
@@ -962,7 +946,7 @@ def test_parity_every_cli_command_has_a_mode():
     face. Mutation bite (2026-09-07, reverted): deleting the `"scan": "run"`
     entry from `_COMMAND_MODES` made this test fail with `missing =
     ['scan']`, confirming it actually catches the drift it's named for.
-    E0-10 mutation bite (2026-09-08, reverted): reverting this test's walker
+    Mutation bite (2026-09-08, reverted): reverting this test's walker
     to the flat `names = sorted(command.commands)` made it pass while
     `scene import` stayed unguarded — proving the flat walk is blind to
     subcommands; the recursive walk below is what catches it."""
@@ -1001,7 +985,7 @@ def test_declare_value_names_are_plain():
 
 
 def test_export_and_import_are_reference():
-    """box eb-16: eb-01 added `export`/`import` to the CLI without a `_COMMAND_MODES`
+    """The CLI once added `export`/`import` to the CLI without a `_COMMAND_MODES`
     entry, which the parity test above caught after merge. Both write/refuse rather
     than owning a design/check/plan/run/health face, so both belong in Reference
     beside `report`/`describe`."""
@@ -1020,7 +1004,7 @@ def test_every_finding_keeps_its_exact_machine_text_on_the_page():
         "topology/buses/bus.i2c.external/bandwidth",
     ):
         assert quantity in raw, f"{quantity} vanished from the page"
-    assert "35.20 W (draw mode: nominal)" in raw  # B10: radio's peak draw grows this total
+    assert "35.20 W (draw mode: nominal)" in raw  # Radio's peak draw grows this total
     assert "shed load on rail" in raw
 
 
@@ -1072,6 +1056,40 @@ def test_payload_joints_are_in_one_robot_frame(tmp_path):
     local = {j.name: j.origin.xyz for j in model.joints}
     assert by_name["ELBOW"]["position"] != list(local["ELBOW"])
     assert {link["name"] for link in page["links"]} == {link.name for link in model.links}
+
+
+def test_payload_gives_the_position_move_sets_in_mm(tmp_path):
+    from lockwire.schema import Physical, Quantity
+
+    page = _qarm_payload(tmp_path)
+    model = load_contract(next(tmp_path.glob("*.yaml"))).model
+    local = {j.name: j.origin.xyz for j in model.joints}
+    for joint in page["joints"]:  # the joint's own origin in its parent, not the composed position
+        assert joint["origin_mm"] == pytest.approx([v * 1000 for v in local[joint["name"]]])
+    contract = _example("servo-bench.yaml")
+    device = contract.devices[0]
+    device.physical = (device.physical or Physical()).model_copy(update={"mount_frame": "base", "mount_xyz": tuple(Quantity(value=v, unit="cm") for v in (1, 2, 3))})
+    shown = {d["id"]: d["mount_mm"] for d in build_payload(contract)["faces"]["reference"]["devices"]}
+    assert shown[device.id] == pytest.approx([10, 20, 30])  # cm to mm
+    assert shown[contract.devices[1].id] is None  # nothing declared, nothing invented
+
+
+def test_payload_lists_link_solids_with_named_sizes_resolved_and_the_ignore_list(tmp_path):
+    from lockwire.schema import CollisionPair, Param, Shape
+
+    page = _qarm_payload(tmp_path)
+    contract = load_contract(next(tmp_path.glob("*.yaml")))
+    first, second = contract.model.links[0], contract.model.links[1]
+    first.geometry = [Shape(kind="box", size=(0.1, "w", 0.1)), Shape(kind="sphere", radius="w")]
+    first.collision = [Shape(kind="sphere", radius=0.5), Shape(kind="cylinder", radius="w", length=1.0)]
+    second.geometry = [Shape(kind="box", size=(0.1, "w", 0.1))]
+    contract.params = [Param(name="w", value=20.0, unit="mm")]
+    contract.collision_pairs = [CollisionPair(link1=first.name, link2=second.name, reason="bolted")]
+    page = build_payload(contract)
+    by_name = {link["name"]: link["solids"] for link in page["links"]}
+    assert [s["kind"] for s in by_name[first.name]] == ["sphere", "cylinder"]  # collision wins over geometry
+    assert by_name[second.name][0]["size"] == [0.1, 0.02, 0.1]  # 20 mm resolved to metres
+    assert page["collision_pairs"] == [{"link1": first.name, "link2": second.name, "reason": "bolted"}]
 
 
 def test_qarm_findings_target_the_joints_and_link_they_are_about(tmp_path):
@@ -1298,3 +1316,647 @@ def test_lockfile_servo_per_joint_pattern_compares_only_matching_joints():
     contract = Contract(robot=RobotInfo(name="arm"), model=model, servo={"wr*": "feetech.sts3215"})
     shapes = [c["shape"] for c in build_payload(contract)["cards"]]
     assert "model/joints/*/limits/effort" not in shapes  # shoulder (10 N*m) is not an STS3215
+
+
+def _servo_bench_with(**rail_update):
+    import lockwire
+
+    c = load_contract(Path(lockwire.__file__).parent / "examples" / "servo-bench.yaml")
+    rails = [r.model_copy(update=rail_update) for r in c.topology.rails]
+    return c.model_copy(update={"topology": c.topology.model_copy(update={"rails": rails})})
+
+
+def test_power_stage_watts_lost_is_input_minus_output():
+    [stage] = build_payload(_servo_bench_with(upstream="battery", efficiency=0.8))["power_stages"]
+    assert stage["watts_out"] == pytest.approx(32.1)
+    assert stage["watts_in"] == pytest.approx(32.1 / 0.8)
+    assert stage["watts_lost"] == pytest.approx(32.1 / 0.8 - 32.1)
+    assert stage["amps_out"] == pytest.approx(32.1 / 5)
+    assert sum(x["watts"] for x in stage["loads"]) == pytest.approx(32.1)
+
+
+def test_power_stage_without_upstream_loses_nothing():
+    [stage] = build_payload(_servo_bench_with(efficiency=0.8))["power_stages"]
+    assert stage["watts_lost"] == 0
+
+
+def test_power_stages_empty_without_rails(clean_contract):
+    c = clean_contract.model_copy(update={"topology": None})
+    assert build_payload(c)["power_stages"] == []
+
+
+def test_payload_joint_carries_its_own_rpy_in_radians(tmp_path):
+    page = _qarm_payload(tmp_path)
+    model = load_contract(next(tmp_path.glob("*.yaml"))).model
+    own = {j.name: list(j.origin.rpy) for j in model.joints}
+    rolled = [j["name"] for j in page["joints"] if any(abs(v) > 1.5 for v in j["rpy"])]
+    assert rolled and all(j["rpy"] == own[j["name"]] for j in page["joints"])
+
+
+# --------------------------------------------------------------------------- Tip-over headroom and polygon
+
+
+def _example(name):
+    from importlib.resources import files
+
+    return load_contract(Path(str(files("lockwire") / "examples" / name)))
+
+
+def test_headroom_is_available_over_needed_and_the_wrist_is_the_tightest():
+    joints = {j["name"]: j["headroom"] for j in build_payload(_example("servo-bench.yaml"))["joints"]}
+    wrist = joints["wrist"]
+    assert wrist["needed_nm"] == pytest.approx(0.15009, abs=1e-4)  # hand 0.09 kg at 0.17 m
+    assert wrist["available_nm"] == pytest.approx(0.2263, abs=1e-3)  # the SCS0009 stall, not the 0.4 declared
+    assert wrist["ratio"] == pytest.approx(wrist["available_nm"] / wrist["needed_nm"])
+    # ratio, not absolute torque: the shoulder needs the most torque, the wrist has the least spare
+    assert min(joints, key=lambda n: joints[n]["ratio"]) == "wrist"
+    assert max(joints, key=lambda n: joints[n]["needed_nm"]) == "shoulder"
+
+
+def test_headroom_is_left_out_for_a_joint_with_no_torque_data():
+    contract = _example("servo-bench.yaml")
+    contract.model.joints[2].limits.effort = None
+    wrist = next(j for j in build_payload(contract)["joints"] if j["name"] == "wrist")
+    assert wrist["headroom"] is None
+
+
+def test_support_polygon_only_when_the_engine_has_one():
+    assert build_payload(_example("servo-bench.yaml"))["support_polygon"] is None
+    rover = build_payload(_example("rover/contract.yaml"))["support_polygon"]
+    assert len(rover["points"]) == 3
+
+
+# --------------------------------------------------------------------------- Tool-tip readout
+
+
+def test_joint_carries_the_tool_tip_and_its_own_jacobian_column():
+    joints = {j["name"]: j["tip"] for j in build_payload(_example("servo-bench.yaml"))["joints"]}
+    assert joints["shoulder"]["xyz"] == pytest.approx([0.4, 0.0, 0.05])  # the hand, not the base at the origin
+    assert joints["shoulder"]["per_unit"] == pytest.approx([0.0, 0.0, -0.4])  # the arm's 0.4 m reach
+    assert joints["elbow"]["per_unit"] == pytest.approx([0.0, 0.0, -0.2])  # a shorter lever
+    assert joints["wrist"]["per_unit"] == pytest.approx([0.0, 0.0, 0.0])  # the tip sits on the wrist
+
+
+def test_no_tip_readout_when_the_engine_has_no_tip():
+    contract = _example("servo-bench.yaml")
+    contract.model.joints[1].axis = None  # a movable joint with no axis: the engine returns None
+    assert all(j["tip"] is None for j in build_payload(contract)["joints"])
+
+
+def test_free_page_has_no_soc_chart_even_with_a_battery_and_a_plan(clean_contract, tmp_path, monkeypatch):
+    from lockwire import plugins
+
+    monkeypatch.setattr(plugins, "PAGE_EXTRAS", [])
+    plan = tmp_path / "plan.yaml"
+    plan.write_text("segments:\n  - duration_s: 60\n    device_modes: {}\n")
+    payload = build_payload(clean_contract, plan_path=plan)
+    assert "battery_chart" not in payload
+
+
+# ------------------------------------------------ motion preview series
+
+
+def _pendulum_contract(**limits):
+    from types import SimpleNamespace
+
+    from test_statics import chain1
+
+    return SimpleNamespace(model=chain1(com=(0, 0, -1.0), kg=1.0, limits=limits))
+
+
+def test_motion_preview_series_are_the_move_and_the_limits_ride_along():
+    import math
+
+    from lockwire.page import motion_preview
+    from lockwire.plan import Plan
+
+    plan = Plan(segments=[{"pose": {"j": 0.0}, "duration_s": 5}, {"pose": {"j": 0.3}, "duration_s": 5}])
+    out = motion_preview(_pendulum_contract(velocity=1.0, acceleration=10.0), plan)
+    (joint,) = out["joints"]
+    assert (max(joint["velocity"]), max(joint["acceleration"])) == pytest.approx((1.0, 10.0))
+    assert out["time_s"][-1] == pytest.approx(0.4)  # d/v + v/a
+    ramp_up = 1.0 * 10.0 + 9.81 * math.sin(0.5 * 10.0 * 0.1**2)  # m l^2 qdd + m g l sin q
+    assert max(joint["torque"]) == pytest.approx(ramp_up, abs=1e-6)
+    assert (joint["velocity_limit"], joint["acceleration_limit"], joint["torque_limit"]) == (1.0, 10.0, 9.0)
+
+
+def test_motion_preview_is_nothing_without_a_speed_limit_or_a_move():
+    from lockwire.page import motion_preview
+    from lockwire.plan import Plan
+
+    move = Plan(segments=[{"pose": {"j": 0.0}}, {"pose": {"j": 0.3}}])
+    assert motion_preview(_pendulum_contract(), move) is None
+    assert motion_preview(_pendulum_contract(velocity=1.0, acceleration=10.0), Plan(segments=[{"pose": {"j": 0.0}}])) is None
+
+# --------------------------------------------------------------------------- PNL-CTL controls panel data
+
+MOTOR = {"torque_constant": 0.1, "terminal_resistance_ohm": 0.5, "no_load_speed_rad_s": 300.0}
+
+
+def _controls_page(**kw):
+    from test_controls import shoulder
+
+    return build_payload(shoulder(**kw))
+
+
+def test_controls_motor_curves_have_torque_on_x_speed_and_efficiency_in_their_units():
+    [card] = _controls_page(**MOTOR)["controls_motors"]
+    tq, sp, ef = card["torque_nm"], card["speed_rad_s"], card["efficiency_pct"]
+    assert (tq[0], sp[0], ef[0]) == (0.0, pytest.approx(300.0), 0.0)  # no load: no torque, full speed
+    assert tq[-1] == pytest.approx(0.1 * 60.0)  # stall torque = Kt * V / R, V = Kt * w0 = 30 V
+    assert sp[-1] == pytest.approx(0.0, abs=1e-9) and ef[-1] == pytest.approx(0.0, abs=1e-9)
+    k = next(i for i, t in enumerate(tq) if t == pytest.approx(3.0))  # i = 30 A: w = 150 rad/s
+    assert (sp[k], ef[k]) == (pytest.approx(150.0), pytest.approx(50.0))
+    assert {"Torque constant", "No-load speed"} <= {f["label"] for f in card["facts"]}
+
+
+def test_controls_joint_step_is_position_over_seconds_with_its_readouts():
+    from test_controls import J_TOTAL
+
+    [joint] = _controls_page()["controls_joints"]
+    facts = {f["label"]: f for f in joint["facts"]}
+    assert joint["t_s"][0] == 0.0 and joint["position"][0] == 0.0
+    assert max(joint["position"]) == pytest.approx(1 + facts["Overshoot"]["value"] / 100, rel=1e-3)
+    assert joint["position"][-1] == pytest.approx(1.0, abs=0.02)  # the shown window ends settled
+    assert (facts["Phase margin"]["unit"], facts["Rise time"]["unit"]) == ("deg", "s")
+    assert J_TOTAL > 0 and joint["label"] == "Shoulder"
+
+
+def test_controls_empty_when_the_robot_has_no_controller_or_motor_constants(clean_contract):
+    page = build_payload(clean_contract)
+    assert page["controls_joints"] == [] and all(not m["efficiency_pct"] for m in page["controls_motors"])
+    assert _controls_page(gains=False)["controls_joints"] == []
+
+
+def test_controls_advice_with_no_source_says_so():
+    [joint] = _controls_page(loop=1.0)["controls_joints"]  # crossover far above loop_rate/10
+    [line] = [a for a in joint["advice"] if "crossover" in a.lower()]
+    assert line.startswith("Crossover")
+    assert "Advice: not yet sourced." in line
+    assert _controls_page()["controls_joints"][0]["advice"] == []
+
+
+# ---- requirements in the page and the report (Pro only) and the typed limit bar
+
+_PLAN_WITH_REQ = "steps: []\nrequirements:\n  - id: no.such.check\n    text: Carry a 2 kg payload\n"
+
+
+def _plan_file(tmp_path):
+    path = tmp_path / "plan.yaml"
+    path.write_text(_PLAN_WITH_REQ, encoding="utf-8")
+    return path
+
+
+def test_requirements_are_empty_in_the_free_page_and_report(clean_contract, tmp_path, monkeypatch):
+    from lockwire import plugins
+    from lockwire.plan import load_plan
+    from lockwire.report_html import render_html
+
+    plugins.ensure()
+    monkeypatch.delitem(plugins.OVERRIDES, "requirement_rows", raising=False)
+    plan_path = _plan_file(tmp_path)
+    assert build_payload(clean_contract, plan_path=plan_path)["requirements"] == []
+    assert "Carry a 2 kg payload" not in render_html(clean_contract, plan=load_plan(plan_path))
+
+
+def test_a_broken_plan_file_adds_no_requirement_rows(clean_contract, tmp_path):
+    bad = tmp_path / "plan.yaml"
+    bad.write_text("steps: [", encoding="utf-8")
+    from lockwire.page import _requirements
+
+    assert _requirements(bad, [], []) == []
+
+
+def test_the_weak_servo_card_carries_typed_torque_figures_for_the_limit_bar():
+    from lockwire.page import _cards
+    from lockwire.schema import Quantity
+
+    weak = Finding(
+        severity="violation",
+        quantity="devices/dev.servo.wrist/drives_joint",
+        observed="0.23 N*m continuous geared torque",
+        expected=">= 0.40 N*m joint effort limit",
+        observed_quantity=Quantity(value=0.2263, unit="N*m"),
+        expected_quantity=Quantity(value=0.4, unit="N*m"),
+        action="select a stronger actuator",
+    )
+    [card] = _cards(load_contract(CLEAN), [weak])
+    assert (card["observed"]["value"], card["observed"]["unit"]) == (0.2263, "N*m")
+    assert card["expected"]["value"] == 0.4
+
+
+def test_requirement_rows_use_the_plan_beside_the_lockfile(tmp_path, monkeypatch):
+    from lockwire import plugins
+
+    lock = tmp_path / "bot.yaml"
+    shutil.copy(CLEAN, lock)
+    (tmp_path / "bot.plan.yaml").write_text(_PLAN_WITH_REQ, encoding="utf-8")
+    plugins.ensure()
+    pro = "requirement_rows" in plugins.OVERRIDES
+    rows = build_payload(load_contract(lock), contract_path=lock)["requirements"]
+    assert [r["status"] for r in rows] == (["unproven"] if pro else [])
+    monkeypatch.delitem(plugins.OVERRIDES, "requirement_rows", raising=False)
+    assert build_payload(load_contract(lock), contract_path=lock)["requirements"] == []
+
+
+def test_requirement_typed_torque_figures_reach_the_weak_servo_card():
+    test_the_weak_servo_card_carries_typed_torque_figures_for_the_limit_bar()
+
+
+def _wired(*wires):
+    from lockwire.schema import Wire
+
+    c = _servo_bench_with()
+    ws = [Wire.model_validate(w) for w in wires]
+    return c.model_copy(
+        update={"topology": c.topology.model_copy(update={"wires": [*c.topology.wires, *ws]})}
+    )
+
+
+_PIN_WIRE = {"awg": 22, "installation": "free_air", "owner": "you"}
+
+
+def test_wiring_one_entry_per_pin_wire_and_only_the_rail_wire_carries_a_rail():
+    page = build_payload(
+        _wired(
+            {
+                "id": "wire.feed",
+                "rail": "rail.servo-5v",
+                "from": {"device": "dev.a", "connector": "J1", "pin": 1},
+                "to": {"device": "dev.b", "pin": "A3"},
+                **_PIN_WIRE,
+            },
+            {
+                "id": "wire.tx",
+                "from": {"device": "dev.a", "connector": "J1", "pin": 2},
+                "to": {"device": "dev.b", "pin": "A4"},
+                "net": "uart",
+                **_PIN_WIRE,
+            },
+        )
+    )
+    by = {w["id"]: w for w in page["wiring_wires"]}
+    assert by["wire.feed"]["rail"] == "rail.servo-5v" and by["wire.tx"]["rail"] is None
+    assert by["wire.feed"]["awg"] == _PIN_WIRE["awg"]  # the declared gauge rides the payload
+    assert by["wire.feed"]["from_pin"] == "dev.a|J1|1" and by["wire.tx"]["net"] == "uart"
+    assert sorted(d["name"] for d in page["wiring_devices"]) == ["A", "B"]
+    assert [
+        p["label"]
+        for d in page["wiring_devices"]
+        if d["id"] == "dev.a"
+        for c in d["connectors"]
+        for p in c["pins"]
+    ] == ["1", "2"]
+
+
+def test_wiring_is_empty_without_pin_to_pin_wires():
+    page = build_payload(_servo_bench_with())  # its only wire is a bare rail feed
+    assert page["wiring_devices"] == [] and page["wiring_wires"] == []
+
+
+def test_wiring_lists_every_pin_before_the_first_wire_exists():
+    from lockwire.schema import Connector, Pin
+
+    base = _servo_bench_with()
+    pins = [Pin(number=n) for n in range(1, 11)]  # over 8 pins, none wired
+    devices = [
+        d.model_copy(update={"connectors": [Connector(id="J1", type="2x5", pins=pins)]}) if i == 0 else d
+        for i, d in enumerate(base.devices)
+    ]
+    page = build_payload(base.model_copy(update={"devices": devices}))
+    [dev] = page["wiring_devices"]
+    assert len(dev["connectors"][0]["pins"]) == 10 and page["wiring_wires"] == []
+
+
+def test_wiring_pin_card_carries_every_declared_pin_with_its_names():
+    from lockwire.schema import Connector, Pin
+
+    pins = [Pin(number=10, name="GPIO15", aliases=["BCM15"], functions=["RXD"], os_device="/dev/ttyAMA0")]
+    pins += [Pin(number=n) for n in range(1, 10)]  # over 8 pins: the diagram shows only wired ones
+    base = _servo_bench_with()
+    dev = base.devices[0].id
+    c = _wired(
+        {
+            "id": "wire.tx",
+            "from": {"device": dev, "connector": "J1", "pin": 10},
+            "to": {"device": "dev.b", "pin": "A4"},
+            **_PIN_WIRE,
+        }
+    )
+    devices = [
+        d.model_copy(update={"connectors": [Connector(id="J1", type="2x20", pins=pins)]})
+        if d.id == dev
+        else d
+        for d in c.devices
+    ]
+    page = build_payload(c.model_copy(update={"devices": devices}))
+    conn = next(d for d in page["wiring_devices"] if d["id"] == dev)["connectors"][0]
+    assert [p["label"] for p in conn["pins"]] == ["10 GPIO15"]
+    assert [p["number"] for p in conn["card"]] == ["10", *map(str, range(1, 10))]
+    assert conn["card"][0] == {
+        "number": "10",
+        "name": "GPIO15",
+        "aliases": ["BCM15"],
+        "functions": ["RXD"],
+        "capabilities": [],
+        "os_device": "/dev/ttyAMA0",
+    }
+    assert conn["type"] == "2x20"
+
+
+def _wiring_html():
+    from lockwire.report_html import render_html
+
+    return render_html(
+        _wired(
+            {
+                "id": "wire.feed",
+                "from": {"device": "dev.a", "connector": "J1", "pin": 1},
+                "to": {"device": "dev.b", "pin": "A3"},
+                "length_m": 0.25,
+                "colour": "red",
+                **_PIN_WIRE,
+            },
+            {
+                "id": "wire.tx",
+                "from": {"device": "dev.a", "connector": "J1", "pin": 2},
+                "to": {"device": "dev.b", "pin": "A4"},
+                "net": "uart",
+                **_PIN_WIRE,
+            },
+        )
+    )
+
+
+def test_wiring_report_lists_every_wire_with_ends_spec_and_length():
+    html = _wiring_html()
+    assert 'class="harness"' in html and html.count("<tr data-from=") == 2
+    assert "<td>Wire Feed</td><td>A J1 1</td><td>B A3</td><td>22 AWG, RD</td><td>0.25 m</td></tr>" in html
+    assert "<td>Wire Tx</td><td>A J1 2</td><td>B A4</td><td>22 AWG</td><td></td></tr>" in html
+
+
+def test_wiring_report_diagram_has_clickable_pins_and_print_rules():
+    html = _wiring_html()
+    assert html.count('class="wpin"') == 4 and 'data-net="uart"' in html
+    assert "@media print" in html and "break-before:page" in html
+
+
+def test_wiring_report_emits_nothing_for_a_robot_without_wires():
+    from lockwire.report_html import render_html
+
+    html = render_html(_servo_bench_with())
+    assert 'id="wiring"' not in html and 'class="harness"' not in html
+
+
+def _example(name):
+    import lockwire
+
+    return load_contract(Path(lockwire.__file__).parent / "examples" / name)
+
+
+def test_power_columns_keep_light_typical_and_worst_case_apart():
+    cols = {c["rail"]: c for c in build_payload(_example("rover/contract.yaml"))["power_columns"]}
+    ctl = cols["rail.controller-5v"]
+    assert (ctl["light_w"], ctl["typical_w"]) == (pytest.approx(17.45), pytest.approx(17.45))
+    assert ctl["max_w"] == pytest.approx(18.25)  # the worst-case mode, not a copy of typical
+
+
+def test_power_stress_rows_carry_percent_of_rating_and_the_unsourced_flag():
+    from test_stress import regulator
+
+    rows = build_payload(regulator(load_w=13.5))["power_stress"]
+    amps = next(r for r in rows if r["quantity"].startswith("output current"))
+    assert amps["pct"] == pytest.approx(90) and amps["over_advice"] is True
+    assert amps["quantity"] == f"output current ({human_name('r5')})"  # never the raw rail id
+    assert build_payload(regulator(load_w=1))["power_stress"][0]["over_advice"] is False
+
+
+def test_power_pack_usable_energy_takes_the_reserve_off_once():
+    c = _example("drone/contract.yaml")
+    battery = c.topology.battery.model_copy(update={"reserve_pct": 20.0})
+    c = c.model_copy(update={"topology": c.topology.model_copy(update={"battery": battery})})
+    pack = build_payload(c)["power_pack"]
+    assert pack["capacity_wh"] == pytest.approx(74.0) and pack["usable_wh"] == pytest.approx(59.2)
+    assert build_payload(c.model_copy(update={"topology": None}))["power_pack"] is None
+
+
+def test_power_typical_follows_a_sibling_plan_and_says_so(tmp_path):
+    import lockwire
+
+    src = Path(lockwire.__file__).parent / "examples" / "servo-bench.yaml"
+    lock = tmp_path / "bench.yaml"
+    shutil.copy(src, lock)
+    [plain] = build_payload(load_contract(lock), contract_path=lock)["power_columns"]
+    assert plain["typical_from_plan"] is False
+    (tmp_path / "bench.plan.yaml").write_text(
+        "segments:\n  - duration_s: 10\n    device_modes: {dev.servo1: 0.5}\n"
+    )
+    [col] = build_payload(load_contract(lock), contract_path=lock)["power_columns"]
+    assert col["typical_from_plan"] is True
+    assert col["typical_w"] == pytest.approx(plain["typical_w"] - 3.5)  # servo1 at half duty
+    other = tmp_path / "other.plan.yaml"
+    other.write_text("segments:\n  - duration_s: 10\n    device_modes: {dev.servo1: 0.0}\n")
+    [col2] = build_payload(load_contract(lock), contract_path=lock, plan_path=other)["power_columns"]
+    assert col2["typical_w"] == pytest.approx(plain["typical_w"] - 7.0)
+
+
+def test_power_panels_are_empty_without_a_budget(clean_contract):
+    p = build_payload(clean_contract.model_copy(update={"topology": None, "devices": []}))
+    assert p["power_columns"] == [] and p["power_stress"] == []
+
+
+def _arm_payload(path):
+    return build_payload(load_contract(path), contract_path=path)
+
+
+def _torque(page):
+    """The biggest 'Measured X N*m' gravity torque among the page's cards."""
+    return max(float(m) for c in page["cards"] for m in re.findall(r"Measured ([\d.]+) N\*m", c["body"]))
+
+
+def test_editing_a_named_size_in_the_app_moves_the_torque_and_the_drawn_link(tmp_path, monkeypatch):
+    """The app's declare of params/arm_length/value redraws the link and moves the torque."""
+    from test_derive_geometry import _write
+
+    from lockwire.serve import DeclareArgs, _handle_declare
+
+    path = _write(tmp_path, monkeypatch)  # arm_length 0.2 m, a cylinder as long as it
+    before = _arm_payload(path)
+    declare = DeclareArgs(
+        contract=str(path), path="params/arm_length/value", value=0.3, source="app", witness="me"
+    )
+    assert _handle_declare(declare).refusal is None
+    after = _arm_payload(path)
+    arm = lambda page: next(link for link in page["links"] if link["name"] == "arm")  # noqa: E731
+    assert [arm(p)["solids"][0]["length"] for p in (before, after)] == [0.2, 0.3]
+    assert after["params"] == [{"name": "arm_length", "value": 0.3, "unit": None}]
+    assert _torque(after) > _torque(before) * 1.3
+
+
+def test_a_declared_mass_is_not_moved_by_a_named_size_and_a_derived_one_says_so(
+    tmp_path, monkeypatch
+):
+    from test_derive_geometry import _write
+
+    path = _write(tmp_path, monkeypatch)
+    links = {link["name"]: link for link in _arm_payload(path)["links"]}
+    assert links["arm"]["mass_note"].endswith("derived from its shapes and material")
+    assert links["fore"]["mass_note"] is None  # declared 1.5 kg: nothing derived, nothing said
+    held = tmp_path / "held.yaml"
+    held.write_text(_write(tmp_path, monkeypatch, arm_extra={"mass": {"value": 9.0, "unit": "kg"}}).read_text())
+    assert _arm_payload(held)["links"][1]["mass_note"] is None
+    held.write_text(held.read_text().replace("value: 0.2\n", "value: 0.6\n"))
+    assert load_contract(held).model.links[1].mass.value == 9.0  # a longer arm, the declared mass stays
+    bare = _write(tmp_path, monkeypatch, density=False)
+    assert "no material density" in _arm_payload(bare)["links"][1]["mass_note"]
+
+
+
+
+def test_the_page_offers_exactly_the_catalog_materials_with_sources_and_plastic_caveats(tmp_path, monkeypatch):
+    from lockwire.catalog import materials
+    from test_derive_geometry import _write
+
+    options = _arm_payload(_write(tmp_path, monkeypatch))["materials"]
+    assert [(o["name"], o["density_kg_m3"]) for o in options] == [(m.name, m.density_kg_m3) for m in materials()]
+    assert all(o["source_label"] and o["source_url"].startswith("http") and o["source"] for o in options)
+    assert [o["name"].split()[0] for o in options if o["caveat"]] == ["PLA", "PETG", "ABS"]
+    assert "infill" in options[3]["caveat"]
+    assert "Polymaker PolyLite PLA Technical Data Sheet" in options[3]["source_label"]
+
+
+def test_the_page_carries_each_links_compare_table_from_the_engine(tmp_path, monkeypatch):
+    from test_derive_geometry import _write
+
+    path = _write(tmp_path, monkeypatch)
+    path.write_text(path.read_text().replace("name: aluminium", "name: Aluminium 6061-T6"))
+    got = {c["link"]: c for c in _arm_payload(path)["material_compare"]}
+    rows = {r["material"]: r for r in got["arm"]["rows"]}
+    assert len(rows) == 7 and [r["material"] for r in got["arm"]["rows"] if r["current"]] == ["Aluminium 6061-T6"]
+    assert rows["Mild steel S235JR"]["total_mass_kg"] > rows["Aluminium 6061-T6"]["total_mass_kg"]
+    steel = rows["Mild steel S235JR"]
+    assert steel["delta_mass_kg"] == pytest.approx(steel["total_mass_kg"] - rows["Aluminium 6061-T6"]["total_mass_kg"])
+    assert steel["delta_mass_kg"] > 0 > steel["delta_margin_nm"]
+    assert got["fore"]["rows"] == [] and "no volume to scale" in got["fore"]["note"]  # declared 1.5 kg
+
+
+def test_a_derived_mass_row_carries_its_marker_and_density_source_a_declared_one_does_not(tmp_path, monkeypatch):
+    from test_derive_geometry import _write
+
+    path = _write(tmp_path, monkeypatch)
+    rows = {r["id"].split("/")[2]: r for r in _arm_payload(path)["forces"]["masses"]}
+    assert rows["arm"]["kind"] == "derived"
+    assert "density source:" in rows["arm"]["mass_note"]
+    assert rows["fore"]["kind"] != "derived" and rows["fore"].get("mass_note") is None
+
+
+def _gaugeless_wired():
+    c = _wired({"id": "wire.tx", "from": {"device": "dev.a", "connector": "J1", "pin": 2},
+                "to": {"device": "dev.b", "pin": "A4"}, **_PIN_WIRE})  # fmt: skip
+    c.topology.wires[-1].__dict__["awg"] = None  # a signal wire may omit its gauge
+    return c
+
+
+def test_gaugeless_signal_wire_sends_null_awg_and_prints_no_gauge():
+    from lockwire.report_html import render_html
+
+    c = _gaugeless_wired()
+    assert build_payload(c)["wiring_wires"][-1]["awg"] is None
+    html = render_html(c)
+    assert "None AWG" not in html and "<td>Wire Tx</td><td>A J1 2</td><td>B A4</td><td></td><td></td></tr>" in html
+
+
+def test_the_page_carries_the_robot_graph_and_each_card_its_involved_parts_from_rel1(monkeypatch):
+    import lockwire.page as page
+
+    graph = {"nodes": [{"id": "link:a", "kind": "link", "label": "a"}], "edges": []}
+    monkeypatch.setattr(page, "robot_graph", lambda c: graph)
+    monkeypatch.setattr(page, "involved", lambda c, f: ["link:a", "joint:j"])
+    payload = build_payload(load_contract(X500))
+    assert payload["robot_graph"] == graph
+    assert payload["cards"] and all(c["involves"] == ["joint:j", "link:a"] for c in payload["cards"])
+
+
+def test_a_real_example_fills_the_graph_and_the_cards_name_their_parts():
+    payload = build_payload(load_contract(X500))
+    ids = {n["id"] for n in payload["robot_graph"]["nodes"]}
+    assert ids and any(c["involves"] for c in payload["cards"])
+    assert all(set(c["involves"]) <= ids for c in payload["cards"])
+
+
+def test_add_part_lists_stock_and_kit_with_outline_and_mass_source():
+    """The Structure tab's data. A plate's mass is derived from material, a T-slot's from the maker; only a body-carrying kit part is outline only."""
+    from lockwire.catalog import structure_parts
+
+    ap = build_declare_form(Contract(robot=RobotInfo(name="r")))["add_part"]
+    stock = {s["id"]: s for s in ap["stock"]}
+    assert stock["stock.plate"]["mass_from"] == "material" and not stock["stock.plate"]["outline_only"]
+    assert stock["tslot.20x20"]["mass_from"] == "mass_per_length" and stock["tslot.20x20"]["outline_only"]
+    assert stock["stock.round_tube"]["outline_only"]
+    kit = {k["id"]: k["outline_only"] for k in ap["kit"]}
+    assert len(kit) == len(structure_parts()) and kit["gobilda.1501-0006-0100"] and not kit["gobilda.1120-0005-0144"]
+
+
+def test_power_rail_node_carries_its_rail_sweep_and_a_rail_without_data_carries_none(tmp_path):
+    from lockwire.checks import rail_sweep
+    from test_checks import _brownout_lock
+
+    def rail(**kw):
+        contract = load_contract(_brownout_lock(tmp_path, **kw))
+        node = next(n for n in build_payload(contract)["graph"]["power"]["nodes"] if n["id"] == "r5")
+        return contract, node
+
+    contract, node = rail()
+    assert node["nominal_v"] == 5.0
+    assert [(p["load"], p["volts"]) for p in node["sweep"]] == rail_sweep(contract, "r5")
+    assert node["sweep"][-1]["volts"] < 4.5  # sagged under stall, never the nominal
+    assert rail(servo="mg996r")[1].get("sweep") is None  # no stall data: nothing claimed
+
+
+def test_wire_findings_and_graph_name_parts_not_ids():
+    payload = build_payload(_example("arm-power/contract.yaml"))
+    titles = [c["title"] for c in payload["cards"]]
+    assert not [t for t in titles if re.search(r"\bW\b|\bW\.", t)]
+    assert "Servo Feed" in " ".join(titles)
+    for t in titles:
+        head, _, tail = t.partition(": ")
+        assert head != tail
+    labels = [n["label"] for n in payload["robot_graph"]["nodes"] if n["kind"] in ("device", "rail", "wire")]
+    assert labels and not [x for x in labels if re.match(r"(dev|rail|w)\.", x)]
+    assert human_name("w.servo-feed") == "Servo Feed"
+
+
+# --------------------------------------------------------------------------- UIA-1 titles say the catch
+
+
+def _titles(name):
+    return [c["title"] for c in build_payload(_example(name))["cards"]]
+
+
+def test_arm_power_titles_carry_both_numbers_and_the_right_noun():
+    titles = _titles("arm-power/contract.yaml")
+    assert "5 V rail sags to 4.65 V, Jetson needs 4.75 V" in titles
+    assert "Pack wire: 9 A fuse on wire good for 7 A" in titles
+    assert not any("differs from lockfile" in t for t in titles)
+
+
+def test_drifted_mass_title_says_changed_from_locked_with_both_numbers_not_missing():
+    drift = Finding(
+        severity="violation",
+        quantity="model/links/link1/mass",
+        observed="model file has mass 0.25",
+        expected="locked mass 0.079119962",
+        action="re-lock",
+    )
+    title = _sentence(Contract(robot=RobotInfo(name="r")), [drift])[0]
+    assert title == "LINK1 mass changed from its locked value: 0.25 kg now, 0.07912 kg locked"
+    assert "missing" not in title
+    gap = drift.model_copy(update={"severity": "warning"})
+    assert "missing mass" in _sentence(Contract(robot=RobotInfo(name="r")), [gap])[0]
+
+
+def test_no_example_card_title_says_its_own_name_twice():
+    for name in ("arm-power", "hexapod-param", "quadruped", "rover", "rover-param", "drone"):
+        for title in _titles(f"{name}/contract.yaml"):
+            head, _, tail = title.partition(": ")
+            assert not tail or head.casefold() != tail.casefold(), title

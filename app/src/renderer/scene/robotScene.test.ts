@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 
 import type { Card, Finding, RobotJoint, RobotLink } from "../../shared/api.gen";
-import { applyDim, applyHighlight, applyLens, buildSkeleton, declarePart, highlightsFromCards, highlightsFromFindings, jointsOfPath, checkHighlight, partsOfPath, paint, skeletonMeshes, wholeHighlight, type ThemeColors } from "./robotScene";
+import { applyPose, applyDim, applyHighlight, applyIsolate, applyTheme, applyLens, buildSkeleton, declarePart, highlightsFromCards, highlightsFromFindings, jointsOfPath, checkHighlight, partsOfPath, paint, skeletonMeshes, wholeHighlight, framingDistance, zoomToCamera, type ThemeColors } from "./robotScene";
 
 const joint = (name: string, parent: string, child: string, position: number[]): RobotJoint => ({
   name, type: "revolute", parent, child, parent_name: parent, child_name: child, position, axis: [0, 0, 1], lower: null, upper: null, effort: 5,
@@ -257,5 +257,98 @@ describe("RobotView helpers", () => {
     applyLens(ctx, [true, false], "off");
     expect(outside!.visible).toBe(false);
     document.documentElement.removeAttribute("style");
+  });
+});
+
+describe("framingDistance", () => {
+  it("fits the sphere with a margin, and never lands on a zero-size selection", () => {
+    expect(framingDistance(1, 60)).toBeCloseTo(2.6, 5);
+    expect(framingDistance(2, 60)).toBeCloseTo(2 * framingDistance(1, 60), 5);
+    expect(framingDistance(0, 60)).toBeGreaterThan(0);
+  });
+
+  it("zoomToCamera leaves the camera alone for a part with no mesh", () => {
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+    camera.position.set(1, 2, 3);
+    zoomToCamera({ meshes: [], camera, controls: { target: new THREE.Vector3(), update: () => {} } } as never, ["dev.servo"]);
+    expect(camera.position.toArray()).toEqual([1, 2, 3]);
+  });
+});
+
+describe("skeleton under link solids (CAD-02)", () => {
+  it("draws no bone into a link that has its own solid, so the two do not overlap", () => {
+    const shaped = links.map((l) => (l.name === "l1" ? { ...l, solids: [{ kind: "box" as const, size: [0.1, 0.1, 0.2], position: [0, 0, 0.1], rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1] }] } : l));
+    const joint1 = (sk: ReturnType<typeof buildSkeleton>) => sk.segments.filter((s) => s.joint === "SHOULDER").length;
+    expect(joint1(buildSkeleton(joints, links))).toBe(1); // the l1 -> SHOULDER bone
+    expect(joint1(buildSkeleton(joints, shaped))).toBe(0);
+  });
+});
+
+
+describe("applyTheme with other decor in the scene (CAD-02)", () => {
+  it("rebuilds the grid and leaves a support polygon group alone instead of throwing", () => {
+    for (const name of ["canvas-a", "grid", "part", "glow-warn", "glow-bad", "go", "accent", "outline"]) document.documentElement.style.setProperty(`--${name}`, "#888888");
+    const scene = new THREE.Scene();
+    const oldGrid = new THREE.GridHelper(1, 4);
+    oldGrid.userData.decor = true;
+    const polygon = new THREE.Group();
+    polygon.userData.decor = true;
+    scene.add(oldGrid, polygon);
+    applyTheme({ scene, meshes: [], needsRender: false } as never);
+    expect(scene.children).toContain(polygon);
+    expect(scene.children).not.toContain(oldGrid);
+    expect(scene.children.filter((c) => c instanceof THREE.GridHelper)).toHaveLength(1);
+  });
+});
+
+describe("applyIsolate (only what this check uses)", () => {
+  const meshes = () => skeletonMeshes(buildSkeleton(joints, links));
+  const seen = (ms: ReturnType<typeof meshes>, id: string) => ms.filter((m) => m.userData.partId === id && !m.userData.ring).map((m) => m.visible);
+
+  it("hides every part that is not listed, hides rather than dims, and null brings them all back", () => {
+    const ms = meshes();
+    const ctx = { meshes: ms } as never;
+    applyIsolate(ctx, ["YAW"]);
+    expect(seen(ms, "YAW").every(Boolean)).toBe(true);
+    expect(seen(ms, "ELBOW").some(Boolean)).toBe(false);
+    expect(ms.filter((m) => m.userData.partId === "ELBOW" && !m.userData.ring).every((m) => (m.material as THREE.MeshStandardMaterial).opacity === 1)).toBe(true);
+    applyIsolate(ctx, null);
+    expect(ms.filter((m) => !m.userData.ring).every((m) => m.visible)).toBe(true);
+  });
+
+  it("a hidden part's status ring stays hidden even when it is flagged", () => {
+    const ms = meshes();
+    const ctx = { meshes: ms } as never;
+    applyIsolate(ctx, ["YAW"]);
+    applyHighlight(ctx, [{ id: "ELBOW", level: "bad" }], null);
+    expect(ms.filter((m) => m.userData.partId === "ELBOW" && m.userData.ring).some((m) => m.visible)).toBe(false);
+  });
+});
+
+describe("POSE-1 posing the scene", () => {
+  const meshAt = (link: string, p: number[]) => { const m = new THREE.Mesh(); m.position.set(p[0]!, p[1]!, p[2]!); m.userData.link = link; return m; };
+  const scene = () => ({ meshes: links.slice(2).map((l) => meshAt(l.name, l.position)), needsRender: false }) as unknown as Parameters<typeof applyPose>[0];
+  const pos = (ctx: ReturnType<typeof scene>, link: string) => ctx.meshes.find((m) => m.userData.link === link)!.position.toArray().map((v) => Math.round(v * 1e6) / 1e6);
+  const linkOf = (m: THREE.Mesh) => m.userData.link as string;
+
+  it("posing a joint moves the links below it and leaves the parent where it was", () => {
+    const ctx = scene();
+    applyPose(ctx, joints, { ELBOW: Math.PI / 2 }, linkOf);
+    expect(pos(ctx, "l4")).toEqual([0.3, 0.2, 0.3]); // swung a quarter turn about the elbow
+    expect([pos(ctx, "l1"), pos(ctx, "l2")]).toEqual([[0, 0, 0.1], [0, 0, 0.3]]); // the parent side did not move
+  });
+
+  it("posing only the leaf joint moves its own child link and not its parent", () => {
+    const ctx = { meshes: [meshAt("l3", [0.4, 0, 0.3]), meshAt("l4", [0.6, 0, 0.3])], needsRender: false } as unknown as Parameters<typeof applyPose>[0];
+    applyPose(ctx, joints, { WRIST: Math.PI / 2 }, linkOf);
+    expect([pos(ctx, "l4"), pos(ctx, "l3")]).toEqual([[0.5, 0.1, 0.3], [0.4, 0, 0.3]]); // l4 swung a quarter turn about the wrist
+  });
+
+  it("a joint further up carries the whole chain below it, and Back to zero restores every mesh", () => {
+    const ctx = scene();
+    applyPose(ctx, joints, { YAW: Math.PI / 2, ELBOW: Math.PI / 2 }, linkOf);
+    expect(pos(ctx, "l4")).not.toEqual([0.5, 0, 0.3]);
+    applyPose(ctx, joints, {}, linkOf);
+    expect(ctx.meshes.map((m) => m.position.toArray())).toEqual(links.slice(2).map((l) => l.position));
   });
 });

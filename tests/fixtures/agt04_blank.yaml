@@ -1,0 +1,13 @@
+schema_version: "0.2"
+robot:
+  name: Blank robot
+  id: blank
+edges: []
+assumptions: []
+families: []
+device_models: []
+devices: []
+budgets: []
+gearboxes: []
+fitted_band_allocations: []
+actuator_cases: []

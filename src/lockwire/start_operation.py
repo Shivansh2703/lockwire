@@ -26,6 +26,7 @@ from lockwire.schema import (
 )
 from lockwire.mjcf import parse_mjcf
 from lockwire.sdf import parse_sdf
+from lockwire.webots import parse_webots
 from lockwire.urdf import _refuse_doctype_entity, parse_urdf, read_model_bytes
 
 
@@ -93,11 +94,15 @@ def start_contract(
         notes: list[str] = []
         warned = warnings if warnings is not None else []
         try:
-            raw = read_model_bytes(source, xacro_args)
-            _refuse_doctype_entity(raw, source)
-            xml = ET.fromstring(raw)
+            webots = source.suffix.lower() in (".wbt", ".proto")  # not XML: own reader
+            if not webots:
+                raw = read_model_bytes(source, xacro_args)
+                _refuse_doctype_entity(raw, source)
+                xml = ET.fromstring(raw)
             model = (
-                parse_sdf(source)
+                parse_webots(source)
+                if webots
+                else parse_sdf(source)
                 if xml.tag == "sdf"
                 else parse_mjcf(source, warned)
                 if xml.tag == "mujoco"
@@ -110,7 +115,7 @@ def start_contract(
             raise
         notes += warned
         spelling = relative_source(target, source)
-        meshes, note, gap = _find_meshes(xml, source, target)
+        meshes, note, gap = ([], "", None) if webots else _find_meshes(xml, source, target)
         note = "\n".join([*notes, note] if note else notes)
         model = model.model_copy(
             update={
@@ -120,7 +125,10 @@ def start_contract(
                 "provenance": model.provenance.model_copy(update={"source": spelling}),
             }
         )
-        contract = Contract(robot=RobotInfo(name=xml.get("name") or source.stem), model=model)
+        contract = Contract(
+            robot=RobotInfo(name=model.links[0].name if webots else xml.get("name") or source.stem),
+            model=model,
+        )
         fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
         os.close(fd)
         try:
@@ -152,7 +160,7 @@ def start_contract(
         return {**done, "note": note} if note else done
 
 
-MODEL_SUFFIXES = (".urdf", ".xacro", ".sdf", ".xml", ".mjcf")
+MODEL_SUFFIXES = (".urdf", ".xacro", ".sdf", ".xml", ".mjcf", ".wbt", ".proto")
 
 
 def add_mass_check(
@@ -162,18 +170,22 @@ def add_mass_check(
     source: str | None = None,
     tolerance_pct: float = 5.0,
     witness: str | None = None,
+    anonymous: bool = False,
 ) -> None:
-    """The datasheet mass as the `mass_total` budget; the limit is derived, not asked for."""
+    """The datasheet mass as the `mass_total` budget; the limit is derived, not asked for.
+
+    `anonymous` (the MCP path): no witness at all, never the config default or the login name.
+    """
     import getpass
 
-    from lockwire.edit import add_entry, parse_value, resolve_witness
+    from lockwire.edit import EditRefusal, add_entry, parse_value, resolve_witness
     from pydantic import ValidationError
 
     from lockwire.schema import Quantity
 
     try:
         nominal = Quantity.model_validate(parse_value(mass, field_name="nominal"))
-    except ValidationError as error:
+    except (ValidationError, EditRefusal) as error:
         raise ValueError(f"--mass must look like '20.6 kg', not {mass!r}") from error
     if nominal.dimension() != "mass" or nominal.value <= 0:
         raise ValueError(f"--mass must be a positive mass like '20.6 kg', not {mass!r}")
@@ -189,7 +201,10 @@ def add_mass_check(
         "owner": "you",
     }
     # the repo refuses the bare word "you" as a witness: use the machine's name for the user
-    witness = witness or resolve_witness(None) or getpass.getuser()
+    if anonymous:
+        witness = None
+    else:
+        witness = witness or resolve_witness(None) or getpass.getuser()
     add_entry(lock, "budget", fields, source=source or "typed on the command line", witness=witness)
 
 
@@ -467,6 +482,14 @@ def starters() -> list[dict[str, str]]:
         found.append(
             {"name": meta.parent.name, "title": info["title"], "based_on": info["based_on"]}
         )
+    # The built-to-fail bench is a single file, not a folder; it starts like the others (start_example).
+    found.append(
+        {
+            "name": "servo-bench",
+            "title": "Servo bench (built to fail)",
+            "based_on": "Lockwire design example (no maker model)",
+        }
+    )
     return found
 
 

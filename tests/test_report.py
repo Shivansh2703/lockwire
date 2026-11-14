@@ -188,9 +188,9 @@ def test_redact_paths_leaves_no_absolute_path(monkeypatch):
         quantity="devices/dev.imu/accel_z",
         observed="1 m/s^2",
         expected="2 m/s^2",
-        owner="shivansh",
-        source="/Users/shivansh/private/datasheet.pdf",
-        witness="shivansh",
+        owner="alex",
+        source="/Users/alex/private/datasheet.pdf",
+        witness="alex",
         action="check it",
     )
     monkeypatch.setattr(
@@ -200,14 +200,14 @@ def test_redact_paths_leaves_no_absolute_path(monkeypatch):
     full = render_html(contract)
     redacted = render_html(contract, redact_paths=True)
 
-    assert "/Users/shivansh/private/datasheet.pdf" in full
-    assert "/Users/shivansh" not in redacted
+    assert "/Users/alex/private/datasheet.pdf" in full
+    assert "/Users/alex" not in redacted
     assert "datasheet.pdf" in redacted
 
     full_data = _html_data(full)["findings"][0]
     redacted_data = _html_data(redacted)["findings"][0]
-    assert full_data["owner"] == "shivansh"
-    assert full_data["witness"] == "shivansh"
+    assert full_data["owner"] == "alex"
+    assert full_data["witness"] == "alex"
     assert redacted_data["owner"] is None
     assert redacted_data["witness"] is None
     assert redacted_data["source"] == "datasheet.pdf"
@@ -245,20 +245,20 @@ def test_redact_paths_sweeps_the_whole_document_not_a_field_list(monkeypatch):
     still-leaking field.
     """
     contract = load_contract(FIXTURES / "contract_clean.yaml")
-    leaky_path = "/Users/shivansh/private/robot-notes/datasheet.pdf"
+    leaky_path = "/Users/alex/private/robot-notes/datasheet.pdf"
     # an Electron app is cross-platform, so a contract authored on
     # Windows carries Windows-shaped paths (drive-letter, and UNC) into the
     # report. The POSIX-only regex missed both on the first respin.
-    windows_path = r"C:\Users\shivansh\Documents\datasheet.pdf"
-    unc_path = r"\\fileserver\shivansh\datasheet.pdf"
+    windows_path = r"C:\Users\alex\Documents\datasheet.pdf"
+    unc_path = r"\\fileserver\alex\datasheet.pdf"
     finding = Finding(
         severity="warning",
         quantity="devices/dev.imu/accel_z",
         observed=(f"measured against the recording at {leaky_path}, also seen at {windows_path}"),
         expected=f"threshold from the sheet at {leaky_path}, also at {unc_path}",
-        owner="shivansh",
+        owner="alex",
         source=leaky_path,
-        witness="shivansh",
+        witness="alex",
         action=f"open {leaky_path} and confirm the datasheet value",
     )
     monkeypatch.setattr(
@@ -272,7 +272,7 @@ def test_redact_paths_sweeps_the_whole_document_not_a_field_list(monkeypatch):
     )
 
     assert "/Users/" not in redacted
-    assert "shivansh" not in redacted
+    assert "alex" not in redacted
     # still a real, renderable document — a redactor that emptied the page
     # would trivially pass a bytes-only assertion.
     data = _html_data(redacted)
@@ -752,9 +752,10 @@ def test_graph_nodes_carry_the_numbers_the_connection_views_draw():
         for lens, g in report_html._graph(load_contract(X500)).items()
         for n in g["nodes"]
     }
-    rail = nodes["power", "rail.pm02-5v"]
+    lens = "power"
+    rail = nodes[lens, "rail.pm02-5v"]
     assert rail["value"] == pytest.approx(35.2) and rail["limit"] == pytest.approx(15.6)
-    assert nodes["power", "dev.companion.jetson-orin-nano"]["value"] == pytest.approx(25.0)
+    assert nodes[lens, "dev.companion.jetson-orin-nano"]["value"] == pytest.approx(25.0)
     assert nodes["data", "bus.uart.companion"]["value"] == pytest.approx(921600)
     assert nodes["mechanical", "x500_frame"]["value"] == pytest.approx(0.61)
 
@@ -837,7 +838,7 @@ def test_scored_line_reports_adds_up_do_not_and_not_scored():
     # The starters' six bench-idle IMU bands sit inside the hard limits: 9 -> 15, 7 -> 13 add up.
     assert (
         lines[scored_index] == "scored 15: 13 add up, 2 do not · 12 not scored"
-    )  # PR-8: +model/sanity
+    )  # +model/sanity
     assert scored_index == verdict_index - 1  # directly before the verdict line
 
 
@@ -877,7 +878,7 @@ def test_scored_zero_stays_not_scored_even_with_a_warning(empty_budget_contract)
 
 
 def test_scored_line_counts_comparison_violations_only(clean_contract):
-    """G2 audit 2 §5: a reference-integrity violation (dangling drives_joint,
+    """A reference-integrity violation (dangling drives_joint,
     never compared to a second source) is not a "do not add up" — only a
     violation whose quantity is a scored comparison counts there. Non-comparison
     violations get their own line. Mutation bite: counting all violations in
@@ -908,6 +909,40 @@ def test_scored_line_counts_comparison_violations_only(clean_contract):
     assert lines[scored_index] == "scored 10: 9 add up, 1 do not · 5 not scored"
     assert lines[references_index] == "reference: 1 broken"
     assert references_index == scored_index + 1
+
+
+def test_real_nogo_that_is_not_a_reference_prints_no_broken_references(clean_contract):
+    """A NO-GO like a brownout is a violation, not a broken reference: the
+    ``references:`` line counts only what check_reference_integrity reports."""
+    clean_contract.device("dev.gnss").drives_joint = "ghost_joint"
+    report = run_record_checks(clean_contract)
+    report.append(
+        Finding(
+            severity="violation",
+            quantity="power/brownout",
+            observed="x",
+            expected="y",
+            action="fix",
+        )
+    )
+    code, text = _plain_render(report)
+    assert "reference: 1 broken" in text and "references:" not in text
+    assert "2 violation(s)" in text and code == 1
+
+
+def test_nogo_without_dangling_reference_prints_no_references_line(clean_contract):
+    report = run_record_checks(clean_contract)
+    report.append(
+        Finding(
+            severity="violation",
+            quantity="power/brownout",
+            observed="x",
+            expected="y",
+            action="fix",
+        )
+    )
+    _, text = _plain_render(report)
+    assert "broken" not in text and "1 violation(s)" in text
 
 
 # ------------------------------------------------------------------- shared graph layout

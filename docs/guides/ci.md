@@ -108,7 +108,7 @@ In `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Shivansh2703/lockwire
-    rev: v0.2.7
+    rev: v0.5.0
     hooks:
       - id: lockwire-check
 ```

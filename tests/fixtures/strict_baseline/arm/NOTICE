@@ -1,0 +1,5 @@
+scene.glb is derived from the SO-101 meshes (Simulation/SO101/assets/*.stl) of
+https://github.com/TheRobotStudio/SO-ARM100 by TheRobotStudio, licensed Apache-2.0
+(LICENSE in this folder). Changes: each mesh was replaced by its convex hull, posed by
+the URDF joint chain at zero angles, and regrouped per servo; see
+scripts/starters/arm_scene.py. Upstream commit a758567c3978dfeefe282ede0500085a48fe8f78.

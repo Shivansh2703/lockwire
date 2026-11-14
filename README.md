@@ -7,31 +7,45 @@
 
 **From idea to robot: catch the error in your robot model before the real robot does.**
 
-## Try it on your robot
+## Check your robot
 
-Needs Python 3.12 or newer and [uv](https://docs.astral.sh/uv/). Point it at your URDF, xacro or SDF (nothing is written):
+Needs Python 3.12 or newer and [uv](https://docs.astral.sh/uv/). Point it at your own URDF, xacro or
+SDF (nothing is written):
 
 ```bash
 uvx lockwire check robot.urdf
 ```
 
-What you see, on the public TurtleBot3 Waffle Pi URDF:
+No robot file yet? This writes a small example arm, with its power and wiring, into the current folder
+and checks it:
 
-```console
-$ uvx lockwire check turtlebot3_waffle_pi.urdf
-VIOLATION datasheet/turtlebot3-waffle-pi/mass_total — observed URDF sum of link masses: 1.554, expected ROBOTIS TurtleBot3 Waffle Pi
-datasheet: 1.8 kg; the sheet's figure includes the battery, computer and sensors
-(Δ -13.7%)
-  source: https://emanual.robotis.com/docs/en/platform/turtlebot3/features/
-  ...
-NO-GO — 1 violation(s), 3 warning(s)
-  ...
-Lock it so CI catches drift: uvx lockwire start turtlebot3_waffle_pi.urdf
+```bash
+uvx lockwire start --example arm-power
+uvx lockwire check
 ```
 
-The model's links add up to 13.7% less than the maker's own published weight. Lockwire found
-that without being told, named the page it came from, and printed the next command. Errors like
-this are in public robot models today: [the fixes sent upstream](docs/ledger.md).
+```console
+VIOLATION topology/rails/rail.5v/brownout — observed rail.5v sags to 4.65 V with every servo stalled (2.73 A), expected >=
+4.75 V, the declared minimum input of dev.jetson
+  action: shorten or thicken the wire, cut the pack resistance, or move the
+servos to their own rail
+VIOLATION topology/wires/w.pack/fuse — observed 9.00 A fuse on 22 AWG wire w.pack, expected fuse <= 7.00 A wire
+ampacity
+  ...
+  action: fit a fuse at or below 7.00 A or upsize wire 'w.pack'
+...
+NO-GO — 2 violation(s), 2 warning(s)
+```
+
+Command line: macOS, Linux and Windows. Desktop app: macOS (Apple silicon) and Linux. Windows app coming soon.
+
+`check` exits 1 on a NO-GO. Two real errors in a robot you have not built yet: with both servos stalled
+the 5 V rail sags below the Jetson's minimum input and resets it, and a 9 A fuse sits on wire that
+carries 7 A. Each line names the part and the page its limit came from, and says what to change
+(`lockwire check --all` also shows the two warnings: a servo data wire on a boot pin, and a 28 AWG
+servo feed drawing about 5 A). Lockwire found these without being told. Errors like this are in public
+robot models today, and maintainers at Seeed and DFKI (MiR100) have merged the fixes:
+[the fixes sent upstream](docs/ledger.md).
 
 ## Lock it
 
@@ -92,8 +106,8 @@ VIOLATION budgets/bud.power.servo-5v — observed 32.10 W, expected <= 15.00 W (
 NO-GO — 2 violation(s), 0 warning(s)
 ```
 
-The five robots (`--example drone`, `rover`, `arm`, `quadruped`, `humanoid`) are clean
-starting points; try your own robot for the catch.
+The examples that pass the check (`--example drone`, `rover`, `arm`, `quadruped`, `humanoid`) are good
+starting points; `arm-power` and `servo-bench` show a catch, and so will your own robot.
 
 ### Features
 
@@ -114,10 +128,12 @@ The free desktop app does the same visually: [latest release](https://github.com
 
 - **macOS (Apple silicon):** unzip, open Lockwire. The app is not notarized, so the first open warns: open System Settings, Privacy & Security, and click "Open Anyway".
 - **Linux:** `chmod +x Lockwire-*.AppImage`, then run it. Ubuntu 22.04 needs `sudo apt install libfuse2`; 24.04 needs `libfuse2t64`.
-- **Windows:** not yet.
+- **Windows:** coming soon.
 
 Want it installed instead of run through uvx? `pip install lockwire`, then drop the `uvx`.
 
 ## Development and licence
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Apache-2.0, all of it: see [LICENSE](LICENSE).
+
+<!-- mcp-name: io.github.lockwirerobotics/lockwire -->

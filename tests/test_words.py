@@ -21,7 +21,7 @@ a hand-written name list (three boxes bounced tonight for exactly that):
 **What it does not prove.** It does not prove no surface ever uses a banned
 word in ordinary prose somewhere the sweep does not look (e.g. free-text error
 messages outside `--help`, the GUI's plain-word copy, or the app's bundle —
-E2 does not exist yet, so the "app bundle" leg is not swept here). It does
+The app bundle does not exist yet, so the "app bundle" leg is not swept here). It does
 not prove `docs/words.md` is exhaustive, only that the words it lists are used
 correctly where the sweep looks. And the `catalog`/`projected` number-kind
 marks have no rendering surface yet (see `docs/words.md`'s own note), so this

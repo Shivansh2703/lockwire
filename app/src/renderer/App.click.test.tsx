@@ -3,10 +3,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import { PAGE_WITH_SCENE, PLAN, mockMatchMedia, picked } from "./App.testkit";
+import { PAGE_WITH_SCENE, PLAN, goMode, mockMatchMedia, picked } from "./App.testkit";
 import type { PagePayload, PlanPayload } from "../shared/api.gen";
 import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
-import { applyHighlight } from "./scene/robotScene";
+import { applyHighlight, focusCamera } from "./scene/robotScene";
 import { getSelectedPartId, setSelectedPartId } from "./scene/selectionStore";
 
 // The named things in the five tabs act. The canvas stub draws one pick button per part
@@ -20,7 +20,7 @@ vi.mock("./scene/Canvas", async () => {
         {children}
       </div>
     ),
-    useScene: () => ({}),
+    useScene: () => ({ meshes: [] }),
   };
 });
 vi.mock("./scene/robotScene", async (orig) => ({ ...(await orig<typeof import("./scene/robotScene")>()), applyHighlight: vi.fn(), applyDim: vi.fn(), focusCamera: vi.fn() }));
@@ -63,8 +63,8 @@ async function open(plan: PlanPayload = PLAN, page: PagePayload = PAGE, check = 
 const click = (el: Element | null | undefined) => act(() => (el as HTMLElement).click());
 const byLabel = (label: string) => container.querySelector(`[aria-label="${label}"]`);
 const byTitle = (title: string) => container.querySelector(`.kit-link[title="${title}"]`);
-const tab = (name: string) => { act(() => container.querySelector<HTMLButtonElement>(".shell-more")?.click()); click([...container.querySelectorAll('[role="tab"]')].find((t) => t.textContent === name)); };
-const activeTab = () => container.querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+const tab = (name: string) => goMode(container, name);
+const activeTab = () => (container.querySelector('[role="tab"][aria-selected="true"]') ?? container.querySelector(".shell-more[data-active]"))?.textContent?.replace(" ▾", "");
 const declared = () => container.querySelector(".declare-values .kit-tree-row.is-selected")?.getAttribute("data-part-id");
 
 describe("click-through", () => {
@@ -107,6 +107,20 @@ describe("click-through", () => {
     expect(container.querySelector(".datasheet-compare-result")?.textContent).toBe(line);
     expect(container.querySelector(".finding-card")?.textContent).toContain(line);
     expect([...container.querySelectorAll(".finding-card .kit-btn")].map((b) => b.textContent)).toContain("Declare it");
+  });
+
+  it("Check: a second Compare with datasheet re-declares the two numbers with no formal flag", async () => {
+    await open();
+    const mass = { ...CARD, shape: "budget", quantity: "budgets/bud.mass/nominal", instead: [], alternatives: [] };
+    const writeContract = vi.fn().mockResolvedValueOnce({ payload: null, refusal: "budget bud.mass already exists" }).mockResolvedValue({ payload: { written: true, revision: "r2" } });
+    Object.assign(window.lockwire, { writeContract, openLockfile: vi.fn().mockResolvedValue({ opened: true, path: "/tmp/r.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD }), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, cards: [mass] }) });
+    click([...container.querySelectorAll(".kit-btn")].find((b) => b.textContent === "Compare with datasheet"));
+    const input = byLabel("datasheet weight") as HTMLInputElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "1.63"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => [...container.querySelectorAll(".datasheet-compare .kit-btn")].find((b) => b.textContent === "Compare")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const declares = writeContract.mock.calls.map(([r]) => r).filter((r) => r.command === "declare");
+    expect(declares.map((r) => r.args.path)).toEqual(["budgets/bud.mass/nominal", "budgets/bud.mass/limit"]);
+    for (const r of declares) expect(r.args).not.toHaveProperty("formal"); // a quick edit, not the Declare form
   });
 
   it("Check: after a swap the engine's lines show, and a GO that became NO-GO is said", async () => {
@@ -155,5 +169,34 @@ describe("click-through", () => {
     click(byTitle("Show Camera"));
     expect(getSelectedPartId()).toBe("dev.cam");
     expect(activeTab()).toBe("Docs");
+  });
+});
+
+describe("Find a part (Ctrl+F)", () => {
+  const FIND_PAGE = { ...PAGE, links: [{ name: "dev.cam", position: [0, 0, 0] }] } as unknown as PagePayload;
+  const find = async () => {
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true, cancelable: true })); });
+    const box = container.querySelector<HTMLInputElement>(".find-part input")!;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(box, "dev.cam"); box.dispatchEvent(new Event("input", { bubbles: true })); });
+    act(() => { box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+  };
+  const framed = () => vi.mocked(focusCamera).mock.lastCall?.[1];
+
+  it("Enter selects the named part and frames it", async () => {
+    await open(PLAN, FIND_PAGE);
+    tab("Design");
+    await find();
+    expect(getSelectedPartId()).toBe("dev.cam");
+    expect(framed()).toEqual(["dev.cam"]);
+  });
+
+  it("finding the part that is already selected frames it again, every time", async () => {
+    await open(PLAN, FIND_PAGE);
+    tab("Design");
+    await find();
+    await find();
+    expect(framed()).toEqual(["dev.cam", "dev.cam"]);
+    await find();
+    expect(framed()).toEqual(["dev.cam"]);
   });
 });

@@ -11,6 +11,7 @@ written, so opening it in the browser never reports a verdict of its own.
 optional extra, imported lazily so a plain install never needs it.
 """
 
+import csv
 import datetime as dt
 import hashlib
 import io
@@ -30,11 +31,12 @@ from rich.table import Table
 from ruamel.yaml import YAML, YAMLError
 from typer.core import TyperArgument, TyperCommand, TyperGroup, TyperOption
 
-from lockwire import __version__, export_mhs, gitref
-from lockwire import api, plugins
+from lockwire import __version__, export_mhs, export_model, gitref
+from lockwire import api, plugins, units
 from lockwire.bench import DEFAULT_CORPUS_PATH, format_report, load_corpus, run_bench
 from lockwire.catalog import load_catalog, load_robots, recognise
 from lockwire.checks import SIDE as _SIDE
+from lockwire.checks import bus_address_map
 from lockwire.checks import is_lock_drift, run_record_checks, servo_stall_torque, shown_path
 from lockwire.confine import confine
 from lockwire.cli_line import argv_from_context, cli_line, cli_line as build_cli_line
@@ -43,12 +45,14 @@ from lockwire.edit import (
     Change,
     EditRefusal,
     add_entry,
+    delete_entry,
     apply_changes,
     apply_review,
     contract_revision,
     move as edit_move,
     place as edit_place,
     relative_source,
+    rename_entry,
     reparent as edit_reparent,
     resolve_witness,
     rotate as edit_rotate,
@@ -56,6 +60,7 @@ from lockwire.edit import (
 )
 from lockwire.factdiff import fact_diff, load_contract_text, render_lines
 from lockwire.hw import record_hardware_change
+from lockwire import power_budget
 from lockwire.plan import load_plan, validate_plan
 from lockwire.report import (
     RecordReport,
@@ -150,21 +155,26 @@ app = typer.Typer(
     name="lockwire",
     help="The physical-assumption contract for robots: checks that a robot's declared parts (power, weight, bus, torque) add up.",
     no_args_is_help=True,
-    epilog=f"More: {cli_line('lockwire', 'help', '--all')}",
+    epilog=f"Also: {cli_line('lockwire', 'report')}, {cli_line('lockwire', 'export', '--format', 'bom|budget')}. More: {cli_line('lockwire', 'help', '--all')}",
     add_completion=False,
     pretty_exceptions_enable=False,  # a crash reaches `main`, which reports it as REFUSED
 )
-console = Console()
+console = Console(emoji=False)
 
 
 scene_app = typer.Typer(cls=_TildeGroup, help="The scene door: read a 3D model of the robot.")
 app.add_typer(scene_app, name="scene", hidden=True)
 
-catalog_app = typer.Typer(cls=_TildeGroup, help="The bundled catalog: robots with datasheets.")
+catalog_app = typer.Typer(
+    cls=_TildeGroup, help="The bundled catalog: robots with datasheets, and parts."
+)
 app.add_typer(catalog_app, name="catalog", hidden=True)
 
+materials_app = typer.Typer(cls=_TildeGroup, help="Catalog materials, tried on a link.")
+app.add_typer(materials_app, name="materials", hidden=True)
+
 DEFAULT_CONTRACT = Path("lockwire.yaml")
-_UPGRADE_HINT = "`lockwire upgrade` writes a 0.6 copy"
+_UPGRADE_HINT = "`lockwire upgrade` writes a 0.7 copy"
 
 
 def load_contract(path: Path, out: Console = console) -> Contract:
@@ -192,7 +202,7 @@ def load_contract(path: Path, out: Console = console) -> Contract:
     try:
         return _load_contract_lib(path)
     except UnsupportedSchemaVersion as error:
-        out.print(f"[bold red]REFUSED[/] — {error}")
+        out.print(f"[bold red]REFUSED[/] — {escape(str(error))}")
         raise typer.Exit(2) from error
     except ContractError as error:  # the user's file, not a lockwire bug: plain lines, exit 2
         for line in error.lines:
@@ -271,7 +281,7 @@ def _refused(command: str, error: Exception, out: Console = console) -> None:
     (`sample`, `declare`, `apply`, `add`) rather than through ``load_contract``.
     """
     if isinstance(error, UnsupportedSchemaVersion):
-        out.print(f"[bold red]REFUSED[/] — {error}")
+        out.print(f"[bold red]REFUSED[/] — {escape(str(error))}")
     elif isinstance(error, ContractError):
         for line in error.lines:
             out.print(escape(line), soft_wrap=True, highlight=False)
@@ -300,14 +310,16 @@ def _confined(out: Path, contract: Path, root: Path | None = None) -> Path:
     try:
         return confine(out, contract, root)
     except ValueError as error:
-        console.print(f"[red]{error}[/]")
+        console.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(2) from error
 
 
 def _require_folder(out: Path) -> None:
     """A missing folder is the tool failing, not a NO-GO: one plain line, exit 2."""
     if not out.resolve().parent.is_dir():
-        console.print(f"[red]could not write {out}:[/] the folder {out.parent} does not exist")
+        console.print(
+            f"[red]could not write {escape(str(out))}:[/] the folder {escape(str(out.parent))} does not exist"
+        )
         raise typer.Exit(2)
 
 
@@ -323,9 +335,11 @@ def _write_document(out: Path | None, document: dict, contract: Path) -> None:
     try:
         target.write_text(json.dumps(document, indent=2, default=str) + "\n", encoding="utf-8")
     except OSError as error:  # a missing folder is the tool failing, not a NO-GO
-        console.print(f"[red]could not write {out}:[/] {error.strerror or error}")
+        console.print(
+            f"[red]could not write {escape(str(out))}:[/] {escape(str(error.strerror or error))}"
+        )
         raise typer.Exit(2) from error
-    console.print(f"[green]wrote {out}[/]")
+    console.print(f"[green]wrote {escape(str(out))}[/]")
 
 
 def _frozen() -> bool:
@@ -361,7 +375,7 @@ def _refuse_default_out_when_frozen(ctx: typer.Context, param: str, command: str
 
 
 def _file_kind_word(path: Path) -> str:
-    """Name the file's root element (F3), not its extension: a `.sdf` some tool
+    """Name the file's root element, not its extension: a `.sdf` some tool
     wrote as `<robot>` (or vice versa) is described for what it actually is."""
     raw = path.read_bytes()
     _refuse_doctype_entity(raw, path)  # before any parse touches the bytes
@@ -370,7 +384,7 @@ def _file_kind_word(path: Path) -> str:
 
 
 def _parse_model_file(path: Path, contract: Path) -> Any:
-    """`init`/`start` accept a URDF or an SDF — dispatch by root element (F3),
+    """`init`/`start` accept a URDF or an SDF — dispatch by root element,
     not only by extension: a `.sdf` some tool wrote as `<robot>` (or vice versa)
     is read for what it actually is.
 
@@ -387,13 +401,33 @@ def _parse_model_file(path: Path, contract: Path) -> Any:
     )
 
 
+def _is_stand_in(contract_path: Path, candidate: Path) -> bool:
+    """A glb/gltf beside a shape-declaring lockfile whose parts name none of its ids."""
+    if candidate.suffix not in (".glb", ".gltf"):
+        return False
+    try:
+        contract = _load_contract_lib(contract_path)
+        if not any(k.collision or k.geometry for k in contract.model.links):
+            return False
+        from lockwire.scene import load_scene  # noqa: PLC0415 - only on a shaped lockfile
+        from lockwire.scene_view import contract_ids, resolve_scene  # noqa: PLC0415
+
+        claimed = set(resolve_scene(contract, load_scene(candidate)).part_ids)
+        return not claimed & contract_ids(contract)
+    except Exception:  # noqa: BLE001 - unreadable scene or no model: the old pick
+        return False
+
+
 def _find_scene(contract_path: Path, scene_flag: Path | None) -> tuple[Path | None, bool]:
     """Return (path, discovered). ``discovered`` is True only for sidecar auto-pickup."""
     if scene_flag is not None:
         return scene_flag, False
+    # A sidecar .glb/.gltf that describes none of the lockfile's parts is a stand-in: skipped when
+    # the links declare shapes (they draw from those). A real mesh scene is kept; its declared
+    # shapes are drawn with it (api.load_scene). URDF/SDF sidecars are real models, kept.
     for ext in (".glb", ".gltf", ".urdf", ".sdf"):
         candidate = contract_path.with_suffix(ext)
-        if candidate.is_file():
+        if candidate.is_file() and not _is_stand_in(contract_path, candidate):
             return candidate, True
     # `start` pins the model's meshes; a contract that carries them names its own scene.
     try:
@@ -425,7 +459,7 @@ def _load_scene_for_cli(
     try:
         loaded_scene, _ = api.load_scene(contract_path, scene_flag, package_roots)
     except SceneRefusal as error:
-        console.print(f"[red]{error}[/]")
+        console.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(2) from error
     if discovered:
         console.print(f"scene: {scene_path.name} (found beside the contract)")
@@ -443,7 +477,7 @@ def _load_scene_for_cli(
 )
 def start(
     ctx: typer.Context,
-    urdf: Path | None = typer.Argument(None, help="Your robot's URDF or SDF."),
+    urdf: Path | None = typer.Argument(None, help="Your robot's URDF, xacro or SDF (check also reads MuJoCo and Webots files)."),
     contract: Path = typer.Option(
         DEFAULT_CONTRACT, "--out", "-o", help="Lockfile to create or reuse."
     ),
@@ -451,7 +485,7 @@ def start(
     example: str | None = typer.Option(
         None,
         "--example",
-        help="Write a ready example lockfile instead: a starter (drone, rover, arm, quadruped, humanoid) or servo-bench (built to fail on purpose, to show a catch).",
+        help="Write a ready example lockfile instead: a starter (drone, rover, arm, quadruped, humanoid), arm-power or servo-bench (built to fail on purpose, to show a catch), or a parametric one (hexapod-param, rover-param).",
     ),
     xacro_arg: list[str] = typer.Option(
         [], "--xacro-arg", help="A xacro argument, name=value. Repeat for several."
@@ -465,6 +499,11 @@ def start(
         None, "--witness", help="Who declared --mass (default: you)."
     ),
     no_check: bool = typer.Option(False, "--no-check", help="Write the lockfile, run no check."),
+    blank: bool = typer.Option(
+        False,
+        "--blank",
+        help="Write an empty lockfile with no URDF, to design the robot with `add`.",
+    ),
 ) -> None:
     """Lock the model so CI catches drift.
 
@@ -478,22 +517,52 @@ def start(
         names = example_names()
         if example not in names and example not in ALIASES:
             console.print(
-                f"[red]no example named {example!r}[/] — available: {', '.join(map(example_label, names))}"
+                f"[red]no example named {escape(repr(example))}[/] — available: {escape(', '.join(map(example_label, names)))}"
             )
             raise typer.Exit(1)
         if contract.exists() and not force:
             console.print(
-                f"[yellow]{contract} already exists[/] — kept as is. Pass --force to overwrite."
+                f"[yellow]{escape(str(contract))} already exists[/] — kept as is. Pass --force to overwrite."
             )
             return
         note = write_example(example, contract)
         console.print(
-            f"[green]wrote {contract}[/] — example {example_label(example)}. "
-            f"Next: {cli_line('lockwire', 'check', contract)}",
+            f"[green]wrote {escape(str(contract))}[/] — example {example_label(example)}. "
+            f"Next: {cli_line('lockwire', 'check', contract)}. Parts: {cli_line('lockwire', 'catalog', 'parts')}",
             soft_wrap=True,
         )
         if note:
             console.print(note)
+        return
+    if blank:
+        from lockwire.start_operation import start_blank
+
+        kept = contract.exists() and not force
+        if not kept:
+            contract.unlink(missing_ok=True)
+            start_blank(contract)
+        console.print(
+            f"[yellow]{escape(str(contract))} already exists[/] — kept as is. Pass --force to overwrite."
+            if kept
+            else f"[green]wrote {escape(str(contract))}[/] — empty. Next: "
+            + cli_line(
+                "lockwire",
+                "add",
+                "link",
+                contract,
+                "--name",
+                "base",
+                "--shape",
+                "box 0.1 0.1 0.05",
+                "--material",
+                "Aluminium 6061-T6",
+                "--source",
+                "me",
+                "--witness",
+                "me",
+            ),
+            soft_wrap=True,
+        )
         return
     cache_note = ""
     if urdf is not None and (named := _robot_by_name(urdf, 1)):
@@ -508,17 +577,17 @@ def start(
             raise typer.Exit(1) from error
         cache_note = " The meshes stay in the robot_descriptions cache."
     if urdf is not None and not urdf.is_file():
-        console.print(f"[red]{_not_found(urdf)}: {urdf}[/]", highlight=False)
+        console.print(f"[red]{_not_found(urdf)}: {escape(str(urdf))}[/]", highlight=False)
         raise typer.Exit(2)
     if urdf is not None and urdf.suffix.lower() in (".yaml", ".yml"):
         console.print(
-            f"{urdf} is not a URDF, xacro or SDF file; to check a lockfile: lockwire check {urdf}"
+            f"{escape(str(urdf))} is not a URDF, xacro or SDF file; to check a lockfile: lockwire check {escape(str(urdf))}"
         )
         raise typer.Exit(1)
     if urdf is None:
         console.print(
-            "[red]give your robot's URDF/SDF, or --example <name> (try --example servo-bench,"
-            " built to fail on purpose to show a catch)[/]"
+            "[red]give your robot's URDF/SDF, or pick a shape: --example"
+            " arm|drone|rover|quadruped|humanoid (servo-bench is built to fail, to show a catch)[/]"
         )
         raise typer.Exit(1)
     from lockwire.start_operation import start_contract
@@ -554,13 +623,15 @@ def start(
         raise typer.Exit(1) from error
     if not result["written"]:
         console.print(
-            f"[yellow]{contract} already exists[/] — kept as is. "
+            f"[yellow]{escape(str(contract))} already exists[/] — kept as is. "
             "Pass --force to start over from the URDF (this discards locked entries)."
         )
     else:
-        console.print(f"[green]wrote {contract}[/] — {len(model.links)} links from {urdf}")
+        console.print(
+            f"[green]wrote {escape(str(contract))}[/] — {len(model.links)} links from {escape(str(urdf))}"
+        )
         if result.get("note"):
-            console.print(f"[yellow]{result['note']}{cache_note}[/]", soft_wrap=True)
+            console.print(f"[yellow]{escape(result['note'])}{cache_note}[/]", soft_wrap=True)
         if not no_check:
             from lockwire.start_operation import rerun_command
 
@@ -584,11 +655,11 @@ def init(
     """Bootstrap a contract from a URDF: Tier A links, structure hash, zero-mass flags."""
     if out.exists() and not force:
         console.print(
-            f"[red]{out} exists[/] — pass --force to overwrite (this discards locked entries)"
+            f"[red]{escape(str(out))} exists[/] — pass --force to overwrite (this discards locked entries)"
         )
         raise typer.Exit(1)
 
-    # Unexpanded xacro is tool failure (§3.3 exit 2), not a NO-GO finding.
+    # Unexpanded xacro is tool failure (exit 2), not a NO-GO finding.
     try:
         model = _parse_model_file(urdf, out)
     except (SyntaxError, ValueError) as error:  # SyntaxError: ET.ParseError on malformed XML
@@ -599,7 +670,7 @@ def init(
     save_contract(contract, out)
 
     console.print(
-        f"[green]wrote {out}[/] — {len(model.links)} links, structure {model.structure_hash[:12]}…"
+        f"[green]wrote {escape(str(out))}[/] — {len(model.links)} links, structure {model.structure_hash[:12]}…"
     )
     if model.zero_mass_links:
         console.print(
@@ -616,7 +687,7 @@ def init(
 )
 def upgrade_cmd(
     contract: Path = typer.Argument(
-        ..., help="Legacy 0.2, 0.3, 0.4 or 0.5 contract to retain unchanged."
+        ..., help="Legacy 0.2, 0.3, 0.4, 0.5 or 0.6 contract to retain unchanged."
     ),
     out: Path = typer.Option(..., "--out", help="New contract path; never overwritten."),
     expected_revision: str = typer.Option(
@@ -629,10 +700,12 @@ def upgrade_cmd(
     except (OSError, UnicodeError, ValueError) as error:
         _refused("upgrade", error)
         raise typer.Exit(2) from error
-    console.print(f"[green]wrote {out}[/] — legacy {contract} retained unchanged")
+    console.print(
+        f"[green]wrote {escape(str(out))}[/] — legacy {escape(str(contract))} retained unchanged"
+    )
     for notice in notices:
         console.print(
-            f"[yellow]warning:[/] {notice}; `lockwire check` reports it until you re-lock"
+            f"[yellow]warning:[/] {escape(str(notice))}; `lockwire check` reports it until you re-lock"
         )
 
 
@@ -661,14 +734,47 @@ def _torque_claims(torque: list[str], source: str | None, out) -> dict[str, floa
     return claims
 
 
+def _add_torque_claims(findings: RecordReport, loaded, claims: dict[str, float], source) -> None:
+    from lockwire.checks import _ScoreBook, check_torque_claims
+
+    book = _ScoreBook()
+    findings += check_torque_claims(loaded, claims, source, book)
+    findings.scored = (findings.scored or 0) + len(book)
+    findings.scored_keys = (findings.scored_keys or frozenset()) | book.keys
+    findings.scored_records += book.records
+
+
+def _check_verdicts(report: RecordReport) -> dict[str, str]:
+    """One verdict per check (its contract path): passes are GO, findings override."""
+    rank = {"GO": 0, "GO-WITH-NOTES": 1, "NO-GO": 2}
+    got = {r.quantity: "GO" for r in report.scored_records}
+    for f in report:
+        word = {"violation": "NO-GO", "warning": "GO-WITH-NOTES"}.get(f.severity)
+        if word and not f.advice_unsourced and rank[word] >= rank[got.get(f.quantity, "GO")]:
+            got[f.quantity] = word
+    return got
+
+
+def _verdict_changes(base: RecordReport, head: RecordReport) -> list[tuple[str, str]]:
+    """(line, severity) per check whose verdict changed. Rule: present on both sides with a
+    different verdict, or new in head and not GO. A check that is absent from head (its input
+    went missing) or new and GO is silent."""
+    before, after = _check_verdicts(base), _check_verdicts(head)
+    return [
+        (f"{q}: {before.get(q, 'GO')} -> {after[q]}", after[q])
+        for q in sorted(after)
+        if after[q] != before.get(q, "GO")
+    ]
+
+
 @app.command(
-    help="Start here: check a robot model (URDF, xacro, SDF) and print a verdict.\n\n"
+    help="Start here: check a robot model (URDF, xacro, SDF, MuJoCo or Webots) and print a verdict.\n\n"
     f"{exit_code_help('check')}"
 )
 def check(
     ctx: typer.Context,
     contract: Path = typer.Argument(
-        DEFAULT_CONTRACT, help="Contract file to check, or a .urdf/.xacro/.sdf model."
+        DEFAULT_CONTRACT, help="Contract file to check, or a model: .urdf, .xacro, .sdf, MuJoCo .xml/.mjcf, Webots .wbt/.proto."
     ),
     json_out: Path | None = typer.Option(
         None,
@@ -716,7 +822,8 @@ def check(
     output_format: str = typer.Option(
         "text",
         "--format",
-        help="`github` also prints PR annotations and writes $GITHUB_STEP_SUMMARY.",
+        help="`github` also prints PR annotations and writes $GITHUB_STEP_SUMMARY; "
+        "`csv` or `tsv` prints one row per finding to stdout (report goes to stderr).",
     ),
     robot_model: str | None = typer.Option(
         None, "--model", help="Compare with this catalog robot (`lockwire catalog robots`)."
@@ -740,15 +847,32 @@ def check(
     write_baseline: Path | None = typer.Option(
         None, "--write-baseline", help="Write every current finding to this baseline file."
     ),
+    compare_to: Path | None = typer.Option(
+        None,
+        "--compare-to",
+        help="Base lockfile: print one line per check whose verdict changed, e.g. 'x: GO -> NO-GO'.",
+    ),
+    plan_file: Path | None = typer.Option(
+        None,
+        "--plan",
+        help="plan.yaml: also warn where a segment's pose overloads a joint (the same plan goes to --compare-to).",
+    ),
     show_all: bool = typer.Option(
         False, "--all", help="Also print warnings, unjudged checks' detail and passed checks."
     ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Print only the verdict line; the exit code is unchanged."
+    ),
 ) -> None:
-    """Start here: check a robot model (URDF, xacro, SDF, MJCF) and print a verdict."""
+    """Start here: check a robot model (URDF, xacro, SDF, MuJoCo or Webots) and print a verdict."""
     # `--json -` makes stdout exactly one JSON document; the human report and errors go to stderr.
-    out = Console(stderr=True) if str(json_out) == "-" else console
-    if output_format not in ("text", "github"):
-        out.print(f"[red]unknown --format {output_format}[/] — use text or github")
+    # `--format csv|tsv` owns stdout the same way: the human report goes to stderr.
+    tabular = output_format in ("csv", "tsv")
+    out = Console(stderr=True, emoji=False) if str(json_out) == "-" or tabular else console
+    if output_format not in ("text", "github", "csv", "tsv"):
+        out.print(
+            f"[red]unknown --format {escape(output_format)}[/] — use text, github, csv or tsv"
+        )
         raise typer.Exit(2)
     import tempfile
 
@@ -781,7 +905,7 @@ def check(
         and contract.suffix not in (".yaml", ".yml")
     ):
         out.print(
-            f"{contract} is not a model lockwire reads (URDF, xacro, SDF or MJCF).",
+            f"{escape(str(contract))} is not a model lockwire reads (URDF, xacro, SDF or MJCF).",
             highlight=False,
             markup=False,
         )
@@ -795,7 +919,7 @@ def check(
         )
         raise typer.Exit(2)
     if contract.is_dir():
-        out.print(f"'{contract}' is a folder; pass the lockfile or model inside it")
+        out.print(f"'{escape(str(contract))}' is a folder; pass the lockfile or model inside it")
         raise typer.Exit(2)
     warned: list[str] = []
     claims = _torque_claims(torque, source, out)
@@ -839,10 +963,10 @@ def check(
             raise typer.Exit(2) from error
     if not contract.exists():
         if contract.suffix.lower() in MODEL_SUFFIXES:
-            out.print(f"[red]{_not_found(contract)}: {contract}[/]", highlight=False)
+            out.print(f"[red]{_not_found(contract)}: {escape(str(contract))}[/]", highlight=False)
             raise typer.Exit(2)
         out.print(
-            f"[red]no contract at {contract}[/] — run `lockwire start <urdf>` first, "
+            f"[red]no contract at {escape(str(contract))}[/] — run `lockwire start <urdf>` first, "
             "check a model directly: `lockwire check robot.urdf`, "
             "or try `lockwire start --example`"
         )
@@ -873,26 +997,22 @@ def check(
         load_catalog()  # a bad ~/.lockwire/parts.yaml stops here as one line, not mid-check
         if servo:
             servo_stall_torque(servo)  # an unknown id stops here, before any verdict
+        plan = load_plan(plan_file) if plan_file else None
     except (OSError, TypeError, ValueError, YAMLError) as error:
         out.print(f"[red]check failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
-    findings = run_record_checks(
-        loaded,
-        contract_path=contract,
-        actuator_evidence=selected,
-        evidence_root=root,
-        contract_sha256=revision,
-        model=robot_model,
-        servo=servo,
-    )
+    run_kw = {  # one argument set: the base run and every variant run take exactly these
+        "contract_path": contract,
+        "actuator_evidence": selected,
+        "evidence_root": root,
+        "contract_sha256": revision,
+        "model": robot_model,
+        "servo": servo,
+        "plan": plan,
+    }
+    findings = run_record_checks(loaded, **run_kw)
     if claims:
-        from lockwire.checks import _ScoreBook, check_torque_claims
-
-        book = _ScoreBook()
-        findings += check_torque_claims(loaded, claims, source, book)
-        findings.scored = (findings.scored or 0) + len(book)
-        findings.scored_keys = (findings.scored_keys or frozenset()) | book.keys
-        findings.scored_records += book.records
+        _add_torque_claims(findings, loaded, claims, source)
     if model_file is not None:
         from lockwire.start_operation import (
             drop_same_figure,
@@ -914,16 +1034,22 @@ def check(
     # and this file must not be able to disagree about one run.
     # `check_document`, not `verdict_document` directly, so this JSON carries the
     # same `headline` `api.check` does -- one document builder, not two.
-    _write_document(
-        json_out,
-        api.check_document(
-            loaded,
-            findings,
-            revision=revision,
-            actuator_evidence=selected,
-        ),
-        contract,
+    document = api.check_document(
+        loaded,
+        findings,
+        revision=revision,
+        actuator_evidence=selected,
     )
+
+    def finish(code: int) -> int:  # the JSON carries the exit code the process returns (--strict)
+        if document["exit_code"] != code:
+            from lockwire.report import VERDICT_EXIT_CODES
+
+            word = next(v for v, c in VERDICT_EXIT_CODES.items() if c == code)
+            document.update(exit_code=code, verdict=verdict_word(word))
+        _write_document(json_out, document, contract)
+        return code
+
     if badge_json is not None:  # silent: stdout may be the `--json -` document
         from lockwire.report_json import datasheet_badge
 
@@ -933,8 +1059,33 @@ def check(
         target.write_text(json.dumps(badge) + "\n", encoding="utf-8")
     if servo and model_file is None and loaded.servo is None:
         out.print(
-            f"to keep this servo, add this line to {contract}: servo: {servo}", highlight=False
+            f"to keep this servo, add this line to {escape(str(contract))}: servo: {servo}",
+            highlight=False,
         )
+    if compare_to is not None:
+        try:
+            base_loaded = load_contract(compare_to, out)
+            base = run_record_checks(  # same inputs as the head run, or checks differ by input
+                base_loaded,
+                contract_path=compare_to,
+                actuator_evidence=selected,
+                evidence_root=root,
+                model=robot_model,
+                servo=servo,
+                plan=plan,
+            )
+            if claims:
+                _add_torque_claims(base, base_loaded, claims, source)
+        except (OSError, TypeError, ValueError, YAMLError) as error:
+            out.print(
+                f"[red]check failed:[/] --compare-to {escape(str(compare_to))}: {escape(_why(error))}"
+            )
+            raise typer.Exit(2) from error
+        for line, now in _verdict_changes(base, findings):
+            out.print(line, highlight=False, markup=False)
+            if output_format == "github":  # annotate like github_output does
+                level = "error" if now == "NO-GO" else "warning" if now != "GO" else "notice"
+                typer.echo(f"::{level}::{line}", err=str(json_out) == "-")
     if write_baseline is not None:
         _require_folder(write_baseline)
         rows = sorted({(f.quantity, f.observed) for f in findings if not is_lock_drift(f)})
@@ -951,7 +1102,7 @@ def check(
             else set()
         )
     except (OSError, ValueError, KeyError, TypeError) as error:
-        out.print(f"[red]check failed:[/] baseline {baseline}: {escape(_why(error))}")
+        out.print(f"[red]check failed:[/] baseline {escape(str(baseline))}: {escape(_why(error))}")
         raise typer.Exit(2) from error
     prefixes = tuple(p.strip() for p in (adopt or "").split(",") if p.strip())
     # Lock drift is always new and never adopted: only a re-lock clears it.
@@ -970,19 +1121,40 @@ def check(
         )
 
     counting = subset([f for f in new if f not in adopted])
+
+    def table() -> None:
+        if tabular:
+            from lockwire.findings_export import table as findings_table
+
+            typer.echo(
+                findings_table(new, counting, "," if output_format == "csv" else "\t"), nl=False
+            )
+
+    if quiet:
+        decision = verdict(counting)
+        code = strict_exit(
+            counting,
+            decision.exit_code,
+            Console(quiet=True),
+            strict=strict,
+            max_not_scored=max_not_scored,
+        )
+        table()
+        out.print(decision.summary.strip(), highlight=False)
+        raise typer.Exit(finish(_with_variants(loaded, run_kw, code, out, strict, max_not_scored)))
     if baseline and not new:  # nothing changed: one quiet line, no annotations
         decision = verdict(counting)
+        table()
         out.print(
-            f"{verdict_word(decision.code)} — no new findings since {baseline} "
+            f"{verdict_word(decision.code)} — no new findings since {escape(str(baseline))} "
             f"({len(findings)} unchanged)",
             highlight=False,
             markup=False,
         )
-        raise typer.Exit(
-            strict_exit(
-                counting, decision.exit_code, out, strict=strict, max_not_scored=max_not_scored
-            )
+        code = strict_exit(
+            counting, decision.exit_code, out, strict=strict, max_not_scored=max_not_scored
         )
+        raise typer.Exit(finish(_with_variants(loaded, run_kw, code, out, strict, max_not_scored)))
     # CI logs (--format github) and --strict (warnings fail) keep every detail.
     more = None
     if not show_all and not strict and output_format == "text":
@@ -1003,7 +1175,7 @@ def check(
             markup=False,
         )
     if len(new) < len(findings):
-        out.print(f"{len(findings) - len(new)} finding(s) unchanged since {baseline}")
+        out.print(f"{len(findings) - len(new)} finding(s) unchanged since {escape(str(baseline))}")
     from lockwire.page import _scored_title  # lazy: page is heavy and imports this layer
 
     passed = [_scored_title(loaded, r) for r in getattr(findings, "scored_records", [])]
@@ -1031,7 +1203,14 @@ def check(
         out.print(
             f"Lock it so CI catches drift: {beside}", highlight=False, markup=False, soft_wrap=True
         )
+    before_strict = code
     code = strict_exit(counting, code, out, strict=strict, max_not_scored=max_not_scored)
+    if strict and code != before_strict:  # the printed word must match the exit code
+        word = {1: "[bold red]NO-GO[/]", 3: "[bold yellow]NOT SCORED[/]"}.get(code)
+        if word:
+            out.print(f"\n{word} — under --strict")
+    code = _with_variants(loaded, run_kw, code, out, strict, max_not_scored)
+    table()
     if output_format == "github":
         from lockwire.report import github_output, github_summary
 
@@ -1041,7 +1220,32 @@ def check(
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
                 summary.write(github_summary(counting, code))
-    raise typer.Exit(code)
+    raise typer.Exit(finish(code))
+
+
+def _with_variants(loaded, run_kw, code, out, strict, max_not_scored):
+    """One "variant <name>: <verdict>" line each; the exit is the worst of base and variants.
+
+    Worst: 2 (refused) > 1 (NO-GO) > 3 (not scored) > 0, the order --strict already uses
+    (a failing code beats NOT SCORED). Each variant gets the same --strict/--max-not-scored rule.
+    """
+    if not loaded.variants:
+        return code
+    from lockwire.report import VERDICT_EXIT_CODES
+    from lockwire.variants import check_variants
+
+    rank = {2: 3, 1: 2, 3: 1, 0: 0}
+    for name, vcode, vfound in check_variants(loaded, **run_kw):
+        out.print(f"variant {name}: {verdict_word(vcode)}", highlight=False, markup=False)
+        vexit = strict_exit(
+            vfound,
+            VERDICT_EXIT_CODES[vcode],
+            Console(quiet=True),
+            strict=strict,
+            max_not_scored=max_not_scored,
+        )
+        code = max(code, vexit, key=lambda c: rank.get(c, 3))
+    return code
 
 
 @app.command(
@@ -1075,7 +1279,7 @@ def check_sim_cmd(
         console.print(f"[red]check-sim failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     _write_document(json_out, document, contract)
-    out = Console(stderr=True) if str(json_out) == "-" else console
+    out = Console(stderr=True, emoji=False) if str(json_out) == "-" else console
     clean = not any(f.severity in ("violation", "warning") for f in findings)
     if not verbose and clean and document["verdict"] == "GO":
         # Pre-launch gate: agreement is one line, so `check-sim x && simulate x` stays quiet.
@@ -1098,11 +1302,91 @@ def check_sim_cmd(
     raise typer.Exit(code)
 
 
+@materials_app.command("compare")
+def materials_compare(
+    contract: Path = typer.Argument(DEFAULT_CONTRACT, help="The lockfile."),
+    link: str = typer.Option(..., "--link", help="The link to try in every catalog material."),
+) -> None:
+    """Show a link's mass, the robot's total mass and the worst torque margin in each catalog material."""
+    from lockwire.material_compare import compare_materials
+
+    loaded = load_contract(contract)
+    try:
+        got = compare_materials(loaded, link)
+    except ValueError as error:
+        console.print(str(error), highlight=False, markup=False)
+        raise typer.Exit(2)
+    for r in got["rows"]:
+        margin = (
+            "no torque limit"
+            if r["worst_margin_nm"] is None
+            else (f"{r['worst_margin_nm']:.3f} N*m at {r['worst_joint']}")
+        )
+        line = (
+            f"{r['material']}: link {r['link_mass_kg']:.3f} kg, robot {r['total_mass_kg']:.3f} kg, "
+            f"worst margin {margin}" + ("  (current)" if r["current"] else "")
+        )
+        console.print(line, highlight=False, markup=False)
+    if got["note"]:
+        console.print(got["note"], highlight=False, markup=False)
+
+
 @catalog_app.command("robots")
 def catalog_robots() -> None:
     """List the robots `check` compares with a vendor datasheet; pass an id as --model."""
     for robot in load_robots():
         console.print(f"{robot.id}  {robot.name}", highlight=False, markup=False)
+
+
+@catalog_app.command("parts")
+def catalog_parts(
+    words: list[str] = typer.Argument(
+        None, help="Words the part id, name or family must all hold."
+    ),
+) -> None:
+    """List catalog parts with their numbers; add words to narrow the list."""
+    from lockwire.catalog import load_catalog
+
+    parts = load_catalog().parts
+    shown = [
+        p
+        for p in parts
+        if all(w.lower() in f"{p.id} {p.name} {p.family}".lower() for w in words or [])
+    ]
+    if not shown:
+        console.print(
+            f"no part matches {' '.join(words)!r}; {cli_line('lockwire', 'catalog', 'parts')}"
+            f" lists all {len(parts)}",
+            highlight=False,
+            markup=False,
+        )
+        return
+    for p in shown:
+        n = p.numbers
+        lo, hi = n.get("input_voltage_min"), n.get("input_voltage_max")
+        bits = [
+            f"{label} {n[key].value:g} {n[key].unit}"
+            for key, label in (("draw_max", "draw"), ("mass", "mass"), ("stall_torque", "stall"))
+            if key in n
+        ]
+        if lo and hi:
+            bits.append(
+                f"{lo.value:g}-{hi.value:g} V" if lo.value != hi.value else f"{lo.value:g} V"
+            )
+        elif "nominal_voltage" in n:
+            bits.append(f"{n['nominal_voltage'].value:g} V")
+        console.print(
+            f"{p.id}  {p.name}  {p.label}  {' · '.join(bits)}".rstrip(),
+            highlight=False,
+            markup=False,
+            soft_wrap=True,
+        )
+    console.print(
+        f"add one: {cli_line('lockwire', 'add', 'device')} <lockfile> --part <id>"
+        f" (a servo goes on a joint: {cli_line('lockwire', 'swap')} <lockfile> <joint> --use <id>)",
+        highlight=False,
+        markup=False,
+    )
 
 
 def _parse_actuator_evidence(values: list[str]) -> dict[str, ArtifactRef]:
@@ -1148,7 +1432,16 @@ def plan_cmd(
     _write_document(
         json_out, plugins.pick("plan", api.plan)(loaded_contract, loaded_plan), contract
     )
-    raise typer.Exit(render(findings, Console(stderr=True) if str(json_out) == "-" else console))
+    out = Console(stderr=True, emoji=False) if str(json_out) == "-" else console
+    code = render(findings, out)
+    timing = plugins.OVERRIDES.get("time_optimal_plan")
+    best = timing(loaded_contract.model, loaded_plan) if timing else None
+    if best is not None:  # None: nothing guessed
+        out.print(
+            f"Pro: shortest feasible plan time {best.total_s:.1f} s "
+            f"(segment durations x{best.scale:.2f})"
+        )
+    raise typer.Exit(code)
 
 
 @app.command(
@@ -1225,6 +1518,9 @@ def report(
         help="Shorten absolute paths to their basename and drop owner/witness names — "
         "for a page you're about to send someone.",
     ),
+    plan_file: Path | None = typer.Option(
+        None, "--plan", help="plan.yaml: adds the Pro requirements panel to the report."
+    ),
 ) -> None:
     """Emit a deterministic, self-contained contract report."""
     del open_browser  # accepted for CLI parity with gui/start; no-op.
@@ -1233,6 +1529,11 @@ def report(
     except (OSError, TypeError, ValueError, YAMLError) as error:
         console.print(f"[red]report failed:[/] {escape(_why(error))}")
         raise typer.Exit(1) from error
+    try:
+        plan = load_plan(plan_file) if plan_file else None
+    except (OSError, TypeError, ValueError, YAMLError) as error:
+        console.print(f"[red]report failed:[/] {escape(_why(error))}")
+        raise typer.Exit(2) from error
     # Announces/refuses the scene for CLI parity; the printable report
     # does not yet draw it — that is the 3D renderer's ticket, not this one's.
     _load_scene_for_cli(contract, scene, command="report", package_roots=tuple(package_root))
@@ -1244,12 +1545,17 @@ def report(
     target = _confined(out, contract)
     try:
         write_html_report(
-            loaded, target, contract_path=contract, redact_paths=redact_paths, cli_line=cli_line
+            loaded,
+            target,
+            contract_path=contract,
+            redact_paths=redact_paths,
+            cli_line=cli_line,
+            plan=plan,
         )
     except OSError as error:  # tool failure, one line
         console.print(f"[red]report failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
-    console.print(f"[green]wrote {out}[/]")
+    console.print(f"[green]wrote {escape(str(out))}[/]")
 
 
 @app.command(hidden=True)
@@ -1278,6 +1584,12 @@ def describe(
         # The system page carries the force numbers. Printing only the
         # per-device pages would leave stdout without the figures --out writes.
         console.print(describe_system(loaded))
+        rows = bus_address_map(loaded)
+        if rows:  # no addresses declared: no section, no empty table
+            table = Table("bus", "kind", "address", "device", title="Bus address map")
+            for row in rows:
+                table.add_row(*(escape(cell) for cell in row))
+            console.print(table)
         return
 
     files = describe_all(loaded)
@@ -1304,18 +1616,129 @@ def export_cmd(
         readable=True,
         help="Contract file to export.",
     ),
-    fmt: str = typer.Option(..., "--format", help="Output shape. Only 'mhs' exists."),
+    fmt: str = typer.Option(
+        ...,
+        "--format",
+        help="Output shape: 'urdf', 'sdf', 'mjcf' (model file), 'stl', 'obj', 'dae' (3D meshes, --out is a folder), 'mhs', 'bom' (parts list, CSV) or 'budget' (power budget, CSV).",
+    ),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        help="Write here: the bom CSV, or the model file (default beside the lockfile).",
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing --out file."),
+    plan_file: Path | None = typer.Option(
+        None, "--plan", help="budget: plan.yaml, so typical draw is weighted by the plan's duty."
+    ),
+    units: str = typer.Option("m", "--units", help="stl/obj/dae: 'm' (metres) or 'mm'."),
+    segments: int = typer.Option(
+        export_model.SEGMENTS, "--segments", help="stl/obj/dae: sides of a cylinder or sphere."
+    ),
 ) -> None:
-    """Render the contract into a third-party device-manifest shape. Outward only."""
-    if fmt != "mhs":
-        console.print(f"[red]export failed:[/] unknown --format {fmt!r}; only 'mhs' exists.")
+    """Render the contract into a third-party device-manifest shape, or a parts list. Outward only."""
+    if fmt == "step":
+        console.print(f"[red]export failed:[/] {escape(export_model.STEP_REFUSAL)}")
+        raise typer.Exit(2)
+    meshes = ("stl", "obj", "dae")
+    if fmt not in ("mhs", "bom", "budget", *meshes, *export_model.SUFFIX):
+        console.print(
+            f"[red]export failed:[/] unknown --format {escape(repr(fmt))}; use urdf, sdf, mjcf, stl, obj, dae, mhs, bom or budget."
+        )
+        raise typer.Exit(2)
+    if fmt == "budget":
+        out = out or contract.with_name(f"{contract.stem}.budget.csv")
+        if str(out) != "-" and out.exists() and not force:
+            console.print(f"[red]export failed:[/] {escape(str(out))} exists, pass --force")
+            raise typer.Exit(2)
+        try:
+            text = power_budget.budget_csv(
+                load_contract(contract), load_plan(plan_file) if plan_file else None
+            )
+            if str(out) == "-":
+                sys.stdout.write(text)
+            else:
+                out.write_text(text, encoding="utf-8")
+                console.print(f"[green]wrote {escape(str(out))}[/]")
+        except (OSError, TypeError, ValueError, YAMLError) as error:
+            console.print(f"[red]export failed:[/] {escape(_why(error))}")
+            raise typer.Exit(2) from error
+        return
+    if out is not None and (fmt == "mhs" or (fmt == "bom" and out.exists() and not force)):
+        why = (
+            "--out is for --format bom"
+            if fmt == "mhs"
+            else f"{escape(str(out))} exists, pass --force"
+        )
+        console.print(f"[red]export failed:[/] {why}")
         raise typer.Exit(2)
     try:
         loaded = load_contract(contract)
     except (OSError, TypeError, ValueError, YAMLError) as error:
         console.print(f"[red]export failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
-    console.print_json(data=export_mhs.export_mhs(loaded))
+    if fmt in meshes:
+        if loaded.model is None:
+            console.print("[red]export failed:[/] the lockfile holds no model to export.")
+            raise typer.Exit(2)
+        try:
+            files, notes = export_model.write_mesh(
+                loaded.model,
+                out or export_model.default_stl_dir(contract, fmt),
+                fmt,
+                units,
+                segments,
+                force,
+                source_root=contract.parent,
+            )
+        except (OSError, ValueError) as error:
+            console.print(f"[red]export failed:[/] {escape(_why(error))}")
+            raise typer.Exit(2) from error
+        named = "millimetres" if units == "mm" else "metres"
+        console.print(
+            f"[green]wrote {len(files)} {fmt.upper()} files to {escape(str(files[0].parent))}, units: {named}[/]"
+        )
+        for note in notes:
+            console.print(escape(note))
+        return
+    if fmt in export_model.SUFFIX:
+        if loaded.model is None:
+            console.print("[red]export failed:[/] the lockfile holds no model to export.")
+            raise typer.Exit(2)
+        try:
+            target = export_model.write(
+                loaded.model,
+                fmt,
+                out or export_model.default_out(contract, fmt),
+                force=force,
+                source_root=contract.parent,
+            )
+        except (OSError, ValueError) as error:
+            console.print(f"[red]export failed:[/] {escape(_why(error))}")
+            raise typer.Exit(2) from error
+        console.print(f"[green]wrote {escape(str(target))}[/]")
+        return
+    if fmt == "mhs":
+        console.print_json(data=export_mhs.export_mhs(loaded))
+        return
+    rows = api.bom_rows(loaded)
+    sink = io.StringIO()
+    writer = csv.DictWriter(sink, api.BOM_COLUMNS, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    writer.writerows({**r, "notes": "; ".join(r["notes"])} for r in rows)
+    try:
+        if out is None:
+            sys.stdout.write(sink.getvalue())
+        else:
+            out.write_text(sink.getvalue(), encoding="utf-8")
+    except OSError as error:
+        console.print(f"[red]export failed:[/] {escape(_why(error))}")
+        raise typer.Exit(2) from error
+    note = api.bom_mass_note(loaded, rows)
+    if note:
+        typer.echo(note, err=True)
+    for r in rows:
+        if r["notes"]:
+            typer.echo(f"{r['part']}: {'; '.join(r['notes'])}", err=True)
 
 
 @app.command(
@@ -1432,12 +1855,14 @@ def scene_import_cmd(
         console.print("[red]scene import failed:[/] --write requires --expected-revision.")
         raise typer.Exit(2)
     if not contract.exists() or not contract.is_file():
-        console.print(f"[red]scene import failed:[/] no contract at {contract}")
+        console.print(f"[red]scene import failed:[/] no contract at {escape(str(contract))}")
         raise typer.Exit(2)
     if (
         out.resolve() == contract.resolve()
     ):  # a changes file is yaml by design, so only the contract itself is refused
-        console.print(f"[red]scene import failed:[/] refusing to write over the contract: {out}")
+        console.print(
+            f"[red]scene import failed:[/] refusing to write over the contract: {escape(str(out))}"
+        )
         raise typer.Exit(2)
     if write and expected_revision != contract_revision(contract):
         console.print(
@@ -1455,7 +1880,7 @@ def scene_import_cmd(
         loaded_scene, _ = api.load_scene(contract, scene, tuple(package_root))
         assert loaded_scene is not None
     except SceneRefusal as error:
-        console.print(f"[red]{error}[/]")
+        console.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(2) from error
 
     try:
@@ -1498,7 +1923,7 @@ def scene_import_cmd(
     except (EditRefusal, SceneImportRefusal, OSError, YAMLError) as error:
         console.print(f"[red]scene import failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
-    console.print(f"wrote {out} ({len(result.entries)} placements, witness {witness})")
+    console.print(f"wrote {escape(str(out))} ({len(result.entries)} placements, witness {witness})")
 
     console.print(
         "ran: " + build_cli_line("lockwire", "scene", "import", *argv_from_context(ctx)),
@@ -1506,9 +1931,9 @@ def scene_import_cmd(
     )
 
     if write:
-        console.print(f"applied {out} to {contract}")
+        console.print(f"applied {escape(str(out))} to {escape(str(contract))}")
     else:
-        console.print(f"next: lockwire apply {contract} {out}")
+        console.print(f"next: lockwire apply {escape(str(contract))} {escape(str(out))}")
 
 
 @app.command(
@@ -1555,7 +1980,7 @@ def hw(
     not mutate the contract. See ``report.EXIT_CODE_TABLE["hw"]`` for exit codes.
     """
     if not contract.exists() or not contract.is_file():
-        console.print(f"[red]hw failed:[/] no contract at {contract}")
+        console.print(f"[red]hw failed:[/] no contract at {escape(str(contract))}")
         raise typer.Exit(2)
     try:
         recorded_at = _parse_hw_timestamp(at)
@@ -1641,7 +2066,7 @@ def declare_cmd(
     marked "(default)" — see ``resolve_witness``.
     """
     if not contract.exists() or not contract.is_file():
-        console.print(f"[red]declare failed:[/] no contract at {contract}")
+        console.print(f"[red]declare failed:[/] no contract at {escape(str(contract))}")
         raise typer.Exit(2)
     try:
         change = Change(
@@ -1703,6 +2128,29 @@ def accept_cmd(
     _print_edit_result(result)
 
 
+@app.command("undo", hidden=True)
+def undo_cmd(contract: Path = typer.Argument(Path("lockwire.yaml"), help="Lockfile.")) -> None:
+    """Take back the last change Lockwire made to the lockfile."""
+    _undo_redo("undo", contract)
+
+
+@app.command("redo", hidden=True)
+def redo_cmd(contract: Path = typer.Argument(Path("lockwire.yaml"), help="Lockfile.")) -> None:
+    """Put back the change `undo` took back."""
+    _undo_redo("redo", contract)
+
+
+def _undo_redo(which: str, contract: Path) -> None:
+    from lockwire import edit
+
+    try:
+        (edit.undo_edit if which == "undo" else edit.redo_edit)(contract)
+    except (EditRefusal, OSError) as error:
+        _refused(which, error)
+        raise typer.Exit(2) from error
+    console.print(f"{which} done: {escape(contract.name)}")
+
+
 @app.command("swap", hidden=True)
 def swap_cmd(
     contract: Path = typer.Argument(..., help="Lockfile to read."),
@@ -1728,7 +2176,7 @@ def swap_cmd(
         _refused("swap", error)
         raise typer.Exit(2) from error
     console.print(
-        f"{joint}: {pv.current or 'no servo declared'}, gravity load {pv.load:.2f} N*m (fit = stall >= 2x load)"
+        f"{escape(str(joint))}: {escape(pv.current or 'no servo declared')}, gravity load {pv.load:.2f} N*m (fit = stall >= 2x load)"
     )
     if not pv.candidates:
         console.print("no cited alternatives yet")
@@ -1739,18 +2187,20 @@ def swap_cmd(
         return f"{shown_ratio(r):.1f}x" if r < 100 else ">100x"
 
     for x in pv.candidates:
-        flags = f"  [yellow]{', '.join(x.flags)}[/]" if x.flags else ""
+        flags = f"  [yellow]{escape(', '.join(x.flags))}[/]" if x.flags else ""
         console.print(
-            f"  [{colour[x.status]}]{x.status:<8}[/] {x.id:<22} {x.label:<10} "
+            f"  [{colour[x.status]}]{x.status:<8}[/] {escape(f'{x.id:<22}')} {escape(f'{x.label:<10}')} "
             f"{x.stall:.2f} N*m  {times(x.ratio)}  {x.mass_g:g} g{flags}"
         )
     c = pv.chosen
-    console.print(f"With {c.id} ({pv.delta_g:+g} g on {joint}'s child link), the joints above:")
+    console.print(
+        f"With {escape(c.id)} ({pv.delta_g:+g} g on {escape(str(joint))}'s child link), the joints above:"
+    )
     for k in pv.knock_on:
         if k.before is None or k.after is None:
-            console.print(f"  {k.joint} load not scored")
+            console.print(f"  {escape(k.joint)} load not scored")
             continue
-        line = f"  {k.joint} {k.before:.2f} → {k.after:.2f} N*m"
+        line = f"  {escape(k.joint)} {k.before:.2f} → {k.after:.2f} N*m"
         if k.status is not None:
             line += (
                 f", [bold red]warning: now {k.status}[/] ({times(k.ratio)}), was {k.was}"
@@ -1760,8 +2210,10 @@ def swap_cmd(
         console.print(line)
     if use is None:  # with --use the notes print once, among the edit's lines
         for note in pv.notes:
-            console.print(f"[yellow]note:[/] {note}")
-        console.print(f"preview only; write it with: lockwire swap {contract} {joint} --use {c.id}")
+            console.print(f"[yellow]note:[/] {escape(note)}")
+        console.print(
+            f"preview only; write it with: lockwire swap {escape(str(contract))} {escape(str(joint))} --use {escape(c.id)}"
+        )
     else:
         _print_edit_result(result)
         if c.flags:  # the table row above scrolls away; say it again, last
@@ -1834,7 +2286,7 @@ def review_cmd(
     the same gate every review door shares.
     """
     if not contract.exists() or not contract.is_file():
-        console.print(f"[red]review failed:[/] no contract at {contract}")
+        console.print(f"[red]review failed:[/] no contract at {escape(str(contract))}")
         raise typer.Exit(2)
     if approve == question:
         console.print("[red]review failed:[/] exactly one of --approve or --question is required")
@@ -1872,14 +2324,14 @@ def _pose_triple(raw: str, flag: str) -> tuple[float, float, float]:
     try:
         return (float(parts[0]), float(parts[1]), float(parts[2]))
     except ValueError:
-        console.print(f"[red]refused:[/] {flag} {raw!r} is not three numbers")
+        console.print(f"[red]refused:[/] {flag} {escape(repr(raw))} is not three numbers")
         raise typer.Exit(2) from None
 
 
 def _run_pose_edit(ctx: typer.Context, name: str, contract: Path, call) -> None:
     """Shared existence, refusal and replay handling for pose and mount edits."""
     if not contract.exists() or not contract.is_file():
-        console.print(f"[red]{name} failed:[/] no contract at {contract}")
+        console.print(f"[red]{name} failed:[/] no contract at {escape(str(contract))}")
         raise typer.Exit(2)
     try:
         result = call()
@@ -2125,10 +2577,10 @@ def apply_cmd(
     success, 2 on refusal.
     """
     if not contract.exists() or not contract.is_file():
-        console.print(f"[red]apply failed:[/] no contract at {contract}")
+        console.print(f"[red]apply failed:[/] no contract at {escape(str(contract))}")
         raise typer.Exit(2)
     if not changes_file.exists() or not changes_file.is_file():
-        console.print(f"[red]apply failed:[/] no changes file at {changes_file}")
+        console.print(f"[red]apply failed:[/] no changes file at {escape(str(changes_file))}")
         raise typer.Exit(2)
     try:
         with open(changes_file, encoding="utf-8") as handle:
@@ -2175,7 +2627,7 @@ def from_parts_cmd(
     existing --out is kept as is.
     """
     if not parts.is_file():
-        console.print(f"[red]from-parts failed:[/] no parts list at {parts}")
+        console.print(f"[red]from-parts failed:[/] no parts list at {escape(str(parts))}")
         raise typer.Exit(2)
     if out is not None:
         _require_folder(out)
@@ -2188,7 +2640,9 @@ def from_parts_cmd(
             str(row["line"]),
             str(row["quantity"]),
             row["text"],
-            "[green]MATCHED[/]" if hit else "[yellow]NO MATCH[/]",
+            "[green]MATCHED[/]"
+            if hit
+            else "[yellow]NO MATCH[/]" + (f" {escape(row['note'])}" if row.get("note") else ""),
             row["id"] or "",
             f"{row['confidence']:.2f}" if hit else "",
             row["label"] or "",
@@ -2201,18 +2655,91 @@ def from_parts_cmd(
         )
     if out is not None:
         wrote = "written" in document
-        console.print(f"draft lockfile {'written to' if wrote else 'kept as is:'} {out}")
+        console.print(
+            f"draft lockfile {'written to' if wrote else 'kept as is:'} {escape(str(out))}"
+        )
+
+
+def _number_in(raw: str, unit: str, flag: str) -> float:
+    """'0.5 m' / '50 cm' / '0.5' -> a plain number in `unit` (the unit the field name ends in)."""
+    parts = raw.split()
+    try:
+        if len(parts) in (1, 2):
+            number = float(parts[0])
+            if len(parts) == 2:
+                number = units.convert(number, parts[1], unit)
+            if number - number == 0:  # finite
+                return number
+    except (ValueError, OverflowError):
+        pass
+    raise EditRefusal(f'{flag} must be a number like "1.5 {unit}"; got "{raw.strip()}".')
+
+
+def _three_numbers(raw: str, flag: str) -> list[float]:
+    try:
+        nums = [float(x) for x in raw.split()]
+        if len(nums) == 3 and all(n - n == 0 for n in nums):
+            return nums
+    except ValueError:
+        pass
+    raise EditRefusal(f'{flag} must be three numbers like "0 0 0.1"; got "{raw}".')
+
+
+def _shape_from(text: str) -> dict[str, Any]:
+    """'box 0.04 0.04 0.2 at 0 0 0.1' -> a link shape in metres (the `at` part is optional)."""
+    body, _, at = text.partition(" at ")
+    kind, *dims = body.split()
+    names = {"box": ("size",), "cylinder": ("radius", "length"), "sphere": ("radius",)}
+    want = {"box": 3, "cylinder": 2, "sphere": 1}
+    try:
+        if kind not in want or len(dims) != want[kind]:
+            raise ValueError
+        nums = [float(d) for d in dims]
+    except ValueError:
+        raise EditRefusal(
+            f'--shape must be "box W D H", "cylinder RADIUS LENGTH" or "sphere RADIUS" in metres, '
+            f'optionally followed by " at X Y Z"; got "{text}".'
+        ) from None
+    shape: dict[str, Any] = {"kind": kind}
+    if kind == "box":
+        shape["size"] = nums
+    else:
+        shape.update(zip(names[kind], nums))
+    if at:
+        shape["origin"] = {"xyz": _three_numbers(at, "--shape")}
+    return shape
+
+
+def _wire_end(raw: str, flag: str) -> dict[str, Any]:
+    parts = raw.split(":")
+    if len(parts) not in (2, 3) or not all(p.strip() for p in parts):
+        raise EditRefusal(f'--{flag} must be device:pin or device:connector:pin; got "{raw}".')
+    pin = parts[-1].strip()
+    end: dict[str, Any] = {"device": parts[0].strip(), "pin": int(pin) if pin.isdigit() else pin}
+    if len(parts) == 3:
+        end["connector"] = parts[1].strip()
+    return end
 
 
 @app.command("add", hidden=True)
 def add_cmd(
     ctx: typer.Context,
-    kind: str = typer.Argument(..., help="device | rail | bus | family | model | budget | battery"),
+    kind: str = typer.Argument(
+        ...,
+        help="device | rail | bus | family | model | budget | battery | wire | connector | link | joint | promote | mirror | group",
+    ),
     contract: Path = typer.Argument(..., help="Contract file to edit."),
     id: str | None = typer.Option(None, "--id", help="New entry's id (not used for battery)."),
-    source: str = typer.Option(..., "--source", help="Where every field comes from (required)."),
-    witness: str = typer.Option(..., "--witness", help="Who/what declared it (required)."),
+    source: str | None = typer.Option(
+        None, "--source", help="Where every field comes from (required without --part)."
+    ),
+    witness: str | None = typer.Option(
+        None, "--witness", help="Who/what declared it (required without --part)."
+    ),
     note: str | None = typer.Option(None, "--note"),
+    part: str | None = typer.Option(
+        None, "--part", help="device: catalog part id; fills model, mass, draw, source, rail."
+    ),
     model: str | None = typer.Option(None, "--model", help="device: -> DeviceModel.id."),
     owner: str | None = typer.Option(
         None, "--owner", help="device/budget: owning team (both required)."
@@ -2283,11 +2810,121 @@ def add_cmd(
         "--chemistry",
         help="battery: chemistry, e.g. 'Li-ion' (no schema field — folded into a comment).",
     ),
+    dropout: str | None = typer.Option(
+        None, "--dropout", help="rail: regulator dropout, e.g. '0.3 V' (stored as dropout_v)."
+    ),
+    min_input: str | None = typer.Option(
+        None, "--min-input", help="rail: lowest input it holds at, e.g. '5 V' (min_input_v)."
+    ),
+    regulator_kind: str | None = typer.Option(
+        None, "--regulator-kind", help="rail: ldo|buck|boost."
+    ),
+    length: str | None = typer.Option(
+        None, "--length", help="bus/wire: cable run, e.g. '1.5 m' (stored as length_m)."
+    ),
+    twisted: bool | None = typer.Option(
+        None, "--twisted/--no-twisted", help="bus: twisted-pair cabling."
+    ),
+    cells_parallel: str | None = typer.Option(
+        None, "--cells-parallel", help="battery: cells in parallel, a whole number."
+    ),
+    reserve: str | None = typer.Option(
+        None, "--reserve", help="battery: capacity held back, e.g. '10 %' (reserve_pct)."
+    ),
+    awg: str | None = typer.Option(None, "--awg", help="wire: gauge, a whole number (required)."),
+    installation: str | None = typer.Option(
+        None, "--installation", help="wire: free_air|enclosed (required)."
+    ),
+    net_class: str | None = typer.Option(
+        None, "--net-class", help="wire: power|motor|logic (net_class)."
+    ),
+    connector: str | None = typer.Option(None, "--connector", help="wire: xt60|jst-xh."),
+    from_end: str | None = typer.Option(
+        None, "--from", help="wire: one end, device:pin or device:connector:pin (needs --to)."
+    ),
+    to_end: str | None = typer.Option(None, "--to", help="wire: other end, same shape as --from."),
+    device: str | None = typer.Option(None, "--device", help="connector: device id it sits on."),
+    connector_type: str | None = typer.Option(
+        None, "--type", help="connector: connector type id (pins are named from its labels)."
+    ),
+    placement: str | None = typer.Option(
+        None, "--placement", help="connector: where on the device, e.g. 'left edge'."
+    ),
+    parent: str | None = typer.Option(None, "--parent", help="joint: the link it hangs from."),
+    child: str | None = typer.Option(None, "--child", help="joint: the link it carries."),
+    axis: str | None = typer.Option(None, "--axis", help='joint: axis, e.g. "0 0 1".'),
+    lower: float | None = typer.Option(None, "--lower", help="joint: lower limit (rad or m)."),
+    upper: float | None = typer.Option(None, "--upper", help="joint: upper limit (rad or m)."),
+    effort: float | None = typer.Option(None, "--effort", help="joint: effort limit (N or N*m)."),
+    velocity: float | None = typer.Option(None, "--velocity", help="joint: velocity limit."),
+    shape: list[str] = typer.Option(
+        [],
+        "--shape",
+        help='link: a shape in metres, repeatable: "box 0.04 0.04 0.2 at 0 0 0.1", '
+        '"cylinder 0.02 0.3" or "sphere 0.05" (mass and CoM come from shape + --material).',
+    ),
+    mesh: Path | None = typer.Option(
+        None,
+        "--mesh",
+        help="link: an STL or DAE mesh inside the lockfile's folder (needs --scale).",
+    ),
+    scale: str | None = typer.Option(
+        None,
+        "--scale",
+        help="link: the mesh's unit, mm, m or a number such as 0.001 (never guessed).",
+    ),
+    material: str | None = typer.Option(
+        None,
+        "--material",
+        help='link: a catalog material name, e.g. "Aluminium 6061-T6" (a wrong name lists the closest).',
+    ),
+    origin: str | None = typer.Option(
+        None, "--origin", help='joint: where it sits on its parent link in metres, e.g. "0 0 0.1".'
+    ),
+    of: str | None = typer.Option(
+        None, "--of", help="mirror: the link to mirror (with its subtree)."
+    ),
+    plane: str | None = typer.Option(None, "--plane", help="mirror: xz, yz or xy."),
+    rename: str | None = typer.Option(
+        None, "--rename", help='mirror: swap text in the copies\' names, "arm=arm-r".'
+    ),
+    subtree: bool | None = typer.Option(
+        None, "--subtree/--no-subtree", help="mirror: copy the descendants too (default yes)."
+    ),
+    members: str | None = typer.Option(None, "--members", help="group: member names, a,b,c."),
+    value: float | None = typer.Option(
+        None, "--value", help="param: its value (metres if no --unit)."
+    ),
+    unit: str | None = typer.Option(None, "--unit", help="param: e.g. 'mm'; leave out for metres."),
+    param_min: float | None = typer.Option(None, "--min", help="param: lowest allowed value."),
+    param_max: float | None = typer.Option(None, "--max", help="param: highest allowed value."),
+    link: str | None = typer.Option(
+        None, "--link", help="shape: the existing link (takes one --shape)."
+    ),
+    frame: str | None = typer.Option(
+        None, "--frame", help='attach: where it sits on --parent, metres: "x y z".'
+    ),
+    frame_rpy: str | None = typer.Option(
+        None, "--frame-rpy", help='attach: its orientation, radians: "r p y" (default 0 0 0).'
+    ),
+    frame_id: str | None = typer.Option(
+        None, "--frame-id", help="attach: or a named frame on the catalog --part."
+    ),
+    joint_name: str | None = typer.Option(
+        None, "--joint-name", help="attach: the new joint's name."
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the diff, write nothing."),
 ) -> None:
-    """Add a new device/rail/bus/family/model/budget/battery block, with provenance.
+    """Add a new device/rail/bus/family/model/budget/battery/wire/connector/link/joint block, with provenance.
 
-    Note (F2, model): `DeviceModel` carries no schema field for a human name —
+    `add param` takes --name --value (--unit --min --max); `add shape` takes --link and one
+    --shape; `add attach` takes --parent --part (--name), --frame "x y z" (--frame-rpy) or
+    --frame-id, and the joint as --type --axis --lower --upper --effort --velocity --joint-name.
+
+    `add link` and `add joint` take --name (or --id); a joint also needs --type, --parent and
+    --child, and refuses a loop, a second parent or a link joined to itself.
+
+    Note: `DeviceModel` carries no schema field for a human name —
     only `hard_limits`, `actuator`, `thermal_limit`, `radio` and `match` beyond
     what this command exposes, all sparse/nested datasheet shapes; author them
     with `declare`/`apply` for now, the same way `scene import` writes
@@ -2311,7 +2948,7 @@ def add_cmd(
     success, 2 on refusal.
     """
     if not contract.exists() or not contract.is_file():
-        console.print(f"[red]add failed:[/] no contract at {contract}")
+        console.print(f"[red]add failed:[/] no contract at {escape(str(contract))}")
         raise typer.Exit(2)
     fields = {
         "id": id,
@@ -2345,8 +2982,130 @@ def add_cmd(
         "rail": rail,
         "nominal_voltage": nominal_voltage,
         "chemistry": chemistry,
+        "regulator_kind": regulator_kind,
+        "twisted": twisted,
+        "awg": awg,
+        "installation": installation,
+        "net_class": net_class,
+        "connector": connector,
+        "device": device,
+        "type": connector_type,
+        "placement": placement,
+        "mass": mass,
+        "parent": parent,
+        "child": child,
     }
+    if kind in ("link", "joint"):
+        fields["name"] = name or id
+    fields["material"] = material
+    rail_note = None
     try:
+        if (mesh is None) != (scale is None):
+            raise EditRefusal(
+                "--mesh needs --scale mm, m or a number such as 0.001; Lockwire does not guess the unit."
+                if scale is None
+                else "--scale goes with --mesh."
+            )
+        if mesh is not None:
+            if kind != "link":
+                raise EditRefusal("--mesh is for `add link`.")
+            fields["mesh"], fields["scale"] = str(mesh), scale
+        if shape:
+            fields["geometry"] = [_shape_from(text) for text in shape]
+        if origin is not None:
+            fields["origin"] = {"xyz": _three_numbers(origin, "--origin")}
+        if axis is not None:
+            parts = axis.split()
+            try:
+                if len(parts) != 3:
+                    raise ValueError
+                fields["axis"] = [float(x) for x in parts]
+            except ValueError:
+                raise EditRefusal(
+                    f'--axis must be a list of three numbers like "0 0 1"; got "{axis}".'
+                ) from None
+        limits = {
+            k: v
+            for k, v in (
+                ("lower", lower),
+                ("upper", upper),
+                ("effort", effort),
+                ("velocity", velocity),
+            )
+            if v is not None
+        }
+        if limits:
+            fields["limits"] = limits
+        if kind == "promote":  # --device, --name, then the joint from --type/--axis/limits
+            fields["joint"] = {
+                "type": connector_type,
+                "axis": fields.get("axis"),
+                "limits": fields.get("limits"),
+            }
+        if kind == "mirror":
+            old, eq, new = (rename or "").partition("=")
+            if rename is not None and not (old and eq):
+                raise EditRefusal(f'--rename must look like "arm=arm-r"; got "{rename}".')
+            fields |= {"of": of, "plane": plane}
+            fields |= {"rename": {"from": old, "to": new}} if rename else {}
+            fields |= {} if subtree is None else {"subtree": subtree}
+        if kind == "param":
+            fields |= {"value": value, "unit": unit, "min": param_min, "max": param_max}
+        if kind == "shape":
+            if len(shape) != 1:
+                raise EditRefusal("`add shape` takes --link and exactly one --shape.")
+            fields |= {"link": link, "shape": fields.pop("geometry")[0]}
+        if kind == "attach":
+            fields |= {
+                "frame_id": frame_id,
+                "joint": {
+                    "type": connector_type,
+                    "axis": fields.get("axis"),
+                    "limits": fields.get("limits"),
+                    "name": joint_name,
+                },
+            }
+            if frame is not None:
+                fields["frame"] = {"xyz": _three_numbers(frame, "--frame")}
+                if frame_rpy is not None:
+                    fields["frame"]["rpy"] = _three_numbers(frame_rpy, "--frame-rpy")
+        if members is not None:  # group
+            fields["members"] = [m.strip() for m in members.split(",") if m.strip()]
+        for end, raw in (("from", from_end), ("to", to_end)):
+            if raw is not None:
+                fields[end] = _wire_end(raw, end)
+        for key, raw, unit, flag in (
+            ("dropout_v", dropout, "V", "--dropout"),
+            ("min_input_v", min_input, "V", "--min-input"),
+            ("length_m", length, "m", "--length"),
+            ("reserve_pct", reserve, "%", "--reserve"),
+        ):
+            if raw is not None:
+                fields[key] = _number_in(raw, unit, flag)
+        if cells_parallel is not None:
+            if not cells_parallel.strip().isdigit():
+                raise EditRefusal(
+                    f'--cells-parallel must be a whole number; got "{cells_parallel}".'
+                )
+            fields["cells_parallel"] = int(cells_parallel)
+        catalog_add = bool(part) and kind != "attach"
+        if part and kind == "attach":
+            fields["part"] = part
+        if catalog_add:
+            if kind != "device" or draw or mass:
+                raise EditRefusal(
+                    "--part is for `add device` and takes the draw and mass from the catalog; "
+                    "drop --draw and --mass, or drop --part"
+                )
+            from lockwire.edit import resolve_witness
+            from lockwire.parts_list import part_to_add
+
+            catalog_fields, catalog_source, rail_note = part_to_add(contract, part, rail)
+            fields = {**catalog_fields, **{k: v for k, v in fields.items() if v is not None}}
+            source = source or catalog_source
+            witness = resolve_witness(witness) or "w0"
+        elif source is None or witness is None:
+            raise EditRefusal("--source and --witness are required (or use --part <catalog id>)")
         result = add_entry(
             contract, kind, fields, source=source, witness=witness, note=note, dry_run=dry_run
         )
@@ -2354,8 +3113,65 @@ def add_cmd(
         _refused("add", error)
         raise typer.Exit(2) from error
     _print_edit_result(result)
+    if rail_note:
+        console.print(rail_note, highlight=False, markup=False)
+    if catalog_add and not dry_run:
+        console.print(f"Next: {cli_line('lockwire', 'check', contract)}", highlight=False)
     console.print(
         "ran: " + build_cli_line("lockwire", "add", *argv_from_context(ctx)), soft_wrap=True
+    )
+
+
+@app.command("delete", hidden=True)
+def delete_cmd(
+    ctx: typer.Context,
+    kind: str = typer.Argument(..., help="link | joint | device"),
+    contract: Path = typer.Argument(..., help="Contract file to edit."),
+    id: str = typer.Option(..., "--id", help="The link or joint name, or the device id."),
+    source: str = typer.Option(..., "--source", help="Why it goes."),
+    witness: str = typer.Option(..., "--witness", help="Who decided."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the diff, write nothing."),
+) -> None:
+    """Delete a link, joint or device. Refuses a link a joint still holds, a device still named
+    elsewhere, and an imported model; nothing is written on refusal. Exit 0, 2 on refusal."""
+    try:
+        if not contract.is_file():
+            raise EditRefusal(f"no contract at {contract}")
+        result = delete_entry(contract, kind, id, source=source, witness=witness, dry_run=dry_run)
+    except (EditRefusal, UnsupportedSchemaVersion, OSError, YAMLError) as error:
+        _refused("delete", error)
+        raise typer.Exit(2) from error
+    _print_edit_result(result)
+    console.print(
+        "ran: " + build_cli_line("lockwire", "delete", *argv_from_context(ctx)), soft_wrap=True
+    )
+
+
+@app.command("rename", hidden=True)
+def rename_cmd(
+    ctx: typer.Context,
+    kind: str = typer.Argument(..., help="link | joint | device | rail | wire | param"),
+    old: str = typer.Argument(..., help="The current name."),
+    new: str = typer.Argument(..., help="The new name."),
+    contract: Path = typer.Argument(Path("lockwire.yaml"), help="Lockfile."),
+    source: str = typer.Option(..., "--source", help="Why it is renamed."),
+    witness: str = typer.Option(..., "--witness", help="Who decided."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the diff, write nothing."),
+) -> None:
+    """Rename a link, joint, device, rail, wire or param and every reference to it, in one write.
+    Nothing is written on refusal. Exit 0, 2 on refusal."""
+    try:
+        if not contract.is_file():
+            raise EditRefusal(f"no contract at {contract}")
+        result = rename_entry(
+            contract, kind, old, new, source=source, witness=witness, dry_run=dry_run
+        )
+    except (EditRefusal, UnsupportedSchemaVersion, OSError, YAMLError) as error:
+        _refused("rename", error)
+        raise typer.Exit(2) from error
+    _print_edit_result(result)
+    console.print(
+        "ran: " + build_cli_line("lockwire", "rename", *argv_from_context(ctx)), soft_wrap=True
     )
 
 
@@ -2374,7 +3190,7 @@ def gearbox_cmd(
 ) -> None:
     """Add a gearbox template with provenance to a contract."""
     if not contract.exists() or not contract.is_file():
-        console.print(f"[red]gearbox failed:[/] no contract at {contract}")
+        console.print(f"[red]gearbox failed:[/] no contract at {escape(str(contract))}")
         raise typer.Exit(2)
     try:
         result = add_entry(
@@ -2529,20 +3345,24 @@ def _diff_side(
             console.print("not a git repository — nothing to compare against")
             raise typer.Exit(0)
         if gitref.rev_parse(spec, repo=repo) is None:
-            console.print(f"[red]no such ref[/] {spec!r}")
+            console.print(f"[red]no such ref[/] {escape(repr(spec))}")
             raise typer.Exit(2)
         relpath = gitref.relpath_in_repo(contract, repo)
         if relpath is None:
-            console.print(f"[red]{contract} is outside the repository at {repo}[/]")
+            console.print(
+                f"[red]{escape(str(contract))} is outside the repository at {escape(str(repo))}[/]"
+            )
             raise typer.Exit(2)
         text = gitref.show(spec, relpath, repo=repo)
         if text is None:
-            console.print(f"{contract.name} did not exist at {spec}")
+            console.print(f"{contract.name} did not exist at {escape(str(spec))}")
             raise typer.Exit(1 if exit_code else 0)
     try:
         return load_contract_text(text) if text is not None else _load_contract_lib(on_disk)
     except UnsupportedSchemaVersion as error:
-        console.print(f"[bold red]REFUSED[/] — side {side} ({spec!r}): {error}")
+        console.print(
+            f"[bold red]REFUSED[/] — side {side} ({escape(repr(spec))}): {escape(str(error))}"
+        )
         raise typer.Exit(2) from error
     except (OSError, TypeError, ValueError, YAMLError) as error:
         console.print(f"[red]diff failed:[/] {escape(_why(error))}")
@@ -2565,7 +3385,9 @@ def diff_cmd(
 ) -> None:
     """What changed in the facts — declared values, entries, verdict — not in the text."""
     if b is None and not contract.exists():
-        console.print(f"[red]no contract at {contract}[/] — run `lockwire start <urdf>` first")
+        console.print(
+            f"[red]no contract at {escape(str(contract))}[/] — run `lockwire start <urdf>` first"
+        )
         raise typer.Exit(2)
     repo = gitref.repo_root(contract if contract.exists() else Path.cwd())
     before = _diff_side(a, contract, repo, exit_code=exit_code, side="a")
@@ -2632,7 +3454,7 @@ def log_cmd(
             pathspec or [], path_separator=bool(ctx.meta["log_path_separator"])
         )
     except ValueError as error:
-        console.print(f"[red]{error}[/]")
+        console.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(2) from error
     contract = Path(path) if path is not None else DEFAULT_CONTRACT
     repo = gitref.repo_root(contract if contract.exists() else Path.cwd())
@@ -2642,10 +3464,10 @@ def log_cmd(
     try:
         entries = api.log(contract, revision_range)
     except ValueError as error:
-        console.print(f"[red]{error}[/]")
+        console.print(f"[red]{escape(str(error))}[/]")
         raise typer.Exit(2) from error
     if not entries and not contract.exists():  # a deleted file's history is still shown
-        console.print(f"[red]log failed:[/] no such file {contract}")
+        console.print(f"[red]log failed:[/] no such file {escape(str(contract))}")
         raise typer.Exit(2)
     if json_output:
         typer.echo(json.dumps(entries, indent=2))
@@ -2708,14 +3530,14 @@ def blame_cmd(
 def api_schema_cmd(
     out: Path = typer.Option(..., "--out", help="Where to write the JSON schema document."),
 ) -> None:
-    """Write the payload union's JSON schema (E1-b) — every member document
+    """Write the payload union's JSON schema — every member document
      lockwire's doors emit, which is what the TypeScript types are generated from
      (packaging/generate-types.md). The library builds it, never this file
     : `api.api_schema` is the twin.
     """
     _require_folder(out)
     api.api_schema(out)
-    console.print(f"wrote {out}")
+    console.print(f"wrote {escape(str(out))}")
 
 
 @app.command(
@@ -2729,7 +3551,7 @@ def api_schema_cmd(
 def api_types_cmd(
     out: Path = typer.Option(..., "--out", help="Where to write the generated TypeScript."),
 ) -> None:
-    """Write the payload union's TypeScript types (e1-d3) — no generator
+    """Write the payload union's TypeScript types — no generator
      dependency, walked straight from `api_payload.py` (v8 line 265: the
      mainstream generator's own docs say a discriminated union like ours
      narrows badly through it). The library builds it, never this file
@@ -2737,7 +3559,7 @@ def api_types_cmd(
     """
     _require_folder(out)
     api.api_types(out)
-    console.print(f"wrote {out}")
+    console.print(f"wrote {escape(str(out))}")
 
 
 @app.command("serve", hidden=True)
@@ -2835,8 +3657,8 @@ def record_servos_cmd(
         console.print(f"[red]record-servos failed:[/] {escape(_why(error))}")
         raise typer.Exit(2) from error
     for gap in manifest["generator"]["gaps"]:
-        console.print(f"[yellow]gap:[/] {gap['message']} (from {gap['from_s']} s)")
-    console.print(f"[green]wrote {out}[/]")
+        console.print(f"[yellow]gap:[/] {escape(str(gap['message']))} (from {gap['from_s']} s)")
+    console.print(f"[green]wrote {escape(str(out))}[/]")
 
 
 plugins.load(app=app)  # after every free command is defined, so paid ones append to the same app

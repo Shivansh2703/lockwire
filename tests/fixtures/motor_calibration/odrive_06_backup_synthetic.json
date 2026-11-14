@@ -1,0 +1,5 @@
+{
+  "axis0.config.motor.phase_resistance": 0.064,
+  "axis0.config.motor.phase_inductance": 2.9e-05,
+  "axis0.config.motor.pole_pairs": 7
+}

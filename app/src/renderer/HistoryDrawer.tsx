@@ -35,6 +35,8 @@ export interface HistoryDrawerProps {
   contract?: string;
   expectedRevision?: string;
   onApplied?: (contract: string) => Promise<void>;
+  /** Extra under each saved version (the paid version diff); nothing in the free app. */
+  more?: (entry: LogEntry) => ReactNode;
   /** The last compare, drawn by the caller. */
   result?: ReactNode;
 }
@@ -62,7 +64,7 @@ function refusal(reply: unknown): string | null {
 // is read off the entry (`lockwire log --json`'s own data model, `gitlog.as_json`); none
 // of it is derived by parsing `message` or re-scoring the commit here (a rule
 // this milestone keeps re-learning).
-export function HistoryDrawer({ gitAvailable, entries, onDiff, contract, expectedRevision, onApplied, result, onJump }: HistoryDrawerProps & { onJump?: OnJump }) {
+export function HistoryDrawer({ gitAvailable, entries, onDiff, contract, expectedRevision, onApplied, result, more, onJump }: HistoryDrawerProps & { onJump?: OnJump }) {
   const [message, setMessage] = useState("");
   const [source, setSource] = useState("HEAD");
   const [plan, setPlan] = useState<(UndoPlan & { source: string }) | null>(null);
@@ -128,7 +130,7 @@ export function HistoryDrawer({ gitAvailable, entries, onDiff, contract, expecte
   }
 
   const history = entries.length === 0 ? (
-    <div className="history-drawer-empty"><EmptyState title="No saved versions" /></div>
+    <div className="history-drawer-empty"><EmptyState title="No saved versions yet. Make a change and save, and it appears here." /></div>
   ) : (
     <ul className="history-drawer">
       {entries.map((entry) => (
@@ -162,6 +164,7 @@ export function HistoryDrawer({ gitAvailable, entries, onDiff, contract, expecte
               Compare
             </Button>
           </div>
+          {more?.(entry)}
         </li>
       ))}
     </ul>

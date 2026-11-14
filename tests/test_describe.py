@@ -38,6 +38,7 @@ from lockwire.schema import (
     RobotInfo,
     SignalSource,
     Tolerance,
+    Wire,
     load_contract,
 )
 
@@ -525,3 +526,32 @@ def test_describe_refuses_a_device_id_that_leaves_the_out_folder(tmp_path):
     reply = client.post("/v1/run", headers={"X-Lockwire-Token": "t"}, json=body).json()
     assert reply["exit_code"] == 2 and reply["refusal"].startswith("refusing to write outside")
     assert not (tmp_path / "a" / "escaped.md").exists()
+
+
+def test_describe_signal_wire_shows_ends_not_none(x500_contract):
+    end = {"device": "imu", "pin": 1}
+    wire = {"id": "w.sig", "awg": 26, "installation": "enclosed", "owner": "w1"}
+    wire |= {"from": end, "to": {**end, "device": "fc"}}
+    wires = [Wire.model_validate(wire)]
+    contract = x500_contract.model_copy(
+        update={"topology": x500_contract.topology.model_copy(update={"wires": wires})}
+    )
+    rendered = describe_system(contract)
+    assert "| w.sig | 26 | enclosed | imu to fc |" in rendered
+
+
+def test_describe_gaugeless_signal_wire_prints_blanks_not_none(x500_contract):
+    end = {"device": "imu", "pin": 1}
+    wire = {"id": "w.sig", "owner": "w1", "from": end, "to": {**end, "device": "fc"}}
+    topology = x500_contract.topology.model_copy(update={"wires": [Wire.model_validate(wire)]})
+    rendered = describe_system(x500_contract.model_copy(update={"topology": topology}))
+    assert "| w.sig |  |  | imu to fc |" in rendered
+
+
+def test_device_section_lists_connector_pins(x500_contract):
+    from lockwire.schema import Connector, Pin
+
+    device = x500_contract.device("dev.gnss.here3-plus")
+    pins = [Pin(number=1, name="GND"), Pin(number=2, name="3V3")]
+    device.connectors = [Connector(id="j1", type="qwiic", pins=pins)]
+    assert "- connector j1 (qwiic): 1: GND, 2: 3V3" in describe_device(x500_contract, device)

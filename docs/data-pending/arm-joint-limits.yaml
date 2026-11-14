@@ -1,0 +1,31 @@
+# Arm joint position limits and speeds from the makers' sheets, staged 2026-11-13.
+# verified 2026-11-13: each value was re-read at its cited page by an independent checker.
+# Waits for a robot-row joint field or a lockfile generator; no code reads this file yet.
+# Not included: KUKA LBR iiwa (maker page gives no joint table) and Kinova Gen3 lite (sheet prints one range line, no per-joint figures).
+robots:
+- id: ur16e
+  joint_limits:
+  - {joint: "Base", position_deg: [-360, 360], speed_deg_s: 120, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Base ± 360° ± 120˚/s"}
+  - {joint: "Shoulder", position_deg: [-360, 360], speed_deg_s: 120, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Shoulder ± 360° ± 120˚/s"}
+  - {joint: "Elbow", position_deg: [-360, 360], speed_deg_s: 180, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Elbow ± 360° ± 180˚/s"}
+  - {joint: "Wrist 1", position_deg: [-360, 360], speed_deg_s: 180, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Wrist 1 ± 360° ± 180˚/s"}
+  - {joint: "Wrist 2", position_deg: [-360, 360], speed_deg_s: 180, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Wrist 2 ± 360° ± 180˚/s"}
+  - {joint: "Wrist 3", position_deg: [-360, 360], speed_deg_s: 180, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR16e_techsheet_pdf_online/UR16e_techsheet_en.pdf — Wrist 3 ± 360° ± 180˚/s"}
+- id: ur20
+  joint_limits:
+  - {joint: "Base", position_deg: [-360, 360], speed_deg_s: 120, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Base ± 360° ± 120˚/s"}
+  - {joint: "Shoulder", position_deg: [-360, 360], speed_deg_s: 120, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Shoulder ± 360° ± 120˚/s"}
+  - {joint: "Elbow", position_deg: [-360, 360], speed_deg_s: 150, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Elbow ± 360° ± 150˚/s"}
+  - {joint: "Wrist 1", position_deg: [-360, 360], speed_deg_s: 210, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Wrist 1 ± 360° ± 210˚/s"}
+  - {joint: "Wrist 2", position_deg: [-360, 360], speed_deg_s: 210, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Wrist 2 ± 360° ± 210˚/s"}
+  - {joint: "Wrist 3", position_deg: [-360, 360], speed_deg_s: 210, source: "https://www.universal-robots.com/manuals/EN/DataSheets/UR20_techsheet_pdf_online/UR20_techsheet_en.pdf — Wrist 3 ± 360° ± 210˚/s"}
+- id: kinova-gen3-7dof
+  joint_limits:
+  # Table 41 admittance and force control modes all joints 50.0 °/s (sheet Table 41)
+  - {joint: "1", position_deg: null, speed_deg_s: 79.64, source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — Table 39 lower -∞ upper +∞ (continuous); Table 40 large (joints 1 - 4) 79.64 °/s"}
+  - {joint: "2", position_deg: [-128.9, 128.9], speed_deg_s: 79.64, source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — 2 - 128.9° + 128.9° (Table 39); Table 40 large (joints 1 - 4) 79.64 °/s"}
+  - {joint: "3", position_deg: null, speed_deg_s: 79.64, source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — Table 39 lower -∞ upper +∞ (continuous); Table 40 large (joints 1 - 4) 79.64 °/s"}
+  - {joint: "4", position_deg: [-147.8, 147.8], speed_deg_s: 79.64, source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — 4 - 147.8° + 147.8° (Table 39); Table 40 large (joints 1 - 4) 79.64 °/s"}
+  - {joint: "5", position_deg: null, speed_deg_s: 69.91, source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — Table 39 lower -∞ upper +∞ (continuous); Table 40 small (joints 5 - 7) 69.91 ° / s (1.22 rad/s)"}
+  - {joint: "6", position_deg: [-120.3, 120.3], speed_deg_s: 69.91, source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — 6 - 120.3° + 120.3° (Table 39); Table 40 small (joints 5 - 7) 69.91 ° / s (1.22 rad/s)"}
+  - {joint: "7", position_deg: null, speed_deg_s: 69.91, source: "https://www.kinovarobotics.com/uploads/User-Guide-Gen3-R07.pdf — Table 39 lower -∞ upper +∞ (continuous); Table 40 small (joints 5 - 7) 69.91 ° / s (1.22 rad/s)"}
