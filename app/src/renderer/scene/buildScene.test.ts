@@ -39,7 +39,7 @@ vi.mock("three", async () => {
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };
 });
 
-const { FRAME_INSET, applyViewInset, refit, buildScene, disposeScene, handleResize, updatePixelRatio, attachWasd, attachWheel, headroomHighlights, headroomText, supportPolygonObject, primitiveMeshes, syncPrimitives } = await import("./buildScene");
+const { FRAME_INSET, applyViewInset, refit, buildScene, isSoftwareRenderer, disposeScene, handleResize, updatePixelRatio, attachWasd, attachWheel, headroomHighlights, headroomText, supportPolygonObject, primitiveMeshes, syncPrimitives } = await import("./buildScene");
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.resolve(here, "../../../../tests/fixtures/scene_roundtrip.json");
@@ -63,6 +63,11 @@ describe("buildScene", () => {
 
   beforeEach(() => {
     canvas = document.createElement("canvas");
+  });
+
+  it("knows a software renderer by its name, so shadows, studio light, crease lines and blur stay off there", () => {
+    const names = ["ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 16.0.0) (0x0000C0DE)), SwiftShader driver)", "llvmpipe (LLVM 15.0.7, 256 bits)", "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)", ""];
+    expect(names.map(isSoftwareRenderer)).toEqual([true, true, false, false]);
   });
 
   it("builds exactly one mesh per decoded part", () => {

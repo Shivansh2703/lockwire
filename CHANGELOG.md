@@ -13,6 +13,7 @@ The desktop app's look, redone. The command line and every check are the same as
 - The View menu shows what is on with a tick, lines its keys up on the right and groups its rows. Units are two small switches.
 - Plan, Declare, Docs and the data drawer (Power, Wiring, Parts, Overlaps) are tidied: sections, marked rows, a what-if slider with its own track, a drawn power tree.
 - A file that will not open gets one clear message above the start card.
+- On a machine with no graphics card (a virtual machine, a remote desktop) the app keeps its speed: shadows, studio light, crease lines and blur switch off there.
 
 ### Fixed
 - The keyboard focus highlight is drawn inside every control. It used to sit outside and get cut off by panels, lists and the tab bar.

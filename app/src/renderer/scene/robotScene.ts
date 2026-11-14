@@ -259,7 +259,7 @@ function setEdges(meshes: THREE.Mesh[], colors: ThemeColors, build = false): voi
     let edges = m.userData.edges as THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | undefined;
     if (build && edges === undefined && m.userData.edges !== null) {
       const triangles = (m.geometry.index?.count ?? m.geometry.getAttribute("position")?.count ?? 0) / 3;
-      if (!triangles || triangles > EDGE_MAX_TRIANGLES) { m.userData.edges = null; continue; }
+      if (!triangles || triangles > EDGE_MAX_TRIANGLES || document.documentElement.dataset.gfx === "soft") { m.userData.edges = null; continue; } // software graphics: see `isSoftwareRenderer`
       edges = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, EDGE_ANGLE), new THREE.LineBasicMaterial({ color: 0x07080b, transparent: true, depthWrite: false }));
       edges.raycast = () => {};
       edges.userData.edgeLines = true;

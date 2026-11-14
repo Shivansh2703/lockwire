@@ -2041,3 +2041,18 @@ code {
 .shell:has(.open-face-error) .shell-center {
   padding-top: 120px;
 }
+
+/* ---- Software graphics ----
+   The 3D view sets data-gfx="soft" when the renderer is SwiftShader or llvmpipe (a VM, a remote desktop,
+   CI). Blurring what is behind every panel is CPU work there on each repaint, so the glass turns solid. */
+:root[data-gfx="soft"] * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+/* Solid through the one glass token, so tinted variants (a red error notice, the drawer's tab track) keep their own colour. */
+:root[data-gfx="soft"] {
+  --glass: var(--panel);
+}
+:root[data-gfx="soft"] .callout-layer .callout {
+  background: var(--panel) !important;
+}

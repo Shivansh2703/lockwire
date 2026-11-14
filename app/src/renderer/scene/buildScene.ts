@@ -325,6 +325,20 @@ export function partMesh(part: ScenePart): THREE.Mesh {
   return mesh;
 }
 
+/** A software renderer (SwiftShader, llvmpipe: a VM, a remote desktop, CI) draws every pixel on the CPU.
+ * There the cast shadows, the studio light, the crease lines and the blurred glass make the whole app
+ * slow (measured: the packaged Linux test took 4 min 35 s against 3 min 14 s), so they are switched off. */
+export const isSoftwareRenderer = (name: string): boolean => /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
+function softwareGL(renderer: THREE.WebGLRenderer): boolean {
+  try {
+    const gl = renderer.getContext?.();
+    const info = gl?.getExtension("WEBGL_debug_renderer_info");
+    return isSoftwareRenderer(String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : ""));
+  } catch {
+    return false; // a stubbed renderer (tests): treated as a real one
+  }
+}
+
 export function buildScene(
   canvas: HTMLCanvasElement,
   parts: ScenePart[],
@@ -344,7 +358,9 @@ export function buildScene(
   // Capped at 2: uncapped, a 4x-DPR machine pays 4x the fragments for no visible gain.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(width, height, false);
-  if (renderer.shadowMap) { // absent under a stubbed renderer (tests)
+  const soft = softwareGL(renderer);
+  if (soft) document.documentElement.dataset.gfx = "soft"; // the stylesheet drops the blurred glass, robotScene the crease lines
+  if (renderer.shadowMap && !soft) { // absent under a stubbed renderer (tests)
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
@@ -370,7 +386,7 @@ export function buildScene(
   // A soft studio around the robot: faces pick up a little light from every side, so a flat grey
   // panel has a gradient across it instead of one flat tone. Neutral (no colour cast), and only
   // where there is a real GL context (a stubbed renderer in tests has no capabilities).
-  if ((renderer as { capabilities?: unknown }).capabilities) {
+  if (!soft && (renderer as { capabilities?: unknown }).capabilities) {
     try {
       const studio = new THREE.PMREMGenerator(renderer);
       scene.environment = studio.fromScene(new RoomEnvironment(), 0.04).texture;
