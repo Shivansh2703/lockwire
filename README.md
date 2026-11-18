@@ -5,7 +5,11 @@
 </picture>
 </p>
 
-**From idea to robot: catch the error in your robot model before the real robot does.**
+**I checked the published robot models of nearly 400 companies. 1 in 3 disagreed with the maker's own specs.** Every one of them still loads, and everyone assumes it is accurate. Lockwire catches the error in your robot model before the real robot does.
+
+https://github.com/user-attachments/assets/f14dd218-d5a4-4e9e-b3cc-fa2e6537e0de
+
+Free and open source. [Read the launch post](https://github.com/Shivansh2703/lockwire/discussions/1).
 
 ## Check your robot
 
@@ -118,13 +122,17 @@ The examples that pass the check (`lockwire start --example drone`, `rover`, `ar
 
 ## Features
 
-- **Check:** see which physical numbers in your model do not add up, and the command that fixes each one.
-- **Lock:** keep those numbers in `lockwire.yaml`, so any drift is caught.
-- **CI:** the same check on every push, with pull-request annotations and an HTML report.
-- **Agents:** your AI coding agent runs the same check before it changes the robot.
+- **Check:** every mass, inertia, joint limit, torque and power number against the maker's datasheet and physics, in seconds, with the page it compared against and a fix for each finding.
+- **Budgets:** power, torque and bus budgets, brown-out on every rail, and a standing-load check for legged robots.
+- **What-if and part swap:** see the verdict before you change a part, or find a stronger servo in the parts catalog.
+- **Lockfile and CI:** `lockwire.yaml` pins every checked number; CI fails the build on drift, naming the number that moved, with pull-request annotations and an HTML report.
+- **Sim drift:** `check-sim` catches a sim file that has drifted from the lock.
+- **Reports:** a PDF or HTML report to share, with no machine paths in it.
+- **AI:** the app's assistant explains each finding and suggests a fix the checker proves on a copy first; coding agents run the same check over MCP.
 
-Everything else (datasheet comparisons, power, torque and bus budgets, part swap, the servo
-recorder, a sim file drifting from the lock): [the guides](https://github.com/Shivansh2703/lockwire/blob/main/docs/guides/index.md). The powered-on
+<img src="https://github.com/user-attachments/assets/5fc9697c-02ee-4fc8-a19b-791e1d2c0379" alt="Sixteen robots checked by Lockwire: the nine built-in examples and seven open-source research models">
+
+More in [the guides](https://github.com/Shivansh2703/lockwire/blob/main/docs/guides/index.md). The powered-on
 preflight gate, ROS 2 bags and drift tracked across many units are Lockwire Pro, waitlist only: https://lockwirerobotics.com.
 
 ## Download the app
@@ -133,9 +141,9 @@ The free desktop app does the same visually: [latest release](https://github.com
 
 ![The free app: the start screen with the example list, then the Rover example open on the Check screen in 3D with a GO with notes verdict (1 warning, 1 advice, 3 not scored), its warning row and its tip margin advice open, then the not-scored list opened with its three rows](https://raw.githubusercontent.com/Shivansh2703/lockwire/main/docs/img/try-example.gif)
 
-The nine examples that come with the app, each on its Check screen:
+![The nine bundled examples in the dark theme, three to a row, each robot in 3D beside its Check verdict. Top row: desk arm NO-GO, servo bench NO-GO, arm GO. Middle row: drone GO, humanoid GO, quadruped GO with notes. Bottom row: rover GO with notes, hexapod GO, parametric rover GO](https://raw.githubusercontent.com/Shivansh2703/lockwire/main/docs/img/every-example-3x3-dark.webp)
 
-![The nine bundled examples in the dark theme, two to a row, each robot in 3D beside its Check verdict: desk arm and servo bench NO-GO with 2 violations, quadruped and Rover GO with notes, the other five GO](https://raw.githubusercontent.com/Shivansh2703/lockwire/main/docs/img/every-example-dark.webp)
+The nine example robots that come with the app, each on its Check screen. Two are built to fail on purpose so you can see a catch: the desk arm and the servo bench, both NO-GO. The quadruped and the rover pass with notes, and the other five pass clean. Open any of them from the start screen, no robot file needed.
 
 - **macOS (Apple silicon):** unzip, open Lockwire. The app is not notarized, so the first open warns: open System Settings, Privacy & Security, and click "Open Anyway".
 - **Linux:** `chmod +x Lockwire-*.AppImage`, then run it. Ubuntu 22.04 needs `sudo apt install libfuse2`; 24.04 needs `libfuse2t64`.
