@@ -73,13 +73,13 @@ describe("the Assistant's file tools", () => {
     const rows: [unknown, string][] = [
       ["sub/../a.txt", OUTSIDE], ["../outside.txt", OUTSIDE], ["~/t.txt", OUTSIDE], [join(base, "outside.txt"), OUTSIDE], ["/etc/hosts", OUTSIDE],
       ["leak.txt", OUTSIDE], ["out/outside.txt", OUTSIDE], ["gone.txt", OUTSIDE], ["loop.txt", OUTSIDE], ["missing.txt", NOT_FOUND],
-      ...[...NAMED, ".ENV.JSON", "alias.txt", "SECRETS.yaml.", "sub/.env.yaml", "sub/credentials.json", "credential\u017f.json"].map((n): [string, string] => [n, HIDDEN]),
+      ...[...NAMED, ".ENV.JSON", "alias.txt", "SECRETS.yaml.", "sub/.env.yaml", "sub/credentials.json"].map((n): [string, string] => [n, HIDDEN]),
       ...[...KINDS, "plain.txt", "sub", "missing.bin", "a.txt.", "x.\u212aey"].map((n): [string, string] => [n, KIND]),
       ...MESHES.map((n): [string, string] => [n, "That file is not text, so it cannot be read."]),
       ...Object.keys(HOLDS).map((n): [string, string] => [n, CONTENT]),
-      // The name as the disk holds it: four spellings the name rule cannot see as typed (long s, sharp s, Kelvin sign) open a refused file on a disk that folds
+      // The name as the disk holds it: five spellings the name rule cannot see as typed (long s, sharp s, Kelvin sign) open a refused file on a disk that folds
       // names (macOS, Windows: one that opens a.txt as A.TXT). On a disk that does not, nothing is at those names.
-      ...["\u017fecrets.yaml", "pa\u00dfwords.txt", "deploy_\u212aey.txt", "to\u212aen.txt"].map((n): [string, string] => [n, "refusal" in inFolder(join(robot, "lockwire.yaml"), "A.TXT") ? NOT_FOUND : HIDDEN]),
+      ...["credential\u017f.json", "\u017fecrets.yaml", "pa\u00dfwords.txt", "deploy_\u212aey.txt", "to\u212aen.txt"].map((n): [string, string] => [n, "refusal" in inFolder(join(robot, "lockwire.yaml"), "A.TXT") ? NOT_FOUND : HIDDEN]),
     ];
     for (const [path, why] of rows) expect(await read(path), String(path)).toEqual({ text: why, error: true, own: true }); // the whole result: no file text can ride along
     for (const n of PLAIN) expect(await read(n), n).toEqual({ text: "plain text", cut: "Lines 1 to 1 of 1." });
