@@ -7,7 +7,7 @@ import { contrastRatio, readPalettes, THEME_CSS_PATH } from "./contrast.mjs";
 const css = readFileSync(THEME_CSS_PATH, "utf8");
 const rule = (sel: string) => css.split(sel + " {").pop()!.split("}")[0];
 
-describe("UI-POLISH: nothing clips, placeholders read", () => {
+describe("nothing clips, placeholders read", () => {
   it("test_placeholder_text_is_not_faded_below_4_5_to_1", () => {
     const opacity = Number(/opacity:\s*([\d.]+)/.exec(rule("input::placeholder, textarea::placeholder"))![1]);
     for (const t of Object.values(readPalettes(css)) as Record<string, string>[]) {
@@ -24,6 +24,11 @@ describe("UI-POLISH: nothing clips, placeholders read", () => {
     const r = rule(".shell-hint");
     expect(r).toContain("white-space: normal");
     expect(r).toContain("max-width");
+  });
+
+  it("test_check_severity_filter_is_not_capped_so_passed_torques_reads_whole", () => {
+    expect(css).not.toContain(".check-filter select { max-width");
+    expect(rule(".check-filter label:not(:first-child) select")).toContain("max-width");
   });
 
   it("test_notices_keep_a_readable_width_between_panels", () => {

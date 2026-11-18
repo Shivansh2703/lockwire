@@ -653,7 +653,7 @@ describe("dispatch: plan", () => {
   });
 });
 
-// e9-join: the renderer is sandboxed and can no longer import "../main/sidecar" directly (that
+// The renderer is sandboxed and can no longer import "../main/sidecar" directly (that
 // import is what broke `npm run build`) -- these two command classes are its only legal reach
 // into the sidecar's state, routed through the same dispatch gate as every other command.
 describe("dispatch: sidecar:state and sidecar:restart", () => {
@@ -677,7 +677,7 @@ describe("dispatch: sidecar:state and sidecar:restart", () => {
   });
 });
 
-// e9-rate: e9-join's own reviewer flagged this -- sidecar:restart is a state-changing class
+// Rate limit: sidecar:restart is a state-changing class
 // reachable from the renderer with no guard, so a buggy component (a restart call in a render
 // loop) or a hostile one can thrash the sidecar process indefinitely. The guard lives in the
 // main process, at the handler, because the renderer is the untrusted side.
@@ -926,7 +926,7 @@ describe("dispatch: file:open asks the sidecar for a real check, never a fixture
         cards: [],
               cli_line: "lockwire check /tmp/robot/lockwire.yaml",
       },
-      // E2-j2 rebase: the raw sidecar reply rides along unabridged (scene/graph included when
+      // The raw sidecar reply rides along unabridged (scene/graph included when
       // present) so the Design tab reads the SAME open, never a second round trip.
       checkPayload: {
         format_version: "1",

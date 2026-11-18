@@ -43,7 +43,7 @@ describe("ReferenceFace", () => {
   });
 
   it("groups devices under one searchable Parts disclosure and middle-ellipsises a long command", () => {
-    const long = "lockwire describe /Users/someone/very/long/path/to/the/contract/lockwire.yaml";
+    const long = "lockwire describe a-very-long-robot-name-for-the-contract-file.yaml --and-a-flag";
     act(() => root.render(<ReferenceFace payload={{ ...payload, drawers: [payload.drawers[0]!, { ...payload.drawers[0]!, title: "Engineer report", cli_line: long }] }} />));
     expect(container.querySelector(".kit-cli-text")!.textContent).toMatch(/^.{20}….+/);
     expect(container.querySelector(".kit-cli-text")!.textContent!.length).toBeLessThan(long.length);
@@ -55,6 +55,15 @@ describe("ReferenceFace", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(container.querySelectorAll(".reference-device")).toHaveLength(0);
+  });
+
+  it("shows the engine's 'NOT SCORED: reason' as a pill, the reason kept", () => {
+    const md = "# QARM\n\n- Total mass: NOT SCORED: no total-mass budget declared";
+    act(() => root.render(<ReferenceFace payload={{ ...payload, drawers: [{ ...payload.drawers[0]!, content: md }] }} />));
+    const sheet = container.querySelector(".reference-drawer-content")!;
+    expect(sheet.textContent).not.toContain("NOT SCORED");
+    expect(sheet.textContent).toContain("Not scored");
+    expect(sheet.textContent).toContain("no total-mass budget declared");
   });
 
   it("has no inner scroller: the panel body is the only one", () => {
@@ -120,6 +129,12 @@ describe("ReferenceFace", () => {
     expect(selected.textContent).toContain(finding.source);
     expect(selected.textContent).toContain(finding.witness);
     expect(selected.querySelector(".reference-plan-finding-locked-at")?.textContent).toBe(finding.locked_at);
+    const checkedBy = (f: Finding) => {
+      act(() => root.render(<ReferenceFace payload={payload} selectedPlanFinding={f} />));
+      return [...container.querySelectorAll(".reference-plan-finding dt")].find((d) => d.textContent === "Checked by")!.nextElementSibling!.textContent;
+    };
+    expect(checkedBy({ ...finding, witness: "w0" })).toBe("none named (declared, not measured)");
+    expect(checkedBy({ ...finding, witness: null })).toBe("no name on record");
     expect([...selected.querySelectorAll<HTMLElement>("li")].map((item) => item.dataset.kind)).toEqual([
       "physical", "model_calibration", "spec_design",
     ]);

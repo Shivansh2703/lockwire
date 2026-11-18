@@ -1,4 +1,4 @@
-"""W0 declared hardware-change events — the git-commit-for-the-physical-robot.
+"""W0 declared hardware-change events - the git-commit-for-the-physical-robot.
 
 A human declares a change; this module records it as a sidecar YAML event log
 alongside the contract and routes it to contract entries (and owners) the change
@@ -8,7 +8,7 @@ not mutate the contract and must not be read by checks as an authoritative entry
 Routing walks the contract's own reference structure (device→bus/rail, budgets
 that consume mass/power, wires on a rail, dependency edges on mass paths). When
 bindings are missing and the declaration cannot be resolved to those refs, the
-result names the gap explicitly — silent empty routing is the false-GO shape.
+result names the gap explicitly - silent empty routing is the false-GO shape.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class HardwareEvent(Base):
     declaration: str
     recorded_at: dt.datetime
     quantities: list[Quantity] = []
-    # Optional routing binders — event-log fields, not Contract schema.
+    # Optional routing binders - event-log fields, not Contract schema.
     device: str | None = None
     bus: str | None = None
     rail: str | None = None
@@ -294,7 +294,7 @@ def route_event(contract: Contract, event: HardwareEvent) -> RoutingResult:
     device = contract.device(event.device) if event.device is not None else None
     if event.device is not None and device is None:
         undetermined.append(
-            f"device {event.device!r} not in contract — cannot bind bus/rail from it"
+            f"device {event.device!r} not in contract: cannot bind bus/rail from it"
         )
 
     bus_id = event.bus
@@ -312,7 +312,7 @@ def route_event(contract: Contract, event: HardwareEvent) -> RoutingResult:
             undetermined.append(f"bus {bus_id!r} not in contract topology")
     elif needs_electrical:
         undetermined.append(
-            "bus not bound — pass --bus or --device to route to a bus; "
+            "bus not bound: pass --bus or --device to route to a bus; "
             "device addition without a bus cannot be routed to topology/buses"
         )
 
@@ -321,7 +321,7 @@ def route_event(contract: Contract, event: HardwareEvent) -> RoutingResult:
             undetermined.append(f"rail {rail_id!r} not in contract topology")
     elif needs_electrical:
         undetermined.append(
-            "rail not bound — pass --rail or --device to route to power/endurance/ampacity; "
+            "rail not bound: pass --rail or --device to route to power/endurance/ampacity; "
             "device addition without a rail cannot be routed to those budgets"
         )
 
@@ -330,7 +330,7 @@ def route_event(contract: Contract, event: HardwareEvent) -> RoutingResult:
 
     if not touches and not undetermined:
         undetermined.append(
-            "could not determine any touched entries from the declaration — "
+            "could not determine any touched entries from the declaration: "
             "include a mass/power quantity and/or bind --device/--bus/--rail"
         )
 

@@ -1,6 +1,6 @@
-"""Lockwire — the physical-assumption contract for robots, enforced in CI and at preflight."""
+"""Lockwire - the physical-assumption contract for robots, enforced in CI and at preflight."""
 
-__version__ = "0.5.1"
+__version__ = "0.5.3"
 
 
 def main() -> None:
@@ -13,8 +13,13 @@ def main() -> None:
     for stream in (sys.stdout, sys.stderr):  # a cp1252 Windows console cannot print Δ, →, ✓
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
+    from lockwire.checks import CheckCrashed, ModelFileRefusal
+
     try:
-        app()
+        try:
+            app()
+        except CheckCrashed as crashed:  # the terminal gets the error's own words, as before
+            raise crashed.__cause__ from None
     except PrivatePartsError as error:  # one line, not a traceback
         from rich.console import Console
         from rich.markup import escape
@@ -23,7 +28,7 @@ def main() -> None:
             f"[red]private parts file broken:[/] {escape(str(error))}"
         )
         sys.exit(2)
-    except ContractError as error:  # the user's lockfile, not a bug: plain lines, no traceback
+    except (ContractError, ModelFileRefusal) as error:  # the user's files, not a bug: plain lines
         from rich.console import Console
         from rich.markup import escape
 
@@ -44,7 +49,7 @@ def main() -> None:
         from rich.markup import escape
 
         Console(stderr=True, emoji=False).print(
-            f"[red]lockwire stopped: {type(error).__name__}: {escape(str(error))} "
-            "— this is a bug in lockwire, not a verdict[/]"
+            f"[red]lockwire stopped: {type(error).__name__}: {escape(str(error))}"
+            "; this is a bug in lockwire, not a verdict[/]"
         )
         sys.exit(2)

@@ -1,4 +1,4 @@
-"""Baked into the E5.10 sim-jazzy image at /opt/lockwire.
+"""Baked into the sim-jazzy image at /opt/lockwire.
 
 Flies the X500 through real PX4 SITL over MAVLink (arm / NAV_TAKEOFF / hover /
 NAV_LAND), the same sequence the retired run_e5_10.py's fly_x500_with_px4 used

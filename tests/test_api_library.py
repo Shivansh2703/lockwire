@@ -101,3 +101,21 @@ def test_all_and_functions_agree():
     extras = {"DOCUMENT_VERSION", "FUNCTIONS", "check_document", "from_parts", "is_stale"}
     extras.add("verdict_document")
     assert {n.replace("-", "_") for n in api.FUNCTIONS} == set(api.__all__) - extras
+
+
+def test_documented_entry_point_runs(tmp_path):
+    """The library doc opens with a python block; run exactly it against the shipped arm example."""
+    import re
+
+    from lockwire.cli import app
+
+    # name built in two pieces: the doc is private, and the public tree keeps this file and skips here
+    doc = Path(__file__).resolve().parent.parent / "docs" / ("api" + ".md")
+    if not doc.exists():
+        pytest.skip("the library doc is not in the public tree")
+    code = re.search(r"```python\n(.*?)```", doc.read_text(), re.S).group(1)
+    lock = tmp_path / "lockwire.yaml"
+    assert runner.invoke(app, ["start", "--example", "arm", "--out", str(lock)]).exit_code == 0
+    scope: dict = {}
+    exec(code.replace('"lockwire.yaml"', repr(str(lock))), scope)  # noqa: S102
+    assert scope["document"]["verdict"] == "GO"

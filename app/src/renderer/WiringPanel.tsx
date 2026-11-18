@@ -138,7 +138,7 @@ export function WiringPanel({ page, onAddWire }: { page: PagePayload; onAddWire?
   const [pending, setPending] = useState<string | null>(null); // pin B whose wire the engine's rule flagged, waiting for a second click
   const [saved, setSaved] = useState(false);
   const devices = devicesOf(page), wires = wiresOf(page);
-  const compare = useViewState().compare; // TEAM-02: the Pro version diff, or null
+  const compare = useViewState().compare; // the Pro version diff, or null
   const deviceOf = (key: string) => key.split("|")[0]!;
   const names = new Map(devices.flatMap((d) => d.connectors.flatMap((k) => k.pins.map((p) => [p.key, `${d.name} ${p.label}`] as const))));
   const cancel = () => { setPicked(null); setPending(null); };

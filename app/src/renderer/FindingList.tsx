@@ -6,6 +6,8 @@ import { Button, Disclosure, FindingDetail, FindingRow, Jumper, StatusPill, type
 import { mergeFix } from "./mergeFix";
 import { insteadJump, type Jump, type OnJump } from "./jump";
 import { jointsOfPath } from "./scene/robotScene";
+import { witnessWords } from "../shared/witness";
+import { shownFinding, shownLabel, useShown } from "./shown";
 
 // The row list Check, Plan and Test share: one FindingRow per item, the selected
 // one open inline. Callers say what a row and its detail are; this owns the markup.
@@ -33,6 +35,10 @@ export interface FindingItem {
   onChip?: (chip: Chip) => void;
   /** A small button beside the row (Check's "Declare it"); outside the row button, which cannot hold one. */
   action?: ReactNode;
+  /** Advice outside the verdict: drawn with the quiet info mark (FindingRow `advice`). */
+  advice?: boolean;
+  /** No visible state word on the row (FindingRow `noWord`). */
+  noWord?: boolean;
 }
 
 /** A chip remembers the engine target it came from, so a click can light that target's parts. */
@@ -69,7 +75,7 @@ export function useSelection(selected?: number | null, onSelect?: (index: number
   return selected === undefined || !onSelect ? [own, setOwn] : [selected, onSelect];
 }
 
-export function FindingList({ items, selected, onSelect, between, quietSummary = (n) => `${n} not checked` }: { items: FindingItem[]; selected: number | null; onSelect: (index: number | null) => void; /** Rows that sit after the problems and before the "not checked" group (Test: what agreed). */ between?: ReactNode; quietSummary?: (n: number) => string }) {
+export function FindingList({ items, selected, onSelect, between, quietSummary = (n) => `${n} not scored` }: { items: FindingItem[]; selected: number | null; onSelect: (index: number | null) => void; /** Rows that sit after the problems and before the "not scored" group (Test: what agreed). */ between?: ReactNode; quietSummary?: (n: number) => string }) {
   const list = useRef<HTMLDivElement>(null);
   // A selection made elsewhere (a chip, another tab) scrolls its row into view.
   useEffect(() => {
@@ -80,13 +86,13 @@ export function FindingList({ items, selected, onSelect, between, quietSummary =
     const onChip = it.onChip;
     return (
       <div key={it.key} className={it.className} data-shape={it.shape}>
-        <FindingRow severity={it.severity} title={it.title} chips={it.chips} note={it.note} selected={selected === i} onSelect={() => onSelect(selected === i ? null : i)} onChip={onChip && ((c) => onChip(c as Chip))} />
+        <FindingRow severity={it.severity} advice={it.advice} noWord={it.noWord} title={it.title} chips={it.chips} note={it.note} selected={selected === i} onSelect={() => onSelect(selected === i ? null : i)} onChip={onChip && ((c) => onChip(c as Chip))} />
         {it.action}
         {selected === i && it.detail}
       </div>
     );
   };
-  // "Not checked" rows are many and quiet: one disclosure, not a wall of grey. A selected one opens it.
+  // "Not scored" rows are many and quiet: one disclosure, not a wall of grey. A selected one opens it.
   const quiet = items.map((it, pos) => [it, pos] as const).filter(([it]) => it.severity === "muted");
   return (
     <div className="check-list" ref={list}>
@@ -188,7 +194,10 @@ export function ModeBlocks({ heads, details }: { heads: string[]; details: React
   return <>{uniq.map((h, n) => <Disclosure key={h} summary={h} open={n === 0 || undefined}>{details.filter((_, i) => heads[i] === h)}</Disclosure>)}</>;
 }
 
-function PlanDetail({ f, label, onJump, onCitation, noEvidence, rawExact }: { f: Finding; label?: FindingLabel; onJump?: OnJump; onCitation?: (f: Finding) => void; noEvidence?: boolean; rawExact?: boolean }) {
+function PlanDetail({ f: engine, label: engineLabel, onJump, onCitation, noEvidence, rawExact }: { f: Finding; label?: FindingLabel; onJump?: OnJump; onCitation?: (f: Finding) => void; noEvidence?: boolean; rawExact?: boolean }) {
+  // Display only: the words as shown (no machine path); the citation gets the engine's finding.
+  const shown = useShown();
+  const f = shownFinding(engine, shown), label = shownLabel(engineLabel, shown);
   const [exact, setExact] = useState(false);
   const open = exact ? undefined : () => setExact(true);
   const own: Jump = { path: f.quantity, targets: label?.targets };
@@ -215,10 +224,10 @@ function PlanDetail({ f, label, onJump, onCitation, noEvidence, rawExact }: { f:
             { label: "Expected", value: f.expected ?? "" },
           ] : []),
           { label: "Path", value: linkTo(onJump, at, <code className="finding-path">{f.quantity}</code>, { path: f.quantity }) },
-          { label: "Source", value: linkTo(onJump, `Go to the review of ${f.quantity}`, f.source ?? "source unknown", { path: f.quantity, review: true }) },
-          { label: "Checked by", value: linkTo(onJump, `Go to the review of ${f.quantity}`, f.witness ?? "unknown", { path: f.quantity, review: true }) },
+          { label: "Source", value: linkTo(onJump, `Go to the review of ${f.quantity}`, f.source ?? "no source recorded", { path: f.quantity, review: true }) },
+          { label: "Checked by", value: linkTo(onJump, `Go to the review of ${f.quantity}`, witnessWords(f.witness), { path: f.quantity, review: true }) },
         ]} />
-        {onCitation && <Button variant="quiet" onClick={() => onCitation(f)}>View citation</Button>}
+        {onCitation && <Button variant="quiet" onClick={() => onCitation(engine)}>View citation</Button>}
       </Disclosure>
     </div>
   );

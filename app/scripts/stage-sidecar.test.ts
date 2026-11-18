@@ -8,7 +8,7 @@ vi.mock("electron", () => ({ app: { isPackaged: true } }));
 
 import { resolveTargetArch, specPath, stageSidecar } from "./stage-sidecar.mjs";
 
-// The whole point of this test (e2-bd): prove the electron-builder staging step and
+// The whole point of this test: prove the electron-builder staging step and
 // sidecar.ts's resolveSidecarCommand() agree on WHERE the packaged sidecar lives --
 // not by comparing two hand-typed path strings (a coincidence, not a test), but by
 // staging a real file with stageSidecar() and then asking the REAL resolver, with a
@@ -27,7 +27,7 @@ afterEach(() => {
   delete (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
 });
 
-describe("the staged sidecar path is the one sidecar.ts resolves (e2-bd)", () => {
+describe("the staged sidecar path is the one sidecar.ts resolves", () => {
   it("test_staged_sidecar_path_matches_resolveSidecarCommand", async () => {
     const source = tmpDir();
     writeFileSync(join(source, "lockwire"), "#!/bin/sh\necho stub\n", { mode: 0o755 });
@@ -51,14 +51,14 @@ describe("the staged sidecar path is the one sidecar.ts resolves (e2-bd)", () =>
   });
 });
 
-// e2-bd2: the staging directory's arch and electron-builder's `${arch}` macro used to
+// The staging directory's arch and electron-builder's `${arch}` macro used to
 // be two separate expressions -- stage-sidecar.mjs read the BUILD HOST's `process.arch`,
 // electron-builder read its own `--x64`/`--arm64` CLI flag -- that only agreed when no
 // flag was passed. `npm run package -- --x64` on an arm64 host staged into
 // `sidecar-darwin-arm64` while electron-builder's macro (app-builder-lib's
 // `Arch[Arch.x64]`, platformPackager.js:138) expanded to `sidecar-darwin-x64`: the build
 // succeeds and the packaged app fails to find its sidecar on the user's machine.
-describe("the packaging target arch is one source, not two (e2-bd2)", () => {
+describe("the packaging target arch is one source, not two", () => {
   it("test_resolve_target_arch_honors_an_explicit_flag_over_the_build_host", () => {
     const hostArch = process.arch;
     const crossArch = hostArch === "x64" ? "arm64" : "x64";
@@ -92,10 +92,10 @@ describe("the packaging target arch is one source, not two (e2-bd2)", () => {
   });
 });
 
-// e2-bd3a: --universal is not yet implemented. Staging a single-arch binary under a
+// --universal is not yet implemented. Staging a single-arch binary under a
 // `universal` name is a correctly-formed lie that breaks downstream consumers trusting
 // the name. The refusal must not break normal single-arch builds.
-describe("--universal refusal (e2-bd3a)", () => {
+describe("--universal refusal", () => {
   it("test_resolve_target_arch_refuses_universal_with_named_reason", () => {
     expect(() => resolveTargetArch(["--universal"])).toThrow();
     const error = (() => {

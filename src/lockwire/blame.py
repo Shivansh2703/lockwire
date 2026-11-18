@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 from ruamel.yaml import YAML
 
 from lockwire import gitref
+from lockwire.edit import _is_valid_witness_name, witness_words
 from lockwire.schema import load_contract
 
 
@@ -31,7 +33,49 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def _declared(node: Any, path: tuple[str, ...] = ()) -> Iterator[dict[str, Any]]:
+_DECLARED_BY = re.compile(r"^\d{4}-\d{2}-\d{2}: \S+ declared, witness (.+?)(?:, source .*)?$", re.M)
+
+
+_KIND_WORDS = (
+    ("device_models", "device model"),
+    ("devices", "device"),
+    ("families", "family"),
+    ("topology/rails", "rail"),
+    ("topology/buses", "bus"),
+    ("topology/wires", "wire"),
+    ("budgets", "budget"),
+    ("params", "param"),
+)
+
+
+def shown_path(path: str) -> str:
+    """A row's path as the printed table says it: "device_models/mdl.gnss.here3-plus" reads
+    "device model mdl.gnss.here3-plus"; anything below the entry follows a colon."""
+    head, accepted, rest = "", "accepted/", path
+    if rest.startswith(accepted):
+        head, rest = "accepted ", rest[len(accepted) :]
+    for prefix, words in _KIND_WORDS:
+        if rest.startswith(prefix + "/"):
+            ident, _, below = rest[len(prefix) + 1 :].partition("/")
+            return f"{head}{words} {ident}" + (f": {below}" if below else "")
+    return head + rest
+
+
+def shown_witness(provenance: dict[str, Any]) -> str:
+    """The witness a person reads: a stored level code gives way to the name on the latest
+    "declared, witness <name>" stamp in the note (the stamp `declare` writes); else in words.
+    The lockfile is user-editable, so this is display only: it says where the name came from."""
+    witness = str(provenance.get("witness") or "")
+    if witness and witness_words(witness) != witness:
+        names = [n for n in _DECLARED_BY.findall(str(provenance.get("note") or "")) if _is_valid_witness_name(n)]
+        if names:
+            return f"{names[-1]} (named in the note)"
+    return witness_words(witness) or "no name on record"
+
+
+def _declared(
+    node: Any, path: tuple[str, ...] = (), shown: bool = False
+) -> Iterator[dict[str, Any]]:
     if isinstance(node, dict):
         provenance = node.get("provenance")
         if isinstance(provenance, dict):
@@ -40,7 +84,9 @@ def _declared(node: Any, path: tuple[str, ...] = ()) -> Iterator[dict[str, Any]]
             row = {
                 "path": "/".join(path),
                 "value": _plain({key: value for key, value in node.items() if key != "provenance"}),
-                "witness": str(provenance.get("witness") or "no name on record"),
+                "witness": shown_witness(provenance)
+                if shown
+                else str(provenance.get("witness") or "no name on record"),
                 "source": str(provenance["source"]),
                 "locked_at": str(provenance["locked_at"]),
                 "lines": lines,
@@ -50,10 +96,10 @@ def _declared(node: Any, path: tuple[str, ...] = ()) -> Iterator[dict[str, Any]]
             yield row
         for key, child in node.items():
             if key != "provenance":
-                yield from _declared(child, (*path, str(key)))
+                yield from _declared(child, (*path, str(key)), shown)
     elif isinstance(node, list):
         for index, child in enumerate(node):
-            yield from _declared(child, (*path, _path_part(child, index)))
+            yield from _declared(child, (*path, _path_part(child, index)), shown)
 
 
 def _commits_by_line(porcelain: str) -> dict[int, str]:
@@ -70,16 +116,17 @@ def _commits_by_line(porcelain: str) -> dict[int, str]:
     return commits
 
 
-def rows(contract: Path) -> tuple[list[dict[str, Any]], bool]:
+def rows(contract: Path, shown: bool = False) -> tuple[list[dict[str, Any]], bool]:
     """Validated provenance rows and whether the path belongs to a repository.
 
     ``last_changing_commit`` is omitted when git has no honest attribution (for
     example an untracked file). The stored witness is rendered verbatim: a
     persisted ``" (default)"`` marker is evidence; machine configuration is not.
+    ``shown`` (the printed table) renders it for a person instead (``shown_witness``).
     """
     load_contract(contract)
     document = YAML(typ="rt").load(contract)
-    result = list(_declared(document))
+    result = list(_declared(document, shown=shown))
 
     repo = gitref.repo_root(contract)
     relpath = gitref.relpath_in_repo(contract, repo) if repo is not None else None

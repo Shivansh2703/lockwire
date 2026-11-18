@@ -95,7 +95,7 @@ export function Shell({
   above?: ReactNode;
   /** Extra icon buttons in the bottom tool pill. */
   tools?: ReactNode;
-  /** The top-bar Assistant button (one tap; the drawer opens on Assistant, Agent or Terminal, whichever was last used); no onToggle = no robot open yet, so it is disabled. */
+  /** The top-bar Assistant button (one tap; the drawer opens on Assistant or Terminal, whichever was last used); no onToggle = no robot open yet, so it is disabled. */
   assistant?: { open: boolean; onToggle?: () => void };
   /** "Panels": the data panels (Power, Controls, Parts list, Wiring...). Passed only while the robot has data for one; opens the drawer on the last-used one. */
   panels?: { open: boolean; onToggle: () => void };

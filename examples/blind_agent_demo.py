@@ -2,23 +2,23 @@
 """Blind agent vs. the gate.
 
 An agent that has never seen the target contract (`CONTRACT`, below) reads
-two things over MCP (`describe_system`, `describe_device` — nothing else)
+two things over MCP (`describe_system`, `describe_device` - nothing else)
 and proposes a plan from what it read. This script never writes to a real or
-simulated actuator — it only reads and calls `lockwire plan`. It never
+simulated actuator - it only reads and calls `lockwire plan`. It never
 rejects, clamps, or withholds anything itself; `lockwire plan` is the one
 evaluator, exercised exactly as an agent would exercise it, over the CLI.
 
 Three beats:
-  1. the agent's first guess, sent with no gate at all — nothing here stops
+  1. the agent's first guess, sent with no gate at all - nothing here stops
      it; a real flight finds out afterward, from the log.
-  2. the same guess, scored by `lockwire plan` before anything moves — NO-GO,
+  2. the same guess, scored by `lockwire plan` before anything moves - NO-GO,
      with the number and the margin.
-  3. the corrected plan, built from what the gate said — GO.
+  3. the corrected plan, built from what the gate said - GO.
 
 Self-check: this file greps ITSELF clean of the target's device identifiers,
 units, and hard-limit numbers before it ever runs (`_self_grep_clean()`).
 Known ceiling: a grep of this file's own text cannot see an identifier
-smuggled in through an IMPORTED module or fixture — see
+smuggled in through an IMPORTED module or fixture - see
 docs/blind-agent-demo.md, "what the self-grep does not prove."
 
 Exit: 0 only if beat 2 is NO-GO *and* beat 3 is GO. Non-zero if either the
@@ -35,7 +35,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-# The fixture directory this demo scores against —
+# The fixture directory this demo scores against -
 # a path, not a device id/unit/number, so it sits outside the self-grep's
 # ban list below; the blind agent still learns everything it acts on from
 # `describe_system`/`describe_device`, never from reading this path's contents.
@@ -45,7 +45,7 @@ CONTRACT = _FIXTURE_DIR / "px4_contract.yaml"
 MANIFEST = _FIXTURE_DIR / "agent_manifest.txt"
 
 # The agent's first guess before it has read anything: a round number with no
-# relationship to any contract value — the naive default the blind agent
+# relationship to any contract value - the naive default the blind agent
 # tries first, which is the whole point of beat 1.
 NAIVE_GUESS = 95.0
 
@@ -63,13 +63,13 @@ def _self_grep_clean() -> None:
 
     KNOWN CEILING (named, not hidden): this scans only this file's source
     text. An identifier imported from another module, or read from a fixture
-    this file does not itself spell out, would not be seen here — see
+    this file does not itself spell out, would not be seen here - see
     docs/blind-agent-demo.md.
     """
     import base64
 
     source = Path(__file__).read_text()
-    # base64'd so the banned words themselves never appear as source text —
+    # base64'd so the banned words themselves never appear as source text -
     # a plain string list here would trip its own grep. See
     # docs/blind-agent-demo.md for what each code decodes to.
     banned_b64 = [
@@ -88,7 +88,7 @@ def _self_grep_clean() -> None:
 
 def _read_manifest() -> str:
     """The device id to inspect, handed to the agent by an external
-    manifest — the same way a fleet discovery service would name a target
+    manifest - the same way a fleet discovery service would name a target
     before the agent ever touches the contract. Not a Python constant in
     this file."""
     for line in MANIFEST.read_text().splitlines():
@@ -99,7 +99,7 @@ def _read_manifest() -> str:
 
 
 async def _describe_over_mcp(contract: Path, device_id: str) -> tuple[str, str]:
-    """The blind agent's ONLY two reads: describe_system, describe_device —
+    """The blind agent's ONLY two reads: describe_system, describe_device -
     both over MCP, both read-only, neither a file opened directly."""
     from mcp.client import Client
 
@@ -115,7 +115,7 @@ async def _describe_over_mcp(contract: Path, device_id: str) -> tuple[str, str]:
 
 def _parse_measured_signal(device_md: str) -> tuple[str, str, str]:
     """(topic, msg_type, dotted field) for the device's first measured
-    signal, parsed out of describe_device's own Markdown table — never
+    signal, parsed out of describe_device's own Markdown table - never
     assumed. Skips the table's own header row (its first data row is a
     literal ``signal | field | unit`` line, not a device fact)."""
     topic = re.search(r"^- topic: (\S+)", device_md, re.MULTILINE)
@@ -153,7 +153,7 @@ def _parse_hard_limit(device_md: str, signal: str) -> tuple[float, float]:
 
 def _write_plan(path: Path, topic: str, msg_type: str, field: str, value: float) -> None:
     """One `publish` step, same shape `lockwire plan` reads (plan.py's own
-    loader — reused here via lockwire.schema._yaml, not a second YAML setup)."""
+    loader - reused here via lockwire.schema._yaml, not a second YAML setup)."""
     from lockwire.schema import _yaml
 
     msg: dict = {}
@@ -172,7 +172,7 @@ def _write_plan(path: Path, topic: str, msg_type: str, field: str, value: float)
 
 def _run_lockwire_plan(contract: Path, plan_path: Path) -> tuple[str, int]:
     """The door this demo scores through: the real `lockwire plan` CLI,
-    exercised exactly as an agent would exercise it — never validate_plan()
+    exercised exactly as an agent would exercise it - never validate_plan()
     called in-process."""
     import os
 
@@ -194,7 +194,7 @@ def main(naive_value: float | None = None, corrected_value: float | None = None)
     ``naive_value``/``corrected_value`` default to the agent's real first
     guess and the true band's midpoint; a test overriding either is asking
     "what if beat 2 wrongly passed" / "what if beat 3's safe plan wrongly
-    failed" — the two mutation bites this function itself guards against.
+    failed" - the two mutation bites this function itself guards against.
     """
     _self_grep_clean()
 
@@ -215,14 +215,14 @@ def main(naive_value: float | None = None, corrected_value: float | None = None)
     if naive_value is None:
         naive_value = NAIVE_GUESS
     if corrected_value is None:
-        # The true band's midpoint, read a moment ago — inside the limit by
+        # The true band's midpoint, read a moment ago - inside the limit by
         # construction, never invented.
         corrected_value = (lo + hi) / 2
 
     print("=== beat 1: the agent's first guess, no gate ===")
     print(
-        f"proposing to publish {naive_value} on {topic} field {field} — "
-        "nothing here refuses it; sent as-is, a real flight would only learn "
+        f"proposing to publish {naive_value} on {topic} field {field}. "
+        "Nothing here refuses it; sent as-is, a real flight would only learn "
         "the value was wrong afterward, from the log."
     )
     print()

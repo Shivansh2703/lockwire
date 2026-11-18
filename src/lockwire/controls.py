@@ -344,7 +344,7 @@ MIN_PHASE_MARGIN_DEG = 30.0
 
 
 def margin_findings(contract, *, contract_path=None) -> list[Finding]:
-    """Advice findings on bandwidth vs loop rate, phase margin and effort; silent on gaps."""
+    """Advice, never a verdict: bandwidth vs loop rate, phase margin and effort, for each controller that declares those inputs."""
     out = []
     for ctl in contract.controllers or ():
         m = margins(contract, ctl.joint)

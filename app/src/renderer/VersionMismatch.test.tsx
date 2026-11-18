@@ -37,7 +37,7 @@ describe("VersionMismatch", () => {
 // the failing check, verbatim: "an update applied without a click". This milestone ships
 // no updater at all -- the mismatch line exists so it has a home before the updater does --
 // so nothing under app/src may reference the banned updater package or its global anywhere,
-// not just in the two files this box added. A recursive text scan, not a single grep line,
+// not just in the files that were added with it. A recursive text scan, not a single grep line,
 // so any future file that imports it fails this test too. (Named indirectly below so this
 // very comment doesn't trip its own scan, or the repo's accept-line grep for the same names.)
 function listFiles(root: string): string[] {

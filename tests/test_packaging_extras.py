@@ -38,7 +38,7 @@ needs_pro = pytest.mark.skipif(not PRO, reason="the public tree has no paid extr
 def test_every_claimed_extra_is_gated_against_pyproject():
     """Every extra declared in pyproject is named in the gate's map.
 
-    The anchored leg (PARITY-ANCHOR): the expected set is read off
+    The anchored leg: the expected set is read off
     `[project.optional-dependencies]`, which `require_extras` does not produce and cannot
     influence. Adding an extra to pyproject and forgetting to gate it is exactly the way a
     seventh door quietly starts failing open, and it is what this catches.

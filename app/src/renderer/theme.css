@@ -254,7 +254,7 @@ button {
   padding: var(--sp-3);
 }
 
-/* The Design tab's scene mount (E2-j2) fills whatever the frame gives its content
+/* The Design tab's scene mount fills whatever the frame gives its content
    slot -- `min-height: 0` is the usual flex-child fix that lets a child actually
    shrink/grow inside a column flex parent instead of overflowing to its content size. */
 .findings-column {
@@ -421,7 +421,6 @@ button {
   white-space: pre-wrap;
 }
 
-.agent-owner,
 .connection-state,
 .health-word {
   color: var(--muted);
@@ -1284,6 +1283,14 @@ table {
   height: 16px;
 }
 
+/* Advice: the finding's quiet "i", sized to the mark. */
+.kit-mark .finding-info {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: default;
+}
+
 .kit-finding-head {
   display: flex;
   align-items: baseline;
@@ -1475,7 +1482,7 @@ table {
 .app-drag { -webkit-app-region: drag; }
 .app-no-drag { -webkit-app-region: no-drag; }
 
-/* ---------- App shell (box 4) ---------- */
+/* ---------- App shell ---------- */
 .shell { height: 100%; --head: 102px; } /* name row, then the nav row; panels start below both */
 .shell-drag { position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 0; }
 .shell .kit-slot { pointer-events: none; }
@@ -1501,12 +1508,13 @@ table {
 .open-face-recents-empty { margin: 8px 0 0; color: var(--muted); font-size: var(--fs-sm); }
 .check-headline { display: inline-flex; align-items: center; gap: var(--sp-15); }
 .check-count { font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; }
-.check-count-fault { color: var(--bad); }
+.check-count-violation { color: var(--bad); }
 .check-count-warn { color: var(--warn); }
 .check-count-note { white-space: normal; max-width: 44ch; }
 .check-pills { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-bottom: var(--sp-2); }
 .check-filter { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin-bottom: var(--sp-2); font-size: var(--fs-sm); }
-.check-filter select { max-width: 7.5rem; }
+/* Only the part list is capped (part names run long); the severity list's fixed words, "Passed torques" the longest, show whole. */
+.check-filter label:not(:first-child) select { max-width: 7.5rem; }
 .check-filter-count { color: var(--muted); white-space: nowrap; }
 .check-list { display: flex; flex-direction: column; gap: var(--sp-0); }
 .check-detail { padding: var(--sp-1) var(--sp-2) var(--sp-3) var(--sp-5); }
@@ -1521,7 +1529,7 @@ table {
 .shell .kit-slot-bottom .kit-cli { min-width: 0; }
 .shell .kit-slot-bottom .kit-toolpill { max-width: 100%; }
 
-/* ---------- Run and Docs panels (box rundocs) ---------- */
+/* ---------- Run and Docs panels ---------- */
 .shell .run-panel, .shell .reference-face, .shell .history-drawer, .shell .day-one-notice { background: none; box-shadow: none; padding: 0; border-radius: 0; }
 .run-panel, .reference-face, .history-drawer-panel { display: flex; flex-direction: column; gap: var(--sp-3); }
 .run-panel .kit-seg { align-self: flex-start; }
@@ -1587,7 +1595,7 @@ table {
 .declare-values .kit-tree-count { flex: none; }
 .shell .kit-tree input[type="search"] { min-width: 0; text-overflow: ellipsis; }
 .declare-actions .kit-btn-secondary:disabled { opacity: 0.75; }
-/* ---------- Round 2: Run, Docs, History polish (r2d) ---------- */
+/* ---------- Run, Docs, History polish ---------- */
 .scroll-fade { overflow: auto; max-height: 280px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent); }
 .run-footer { position: sticky; bottom: 0; margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-2); background: var(--panel); }
 .run-actions { display: flex; gap: var(--sp-2); }
@@ -1608,10 +1616,10 @@ table {
 .history-drawer-panel .history-write-actions { position: sticky; bottom: 0; background: var(--panel); margin-top: auto; }
 .history-drawer-panel .history-write-actions .kit-field:last-of-type { grid-column: 1; }
 
-/* Run: Start hint (R2d) */
+/* Run: Start hint */
 .run-hint { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
 .run-hint-show { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
-/* ---------- Round 2: shell, kit and scene (r2a) ---------- */
+/* ---------- Shell, kit and scene ---------- */
 :root { --panel-w: 600px; --panel-w-wide: 560px; }
 .shell .kit-slot-right { width: min(var(--panel-w), 60%); } /* superseded by the r3a block at the end */
 .shell[data-wide] .kit-slot-right { width: min(var(--panel-w-wide), 70%); }
@@ -1739,11 +1747,11 @@ table {
 .open-face-drop .kit-icon { width: 24px; height: 24px; }
 .open-face-drop[data-drag="true"] { border-color: var(--accent); }
 .open-face-recents ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-0); }
-/* r5-12: repeated robot names get the folder as a second line. */
+/* Repeated robot names get the folder as a second line. */
 .open-face-recents li .kit-btn { flex-direction: column; align-items: flex-start; gap: 0; height: auto; }
 .open-face-folder { display: block; font-size: var(--fs-xs); font-weight: 400; color: var(--muted); }
 
-/* r5-10: one Test panel width across robots; the mode pill never overflows. */
+/* One Test panel width across robots; the mode pill never overflows. */
 .shell .kit-slot-right:has(.test-input) { width: min(440px, 60%); min-width: 0; }
 .test-mode { flex: none; }
 .test-input .kit-filepick .kit-cli-text { font-family: var(--sans); }
@@ -1845,7 +1853,7 @@ table {
 .add-part-numbers li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* one line each; the full text is the tooltip */
 
 /* Compare with datasheet (mockup 3B): a left panel, its result warn-tinted. */
-.datasheet-compare { display: flex; flex-direction: column; gap: var(--sp-2); width: 316px; }
+.datasheet-compare { display: flex; flex-direction: column; gap: var(--sp-2); width: 316px; max-width: 100%; }
 .datasheet-compare-sub { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
 .datasheet-compare-result { padding: var(--sp-2); border-radius: var(--radius-sm); color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
 
@@ -1892,8 +1900,8 @@ table {
 .open-face-recents li .kit-btn { color: var(--ink); font-weight: 500; padding-inline: var(--sp-2); margin-inline: calc(var(--sp-2) * -1); width: calc(100% + var(--sp-4)); border-color: transparent; background: transparent; }
 .open-face-recents li .kit-btn:hover:not(:disabled) { background: var(--field); }
 
-/* r9: scene ghost opacity (selection and Docs): dark needs more, the same grey reads far fainter on a dark canvas */
-:root { --ghost: 0.35; }
+/* Scene ghost opacity (selection and Docs): dark needs more, the same grey reads far fainter on a dark canvas */
+:root { --ghost: 0.55; } /* light: at 0.35 the faded parts nearly vanished on the light canvas */
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ghost: 0.6; } }
 :root[data-theme="dark"] { --ghost: 0.6; }
 
@@ -1957,6 +1965,44 @@ table {
 .assistant-diff [data-line="del"] { color: var(--bad); }
 .assistant-diff [data-line="head"] { color: var(--muted); }
 .assistant-secondary { opacity: 0.8; }
+/* The Assistant panel's look: header pill, the four words, findings rows, the card with before and after, the footer. */
+.shell-drawer .drawer-body > .kit-panel:has(.assistant-thread) { height: 100%; max-height: none; } /* the question box sits at the foot of the drawer */
+.shell-drawer .kit-panel:has(.assistant-thread) > .kit-panel-body { flex: 1; }
+.assistant-verdict { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--sp-1) var(--sp-2); min-width: 0; }
+.assistant-verdict small { font: 400 var(--fs-xs) var(--sans); color: var(--muted); }
+.kit-panel-head:has(> .assistant-steps) { flex-wrap: wrap; }
+.assistant-steps { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: var(--sp-15); margin: 0; font: 500 var(--fs-xs) var(--sans); color: var(--muted); } /* in the head, so it stays while the answers scroll */
+.assistant-turn[data-who="you"] { align-self: flex-end; max-width: 85%; padding: var(--sp-15) var(--sp-3); border-radius: var(--radius); background: var(--field); color: var(--ink); overflow-wrap: anywhere; }
+.assistant-turn[data-who="assistant"] { font: 400 var(--fs-base)/1.55 var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+.assistant-unverified { text-decoration: underline dotted var(--warn); text-underline-offset: 3px; cursor: help; }
+.assistant-findings { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.assistant-findings li { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); }
+.assistant-findings li + li { border-top: 1px solid var(--line); }
+.assistant-findings .kit-dot { margin-top: var(--sp-15); }
+.assistant-findings li > span { display: flex; flex: 1; flex-direction: column; gap: var(--sp-0); min-width: 0; overflow-wrap: anywhere; }
+.assistant-findings strong { font: 600 var(--fs-md) var(--sans); color: var(--ink); }
+.assistant-findings small { font: 400 var(--fs-sm)/1.45 var(--sans); color: var(--muted); }
+.assistant-findings .kit-iconbtn { flex: none; }
+.assistant-shown { font-style: italic; }
+.assistant-card { font-size: var(--fs-md); overflow-wrap: anywhere; }
+.assistant-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-1) var(--sp-2); }
+.assistant-card-head strong { font: 600 var(--fs-base) var(--sans); }
+.assistant-sides { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.assistant-side { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-15); min-width: 0; padding: var(--sp-2); border-radius: var(--radius-sm); background: var(--field); font-size: var(--fs-sm); }
+.assistant-side small { font: 600 var(--fs-xs) var(--sans); color: var(--muted); }
+.assistant-side .kit-pill { white-space: normal; }
+.assistant-as { font: 400 var(--fs-sm) var(--sans); color: var(--muted); }
+.assistant-name { align-items: flex-end; }
+.assistant-name .kit-field { flex: 1; }
+.assistant-tags { display: flex; flex-wrap: wrap; gap: var(--sp-15); }
+.assistant-tag { display: inline-flex; align-items: center; gap: var(--sp-1); max-width: 100%; padding: var(--sp-0) var(--sp-1) var(--sp-0) var(--sp-2); border-radius: var(--radius-pill); background: var(--field); font: 500 var(--fs-sm) var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+.assistant-tag button { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.assistant-tag button:hover { background: var(--line); color: var(--ink); }
+.assistant-ask { display: block; box-sizing: border-box; resize: none; font-size: var(--fs-base); line-height: 24px; min-height: 40px; max-height: 160px; padding-block: var(--sp-2); padding-right: calc(var(--sp-5) + var(--sp-4)); } /* one 40 px line, six lines at most; text never runs under the button */
+.assistant-askbox { position: relative; }
+.assistant-send { position: absolute; right: 6px; bottom: 6px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; line-height: 0; border: 0; border-radius: 50%; background: var(--accent); color: var(--on-accent); cursor: pointer; } /* centred in a one-line box, bottom-right once it has grown */
+.assistant-send:disabled { background: var(--line); color: var(--muted); cursor: default; }
+.kit-panel .kit-panel-footer .kit-disclosure > summary { margin-inline: 0; } /* the fold's row bleeds 4px in a scrolling body; a pinned footer has no room for it */
 
 /* Side drawer (Assistant | Terminal): fixed to the right edge; the workspace gives it the room so no panel hides behind it. */
 .shell-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: var(--drawer-w); z-index: 5; display: flex; flex-direction: column; background: var(--panel); color: var(--ink); box-shadow: var(--shadow); animation: drawer-in var(--motion); }
@@ -2051,7 +2097,7 @@ table {
 .typed-move { position: fixed; z-index: 20; left: 50%; bottom: 84px; transform: translateX(-50%); display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-3) var(--sp-4); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); color: var(--ink); font: 600 var(--fs-base) var(--mono, ui-monospace, monospace); }
 .typed-move span { color: var(--muted); font: 400 var(--fs-sm) var(--sans); }
 
-/* ---------- UI-POLISH (looks only) ----------
+/* ---------- Polish (looks only) ----------
    Fixes found walking every screen at 1280 and 1100: nothing clips, placeholders read. */
 /* The orbit hint wraps inside the uncovered canvas instead of running under a side panel. */
 .shell-hint { white-space: normal; text-align: center; width: max-content; max-width: max(220px, calc(100% - 500px)); bottom: 92px; }
@@ -2066,7 +2112,7 @@ table {
 /* Placeholder text is hint text: full muted colour (4.5:1), italic keeps it apart from a typed value. */
 input::placeholder, textarea::placeholder { opacity: 1; }
 
-/* UI-POLISH-2: one panel header (side panels, the drawer, the Design cards), one primary and one
+/* One panel header (side panels, the drawer, the Design cards), one primary and one
    secondary button, and a hover on both. Sizes and gaps come from the --fs and --sp tokens only. */
 .kit-panel-head, .drawer-head { padding: var(--sp-0) var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--line); margin-bottom: var(--sp-2); }
 .drawer-head { padding: var(--sp-3) var(--sp-3) var(--sp-2); margin-bottom: 0; }

@@ -4,10 +4,9 @@
 // command name the union does not describe cannot compile, and a reply type can only ever be
 // one the generator actually emits.
 //
-// The actual wiring of a live dispatcher (over `window.lockwire`, once a box wires a generic
-// command through the IPC bridge) is deliberately left to the caller: this box's charter is the
-// *typing*, not a new IPC surface, and `app/src/main/ipc.ts` / `app/src/preload/index.ts` are
-// outside its file list.
+// Wiring a live dispatcher (over `window.lockwire`, whose methods call the IPC bridge through
+// `run` in `app/src/preload/index.ts`, answered in `app/src/main/ipc.ts`) is left to the caller: this file only types
+// the calls, it adds no IPC surface.
 import type { MachineDocument } from "./api.gen";
 
 /** Every reply shape the generator emits, keyed by its own discriminant. */

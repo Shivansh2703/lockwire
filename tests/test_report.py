@@ -11,7 +11,7 @@ from lockwire import report_html
 from lockwire.checks import run_record_checks
 from lockwire.cli import app
 from lockwire.plan import AssertionOutcome, PlanReport
-from lockwire.report import VERDICT_EXIT_CODES, Finding, RecordReport, ScoredRecord, render, verdict
+from lockwire.report import VERDICT_EXIT_CODES, VERDICT_SEP, Finding, RecordReport, ScoredRecord, render, verdict
 from lockwire.report_html import render_html
 from lockwire.schema import Physical, Provenance, Quantity, load_contract
 from conftest import LIMIT_RAISED_MARK_TEXT
@@ -168,9 +168,9 @@ def test_report_renders_witness_and_locked_at():
         if item["quantity"] == "topology/buses/bus.can.dronecan/bandwidth"
     )
 
-    assert finding["witness"] == "w0"
+    assert finding["witness"] == "none named (declared, not measured)"  # the stored w0, in words
     assert finding["locked_at"] == "2026-07-25"
-    assert '"witness":"w0"' in html
+    assert '"witness":"none named (declared, not measured)"' in html
     assert '"locked_at":"2026-07-25"' in html
 
 
@@ -422,11 +422,11 @@ def test_empty_endurance_budget_row_is_not_scored_not_a_pass(empty_endurance_bud
 def test_finding_without_source_renders_exactly_as_before(monkeypatch):
     finding = _cluster_finding("dev.camera", clustered=False)
     expected_text = (
-        "VIOLATION devices/dev.camera/voltage — observed 4.4 V, expected at least 4.8 V\n"
+        "VIOLATION devices/dev.camera/voltage: observed 4.4 V, expected at least 4.8 V\n"
         "  dependent: dev.camera\n"
         "  owner: power\n"
         "  action: inspect dev.camera\n"
-        "\nNO-GO — 1 violation(s), 0 warning(s)\n"
+        "\nNO-GO: 1 violation(s), 0 warning(s)\n"
     )
 
     assert _plain_render([finding]) == (1, expected_text)
@@ -535,11 +535,11 @@ def test_single_member_cluster_renders_exactly_as_an_ordinary_finding(monkeypatc
 
     assert _plain_render([clustered]) == _plain_render([ordinary])
     assert _plain_render([clustered])[1] == (
-        "VIOLATION devices/dev.camera/voltage — observed 4.4 V, expected at least 4.8 V\n"
+        "VIOLATION devices/dev.camera/voltage: observed 4.4 V, expected at least 4.8 V\n"
         "  dependent: dev.camera\n"
         "  owner: power\n"
         "  action: inspect dev.camera\n"
-        "\nNO-GO — 1 violation(s), 0 warning(s)\n"
+        "\nNO-GO: 1 violation(s), 0 warning(s)\n"
     )
 
     contract = load_contract(FIXTURES / "contract_clean.yaml")
@@ -565,7 +565,7 @@ def test_zero_findings_text_grammar_is_unchanged():
     result, text_report = _plain_render([])
 
     assert result == 0
-    assert text_report == "\nGO — records agree, no findings\n"
+    assert text_report == "\nGO: records agree, no findings\n"
 
 
 def test_stage_none_finding_renders_exactly_as_before():
@@ -581,9 +581,9 @@ def test_stage_none_finding_renders_exactly_as_before():
     result, text = _plain_render([finding])
     assert result == 1
     assert text == (
-        "VIOLATION budgets/bud.power.rail5v — observed 6.00 W, expected <= 5.00 W\n"
+        "VIOLATION budgets/bud.power.rail5v: observed 6.00 W, expected <= 5.00 W\n"
         "  action: reduce draw\n"
-        "\nNO-GO — 1 violation(s), 0 warning(s)\n"
+        "\nNO-GO: 1 violation(s), 0 warning(s)\n"
     )
     assert "stage " not in text
 
@@ -783,8 +783,8 @@ def test_terminal_order_puts_the_violation_before_any_info_line():
     _, text = _plain_render(report)
 
     lines = [line for line in text.splitlines() if line.strip()]
-    # the "Not compared yet" list follows the verdict by design
-    lines = lines[: next((i for i, x in enumerate(lines) if x.startswith("Not compared")), None)]
+    # the "Not scored" list follows the verdict by design
+    lines = lines[: next((i for i, x in enumerate(lines) if x.startswith("Not scored")), None)]
     violation_index = next(i for i, line in enumerate(lines) if line.startswith("VIOLATION"))
     info_index = next(i for i, line in enumerate(lines) if line.startswith("INFO"))
     verdict_index = next(i for i, line in enumerate(lines) if "NO-GO" in line or "GO" in line)
@@ -836,9 +836,7 @@ def test_scored_line_reports_adds_up_do_not_and_not_scored():
     # from scored to not scored (the budget total is not scored, not a partial sum), and
     # the per-device rows stay: scored 10 -> 9 (one add-up row gone), not scored 9 -> 10.
     # The starters' six bench-idle IMU bands sit inside the hard limits: 9 -> 15, 7 -> 13 add up.
-    assert (
-        lines[scored_index] == "scored 15: 13 add up, 2 do not · 12 not scored"
-    )  # +model/sanity
+    assert lines[scored_index] == "scored 15: 13 add up, 2 do not · 12 not scored"  # +model/sanity
     assert scored_index == verdict_index - 1  # directly before the verdict line
 
 
@@ -1061,24 +1059,64 @@ def test_report_has_print_stylesheet():
     assert "overflow:visible" in print_block
 
 
-def test_headline_is_a_triple():
-    """The report's summary line was a pair (to fix / notes), which left
-    'not checked' — the count that makes a pass conditional — invisible. Three
-    named parts, and the page's own line names all three.
+def test_printed_report_carries_verdict_findings_and_lockfile_name(tmp_path):
+    """File > Export > Report (PDF) prints this page, so on paper it must carry the verdict and
+    counts, the lockfile's name (never its folder), what to add, and every finding unbroken.
 
-    Mutation bite: delete "not_checked" from `_payload`'s headline (or drop it
-    from the rendered plan line) and this fails.
+    Mutation bite: put `.shell` back in the print `display:none` list, drop the `.finding`
+    print rule, or drop `__PRINT_HEAD__` from the template, and this fails.
     """
-    contract = load_contract(X500)
-    html = render_html(contract)
-    headline = _html_data(html)["headline"]
+    lock = tmp_path / "robot" / "contract.yaml"
+    shutil.copytree(Path(report_html.__file__).parent / "examples" / "arm-power", lock.parent)
+    html = render_html(load_contract(lock), lock)
+    block = re.search(r"@media print\{.*?\}\}", html).group(0)
+    hidden = {s for rule in re.findall(r"([^{}]*)\{display:none\}", block) for s in rule.split(",")}
+    assert not {".shell", ".side", ".panel", ".printhead"} & hidden
+    assert ".finding{display:block;break-inside:avoid}" in block
+    head = re.search(r'<section class="printhead">.*?</section>', html).group(0)
+    assert '<p class="pverdict">NO-GO</p>' in head
+    assert "<p>Lockfile: contract.yaml \u00b7 " in head and str(tmp_path) not in head
+    assert "<li>ambient temperature (the robot, declared on any one device): then Lockwire can check" in head
+    assert "<h2>Missing inputs: what to add</h2>" in head and "not checked" not in head.lower()  # check's words
 
-    assert sorted(headline) == ["adds_up", "does_not_add_up", "not_checked"]
-    assert all(isinstance(value, int) for value in headline.values())
-    assert headline["does_not_add_up"] == _html_data(html)["violations"]
-    assert headline["not_checked"] > 0
-    for phrase in (" add up ", " do not add up ", " not checked"):
-        assert phrase in html
+
+def test_print_head_counts_equal_the_rows_printed_under_it(tmp_path):
+    """`check`'s default line leaves out warnings it shows only with --all (quadruped: 1 shown,
+    3 on the page), so the paper's counts are counted off the rows the page prints.
+
+    Mutation bite: count the head from `verdict(report)` instead of the page's rows and this fails.
+    """
+    lock = tmp_path / "quadruped" / "contract.yaml"
+    shutil.copytree(Path(report_html.__file__).parent / "examples" / "quadruped", lock.parent)
+    html = render_html(load_contract(lock), lock)
+    data = _html_data(html)
+    sev = [f["severity"] for f in data["findings"]]
+    advice = sum(f["severity"] == "warning" and f["advice_unsourced"] for f in data["findings"])
+    # check's words: advice counted apart, never as a warning
+    want = (
+        f"On this page: {sev.count('violation')} violation(s), {sev.count('warning') - advice}"
+        f" warning(s), {sev.count('not_scored')} not scored,"
+        f" {advice} advice (not yet sourced, outside the verdict); {len(data['adds_up'])} add up"
+    )
+    checked = verdict(run_record_checks(load_contract(lock), contract_path=lock)).warnings
+    assert sev.count("warning") - advice == checked < sev.count("warning")
+    assert f'<p class="pcounts">{want}</p>' in html
+
+
+def test_headline_is_checks_own_lines():
+    """The page's header is `check`'s own "scored N" line and verdict line (it was a
+    separately counted triple that said "0 add up" beside check's "1 scored"), and it still
+    names the not-scored count that makes a pass conditional.
+
+    Mutation bite: drop the scored line from `_cli_summary` and this fails.
+    """
+    report = run_record_checks(load_contract(X500))
+    console = Console(record=True, width=10_000, color_system=None)
+    render(report, console)
+    printed = console.export_text().splitlines()
+    head = _html_data(render_html(load_contract(X500)))["cli_summary"]
+    assert head[0] in printed and head[0].startswith("scored ") and " not scored" in head[0]
+    assert head[1] in printed and head[1].startswith(("GO", "NO-GO", "NOT SCORED"))
 
 
 def test_report_footer_identity_in_repo():
@@ -1155,7 +1193,7 @@ def test_the_emitted_report_carries_its_identity_line():
     """The emitted document names which commit (or,
     outside a repository, which content hash) produced it — read off the
     **emitted HTML**, never a Python string the same module produced
-    (the parity-anchor law).
+    (anchored, not parity).
 
     Mutation bite: drop `__IDENTITY__`'s substitution (or blank
     `_report_identity`) and this fails.
@@ -1197,3 +1235,319 @@ def test_scored_line_parts_add_up_to_n():
                           scored_records=passed, accepted=[row("a"), row("elsewhere")])  # fmt: skip
     line = next(x for x in _plain_render(report)[1].splitlines() if x.startswith("scored"))
     assert line.startswith("scored 4: 2 add up, 1 do not, 1 model check ·"), line
+
+
+def _lock(tmp_path, *args):
+    out = tmp_path / "l.yaml"
+    assert CliRunner().invoke(app, ["start", *args, "--out", str(out)]).exit_code == 0
+    return out
+
+
+def test_report_five_bar_titles_badge_and_no_empty_power_panel(tmp_path):
+    lock = _lock(tmp_path, str(FIXTURES / "fivebar_wide.sdf"))
+    check = CliRunner().invoke(app, ["check", str(lock)]).output
+    for redact in (False, True):
+        html = render_html(load_contract(lock), lock, redact_paths=redact)
+        data = _html_data(html)
+        quantities = {f["quantity"] for f in data["findings"]}
+        assert {"model/links/base/mass", "model/mirror/lower_l"} <= quantities
+        assert not any(q.startswith("model") and "/" not in q for q in quantities)
+        assert data["verdict"] == "GO with notes"
+        assert "GO with notes:" in check
+        assert 'data-lens="power"' not in html
+
+
+def test_report_keeps_power_panel_for_arm_power(tmp_path):
+    lock = _lock(tmp_path, "--example", "arm-power")
+    html = render_html(load_contract(lock), lock)
+    assert 'data-lens="power"' in html and _html_data(html)["verdict"] == "NO-GO"
+
+
+@pytest.mark.parametrize(
+    "start_args", [[str(FIXTURES / "fivebar_wide.sdf")], ["--example", "arm-power"]]
+)
+def test_redacted_report_keeps_the_lock_folder_name_out_of_the_page(tmp_path, start_args):
+    """The identity footer printed the lock's own absolute path under --redact-paths."""
+    lock = tmp_path / "secretname" / "l.yaml"
+    lock.parent.mkdir()
+    runner = CliRunner()
+    assert runner.invoke(app, ["start", *start_args, "--out", str(lock)]).exit_code == 0
+    out = tmp_path / "r.html"
+    assert (
+        runner.invoke(app, ["report", str(lock), "-o", str(out), "--redact-paths"]).exit_code == 0
+    )
+    assert "secretname" not in out.read_text()
+    assert runner.invoke(app, ["report", str(lock), "-o", str(out)]).exit_code == 0
+    assert "secretname" not in out.read_text() and "l.yaml" in out.read_text()  # nor by default
+    assert "secretname" in render_html(load_contract(lock), lock)  # the page builder does know it
+
+
+@pytest.mark.parametrize(
+    "start_args", [[str(FIXTURES / "fivebar_wide.sdf")], ["--example", "arm-power"]]
+)
+def test_report_tab_grid_has_one_column_per_tab(tmp_path, start_args):
+    lock = _lock(tmp_path, *start_args)
+    tabs = re.search(
+        r'<div class="tabs" style="grid-template-columns:repeat\((\d+),1fr\)".*?</div>',
+        render_html(load_contract(lock), lock),
+    )
+    assert int(tabs[1]) == tabs[0].count("<button") == len(start_args) + 1
+
+
+def _verdict_states():
+    def one(severity):
+        return [Finding(severity=severity, quantity="q", observed="o", expected="e", action="a")]
+
+    return {
+        "GO": [],
+        "GO with notes": one("warning"),
+        "NO-GO": one("violation"),
+        "NOT SCORED": RecordReport([], scored=0),
+        "REFUSED": PlanReport(outcomes=[AssertionOutcome(path="s[0]", status="ERROR")]),
+    }
+
+
+@pytest.mark.parametrize("badge", list(_verdict_states()))
+def test_report_badge_words_match_what_check_prints_for_all_five_verdicts(badge):
+    findings = _verdict_states()[badge]
+    printed = _plain_render(findings)[1].strip().splitlines()[-1].split(VERDICT_SEP)[0]
+    assert report_html._verdict_text(verdict(findings)) == printed == badge
+
+
+def _spaced_lock(tmp_path, case):
+    """A lock two folders deep under names with spaces, its model beside it, deleted, or outside."""
+    lock = tmp_path / "secret name" / "sub dir" / "lockwire.yaml"
+    model = tmp_path / "other place" / "model dir" / "r.urdf"
+    model.parent.mkdir(parents=True)
+    lock.parent.mkdir(parents=True)
+    shutil.copy(FIXTURES / "gripper_mimic.urdf", model)
+    assert CliRunner().invoke(app, ["start", str(model), "--out", str(lock)]).exit_code == 0
+    recorded = {"beside": "r.urdf", "deleted": "r.urdf", "outside_rel": "../../other place/model dir/r.urdf",
+                "outside_abs": str(model), "home": "~/My Projects/r.urdf"}[case]  # fmt: skip
+    lock.write_text(re.sub(r"(?m)^(\s+source: ).*r\.urdf'?$", f"\\1'{recorded}'", lock.read_text()))
+    if case in ("beside", "home"):
+        dest = (
+            lock.parent / "r.urdf" if case == "beside" else Path.home() / "My Projects" / "r.urdf"
+        )
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(model, dest)
+    return lock
+
+
+@pytest.mark.parametrize("case", ["beside", "deleted", "outside_rel", "outside_abs", "home"])
+def test_redacted_report_has_no_folder_name_with_a_space_anywhere(tmp_path, monkeypatch, case):
+    monkeypatch.setenv("HOME", str(tmp_path / "my home"))
+    lock = _spaced_lock(tmp_path, case)
+    out = tmp_path / "r.html"
+    runner = CliRunner()
+    assert (
+        runner.invoke(app, ["report", str(lock), "-o", str(out), "--redact-paths"]).exit_code == 0
+    )
+    redacted = out.read_text()
+    for word in ("secret", "sub dir", "other place", "model dir", "My Projects", "my home"):
+        assert word not in redacted, word
+    assert "lockwire.yaml" in redacted and ("r.urdf" in redacted or case != "deleted")
+    assert runner.invoke(app, ["report", str(lock), "-o", str(out)]).exit_code == 0
+    assert "secret name/sub dir" not in out.read_text()  # nor by default: the lock's folders go
+    assert "secret name/sub dir" in render_html(load_contract(lock), lock)  # the builder knows them
+
+
+def test_redaction_cuts_a_path_that_climbs_out_of_the_folder_to_its_file_name():
+    assert report_html._redact_path("../../My Projects/robot.urdf") == "robot.urdf"
+    assert report_html._redact_paths_in_text("model ../../My/robot.urdf.") == "model robot.urdf."
+
+
+_SPACED = [
+    ("datasheet at /Users/Jane Doe/Documents/Spec Sheets/x.pdf p3", ("Jane", "Doe", "Documents", "Spec Sheets")),
+    ("datasheet at ~/Jane Doe/Docs/x.pdf p3", ("Jane", "Doe", "Docs/")),
+    ("see C:\\Users\\Jane Doe\\x.pdf", ("Jane", "Doe")),
+    ("from /Users/Jane Doe/x.pdf and /home/jd/a b/y.pdf", ("Jane", "Doe", "/jd", "a b/")),
+    ("%252FUsers%252FJane%2520Doe%252Fx.pdf", ("Jane", "Doe")),
+]
+
+
+def _citation_report(tmp_path, monkeypatch, source, *, redact=True):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    lock = tmp_path / "l.yaml"
+    args = [str(FIXTURES / "gripper_mimic.urdf"), "--mass", "1 kg", "--source", source]
+    assert CliRunner().invoke(app, ["start", *args, "--out", str(lock)]).exit_code == 0
+    out = tmp_path / "r.html"
+    flag = ["--redact-paths"] if redact else []
+    assert CliRunner().invoke(app, ["report", str(lock), "-o", str(out), *flag]).exit_code == 0
+    return out.read_text()
+
+
+@pytest.mark.parametrize(("source", "names"), _SPACED)
+def test_redacted_report_has_no_part_of_an_unknown_spaced_path_in_a_citation(
+    tmp_path, monkeypatch, source, names
+):
+    html = _citation_report(tmp_path, monkeypatch, source)
+    assert not [w for w in names if w in html]
+    assert "x.pdf" in html or "y.pdf" in html
+    assert names[0] in _citation_report(tmp_path, monkeypatch, source, redact=False)
+
+
+@pytest.mark.parametrize(
+    ("text", "kept"),
+    [
+        ("see /Users/Jane Doe/x.pdf, page 3 of the sheet", "see x.pdf, page 3 of the sheet"),
+        ("'/Users/Jane Doe/x.pdf' p3", "'x.pdf' p3"),
+        ('"/Users/Jane Doe/x.pdf" p3', '"x.pdf" p3'),
+        ("(see /Users/Jane Doe/x.pdf)", "(see x.pdf)"),
+        ("a /Users/Jane Doe/x.pdf b /Users/Jane Doe/y z/w.pdf c", "a w.pdf c"),
+        ("file:///Users/Jane Doe/x.pdf p3", "x.pdf p3"),
+    ],
+)
+def test_redaction_cuts_to_the_last_separator_and_keeps_the_words_after(text, kept):
+    assert report_html._redact_paths_in_text(text) == kept
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/tmp/spec.pdf",
+        "see http://example.com:8080/a/b.pdf?x=1&y=/z#top for it",
+        "ftp://host.example/pub/a/b.txt and (https://example.com/x/y)",
+        "model/joints/a/limits/effort",
+        "topology/rails/rail.5v/capacity",
+        "rad/s",
+        "m/s^2",
+        "N*m",
+        "ratio 3/4",
+        "on 2026/11/15",
+        "and/or",
+        "input / output",
+        "kg/(m/s)",
+    ],
+)
+def test_redaction_leaves_web_addresses_quantities_units_and_lone_slashes_whole(text):
+    assert report_html._redact_paths_in_text(text) == text
+
+
+def test_redacted_report_keeps_a_web_address_and_a_lone_slash_whole(tmp_path, monkeypatch):
+    source = "https://example.com:8080/tmp/spec.pdf?a=/b input / output rad/s 3/4"
+    for redact in (True, False):
+        assert source in _citation_report(tmp_path, monkeypatch, source, redact=redact)
+
+
+def test_redacted_starter_report_cuts_a_spaced_citation(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    lock = _lock(tmp_path, "--example", "arm-power")
+    web = "https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/"
+    lock.write_text(lock.read_text().replace(web, "/Users/Jane Doe/Docs/x.pdf p3", 1))
+    html = render_html(load_contract(lock), lock, redact_paths=True)
+    assert not [w for w in ("Jane", "Doe", "Docs/") if w in html]
+    assert "x.pdf p3" in html
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "em dash\u2014/opt/Jane Doe/Spec Sheets/r.pdf",
+        "\u201c/opt/Jane Doe/Spec Sheets/r.pdf\u201d",
+        *(f"x{c}/opt/Jane Doe/Spec Sheets/r.pdf" for c in "|$*>#!?&%`\u2026\uff08\uff1a"),
+        "see %2FUsers%2FJane%20Doe%2FSpec%20Sheets%2Fr.pdf",
+        "//srv/Jane Doe/Spec Sheets/r.pdf",
+        "a@b.c/Users/Jane Doe/Spec Sheets/r.pdf",
+        "~jane/Jane Doe/Spec Sheets/r.pdf",
+        "Users/Jane Doe/Spec Sheets/r.pdf",
+        "D:\\Users\\Jane Doe\\Spec Sheets\\r.pdf",
+        "see /Users/Jane Doe r.pdf",
+        "see home/Jane Doe r.pdf",
+    ],
+)
+def test_redacted_report_cuts_a_path_after_any_prefix_or_with_a_bare_home_root(
+    tmp_path, monkeypatch, source
+):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    lock = tmp_path / "l.yaml"
+    args = [str(FIXTURES / "gripper_mimic.urdf"), "--mass", "1 kg", "--source", "SRCMARK"]
+    assert CliRunner().invoke(app, ["start", *args, "--out", str(lock)]).exit_code == 0
+    lock.write_text(lock.read_text().replace("SRCMARK", json.dumps(source)))  # start refuses absolute
+    html = render_html(load_contract(lock), lock, redact_paths=True)
+    assert not [w for w in ("Jane", "Doe", "Spec Sheets", "srv", "jane/") if w in html]
+    assert "r.pdf" in html or "u003cpath" in html
+    assert "Jane" in render_html(load_contract(lock), lock)
+
+
+def test_redaction_leaves_the_word_users_and_slashes_after_words_alone():
+    for text in ("Users and groups", "the home screen", "5 kg/m and 3/4 a/b/c", "x@y.z only"):
+        assert report_html._redact_paths_in_text(text) == text
+    assert report_html._redact_paths_in_text("/Users/Jane Doe p3") == "<path>"
+
+
+def test_known_relative_lock_path_with_a_space_is_replaced_by_the_known_layer(tmp_path, monkeypatch):
+    """No path start, no home marker: only the recorded lock path tells the redactor."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "My Folder").mkdir()
+    lock = Path("My Folder/l.yaml")
+    args = [str(FIXTURES / "gripper_mimic.urdf"), "--mass", "1 kg", "--out", str(lock)]
+    assert CliRunner().invoke(app, ["start", *args]).exit_code == 0
+    cli = "lockwire report My Folder/l.yaml --out <this file> --redact-paths"
+    html = render_html(load_contract(lock), lock, redact_paths=True, cli_line=cli)
+    assert "My Folder" not in html and "l.yaml" in html
+
+
+def test_enforcement_provenance_reads_plainly_for_a_two_word_enforcer():
+    from lockwire.report import plain_text
+
+    stored = "9 A (declared enforcement provenance: this file (current_limit), fuse (capacity); metadata only; does not prove physical protection)"
+    assert plain_text(stored) == (
+        "9 A (declared: current limit enforced by this file, capacity enforced by fuse; Lockwire cannot see that it is fitted)"
+    )
+
+
+def test_a_ratio_delta_prints_without_off_by():
+    from lockwire.report import delta_text
+
+    assert delta_text("1.8x the stall torque") == " (1.8 times that)"
+    assert delta_text("+17.10 W (+114%)") == " (off by +17.10 W, +114%)"
+
+
+def test_the_same_fact_reads_plainly_on_every_surface():
+    from lockwire.page import build_payload
+    from lockwire.report import github_summary
+    from lockwire.start_operation import EXAMPLES
+    from lockwire.whatif_table import finding_line
+
+    raw = re.compile(r"Δ|free_air|wire ampacity|published ampacity|enforcement provenance|\(current_limit\)")
+    path = EXAMPLES / "arm-power" / "contract.yaml"
+    contract = load_contract(path)
+    html = render_html(contract, path)
+    page = json.dumps(build_payload(contract, contract_path=path), ensure_ascii=False)
+    summary = github_summary(run_record_checks(contract, contract_path=path))
+    for surface in (html, page, summary):
+        assert not raw.search(surface.replace("/ampacity", "").replace("/current_limit", "")), raw.search(surface)
+    line = finding_line({"severity": "warning", "quantity": "q", "observed": "1 A on 28 AWG free_air", "expected": "<= 1 A", "delta": "+1 A (+100%)"})
+    assert line == "warning q: observed 1 A on 28 AWG in free air, expected <= 1 A (off by +1 A, +100%)"
+
+
+def test_advice_is_said_in_checks_words_on_every_door(tmp_path):
+    """rover-param has one advice and nothing else: the verdict line must say it (not "no
+    findings"), the CI annotation is a notice (not a warning), and the JSON headline follows
+    check's own "1 scored" rather than claiming nothing was compared."""
+    from lockwire import api
+    from lockwire.findings_export import verdict_row
+    from lockwire.report import github_output
+
+    lock = tmp_path / "rover-param" / "contract.yaml"
+    shutil.copytree(Path(report_html.__file__).parent / "examples" / "rover-param", lock.parent)
+    contract = load_contract(lock)
+    report = run_record_checks(contract)
+    line = Console().render_str(verdict(report).summary).plain.strip()
+    assert line == "GO: records agree (1 scored), 1 advice (not yet sourced, outside the verdict)"
+    assert verdict_row(report)["observed"].endswith(", 0 not scored, 1 advice (not yet sourced, outside the verdict)")
+    notes = github_output(list(report), lock)
+    assert [n[:8] for n in notes] == ["::notice"]
+    assert api.check(contract)["headline"] == "Everything I checked agrees"
+
+
+def test_mesh_line_says_missing_and_its_or_their_at_print_time_only():
+    from lockwire.report import plain_text
+
+    one = "1 mesh file was not inside the robot's package folder at lock; their bytes are not compared"
+    two = "2 mesh files were not inside the robot's package folder; their bytes are not compared"
+    assert plain_text(one) == "1 mesh file was missing or not inside the robot's package folder at lock; its bytes are not compared"
+    assert plain_text(two) == "2 mesh files were missing or not inside the robot's package folder; their bytes are not compared"
+    assert plain_text("URDF sum of link masses: 1.5") == "model file sum of link masses: 1.5"

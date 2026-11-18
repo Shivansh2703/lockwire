@@ -1,4 +1,4 @@
-"""Drives Gazebo Harmonic inside the sim-jazzy CI container for E5.9/E5.10.
+"""Drives Gazebo Harmonic inside the sim-jazzy CI container.
 
 Not run or importable outside that container: it shells out to `gz`/`ros2`/the
 built PX4 SITL binary, which only exist there. tests/test_gazebo_runner.py and
@@ -32,7 +32,7 @@ from pathlib import Path
 
 WS = Path("/ws")
 OUT = Path("/out")
-FIXTURES = WS / "tests/fixtures/e5_10_real_scenarios"
+FIXTURES = WS / "tests/fixtures/real_scenarios"
 SCENARIOS = json.loads((FIXTURES / "scenarios.json").read_text())
 LEG_JOINTS = [f"{leg}_{joint}" for leg in ("LF", "RF", "LH", "RH") for joint in ("HAA", "HFE", "KFE")]
 
@@ -61,7 +61,7 @@ def write_json(name: str, payload: dict) -> None:
 
 
 def check_network_isolation() -> None:
-    """E5.9 part 1: inside --network none, an external connect must fail."""
+    """Isolation: inside --network none, an external connect must fail."""
     ok = False
     error = None
     try:
@@ -74,7 +74,7 @@ def check_network_isolation() -> None:
 
 
 def check_asset_hashes() -> None:
-    """E5.9 part 2: reuse verify.py's own asset-hash check (D... assets.lock)."""
+    """Assets: reuse verify.py's own asset-hash check."""
     sys.path.insert(0, str(FIXTURES))
     import verify  # type: ignore
 
@@ -144,7 +144,7 @@ def prepare_anymal(scratch: Path) -> Path:
 
     text = ET.tostring(robot, encoding="unicode")
     # xacro is not in this image's package set; the URDF has no xacro macros to
-    # expand (checked in tests/fixtures/e5_10_real_scenarios/README.md scope),
+    # expand (checked in tests/fixtures/real_scenarios/README.md scope),
     # so ElementTree merge + a plain path rewrite is the whole job.
     prefix = "package://anymal_d_simple_description/"
     text = text.replace(prefix, f"file://{anymal_root}/")
@@ -166,7 +166,7 @@ def spawn(name: str, file: Path, x: float, y: float, z: float) -> None:
 
 
 def x500_idle_check(duration_s: float = 5.0) -> None:
-    """E5.9 extra: with PX4 not yet attached (no controller command at all),
+    """Negative case: with PX4 not yet attached (no controller command at all),
     a drone at rest on the ground under gravity+contact should not move."""
     start = time.time()
     trace = []
@@ -181,7 +181,7 @@ def x500_idle_check(duration_s: float = 5.0) -> None:
 
 
 # --------------------------------------------------------------------------
-# E5.10 X500: real PX4 SITL, MAVLink vehicle_command, uorb-backed telemetry.
+# X500: real PX4 SITL, MAVLink vehicle_command, uorb-backed telemetry.
 # --------------------------------------------------------------------------
 
 def fly_x500_with_px4(scenario: dict) -> None:
@@ -413,7 +413,7 @@ def build_squat_trajectory_yaml(anymal_scenario: dict) -> str:
 
 
 def anymal_squat_run() -> None:
-    """E5.10 ANYmal motion: activate the effort controller and run the
+    """ANYmal motion: activate the effort controller and run the
     scenarios.json test_trajectory (nominal/squat/nominal, 2 cycles), same
     ros2 topic echo capture pattern as packaging/motion/run-admission.sh."""
     run(["ros2", "control", "load_controller", "--set-state", "active", "joint_state_broadcaster"], timeout=15)
@@ -439,7 +439,7 @@ def anymal_squat_run() -> None:
 
 
 def anymal_disabled_negative_run(scenario: dict) -> None:
-    """E5.9: scenarios.json's anymal_d_controller_disabled_negative. Deactivate
+    """Negative case: scenarios.json's anymal_d_controller_disabled_negative. Deactivate
     the effort controller (hold_joints:false is already set in the overlay),
     confirm it's inactive, then capture /joint_states through the gravity
     window with no controller commands sent."""

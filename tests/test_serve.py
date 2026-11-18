@@ -94,6 +94,9 @@ FREE_COMMANDS = {
     "place", "move", "rotate", "reparent", "mount-shape", "describe", "what-if", "plan", "diff",
     "log", "report", "starters", "swap-preview", "swap-apply", "set-witness", "undo-edit", "redo-edit",
     "contract-at", "findings-export", "batch-edit", "export",
+    "catalog-parts", "catalog-robots", "parts-match", "describe-system", "describe-device", "check-sim",
+    "suggest-fixes",
+    "explain-finding",
 }  # fmt: skip
 
 
@@ -245,6 +248,97 @@ def test_swap_preview_reads_and_swap_apply_refuses_a_stale_revision(tmp_path, mo
     done = run("swap-apply", part_id=pv.chosen, expected_revision=contract_revision(contract))
     assert EditPayload.model_validate(done["payload"]).written
     assert f"wrist: {pv.chosen}" in contract.read_text()
+
+
+def test_read_commands_for_the_assistant_write_nothing(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))  # no private parts.yaml
+    contract = tmp_path / "lockwire.yaml"
+    shutil.copy(Path(serve.__file__).parent / "examples/servo-bench.yaml", contract)
+    before, client = contract.read_bytes(), _client(create_app(TOKEN))
+    run = lambda command, **a: client.post("/v1/run", headers=_auth(), json={"command": command, "args": a}).json()  # noqa: E731
+    parts = run("catalog-parts", query="servo", limit=1)["payload"]
+    assert len(parts["parts"]) == 1 and parts["total"] > 1
+    assert all(p["kind"] == "part" for p in run("catalog-parts", family="servo")["payload"]["parts"])
+    assert run("catalog-robots")["payload"]["robots"]
+    assert run("parts-match", parts="Dynamixel XL430\nnot a real part")["payload"]
+    assert run("describe-system", contract=str(contract))["payload"]["markdown"]
+    ident = next(d.id for d in load_contract(contract).devices)
+    assert ident in run("describe-device", contract=str(contract), device_id=ident)["payload"]["markdown"]
+    assert "no device" in run("describe-device", contract=str(contract), device_id="nope")["refusal"]
+    assert list(run("page", contract=str(contract), section="robot_graph")["payload"]) == ["robot_graph"]
+    assert "no page section" in run("page", contract=str(contract), section="zz")["refusal"]
+    assert run("parts-match", parts="x", out="f").get("payload") is None  # no file argument exists
+    so101 = Path(__file__).parent / "fixtures" / "so101"
+    sim = run("check-sim", contract=str(so101 / "lockwire.yaml"), sim=str(so101 / "so101_drift.xml"))
+    assert sim["verdict"] == sim["payload"]["verdict"] and "sim file says" in json.dumps(sim["payload"])
+    assert "no.xml" in run("check-sim", contract=str(contract), sim=str(tmp_path / "no.xml"))["refusal"]
+    assert contract.read_bytes() == before and list(tmp_path.iterdir()) == [contract]
+
+
+def test_explain_finding_serves_the_checks_own_rule_and_the_finding_as_check_reported_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))  # no private parts.yaml
+    contract = tmp_path / "lockwire.yaml"
+    shutil.copy(Path(serve.__file__).parent / "examples/servo-bench.yaml", contract)
+    before, client = contract.read_bytes(), _client(create_app(TOKEN))
+    post = lambda command, **a: client.post("/v1/run", headers=_auth(), json={"command": command, "args": a}).json()  # noqa: E731
+    explain = lambda finding, c=contract: post("explain-finding", contract=str(c), finding=finding)  # noqa: E731
+    path = "model/joints/wrist/limits/effort"
+    reported = next(f for f in post("check", contract=str(contract))["payload"]["findings"] if f["quantity"] == path)
+    by_path, by_name = explain(path)["payload"], explain("servo_stall")["payload"]
+    assert by_path["findings"] == by_name["findings"] and by_path["rules"] == by_name["rules"]
+    (row,) = by_path["findings"]
+    assert row["check"] == "servo_stall" and row["severity"] == "violation"
+    assert row["inputs"] == {"observed": reported["observed"], "source": reported["source"]}
+    assert row["threshold"] == {"expected": reported["expected"], "delta": reported["delta"]}
+    assert row["clear"] == {"action": reported["action"]} and "lockwire swap" in reported["action"]
+    guide = (Path(__file__).parents[1] / "docs/guides/checks.md").read_text()
+    assert f"- **`servo_stall`**: {by_path['rules']['servo_stall']['rule']}\n" in guide  # the guide's own line
+    assert "first matching pattern wins" in by_path["rules"]["servo_stall"]["detail"]  # the rest of the docstring
+    passed = explain("gravity_reach")["payload"]
+    assert passed["findings"] == [] and list(passed["rules"]) == ["gravity_reach"] and "no finding" in passed["note"]
+    unknown = explain("zz")["payload"]
+    assert unknown["rules"] == {} and path in unknown["note"]
+    assert "no contract" in explain(path, tmp_path / "gone.yaml")["refusal"]
+    assert contract.read_bytes() == before and list(tmp_path.iterdir()) == [contract]
+
+
+def test_served_check_sim_reads_nothing_outside_the_locks_folder(tmp_path, monkeypatch):
+    # The assistant's check-sim: a sim file, an include or a link that lands outside the lock's folder gets one fixed
+    # sentence, the same whether or not the target exists. A person's own `lockwire check-sim` still follows it.
+    from lockwire import sdf
+    from lockwire.check_sim import sim_document
+
+    robot, out = tmp_path / "robot", tmp_path / "outside"
+    shutil.copytree(FIXTURES / "sdf_include", robot / "models")  # porter includes model://suspension, beside it
+    lock, sim = robot / "lockwire.yaml", robot / "models" / "porter" / "model.sdf"
+    shutil.copy(FIXTURES / "so101" / "lockwire.yaml", tmp_path / "lock.yaml")
+    lock.symlink_to(tmp_path / "lock.yaml")  # the lock's folder is where its name is, not where a link leads
+    (robot / "models" / "linked").mkdir()
+    (robot / "models" / "linked" / "model.sdf").symlink_to(out / "m" / "model.sdf")
+    monkeypatch.setenv("GZ_SIM_RESOURCE_PATH", str(out))
+    client = _client(create_app(TOKEN))
+
+    def served(uri: str | None, sim: Path = sim) -> dict:
+        if uri:
+            sim.write_text(f"<sdf version='1.6'><model name='p'><include><uri>{uri}</uri></include></model></sdf>")
+        return client.post("/v1/run", headers=_auth(), json={"command": "check-sim", "args": {"contract": str(lock), "sim": str(sim)}}).json()  # fmt: skip
+
+    assert served(None)["payload"]["verdict"]  # an include that stays inside the folder is still followed
+    # `..`, an absolute folder, the Gazebo path variable, a link named model.sdf; then the sim file itself, outside and linked
+    asks = [(u, sim) for u in ("model://../../outside/m", f"model://{out}/m", "model://m", "model://linked")]
+    asks += [(None, out / "m" / "model.sdf"), (None, robot / "models" / "linked" / "model.sdf")]
+    absent = [served(*ask) for ask in asks]
+    (out / "m").mkdir(parents=True)
+    (out / "m" / "model.sdf").write_text(  # an outside model that parses, with one value that is not a number
+        "<sdf version='1.6'><model name='SENTINEL'><link name='l'><inertial><mass>SENTINEL-password=hunter2</mass></inertial></link></model></sdf>"
+    )
+    for ask, before in zip(asks, absent, strict=True):
+        reply = served(*ask)
+        assert reply["refusal"] == sdf.OUTSIDE_FOLDER and reply["payload"] is None, ask
+        assert reply == before and "SENTINEL" not in json.dumps(reply), ask  # no sign that it exists
+    served("model://../../outside/m")
+    with pytest.raises(ValueError, match="SENTINEL"):  # the CLI and MCP door: unchanged, it reads the outside model
+        sim_document(sim, load_contract(lock), lock)
 
 
 @pytest.mark.parametrize(
@@ -600,9 +694,9 @@ def test_run_page_returns_the_page_document(client: TestClient, monkeypatch: pyt
 
     expected = api.page(X500, cli_line=body["cli_line"])
     assert body["payload"] == expected
-    # Anchored on the union's own model (PARITY-ANCHOR LAW), not just on
+    # Anchored on the union's own model, not just on
     # agreement between the two doors: a real HTTP round trip (JSON in, JSON
-    # out) must still validate as the union member six other boxes build on.
+    # out) must still validate as the union member other code builds on.
     PagePayload.model_validate(
         {k: v for k, v in body["payload"].items() if k in PagePayload.model_fields}
     )
@@ -828,7 +922,7 @@ def test_report_and_gui_call_library_load_scene(client: TestClient, tmp_path: Pa
 
 def test_token_check_is_load_bearing(client: TestClient):
     """The 401 tests above fail if the token comparison in ``serve.py``'s
-    middleware is deleted or short-circuited — the bite named in the box brief."""
+    middleware is deleted or short-circuited — the bite this test targets."""
     assert client.get("/v1/hello").status_code == 401
     assert client.post("/v1/run", json={"command": "check", "args": {}}).status_code == 401
 
@@ -840,10 +934,10 @@ def test_token_check_is_load_bearing(client: TestClient):
 # object's pid is ``uv``'s own wrapper pid; the actual server is a distinct
 # child pid, reparented to init once ``uv`` exits). A plain ``proc.kill()``
 # on that ``Popen`` only kills the wrapper — the real server, and its bound
-# port, keep running forever. That is the leak six worktrees' worth of
-# orphaned ``lockwire serve`` processes came from tonight. Every test
+# port, keep running forever. That is how a pile of
+# orphaned ``lockwire serve`` processes leaked. Every test
 # below launches through ``start_serve`` and never manages the kill itself
-# (dev-team fleet law: "give the lifetime to a fixture that owns it") —
+# (give the lifetime to a fixture that owns it) —
 # ``start_new_session=True`` makes the server its own process-group leader, so
 # ``_stop_process_group`` can reap the WHOLE group, wrapper and server both.
 
@@ -1298,6 +1392,17 @@ def test_robot_renderer_cannot_replace_contract_through_out(tmp_path: Path, comm
     assert contract.read_bytes() == before
 
 
+@pytest.mark.parametrize("command", ["describe", "report"])
+def test_describe_and_report_with_no_out_return_their_text_and_write_nothing(tmp_path, command):
+    contract = tmp_path / "contract.yaml"
+    shutil.copy(X500, contract)
+    before = contract.read_bytes()
+    body = _run(command, {"contract": str(contract)})
+    assert body["refusal"] is None and len(body["payload"]) > 1000
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["contract.yaml"]
+    assert contract.read_bytes() == before
+
+
 def test_review_preserves_the_library_written_bytes(tmp_path: Path):
     contract = tmp_path / "contract.yaml"
     shutil.copy(X500, contract)
@@ -1675,7 +1780,7 @@ def sidecar_logger():
 
 
 def test_rotating_log_writes_past_bound_and_caps_kept_files(tmp_path, sidecar_logger):
-    """The whole box's claim: a size bound (not unbounded growth) and a small,
+    """The whole claim: a size bound (not unbounded growth) and a small,
     capped number of kept files, oldest discarded — real files, not a config read.
 
     Volume is well past six rotations (~250 bytes/line x 12000 =~ 3MB against a
@@ -1828,7 +1933,7 @@ def test_robot_mode_serves_an_allowlist_of_reads(tmp_path: Path, command: str, a
 def test_serve_without_extra_tells_a_pip_user_what_to_run(monkeypatch, capsys):
     monkeypatch.setitem(__import__("sys").modules, "uvicorn", None)
     __import__("lockwire.cli").cli.app(["serve"], standalone_mode=False)
-    assert 'pip install "lockwire[serve]"' in capsys.readouterr().err
+    assert "pip install 'lockwire[serve]'" in capsys.readouterr().err
 
 
 def test_plan_reply_carries_the_motion_preview_on_the_wire(client: TestClient, tmp_path: Path):
@@ -2146,7 +2251,7 @@ def test_rename_is_not_served_on_the_robot(tmp_path: Path):
     assert reply["exit_code"] == 2 and path.read_bytes() == before
 
 
-# ---- WITNESS-OPT: an edit through serve with no witness records no name
+# ---- witness optional: an edit through serve with no witness records no name
 
 
 @pytest.fixture
@@ -2358,3 +2463,15 @@ def test_delete_with_no_witness_is_written_and_names_nobody(tmp_path: Path):
     reply = _run("delete", args)
     assert reply["refusal"] is None and reply["payload"]["written"] is True
     assert _real_login() not in path.read_text()
+
+
+def test_committed_assistant_args_schema_is_not_stale(tmp_path):
+    """The app's Assistant snapshot of the served commands' argument schemas byte-matches its exporter."""
+    from pathlib import Path
+
+    from lockwire.serve import export_args_schemas
+
+    generated = tmp_path / "args.json"
+    export_args_schemas(generated)
+    committed = Path(__file__).parent.parent / "app" / "src" / "main" / "assistant-args.gen.json"
+    assert committed.read_bytes() == generated.read_bytes()

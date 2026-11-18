@@ -1,11 +1,11 @@
-# The starter parts catalog. NOT the contract schema (frozen) — see catalog.py.
+# The starter parts catalog. NOT the contract schema (frozen); see catalog.py.
 #
 # Two kinds of number live here, and every one says which it is:
 #   kind: datasheet     - a manufacturer datasheet/spec-page/product-listing figure, cited.
 #   kind: source_file   - a real number read out of a file already in this repo (a vendor URDF's
 #                         own <mass> tag); real, but the citation is a file, not a datasheet.
 #   kind: assumed       - fabricated for seeding. No real part backs this number. The source string
-#                         says so in plain words — never presented as if it were measured.
+#                         says so in plain words, never presented as if it were measured.
 #
 # The 13 "x500.*" parts and their numbers are carried over verbatim from
 # tests/fixtures/x500/contract.yaml's device_models/devices (each already witnessed there,
@@ -32,7 +32,7 @@ parts:
       value: 610
       unit: g
       kind: datasheet
-      source: holybro.com/products/x500-v2-kits — published dry frame-kit weight (contract.yaml
+      source: holybro.com/products/x500-v2-kits - published dry frame-kit weight (contract.yaml
         model.links[0], locked 2026-07-25)
   note: 500 mm wheelbase, 1045 propeller, per the kit page. MTOW is unknown (not carried
     here).
@@ -45,7 +45,7 @@ parts:
       value: 59.3
       unit: g
       kind: datasheet
-      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification — published
+      source: docs.holybro.com/autopilot/pixhawk-6c/technical-specification - published
         aluminium-case mass (plastic variant is 34.6 g), locked 2026-07-25
   note: Board current draw is not published; no power number is carried here.
 - id: x500.companion.jetson-orin-nano
@@ -196,7 +196,7 @@ parts:
   maker: iSentek
   numbers: {}
   note: Mass and current draw not separately published for this discrete part. I2C
-    address 0x0E per the Isentek IST8310 datasheet, fetched 2026-09-06 — not a physical
+    address 0x0E per the Isentek IST8310 datasheet, fetched 2026-09-06 - not a physical
     number, not carried here.
 - id: x500.barometer.ms5611
   family: fam.barometer.mems
@@ -341,15 +341,12 @@ parts:
       value: 550
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — no datasheet consulted; typical order-of-magnitude
-        for a 4S 5000 mAh LiPo, not a real part's published figure — replace before
-        use.
+      source: ASSUMED for seeding, a typical order-of-magnitude for a 4S 5000 mAh LiPo, not a real part's published figure; no datasheet was consulted, so replace before use.
     nominal_voltage:
       value: 14.8
       unit: V
       kind: assumed
-      source: ASSUMED for seeding — 4S nominal (4 x 3.7 V), not a specific product's
-        datasheet figure — replace before use.
+      source: ASSUMED for seeding, 4S nominal (4 x 3.7 V), not a specific product's datasheet figure, so replace before use.
   note: Placeholder pack sized to match the X500's published ~18 min hover test pack;
     not a specific vendor SKU.
 - id: generic.motor.bldc-medium
@@ -360,8 +357,7 @@ parts:
       value: 70
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder for a motor family not otherwise represented; see x500.motor.holybro-2216-920kv
     for a real, sourced motor.
 - id: generic.esc.escs-4in1
@@ -372,8 +368,7 @@ parts:
       value: 35
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; see x500.esc.holybro-20a for a real, sourced single-channel ESC.
 - id: generic.gnss.rtk-module
   family: fam.gnss.dronecan
@@ -383,8 +378,7 @@ parts:
       value: 45
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; see x500.gnss.here3-plus for a real, sourced GNSS unit.
 - id: generic.radio.wifi-telemetry
   family: fam.radio.telemetry
@@ -394,8 +388,7 @@ parts:
       value: 10
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; see x500.radio.rfd900x for a real, sourced telemetry radio.
 - id: generic.camera.mono-usb
   family: fam.camera.stereo
@@ -405,8 +398,7 @@ parts:
       value: 2
       unit: W
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; see x500.camera.oak-d-lite for a real, sourced stereo depth camera.
 - id: generic.lidar.2d-scanning
   family: fam.lidar
@@ -416,14 +408,12 @@ parts:
       value: 190
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
     draw_max:
       value: 4.5
       unit: W
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; no real part in this catalog covers a scanning LIDAR yet.
 - id: generic.sensor.ultrasonic-rangefinder
   family: fam.sensor.range
@@ -433,8 +423,7 @@ parts:
       value: 9
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder.
 - id: generic.compute.sbc-arm
   family: fam.companion.sbc
@@ -444,14 +433,12 @@ parts:
       value: 45
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
     draw_max:
       value: 10
       unit: W
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; see x500.companion.jetson-orin-nano for a real, sourced companion
     computer.
 - id: generic.actuator.servo-standard
@@ -462,8 +449,7 @@ parts:
       value: 60
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; no real part in this catalog covers a hobby servo yet.
 - id: generic.flight-controller.f7-generic
   family: fam.flight-controller.autopilot
@@ -473,8 +459,7 @@ parts:
       value: 12
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; see x500.flight-controller.pixhawk-6c for a real, sourced flight
     controller.
 - id: generic.imu.mems-generic
@@ -485,14 +470,12 @@ parts:
       value: 156.9
       unit: m/s^2
       kind: assumed
-      source: ASSUMED for seeding — illustrative +/-16 g figure, no datasheet consulted
-        — replace before use.
+      source: ASSUMED for seeding, an illustrative +/-16 g figure; no datasheet was consulted, so replace before use.
     gyro_hard_limit:
       value: 34.9
       unit: rad/s
       kind: assumed
-      source: ASSUMED for seeding — illustrative +/-2000 dps figure, no datasheet
-        consulted — replace before use.
+      source: ASSUMED for seeding, an illustrative +/-2000 dps figure; no datasheet was consulted, so replace before use.
   note: Placeholder; see x500.imu.icm-42688-p or x500.imu.bmi088 for real, sourced
     IMUs.
 - id: generic.magnetometer.mems-generic
@@ -500,7 +483,7 @@ parts:
   name: Generic MEMS magnetometer (placeholder)
   numbers: {}
   note: Placeholder, no numbers seeded (real x500.magnetometer.ist8310 entry also
-    carries no physical numbers — none are published for the discrete part).
+    carries no physical numbers - none are published for the discrete part).
 - id: generic.barometer.mems-generic
   family: fam.barometer.mems
   name: Generic MEMS barometer (placeholder)
@@ -514,14 +497,12 @@ parts:
       value: 130
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
     draw_max:
       value: 3
       unit: W
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder.
 - id: generic.power-module.pdb-generic
   family: fam.power-module
@@ -531,8 +512,7 @@ parts:
       value: 25
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder; see x500.power-module.pm02-v3 for a real, sourced power module.
 - id: generic.antenna.dipole-omni
   family: fam.radio.telemetry
@@ -542,9 +522,7 @@ parts:
       value: 3
       unit: dBi
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure matching the RFD900x bundle's
-        published dipole gain, but not itself a datasheet figure for a specific product
-        — replace before use.
+      source: ASSUMED for seeding, illustrative figure matching the RFD900x bundle's published dipole gain, but not itself a datasheet figure for a specific product, so replace before use.
   note: Placeholder.
 - id: generic.wheel-motor.hub-drive
   family: fam.motor.brushless
@@ -554,8 +532,7 @@ parts:
       value: 900
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder for ground-vehicle use cases; no real wheeled-robot part is in
     this catalog yet.
 - id: generic.encoder.magnetic-absolute
@@ -566,8 +543,7 @@ parts:
       value: 4
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder.
 - id: generic.imu.industrial-fog
   family: fam.imu.mems
@@ -577,14 +553,12 @@ parts:
       value: 250
       unit: g
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
     draw_max:
       value: 8
       unit: W
       kind: assumed
-      source: ASSUMED for seeding — illustrative figure, no datasheet consulted —
-        replace before use.
+      source: ASSUMED for seeding, an illustrative figure; no datasheet was consulted, so replace before use.
   note: Placeholder for higher-grade navigation than the MEMS IMUs above.
 - id: dynamixel.xl430-w250
   family: fam.servo.smart
@@ -907,6 +881,22 @@ parts:
       kind: datasheet
       source: "Raspberry Pi 5 typical bare-board active current 800 mA (power table; no stress maximum is published); 0.8 A x 5.1 V = 4.08 W, rounded up to 4.1 W. Typical active, not peak, so not a ceiling; USB peripherals are extra (up to 1.6 A with a 5 A supply); https://www.raspberrypi.com/documentation/computers/raspberry-pi.html, read 2026-10-15"
   note: "No operating voltage range is published, so the picker uses nominal 5 V +/-5%. Mass is not in the product brief."
+- id: espressif.esp32-devkitc
+  family: fam.compute
+  name: Espressif ESP32-DevKitC (ESP32-WROOM-32)
+  maker: Espressif
+  numbers:
+    nominal_voltage:
+      value: 5
+      unit: V
+      kind: datasheet
+      source: "ESP32-DevKitC V4 user guide, Header Block J2 row \"19 5V P 5 V power supply\"; Power Supply Options: \"three mutually exclusive ways to provide power to the board\" (Micro USB port, 5V and GND header pins, 3V3 and GND header pins), https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html, read 2026-11-18"
+    supply_current_min:
+      value: 0.5
+      unit: A
+      kind: datasheet
+      source: "ESP32-WROOM-32 datasheet v3.8, Table 13 Recommended Operating Conditions: \"Current delivered by external power supply 0.5 - - A\" (at VDD33 3.0-3.6 V, typical 3.3 V), https://documentation.espressif.com/esp32-wroom-32_datasheet_en.pdf; the same 0.5 A in the ESP32-WROOM-32E datasheet v2.1, Table 14 (the module the current V4 board carries), https://www.espressif.com/sites/default/files/documentation/esp32-wroom-32e_esp32-wroom-32ue_datasheet_en.pdf, read 2026-11-18"
+  note: "The 0.5 A is the module's minimum supply rating on its 3.3 V input, not a board draw at 5 V: neither document publishes a board or module draw, so no draw_max. No board voltage range is published (the module itself runs at 3.0-3.6 V from the 3V3 pin), so the picker uses nominal 5 V +/-5%. Mass is not in either document. Pin card: esp32-devkitc-wroom-32."
 - id: feetech.st3215
   body:
     size: [0.04523, 0.02473, 0.035]

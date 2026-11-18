@@ -120,3 +120,28 @@ def test_editing_a_mesh_file_in_place_is_not_served_from_the_cache(tmp_path):
     before = positions()
     (tmp_path / "m.stl").write_bytes(stl(5.0))
     assert positions() != before
+
+
+def test_a_same_size_edit_within_one_clock_tick_is_not_served_from_the_cache(tmp_path):
+    """Linux stamps mtimes per kernel tick: an in-place, same-size rewrite can keep the old mtime."""
+    import os
+
+    from lockwire.scene_urdf import load_robot_scene
+
+    def stl(x):  # one triangle, third vertex at (x, 1, 0)
+        rec = struct.pack("<12fH", 0, 0, 1, 0, 0, 0, 1, 0, 0, x, 1, 0, 0)
+        return b"\0" * 80 + struct.pack("<I", 1) + rec
+
+    (tmp_path / "m.urdf").write_text(
+        '<robot name="r"><link name="b"><visual><geometry><mesh filename="m.stl"/>'
+        "</geometry></visual></link></robot>"
+    )
+    mesh = tmp_path / "m.stl"
+    mesh.write_bytes(stl(1.0))
+    before = load_robot_scene(tmp_path / "m.urdf").parts[0].positions
+    old = mesh.stat()
+    mesh.write_bytes(stl(5.0))
+    os.utime(mesh, ns=(old.st_atime_ns, old.st_mtime_ns))
+    new = mesh.stat()
+    assert (new.st_mtime_ns, new.st_size) == (old.st_mtime_ns, old.st_size)
+    assert load_robot_scene(tmp_path / "m.urdf").parts[0].positions != before

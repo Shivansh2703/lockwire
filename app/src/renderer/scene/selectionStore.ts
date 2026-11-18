@@ -1,11 +1,11 @@
 /**
- * e2-ss — the selection store: which part id the pointer picked, and nothing else. `Canvas.tsx`
+ * The selection store: which part id the pointer picked, and nothing else. `Canvas.tsx`
  * is the only writer (via a pointer pick against the mounted scene); any other face reads it
- * with `useSelectedPartId()`. `null` is a real, distinct state — "nothing is selected" — not the
+ * with `useSelectedPartId()`. `null` is a real, distinct state, "nothing is selected", not the
  * absence of one; a pick on empty space writes it explicitly rather than leaving the prior value.
  *
  * The id held here is always the payload's own `ScenePart.id` (adjacent: identity comes
- * from the payload, never a mesh index or a name composed in the renderer) — see
+ * from the payload, never a mesh index or a name composed in the renderer): see
  * `buildScene.pickPart`, the only writer's source.
  */
 import { useSyncExternalStore } from "react";

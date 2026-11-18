@@ -309,7 +309,7 @@ def test_validate_plan_mutation_bite(monkeypatch):
 
 
 def test_every_mcp_reply_carries_a_cli_line_from_the_shared_builder(monkeypatch):
-    """PARITY-ANCHOR LAW: comparing the rendered string alone (as
+    """Anchored, not parity: comparing the rendered string alone (as
     ``test_every_tool_reply_carries_cli_line`` above does) cannot tell a call
     to the shared ``lockwire.cli_line.cli_line`` builder apart from a local
     lookalike composer — both can render the same text. Replace the builder
@@ -511,8 +511,10 @@ def test_check_model_agrees_with_check_json_on_odd_models(monkeypatch):
 
 def test_compare_proposal_without_witness_names_the_argument_not_the_cli_flag():
     args = {"contract": str(X500), "change": ["topology/rails/rail.pm02-5v/capacity=40 W"]}
-    said = _call("compare_proposal", {**args, "source": "s"}).content[0].text
-    assert "witness must name a real person" in said and "--witness" not in said
+    # no witness is fine (a comparison writes nothing); a blank one is still refused, by its name
+    assert not _call("compare_proposal", {**args, "source": "s"}).is_error
+    said = _call("compare_proposal", {**args, "source": "s", "witness": " "}).content[0].text
+    assert "witness is missing" in said and "--witness" not in said
 
 
 def test_a_missing_file_is_one_plain_line_not_errno(tmp_path):
@@ -590,6 +592,14 @@ def test_design_add_joint_then_export_returns_a_urdf_path(tmp_path):
     out = _call("export_model", {"contract": str(path)}).structured_content["written"]
     assert Path(out).suffix == ".urdf"
     assert 'joint name="j"' in Path(out).read_text()
+
+
+def test_export_model_urdf_reply_carries_the_geometry_and_limit_notes(tmp_path):
+    path = _design_robot(tmp_path)
+    assert _joint(path, apply=True).structured_content["written"] is True
+    notes = _call("export_model", {"contract": str(path)}).structured_content["notes"]
+    assert "geometry are not exported" in notes[0]
+    assert "no effort or velocity limit" in notes[1]
 
 
 def test_design_edit_is_a_proposal_until_applied(tmp_path):
@@ -742,3 +752,24 @@ def test_design_attach_part_joins_a_catalog_part_at_the_given_frame(tmp_path):
     assert "servo" in [k.name for k in load_contract(path).model.links]
     nofr = _call("attach_part", {**args, "frame": None, "apply": True, "name": "s2"})
     assert nofr.is_error and "no offset is guessed" in nofr.content[0].text
+
+
+def test_check_contract_takes_path_or_contract_and_refuses_two():
+    by_path = _call("check_contract", {"path": str(X500)}).structured_content
+    by_contract = _call("check_contract", {"contract": str(X500)}).structured_content
+    assert by_path["verdict"] == by_contract["verdict"]
+    both = _call("check_contract", {"path": str(X500), "contract": str(CLEAN_CONTRACT)})
+    assert both.is_error and "give only one" in both.content[0].text
+
+
+def test_tool_descriptions_are_one_line_and_name_no_pro_ledger():
+    tools = {t.name: t.description for t in asyncio.run(build_server().list_tools())}
+    assert all("  " not in d and "\n" not in d for d in tools.values())
+    assert "0.6" in tools["upgrade_contract"] and "ledger" not in tools["compare_proposal"]
+
+
+def test_the_server_sends_short_instructions_and_list_parts_reads_plainly():
+    server = build_server()
+    assert server.instructions and len(server.instructions) < 400 and "check_contract" in server.instructions
+    tools = {t.name: t.description for t in asyncio.run(server.list_tools())}
+    assert "private ones too" not in tools["list_parts"]

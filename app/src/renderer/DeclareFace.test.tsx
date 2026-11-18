@@ -11,6 +11,7 @@ import {
   type DeclareSubmitResult,
   type ReviewSubmission,
 } from "./DeclareFace";
+import { RobotFile } from "./shown";
 
 const shellCommand = vi.hoisted(() => vi.fn((_c: string | null) => false));
 vi.mock("./Shell", () => ({ useShellCommand: shellCommand }));
@@ -65,7 +66,7 @@ const PAYLOAD: DeclareFormPayload = {
       provenance: null,
     },
   ],
-  witness: { prefill: "Shivansh" },
+  witness: { prefill: "Alex" },
 };
 
 function Harness({ payload, onSubmit, onReview }: { payload: DeclareFormPayload; onSubmit: never; onReview: (s: ReviewSubmission) => Promise<DeclareSubmitResult> }) {
@@ -233,6 +234,17 @@ describe("DeclareFace", () => {
     expect(container.querySelector(".declare-face-cli-line .kit-cli-text")?.textContent).toBe(
       "lockwire declare lockwire.yaml devices/dev.x500/physical/mass '0.5 kg' --source '' --witness " + PAYLOAD.witness.prefill,
     );
+  });
+
+  it("test_the_footer_cli_line_shows_no_machine_path_but_copies_the_full_one", async () => {
+    const C = "/Users/someone/robots/servo-bench/servo-bench.yaml";
+    const writeText = vi.fn(async (_t: string) => {});
+    Object.assign(navigator, { clipboard: { writeText } });
+    act(() => root.render(<RobotFile.Provider value={C}><DeclareFace selectedPath={PAYLOAD.rows[0]!.path} contractPath={C} payload={PAYLOAD} onSubmit={vi.fn()} onReview={vi.fn()} /></RobotFile.Provider>));
+    const cli = container.querySelector(".declare-face-cli-line .kit-cli-text")!.textContent!;
+    expect(cli).toMatch(/^lockwire declare servo-bench\.yaml /);
+    await act(async () => container.querySelector<HTMLButtonElement>(".declare-face-cli-line .kit-cli button")!.click());
+    expect(writeText.mock.lastCall![0]).toContain(`declare ${C} `);
   });
 
   it("test_bare_scalars_get_the_selected_unit_but_other_text_passes_unchanged", async () => {

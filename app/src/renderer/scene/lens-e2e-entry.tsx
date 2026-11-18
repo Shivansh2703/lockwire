@@ -1,12 +1,12 @@
 /**
  * The browser-side entry for the lens e2e's hidden-window GPU readback (never a
- * screenshot, never a visible window). Mounts the REAL `Canvas` + `DesignLens` (the lens PillTabs) — nothing here is
+ * screenshot, never a visible window). Mounts the REAL `Canvas` + `DesignLens` (the lens PillTabs): nothing here is
  * reimplemented or mocked, same idiom as `e2e-pixel-entry.ts` for `buildScene` alone.
  *
  * The same rule governs this file: it authors no lens word. `window.__mount` takes the payload's own
  * `Graph`/parts as JSON: whatever labels the test fixture puts on the payload are what `DesignLens`
- * renders. Lens selection drives through a real DOM click on the real lens tab (`role="tab"`) button — never
- * a direct state call — so the proof exercises the same path a person clicking the app does.
+ * renders. Lens selection drives through a real DOM click on the real lens tab (`role="tab"`) button: never
+ * a direct state call: so the proof exercises the same path a person clicking the app does.
  */
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
@@ -22,7 +22,7 @@ type TestPart = ScenePart & LensedPart;
 
 let liveCtx: SceneContext | null = null;
 
-/** Resolved by an effect that has actually committed — the thing `__readCenterPixel` needs, not
+/** Resolved by an effect that has actually committed: the thing `__readCenterPixel` needs, not
  * a proxy for it (a `requestAnimationFrame` pair, which Chromium throttles in an unpainted
  * `show:false` window, the previous `nextTwoFrames()` could resolve before React had
  * committed `CtxCapture`'s effect at all, throwing "scene not mounted"). React's own
@@ -57,12 +57,12 @@ function TestApp({ parts, graph }: { parts: TestPart[]; graph: Graph }) {
   const payload = { graph, scene: { parts } } as unknown as Parameters<typeof DesignLens>[0]["payload"];
   const { lens } = useDesignView();
   // No dependency array: fires after every commit *of this component*, i.e. whenever `lens`
-  // changes (a lens tab click, via the design-view store) — unlike `CtxCapture`'s effect above, this one
+  // changes (a lens tab click, via the design-view store): unlike `CtxCapture`'s effect above, this one
   // does not fire for `Canvas`'s own internal `setCtx`, since that re-renders only `Canvas`'s
   // subtree, not this ancestor. React flushes passive effects bottom-up, so by the time this
   // (the outermost component) runs, `Canvas`'s own mesh-visibility effect (deeper in the tree,
   // reacting to the same `lens` change) has already committed. That's `__selectLens`'s readiness
-  // signal — `CtxCapture`'s effect above does not re-fire on a lens change (its dependency, `ctx`,
+  // signal: `CtxCapture`'s effect above does not re-fire on a lens change (its dependency, `ctx`,
   // is unchanged), so it cannot serve this second wait.
   useEffect(() => {
     if (liveCtx) armedResolve?.();

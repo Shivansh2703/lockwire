@@ -2,7 +2,7 @@
 
 Two anchors sit outside the implementation, because check, describe, the
 library and the payload all share one code path and would agree while all being
-wrong (PARITY-ANCHOR law):
+wrong:
 
 * the two-mass fixture's CG is a **hand-computed literal** with the arithmetic
   in the docstring, not the check's own output;
@@ -185,7 +185,7 @@ def test_an_incomplete_cg_prints_marked_rather_than_as_a_plain_figure():
 
     The CG value is still the best available number (positioned contributors
     only) but must not read like a clean, whole figure — same defect class as
-    the mass-total bounce, on the position side rather than the mass side.
+    the mass-total case, on the position side rather than the mass side.
     """
     contract = load_contract(TWO_MASS)
     contract.devices[0].physical.mount_xyz = None  # type: ignore[union-attr]

@@ -23,8 +23,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-describe("the contract mtime watcher (e2-k)", () => {
-  // Named for the brief's decisive case ("do it with the window FOCUSED"), but this module has
+describe("the contract mtime watcher", () => {
+  // Named for the decisive case ("do it with the window FOCUSED"), but this module has
   // no focus API to assert on -- its whole point is that BrowserWindow.isFocused() never enters
   // the loop. What this proves instead is the thing that actually matters: a plain mtime change
   // fires the callback with nothing about window focus anywhere in the mechanism, so it cannot
@@ -42,7 +42,7 @@ describe("the contract mtime watcher (e2-k)", () => {
     expect(fired).toBeGreaterThanOrEqual(1);
   });
 
-  // The box (e2-k row, e2-k's reviewer 22:0x): a rewrite that lands inside the mtime clock's
+  // The case: a rewrite that lands inside the mtime clock's
   // grain leaves mtimeMs unchanged, so a watcher comparing mtime alone reports a fired count of
   // 0 while the file's content actually changed -- the app keeps showing a stale robot. Uses
   // fake timers rather than a real sleep, because the whole defect under test is a change that

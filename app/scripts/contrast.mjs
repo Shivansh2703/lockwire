@@ -107,6 +107,9 @@ export const TEXT_PAIRS = [
 export const STATE_EDGE_PAIRS = [
   ["accent", "canvas-a"],
   ["accent", "panel"],
+  // the Assistant's round send button: its arrow, enabled (.assistant-send) and disabled (:disabled), non-text graphics
+  ["on-accent", "accent"],
+  ["muted", "line"],
   // chart series colours: non-text marks on the panel (WCAG 1.4.11)
   ...[1, 2, 3, 4, 5, 6].map((n) => [`chart-${n}`, "panel"]),
 ];

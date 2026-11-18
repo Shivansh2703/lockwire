@@ -18,6 +18,7 @@ import math
 import os
 import re
 from collections import defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
@@ -50,7 +51,7 @@ VERDICT_EXIT_CODES: dict[VerdictCode, int] = {
 def verdict_word(code: VerdictCode) -> str:
     """The terminal spelling of a verdict code, for anything a human or an
     external consumer reads as prose (the JSON document's ``verdict`` field
-    included). Only ``NO_GO`` differs from its Python identifier — the
+    included). Only ``NO_GO`` differs from its Python identifier - the
     display layer (``report_html.py``, the terminal itself) has always
     hyphenated it; this is that same spelling, applied at every JSON boundary."""
     return "NO-GO" if code == "NO_GO" else code
@@ -65,7 +66,9 @@ def _console() -> Console:
     """
     from rich.console import Console
 
-    return Console(emoji=False)
+    console = Console(emoji=False)
+    console.soft_wrap = not console.is_terminal  # as cli.console: no hard wrap when piped
+    return console
 
 
 def format_magnitude(value: float, unit: str) -> str:
@@ -114,7 +117,7 @@ def format_display(value: float, unit: str, vs: float | None = None) -> str:
 
 #: A `declare` that clears a violation by RAISING the limit rather
 #: than lowering the draw leaves this standing line in the entry's provenance
-#: note. It is an annotation only — verdict words and exit codes never move.
+#: note. It is an annotation only - verdict words and exit codes never move.
 LIMIT_RAISED_MARK = "cleared by re-declaring the limit on "
 
 
@@ -146,6 +149,29 @@ def limit_raised_mark(provenance: object | None) -> str | None:
     return marks[-1] if marks else None
 
 
+class UnsolvedPose(BaseModel):
+    """A grid pose of a solved closed loop that got no number, and why (statics.LOOP_WHY)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["cannot be assembled", "near lock", "reached only through a lock", "pin limit"]
+    angles_deg: dict[str, float]  # the driven joints, degrees from the modelled pose
+
+
+def unsolved_line(poses: tuple[UnsolvedPose, ...] | list[UnsolvedPose], cap: int = 8) -> str:
+    """``not solved: cannot be assembled at a=+36, b=-27; ... (7 poses) · near lock at ... (2 poses)``."""
+    groups: dict[str, list[str]] = {}
+    for p in poses:
+        pose = ", ".join(f"{k}={round(v):+d}" for k, v in p.angles_deg.items())
+        groups.setdefault(p.reason, []).append(pose)
+    return "not solved: " + " · ".join(
+        f"{why} at {'; '.join(at[:cap])}"
+        + (f"; and {len(at) - cap} more" if len(at) > cap else "")
+        + f" ({len(at)} pose{'s' * (len(at) != 1)})"
+        for why, at in groups.items()
+    )
+
+
 class Finding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -172,17 +198,19 @@ class Finding(BaseModel):
     cluster_root: str | None = None
     cluster_members: tuple[str, ...] = ()
     # Preflight stage identity (per the preflight contract). Record-check findings leave this
-    # None; render groups/labels only when set. Additive to report.py — not a
+    # None; render groups/labels only when set. Additive to report.py - not a
     # lockfile/schema change, no further sign-off.
     stage: int | None = None
     # The alternatives half of the advice sentence.
-    # Additive to report.py, same pattern as cluster_root/stage above — not a
+    # Additive to report.py, same pattern as cluster_root/stage above - not a
     # lockfile/schema change. Empty for every finding except a rail_power
     # budget violation.
     alternatives: tuple[Alternative, ...] = ()
     # A rule whose number has no traced source. Shown, never judged: verdict,
     # exit code and --strict ignore it.
     advice_unsourced: bool = False
+    # A solved closed loop's grid poses that got no number; shown by `check --all`.
+    unsolved_poses: tuple[UnsolvedPose, ...] = ()
 
     @model_validator(mode="after")
     def _keep_compared_magnitudes_visibly_distinct(self) -> Self:
@@ -221,7 +249,7 @@ class ScoredRecord(BaseModel):
     Findings only ever carry problems and blind spots; this is the missing
     "it agrees" half. ``quantity`` is the contract path (exact-text toggle
     only); ``observed``/``expected``/``margin`` are already plain words for
-    direct rendering — never a quantity path or code identifier.
+    direct rendering - never a quantity path or code identifier.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -234,12 +262,13 @@ class ScoredRecord(BaseModel):
     # Typed magnitudes, optional (mirrors Finding.observed_quantity/expected_quantity):
     # a preflight band/limit pass can carry the compared numbers so a reader
     # (health.py) can show the band without re-deriving it. Record checks never
-    # set these — plain strings remain their whole story.
+    # set these - plain strings remain their whole story.
     observed_quantity: Quantity | None = None
     expected_quantity: Quantity | None = None
     uncertainty: Quantity | None = None
     # Longer explanation kept for the JSON; the one-line title never prints it.
     detail: str | None = None
+    unsolved_poses: tuple[UnsolvedPose, ...] = ()  # as on Finding
 
 
 class CGContributor(BaseModel):
@@ -267,8 +296,10 @@ class CGReport(BaseModel):
     positioned_mass_kg: float
     contributors: list[CGContributor]
     limitation: str | None = None
+    # The part of `limitation` that leaves the total mass short (CG-only gaps are not in it).
+    mass_limitation: str | None = None
     # The budget's own declared total. Without it, coverage can only be measured
-    # against the model — a denominator that is itself the thing in question, so
+    # against the model - a denominator that is itself the thing in question, so
     # a lockfile holding 3% of an aeroplane reported "100% positioned" and GO.
     budget_limit_kg: float | None = None
 
@@ -283,12 +314,12 @@ class RecordReport(list[Finding]):
     ``scored`` is the presence-floor denominator: how many
     checks compared populated operands and reached a pass or violation.
     ``None`` means the caller did not compute a denominator. ``scored_keys``
-    names record-check declarations when set — a violation whose quantity is
+    names record-check declarations when set - a violation whose quantity is
     in ``scored_keys`` is a comparison (it counts toward ``scored``); a
     violation whose quantity is NOT in ``scored_keys`` (reference integrity,
     duplicate-identity, structure drift…) was never compared to a second
     source and does not. The identity ``scored == len(scored_records) +
-    comparison_violations`` holds — reference/structure
+    comparison_violations`` holds - reference/structure
     violations are reported on their own line, never folded into "do not
     add up".
     """
@@ -301,6 +332,9 @@ class RecordReport(list[Finding]):
         Any
     ]  # items are actuator_case.ActuatorCaseReport; untyped so this module stays free of it
     accepted: list[Finding]
+    notes: list[str]  # plain lines after the verdict, never a finding
+    joint_torques: list[dict]  # check_gravity_reach's per-joint rows, for the check document
+    standing: dict | None
 
     def __init__(
         self,
@@ -311,8 +345,14 @@ class RecordReport(list[Finding]):
         scored_records: list[ScoredRecord] | None = None,
         actuator_case_reports: list[Any] | None = None,
         accepted: list[Finding] | None = None,
+        joint_torques: list[dict] | None = None,
+        standing: dict | None = None,
+        notes: list[str] | None = None,
     ) -> None:
         super().__init__(findings or [])
+        self.joint_torques = joint_torques or []
+        self.standing = standing  # check_standing_sweep's {"stance", "rows"}, for the check document
+        self.notes = notes or []
         # Findings the lockfile accepted on record (`Contract.accepted`): shown, never failing.
         self.accepted = list(accepted or [])
         self.information = information or []
@@ -370,7 +410,7 @@ def _render_cg(report: CGReport, console: Console) -> None:
     if report.cg_m is None and not positioned:
         count = len(report.contributors)
         console.print(
-            f"[cyan]INFO[/] {report.quantity} — not computable: none of the {count} "
+            f"[cyan]INFO[/] {report.quantity}: not computable: none of the {count} "
             f"contributors declares a mount position (sources: {report.sources})"
         )
         if report.limitation:
@@ -385,7 +425,7 @@ def _render_cg(report: CGReport, console: Console) -> None:
             f"partial {_vector(report.cg_m)} m in {frame} "
             f"from {report.positioned_mass_kg:.3f}/{report.total_mass_kg:.3f} kg"
         )
-    console.print(f"[cyan]INFO[/] {report.quantity} — {result} (sources: {report.sources})")
+    console.print(f"[cyan]INFO[/] {report.quantity}: {result} (sources: {report.sources})")
     if report.cg_m is not None:
         console.print(f"  coverage: {_cg_coverage(report)}")
     for contributor in report.contributors:
@@ -396,7 +436,7 @@ def _render_cg(report: CGReport, console: Console) -> None:
             position = f"at {_vector(contributor.position_m)} m"
             moment = f", m·r {_vector(contributor.moment_kgm or (0.0, 0.0, 0.0))} kg·m"
         console.print(
-            f"  contributor: {contributor.quantity} — "
+            f"  contributor: {contributor.quantity}: "
             f"{contributor.mass_kg:.3f} kg {position}{moment}"
         )
     if report.limitation:
@@ -462,35 +502,122 @@ def _cluster_root_finding(group: tuple[Finding, ...]) -> Finding | None:
     )
 
 
+_SHEET_UNIT = {"mass_total": "kg", "reach_m": "m", "payload_kg": "kg"}
+
+
+def observed_text(finding: Finding) -> str:
+    """``observed`` as printed. A datasheet comparison's bare model figure gains its unit here,
+    at print time: the stored text is what an accept row pins, so it never changes."""
+    unit = _SHEET_UNIT.get(finding.quantity.rsplit("/", 1)[-1])
+    if unit is None or not finding.quantity.startswith("datasheet/"):
+        return finding.observed
+    return re.sub(r"(URDF [^:]+: -?[\d.]+(?:e[+-]?\d+)?)(?=$| \()", rf"\1 {unit}", finding.observed, count=1)
+
+
+def _enforced(match: re.Match) -> str:
+    said = ", ".join(
+        f"{m[2].replace('_', ' ')} enforced by {m[1]}" if (m := re.fullmatch(r"(.+) \((\w+)\)", d)) else d
+        for d in match[1].split(", ")
+    )
+    return f"(declared: {said}; Lockwire cannot see that it is fitted)"
+
+
+# Field words read plainly, at print time in text output only: the stored observed and
+# expected (what an accept row pins, what JSON and the app carry) never change.
+_PLAIN = (
+    (re.compile(r"\(declared enforcement provenance: (.+?); metadata only; does not prove physical protection\)"), _enforced),
+    (re.compile(r" wire ampacity\b"), ", the safe current for this wire"),
+    (re.compile(r" published ampacity\b"), ", the published safe current for this wire"),
+    (re.compile(r"\bfree_air\b"), "in free air"),
+    (
+        re.compile("a device thermal ambient or a C envelope"),
+        "the temperature the robot works in, declared on any one device",
+    ),
+    # dropped only where the same line's observed side already says "free air": an enclosed
+    # wire must not read as if the in-air figure were its safe current
+    (re.compile(r"(free[ _]air\b.*?), wiring in air\)"), r"\1)"),
+    (re.compile(r"\b1 massless frames\b"), "1 massless frame"),
+    # a warning that called itself "normal" read as nothing to look at (round 3)
+    (re.compile(r"\(sensor/mount frames, normal\)"), "(sensor or mount frames: fine if none is a real part)"),
+    (
+        re.compile("no record-check comparison had both operands populated"),
+        "no check had both of its numbers declared yet",
+    ),
+    # a mesh simply missing inside the folder is also counted here
+    (
+        re.compile(r"\b(1 mesh file was|\d+ mesh files were) not inside the robot's package folder( at lock)?; their bytes"),
+        lambda m: f"{m[1]} missing or not inside the robot's package folder{m[2] or ''}; "
+        + ("its" if m[1].startswith("1 ") else "their") + " bytes",
+    ),
+    (re.compile(r"\bURDF sum of link masses\b"), "model file sum of link masses"),
+)
+
+
+def plain_text(text: str) -> str:
+    """``text`` with the field words in ``_PLAIN`` said plainly (numbers kept)."""
+    for pattern, said in _PLAIN:
+        text = pattern.sub(said, text)
+    return text
+
+
+def delta_words(delta: str) -> str:
+    """A finding's delta in words: "+3.79 A (+271%)" reads "off by +3.79 A, +271%";
+    a ratio ("1.8x the stall torque") reads "1.8 times that"."""
+    if delta[:1] not in "+-":  # "1.8x the stall torque": the line already names what it is a multiple of
+        return re.sub(r"^([\d.]+)x\b.*", r"\1 times that", delta)
+    return "off by " + re.sub(r" \((.+)\)$", r", \1", delta)
+
+
+def delta_text(delta: str) -> str:
+    """The delta as `check` appends it to a finding line: " (off by +3.79 A, +271%)"."""
+    return f" ({delta_words(delta)})"
+
+
+def _here(text: str) -> str:
+    """Text output shows a path inside the current folder the way the user typed it: relative."""
+    return text.replace(os.getcwd().rstrip(os.sep) + os.sep, "")
+
+
 def _render_finding_detail(
     finding: Finding,
     console: Console,
     *,
     observed_indent: str = "",
     metadata_indent: str = "  ",
+    why: bool = False,
+    commands_below: Collection[str] = (),
 ) -> None:
-    line = f"{observed_indent}observed {finding.observed}, expected {finding.expected}"
+    line = _here(
+        plain_text(f"{observed_indent}observed {observed_text(finding)}, expected {finding.expected}")
+    )
     if finding.delta:
-        line += f" (Δ {finding.delta})"
+        line += delta_text(finding.delta)
     console.print(line)
+    if why and finding.unsolved_poses:
+        console.print(f"{metadata_indent}{unsolved_line(finding.unsolved_poses)}", highlight=False)
     if finding.dependent:
         console.print(f"{metadata_indent}dependent: {finding.dependent}")
     if finding.owner:
         console.print(f"{metadata_indent}owner: {finding.owner}")
     if finding.source:
-        console.print(f"{metadata_indent}source: {finding.source}")
+        console.print(f"{metadata_indent}source: {_here(finding.source)}")
     console.print(f"{metadata_indent}action: {finding.action}")
-    if finding.next_command:
+    if finding.next_command and _here(finding.next_command) not in {_here(c) for c in commands_below}:
         # soft_wrap: a command stays one pasteable line at any width
         console.print(
-            f"{metadata_indent}run: {finding.next_command}",
+            f"{metadata_indent}run: {_here(finding.next_command)}",
             highlight=False,
             markup=False,
             soft_wrap=True,
         )
 
 
-def _render_finding_groups(groups: list[tuple[Finding, ...]], console: Console) -> None:
+def _render_finding_groups(
+    groups: list[tuple[Finding, ...]],
+    console: Console,
+    why: bool = False,
+    commands_below: Collection[str] = (),
+) -> None:
     # Text only: identical lone findings (same observed/expected, e.g. 12 joints at
     # "velocity 1000 rad/s") print once with a count; JSON and CSV keep every row.
     seen: dict[tuple, int] = {}
@@ -519,8 +646,8 @@ def _render_finding_groups(groups: list[tuple[Finding, ...]], console: Console) 
                     if finding.advice_unsourced
                     else _severity_tag(finding.severity)
                 )
-                console.print(f"{tag} {count[key]} findings (first: {finding.quantity}) — ", end="")
-                _render_finding_detail(finding, console)
+                console.print(f"{tag} {count[key]} findings (first: {finding.quantity}): ", end="")
+                _render_finding_detail(finding, console, why=why, commands_below=commands_below)
                 continue
         tag = _severity_tag(finding.severity)
         if finding.advice_unsourced:
@@ -529,7 +656,7 @@ def _render_finding_groups(groups: list[tuple[Finding, ...]], console: Console) 
         if finding.cluster_root is not None and len(members) > 1:
             console.print(
                 f"{tag} {finding.cluster_root} subsystem: {len(members)} members affected"
-                f" — {', '.join(members)}"
+                f": {', '.join(members)}"
             )
             for member_finding in group:
                 console.print(f"  {member_finding.quantity}:")
@@ -538,10 +665,12 @@ def _render_finding_groups(groups: list[tuple[Finding, ...]], console: Console) 
                     console,
                     observed_indent="    ",
                     metadata_indent="    ",
+                    why=why,
+                    commands_below=commands_below,
                 )
         else:
-            console.print(f"{tag} {finding.quantity} — ", end="")
-            _render_finding_detail(finding, console)
+            console.print(f"{tag} {finding.quantity}: ", end="")
+            _render_finding_detail(finding, console, why=why, commands_below=commands_below)
 
 
 @dataclass(frozen=True, slots=True)
@@ -550,13 +679,13 @@ class Verdict:
 
     ``render`` prints ``summary`` and returns ``exit_code``; the JSON document
     (``report_json``) reports ``code`` and these same counts. Deriving the
-    verdict twice — once for a terminal and once for a machine — is how a gate
+    verdict twice - once for a terminal and once for a machine - is how a gate
     ends up disagreeing with itself, so it is decided in exactly one place.
 
     ``NOT_SCORED`` is kept distinct from ``GO`` deliberately: a zero denominator
     is not clearance, and a consumer that cannot tell
-    the two apart will read vacuity as health. ``NOT_SCORED`` exits **3** —
-    distinct from GO 0, NO-GO 1 and REFUSED 2 — so a script can tell "nothing
+    the two apart will read vacuity as health. ``NOT_SCORED`` exits **3** -
+    distinct from GO 0, NO-GO 1 and REFUSED 2 - so a script can tell "nothing
     compared" from pass and fail without parsing the summary text.
     """
 
@@ -569,6 +698,31 @@ class Verdict:
     scored: int | None
 
 
+#: The verdict line's one separator: ``NO-GO: 2 violation(s), 0 warning(s)``. Every door that
+#: prints or splits the line uses this, so a different pick is a one-line change.
+VERDICT_SEP = ": "
+
+
+def verdict_text(summary: str) -> str:
+    """The verdict words of a summary line (``NO-GO``, ``GO with notes``): markup and counts dropped."""
+    return re.sub(r"\[[^\]]*\]", "", summary).strip().partition(VERDICT_SEP)[0]
+
+
+def advice_phrase(count: int) -> str:
+    """How every door says advice: counted apart, never as a warning ("" when there is none)."""
+    return f"{count} advice (not yet sourced, outside the verdict)" if count else ""
+
+
+def counts_text(findings: list[Finding]) -> str:
+    """The counts in check's words, for every door that lists them (CSV, CI summary, report)."""
+    v = verdict(findings)
+    advice = advice_phrase(sum(f.advice_unsourced for f in findings))
+    return (
+        f"{v.violations} violation(s), {v.warnings} warning(s), {v.not_scored} not scored"
+        + (f", {advice}" if advice else "")
+    )
+
+
 def verdict(findings: list[Finding]) -> Verdict:
     """Decide GO/NO-GO and the summary line, without printing anything."""
     judged = [f for f in findings if not f.advice_unsourced]
@@ -577,12 +731,16 @@ def verdict(findings: list[Finding]) -> Verdict:
     not_scored = sum(f.severity == "not_scored" for f in judged)
     scored = findings.scored if isinstance(findings, RecordReport) else None
     errors = getattr(findings, "errors", 0)
+    # advice stays outside the verdict but is said, so "no findings" never sits beside it
+    tip = advice_phrase(len(findings) - len(judged))
+    nothing_found = tip or "no findings"
+    tail = f" · {tip}" if tip else ""
 
     def decided(code: VerdictCode, summary: str) -> Verdict:
         return Verdict(
             code=code,
             exit_code=VERDICT_EXIT_CODES[code],
-            summary=summary,
+            summary=summary + ("" if tip in summary else tail),
             violations=violations,
             warnings=warnings,
             not_scored=not_scored,
@@ -592,30 +750,30 @@ def verdict(findings: list[Finding]) -> Verdict:
     if errors:
         return decided(
             "REFUSED",
-            f"\n[bold red]REFUSED[/] — {errors} plan assertion error(s)",
+            f"\n[bold red]REFUSED[/]{VERDICT_SEP}{errors} plan assertion error(s)",
         )
     if violations:
         return decided(
             "NO_GO",
-            f"\n[bold red]NO-GO[/] — {violations} violation(s), {warnings} warning(s)",
+            f"\n[bold red]NO-GO[/]{VERDICT_SEP}{violations} violation(s), {warnings} warning(s)",
         )
     # Presence floor: a zero denominator is never a pass, even
-    # with a warning riding along — "GO with notes" over nothing compared
+    # with a warning riding along - "GO with notes" over nothing compared
     # reads as clearance to a consumer that only checks for the word GO. This
     # must be decided before the warnings branch below, not after: box-A
     # review (b06f38d) caught a run with scored == 0 and a warning printing
     # "GO with notes", exit 0.
     #
     # ``scored`` is only ever an int here for a `RecordReport` (or subclass:
-    # `PreflightReport`, `PlanReport`) instance — each sets a real count in
+    # `PreflightReport`, `PlanReport`) instance - each sets a real count in
     # its own ``__init__``, never ``None``. ``scored`` is ``None`` only when
     # ``findings`` is a *plain* ``list[Finding]``, not a `RecordReport`:
     # `cli.baseline_findings_as_report` (a blessed-baseline diff has no
-    # scored/not_scored denominator to begin with — not a "nothing compared"
+    # scored/not_scored denominator to begin with - not a "nothing compared"
     # case, there is nothing to score there ever) and `gui.build_payload`'s
     # ``everything = record_findings + run_findings`` (list concatenation
     # drops the `RecordReport`/`PreflightReport` type even though both
-    # operands carry real counts — this loses information regardless of
+    # operands carry real counts - this loses information regardless of
     # whether anything was actually scored, so it is not provably a
     # nothing-compared case and is left as today's behaviour).
     # A preflight cap (an absent or under-floor device, a partial
@@ -623,14 +781,14 @@ def verdict(findings: list[Finding]) -> Verdict:
     # the findings themselves, so a plain list that concatenated a capped preflight
     # cannot launder it.
     caps = [
-        f"{f.observed}; "
+        f"{observed_text(f)}; "
         for f in judged
         if f.severity == "not_scored"
         and (
             f.quantity == "preflight/recording"
             # the lock names a model file that could not be read now (keyed on the
             # drift check's `expected`): every model check went silent, so no GO
-            or f.expected == "a readable URDF at the provenance path"
+            or f.expected == "a readable model file at the provenance path"
         )
     ]
     if scored == 0 or caps:
@@ -638,35 +796,37 @@ def verdict(findings: list[Finding]) -> Verdict:
         warning_phrase = f"{warnings} warning(s); " if warnings else ""
         return decided(
             "NOT_SCORED",
-            f"\n[bold yellow]NOT SCORED[/] — {nothing}{''.join(caps)}{warning_phrase}"
+            f"\n[bold yellow]NOT SCORED[/]{VERDICT_SEP}{nothing}{''.join(caps)}{warning_phrase}"
             f"{not_scored} check(s) not scored",
         )
     missing = getattr(findings, "missing_required_evidence", [])
     if getattr(findings, "profile", "analysis") == "powered-release" and missing:
         return decided(
             "REFUSED",
-            "\n[bold red]REFUSED[/] — required evidence missing: " + ", ".join(missing),
+            f"\n[bold red]REFUSED[/]{VERDICT_SEP}required evidence missing: " + ", ".join(missing),
         )
     if warnings:
-        return decided("GO_WITH_NOTES", f"\n[bold green]GO[/] with notes — {warnings} warning(s)")
+        return decided("GO_WITH_NOTES", f"\n[bold green]GO[/] with notes{VERDICT_SEP}{warnings} warning(s)")
     if scored is not None:
         if not_scored:
             return decided(
                 "GO",
-                f"\n[bold green]GO[/] — records agree ({scored} scored); "
+                f"\n[bold green]GO[/]{VERDICT_SEP}records agree ({scored} scored); "
                 f"{not_scored} check(s) not scored",
             )
-        return decided("GO", f"\n[bold green]GO[/] — records agree ({scored} scored), no findings")
+        return decided("GO", f"\n[bold green]GO[/]{VERDICT_SEP}records agree ({scored} scored), {nothing_found}")
     if not_scored:
         return decided(
             "GO",
-            f"\n[bold green]GO[/] — records agree; {not_scored} check(s) not scored",
+            f"\n[bold green]GO[/]{VERDICT_SEP}records agree; {not_scored} check(s) not scored",
         )
-    return decided("GO", "\n[bold green]GO[/] — records agree, no findings")
+    return decided("GO", f"\n[bold green]GO[/]{VERDICT_SEP}records agree, {nothing_found}")
 
 
-def verdict_headline(violations: int, warnings: int, unchecked: int, adds_up: int = 0) -> str:
-    """The one plain-words sentence for a verdict — shared by every door
+def verdict_headline(
+    violations: int, warnings: int, unchecked: int, adds_up: int = 0, scored: int | None = None
+) -> str:
+    """The one plain-words sentence for a verdict - shared by every door
     that renders it: `gui.py`'s HTML page (`_headline`) and `api.check`'s
     `CheckPayload.headline`. Reports what `verdict` already decided; does not
     recompute a verdict itself, and takes no `VerdictCode` because the wording
@@ -678,7 +838,8 @@ def verdict_headline(violations: int, warnings: int, unchecked: int, adds_up: in
             f"Don't power it on yet - {violations} {thing} "
             f"{'does' if violations == 1 else 'do'} not add up"
         )
-    if adds_up == 0:
+    # check's own denominator when known: a model check that matched is a comparison too
+    if (adds_up if scored is None else scored) == 0:
         return "Nothing could be compared yet"
     if warnings:
         note = "note" if warnings == 1 else "notes"
@@ -690,21 +851,22 @@ def verdict_headline(violations: int, warnings: int, unchecked: int, adds_up: in
 
 # The one exit-code table: `--help` for each gated command and README's table
 # (README.md:162-166) both render from this, so the two surfaces cannot drift
-# apart the way they did before — `preflight --help` naming 0/1/2 while
+# apart the way they did before - `preflight --help` naming 0/1/2 while
 # its own NOT_SCORED path exits 3.
 EXIT_CODE_TABLE: dict[str, dict[int, str]] = {
     "upgrade": {
-        0: "new current-version contract written; legacy file retained",
+        0: "new current-version contract written; legacy file retained (or the file is already current)",
         2: "refused source revision, version, contents, or output path",
     },
     "what-if": {
-        0: "comparison produced (see each side verdict)",
+        0: "comparison produced; the verdict after the change is not NO-GO",
+        1: "NO-GO after the change",
         2: "refused proposal or contract",
     },
     "check": {
         0: "GO / GO with notes",
         1: "NO-GO",
-        2: "contract could not be found, read, or parsed",
+        2: "the lockfile or model file could not be found, read or parsed, or no robot has that name",
         3: "NOT SCORED (nothing compared)",
     },
     "plan": {
@@ -728,8 +890,8 @@ EXIT_CODE_TABLE: dict[str, dict[int, str]] = {
         0: "reviewed",
         2: "refused (no contract, nothing declared there yet, or a bad --witness/--note)",
     },
-    # Pose and mount edits. Same shape as `declare` — they are the same
-    # writer with a narrower door — plus the refusals only these edits can hit.
+    # Pose and mount edits. Same shape as `declare` - they are the same
+    # writer with a narrower door - plus the refusals only these edits can hit.
     "place": {
         0: "placed",
         2: "refused (no contract, an unknown device/link, a missing/wrong --unit, "
@@ -759,7 +921,7 @@ EXIT_CODE_TABLE: dict[str, dict[int, str]] = {
         2: "REFUSED (the inbound direction is refused until a standard manifest format exists)",
     },
     "hw": {
-        0: "recorded (including honest undetermined routing)",
+        0: "recorded (also when it cannot say which entries the change touches)",
         2: "refused (no contract, or the event could not be recorded)",
     },
     "health": {
@@ -779,7 +941,7 @@ EXIT_CODE_TABLE: dict[str, dict[int, str]] = {
     },
     "start": {
         0: "the contract was written (or an existing one kept); no page is written",
-        1: "the URDF/SDF could not be parsed, or the contract could not be read or written",
+        1: "the URDF/SDF could not be parsed, no robot has that name, or the contract could not be read or written",
         2: "the URDF/SDF file was not found",
     },
 }
@@ -798,22 +960,25 @@ def render(
     *,
     unlocked: bool = False,
     more: str | None = None,
+    commands_below: Collection[str] = (),
 ) -> int:
     """Print information and findings; only violation/warning affect the exit path.
 
     ``unlocked``: the lock was built from the model just now, so nothing is "since lock".
     ``more``: print only violations and the counts, and name this command for the rest.
+    ``commands_below``: commands the caller prints next (the missing-inputs "How:" lines),
+    so a finding or a not-compared row does not print the same command again.
     Display only: the verdict and exit code still read every finding."""
     console = console or _console()
     shown = [f for f in findings if f.severity == "violation"] if more else findings
 
     # stage=None findings (record checks) keep the historical unlabelled grammar.
     # Staged preflight findings are grouped and labelled by stage identity.
-    # Findings lead (violations/warnings/not-scored — what someone came to see),
-    # then the information lane, then the verdict — never buried under INFO noise.
+    # Findings lead (violations/warnings/not-scored - what someone came to see),
+    # then the information lane, then the verdict - never buried under INFO noise.
     unstaged = [f for f in shown if f.stage is None]
     staged = [f for f in shown if f.stage is not None]
-    _render_finding_groups(_presentation_groups(unstaged), console)
+    _render_finding_groups(_presentation_groups(unstaged), console, not more, commands_below)
     for stage_id in sorted({f.stage for f in staged if f.stage is not None}):
         console.print(f"[bold]stage {stage_id}[/]")
         _render_finding_groups(
@@ -833,26 +998,32 @@ def render(
         # only a violation that IS a comparison (its quantity was
         # actually scored against a second source) belongs in "do not add up".
         # A dangling reference or a structure drift never compared anything, so
-        # it cannot have "not added up" — it is reported on its own line below.
+        # it cannot have "not added up" - it is reported on its own line below.
         comparison_violations = sum(
             1
             for finding in findings
-            if finding.severity == "violation" and finding.quantity in scored_keys
+            if finding.severity == "violation"
+            and not finding.advice_unsourced
+            and finding.quantity in scored_keys
         )
         reference_violations = sum(
-            1 for finding in findings if finding.severity == "violation" and _is_reference(finding)
+            1
+            for finding in findings
+            if finding.severity == "violation"
+            and not finding.advice_unsourced
+            and _is_reference(finding)
         )
         # A scored comparison can also end in a warning: the third bucket, so
         # add up + do not + warn always equals "scored N".
-        comparison_warnings = sum(
-            1
-            for finding in findings
-            if finding.severity == "warning" and finding.quantity in scored_keys
-        )
+        # advice (advice_unsourced) never counts in the verdict, so not here either
+        judged_warnings = [
+            f for f in findings if f.severity == "warning" and not f.advice_unsourced
+        ]
+        comparison_warnings = sum(f.quantity in scored_keys for f in judged_warnings)
         passed = {r.quantity for r in findings.scored_records}  # an accepted pass is in "add up"
         accepted = sum(f.quantity in scored_keys - passed for f in findings.accepted)
         if findings.scored == 0:
-            # A warning (an empty budget, say) is not a failed comparison — with
+            # A warning (an empty budget, say) is not a failed comparison - with
             # a zero denominator there is nothing to have agreed or disagreed,
             # so never render it as "do not add up".
             warning = "warning" if decision.warnings == 1 else "warnings"
@@ -876,26 +1047,55 @@ def render(
             if accepted:
                 parts.append(f"{accepted} accepted")
             if model_checks:
-                since = "no lockfile yet" if unlocked else "structure unchanged since lock"
+                since = "no lockfile yet" if unlocked else "links and joints unchanged since the lock"
                 parts.append(
                     f"1 model check ({since})" if unlocked or not edited else "1 model check"
                 )
+            # a rule breach (a brown-out, a fuse too big) is no failed comparison, so it is
+            # not in "do not": name it here, or "0 do not" beside a NO-GO reads as nothing wrong
+            other = sum(
+                1
+                for finding in findings
+                if finding.severity == "violation"
+                and not finding.advice_unsourced
+                and finding.quantity not in scored_keys
+                and not _is_reference(finding)
+            )
+            tail = f" · {other} other violation(s)" if other else ""
+            # a warning outside the scored comparisons (a boot pin, a sanity check) is named
+            # too, so "warn" here plus this tail equals the verdict line's warning count
+            if other_warnings := len(judged_warnings) - comparison_warnings:
+                tail += f" · {other_warnings} other warning(s)"
+            # the `accepted:` lines below that "N accepted" leaves out (outside the scored
+            # comparisons, or on one that also passed), so the two counts agree
+            if other_accepted := len(findings.accepted) - accepted:
+                tail += f" · {other_accepted} other accepted"
             console.print(
-                f"scored {findings.scored}: {', '.join(parts)} · {decision.not_scored} not scored"
+                f"scored {findings.scored}: {', '.join(parts)} · {decision.not_scored} not scored{tail}"
             )
         if reference_violations:
             noun = "reference" if reference_violations == 1 else "references"
             console.print(f"{noun}: {reference_violations} broken")
+    alike: dict[str, list[Finding]] = {}  # the same accepted paragraph prints once, with a count
     for finding in getattr(findings, "accepted", []):
-        console.print(
-            f"accepted: {finding.quantity}: {finding.observed}; {finding.action}",
-            highlight=False,
-            markup=False,
+        alike.setdefault(f"{plain_text(observed_text(finding))}; {finding.action}", []).append(finding)
+    for said, group in alike.items():
+        if len(group) > 1 and not more:  # --all lists each, as the collapsed line says
+            for finding in group:
+                console.print(f"accepted: {finding.quantity}: {said}", highlight=False, markup=False)
+            continue
+        where = (
+            f"{len(group)} checks (first: {group[0].quantity}; --all lists each)"
+            if len(group) > 1
+            else group[0].quantity
         )
+        console.print(f"accepted: {where}: {said}", highlight=False, markup=False)
     console.print(decision.summary)
+    for note in getattr(findings, "notes", ()):
+        console.print(note, highlight=False, markup=False, soft_wrap=True)
     gaps = not_compared(findings)
     if gaps:
-        console.print(f"Not compared yet ({len(gaps)}):", highlight=False)
+        console.print(f"Not scored ({len(gaps)}):", highlight=False)
     same = {}  # identical reasons print once with a count (text only)
     for gap in gaps:
         same.setdefault(gap["reason"], []).append(gap)
@@ -904,13 +1104,13 @@ def render(
             if same[gap["reason"]][0] is not gap:
                 continue
             line = (
-                f"  {len(same[gap['reason']])} checks: {gap['reason']} (first: {gap['quantity']})"
+                f"  {len(same[gap['reason']])} checks: {plain_text(gap['reason'])} (first: {gap['quantity']})"
             )
         else:
-            line = f"  {gap['quantity']}: {gap['reason']}"
-        if gap["next_command"] and not more:
-            line += f" -> {gap['next_command']}"
-        console.print(line, highlight=False, markup=False, soft_wrap=" -> " in line)
+            line = f"  {gap['quantity']}: {plain_text(gap['reason'])}"
+        if gap["next_command"] and not more and _here(gap["next_command"]) not in {_here(c) for c in commands_below}:
+            line += f" -> {_here(gap['next_command'])}"
+        console.print(line, highlight=False, markup=False, soft_wrap=True if " -> " in line else None)
     if more and decision.warnings:
         noun = "warning" if decision.warnings == 1 else "warnings"
         console.print(
@@ -954,15 +1154,15 @@ def strict_exit(
     return exit_code
 
 
-#: The graph-layout JS shared by this page and the HTML report (report_html.py) —
+#: The graph-layout JS shared by this page and the HTML report (report_html.py) -
 #: one BFS-banded, parent-grouped, wrapping layout and one box-avoiding edge
-#: router, so a graph never looks different — or overlaps — depending on which
+#: router, so a graph never looks different - or overlaps - depending on which
 #: page drew it. Embedded verbatim into both documents' __GRAPH_LAYOUT_JS__ slot.
 GRAPH_LAYOUT_JS = """function layout(src,W,H){
   const nodes=src.nodes.map(n=>({...n})),edges=src.edges;
   const byId={};nodes.forEach(n=>byId[n.id]=n);
   /* Both lines have to fit. The sub line is monospace and is usually the longer of the
-     two — sizing off the title alone puts "12.6 V . cap 1000.00 W" outside its own box
+     two: sizing off the title alone puts "12.6 V . cap 1000.00 W" outside its own box
      on an ordinary rail. Ratios are the measured advances of the two faces, rounded up. */
   nodes.forEach(n=>{
     const title=n.label.length*7.2, sub=(n.sub||"").length*6.9;
@@ -1002,7 +1202,7 @@ GRAPH_LAYOUT_JS = """function layout(src,W,H){
     groups.forEach(g=>{
       const gw=g.nodes.reduce((a,n)=>a+n.w,0)+GAPX*(g.nodes.length-1);
       if(gw>W-PADX*2){
-        if(row.length){rows.push(row);row=[]}
+        if(row.length){rows.push({isRoot:isRoot,groups:row});row=[]}
         let sub=[],subW=0;
         g.nodes.forEach(n=>{const need=(sub.length?GAPX:0)+n.w;
           if(sub.length&&subW+need>W-PADX*2){rows.push({isRoot:isRoot,groups:[{parent:g.parent,nodes:sub}]});sub=[];subW=0}
@@ -1040,7 +1240,7 @@ GRAPH_LAYOUT_JS = """function layout(src,W,H){
     placed.forEach(p=>{let x=p.left;p.g.nodes.forEach(n=>{n.x=x+n.w/2;n.y=y;x+=n.w+GAPX})})});
   return {nodes:nodes,edges:edges,byId:byId};
 }
-/* The straight parent-to-child line skips over whatever band sits between them —
+/* The straight parent-to-child line skips over whatever band sits between them;
    a rail feeding a device two rows down runs straight through a sibling's box on
    the row in between. Route around it: for every row the edge's y-span crosses,
    hold the path at a clear x (outside every box on that row, widened by 6px) for
@@ -1105,14 +1305,16 @@ def github_output(findings: list[Finding], contract: Path) -> list[str]:
         rel = path.relative_to(Path.cwd()) if path.is_relative_to(Path.cwd()) else path
         line = None if source else _lockfile_line(contract, f.quantity)
         where = f"file={_gh(str(rel), True)}" + (f",line={line}" if line else "")
-        message = f"{f.quantity}: {f.observed} — expected {f.expected}"
+        message = plain_text(f"{f.quantity}: {observed_text(f)}, expected {f.expected}")
         if f.next_command:
             message += f"; run: {f.next_command}"
         level = "error" if f.severity == "violation" else "warning"
+        if f.advice_unsourced:  # advice is no warning: a notice, as check counts it
+            level, message = "notice", f"advice (not yet sourced, outside the verdict): {message}"
         out.append(f"::{level} {where}::{_gh(message)}")
     not_scored = verdict(findings).not_scored
     if not_scored:
-        out.append(f"::notice::{not_scored} check(s) not compared — see the job summary")
+        out.append(f"::notice::{not_scored} not scored: see the job summary")
     return out
 
 
@@ -1123,16 +1325,16 @@ def github_summary(findings: list[Finding], exit_code: int | None = None) -> str
     def cell(text: str | None) -> str:
         return (text or "").replace("|", "\\|").replace("\n", " ")
 
+    shown = [f for f in findings if f.severity in ("violation", "warning")]
+    run = any(f.next_command for f in shown)  # no command to run anywhere: no empty "run" column
     rows = [
-        f"| {'advice: not yet sourced' if f.advice_unsourced else f.severity} | {cell(f.quantity)} | {cell(f.observed)} | {cell(f.expected)} | "
-        f"{'`' + cell(f.next_command) + '`' if f.next_command else ''} |"
-        for f in findings
-        if f.severity in ("violation", "warning")
+        f"| {'advice: not yet sourced' if f.advice_unsourced else f.severity} | {cell(f.quantity)} | {cell(plain_text(observed_text(f)))} | {cell(plain_text(f.expected))} |"
+        + (f" {'`' + cell(f.next_command) + '`' if f.next_command else ''} |" if run else "")
+        for f in shown
     ]
     parts = [
-        f"## Lockwire: {verdict_word(decision.code)}",
-        f"scored {decision.scored if decision.scored is not None else '-'}"
-        f" · not compared {decision.not_scored}",
+        f"## Lockwire: {verdict_text(decision.summary)}",  # "GO with notes", as printed
+        f"scored {decision.scored if decision.scored is not None else '-'} · {counts_text(findings)}",
     ]
     if exit_code and decision.code in ("GO", "GO_WITH_NOTES"):
         parts.append(
@@ -1141,16 +1343,16 @@ def github_summary(findings: list[Finding], exit_code: int | None = None) -> str
     if rows:
         parts += [
             "",
-            "| severity | quantity | observed | expected | run |",
-            "|---|---|---|---|---|",
+            "| severity | quantity | observed | expected |" + (" run |" if run else ""),
+            "|---|---|---|---|" + ("---|" if run else ""),
         ]
         parts += rows
     accepted = getattr(findings, "accepted", [])
     if accepted:
         parts += ["", "### Accepted"] + [
-            f"- {f.quantity}: {f.observed}; {f.action}" for f in accepted
+            f"- {f.quantity}: {plain_text(observed_text(f))}; {f.action}" for f in accepted
         ]
     not_scored = [f for f in findings if f.severity == "not_scored"]
     if not_scored:
-        parts += ["", "### Not compared"] + [f"- {f.quantity}: {f.observed}" for f in not_scored]
+        parts += ["", "### Not scored"] + [f"- {f.quantity}: {plain_text(observed_text(f))}" for f in not_scored]
     return "\n".join(parts) + "\n"

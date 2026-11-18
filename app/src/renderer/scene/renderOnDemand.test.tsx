@@ -42,4 +42,17 @@ describe("Canvas render on demand", () => {
     expect(renders).toBe(settled + 1);
     act(() => root.unmount());
   });
+
+  it("test_a_restored_webgl_context_draws_the_robot_again", () => {
+    let ctx!: ReturnType<typeof useScene>;
+    const Grab = () => { ctx = useScene(); return null; };
+    const root = createRoot(document.createElement("div"));
+    act(() => root.render(<Canvas parts={[]} sceneKey="k" lens="off"><Grab /></Canvas>));
+    runFrames(5);
+    const settled = renders;
+    ctx.renderer.domElement.dispatchEvent(new Event("webglcontextrestored"));
+    runFrames(5);
+    expect(renders).toBe(settled + 1);
+    act(() => root.unmount());
+  });
 });

@@ -1,6 +1,6 @@
 """The mechanism check: a **closed, named set** of mechanisms, answered in closed form.
 
-Version one answers exactly one kind — the **planar four-bar linkage** — by the
+Version one answers exactly one kind - the **planar four-bar linkage** - by the
 Grashof condition. With ``s`` the shortest link, ``l`` the longest and ``p``, ``q``
 the other two, a four-bar has a link that can fully rotate iff ``s + l <= p + q``.
 That is an exact algebraic statement about four measured lengths: no solver, no
@@ -22,7 +22,7 @@ downstream assembles a phrase out of these fields.
 Geometry, and why no forward kinematics is needed: a URDF joint's origin is its pose
 in the *parent* link's frame, and the *child* link's frame is the joint frame. So for
 a link that is the parent of one loop joint and the child of the other, the two
-attachment points in that link's own frame are ``joint.origin.xyz`` and the origin —
+attachment points in that link's own frame are ``joint.origin.xyz`` and the origin -
 and the link's length is the norm of that one vector. Reading a closed loop therefore
 needs nothing but the joints the contract already records (no second walk of the
 model, no re-parse of the URDF).
@@ -46,7 +46,7 @@ NAMED_SET: tuple[str, ...] = ("four-bar",)
 _PIN_JOINTS = frozenset({"revolute", "continuous"})
 
 #: A joint that declares its link goes all the way round. This is the *declaration*
-#: the measured geometry is compared against — the second operand, without which
+#: the measured geometry is compared against - the second operand, without which
 #: there is nothing to score.
 FULLY_ROTATING_TYPE = "continuous"
 
@@ -69,7 +69,7 @@ Verdict = Literal["rotates", "change-point", "locking", "not-scored"]
 class Mechanism:
     """One closed loop in the model, and what the closed form says about it.
 
-    ``s_plus_l``/``p_plus_q`` are ``None`` on every not-scored path — a declined
+    ``s_plus_l``/``p_plus_q`` are ``None`` on every not-scored path - a declined
     answer carries no numbers at all, so no reader can mistake a blank for a zero.
     """
 
@@ -96,7 +96,7 @@ def _kind_word(count: int) -> str:
 
 
 def _fmt(value: float) -> str:
-    """Lengths in metres, trailing zeros trimmed — the measured value, not a rounding."""
+    """Lengths in metres, trailing zeros trimmed - the measured value, not a rounding."""
     text = f"{value:.6f}".rstrip("0").rstrip(".")
     return text or "0"
 
@@ -125,7 +125,7 @@ def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
 def _loop_joints(joints: list[Joint]) -> list[Joint]:
     """The 2-core: strip links of degree < 2 until nothing more can be stripped.
 
-    What survives is exactly the part of the model that contains closed loops — a
+    What survives is exactly the part of the model that contains closed loops - a
     tree prunes away to nothing, which is why an ordinary robot produces no
     mechanism entries at all and this check costs a clean contract zero findings.
     """
@@ -166,7 +166,7 @@ def _cycle_order(component: list[Joint]) -> tuple[str, ...] | None:
     """Link names in cycle order, or ``None`` when the component is not one simple cycle.
 
     A component where some link carries three or more joints is two loops sharing a
-    link — a coupled linkage, which the named set does not hold.
+    link - a coupled linkage, which the named set does not hold.
     """
     neighbours: dict[str, list[str]] = {}
     for joint in component:
@@ -194,7 +194,7 @@ def find_loops(joints: list[Joint]) -> list[list[Joint]]:
 
 
 def _declared_fully_rotating(component: list[Joint]) -> tuple[str, ...]:
-    """Loop joints declared ``continuous`` — the operand the geometry is compared to."""
+    """Loop joints declared ``continuous`` - the operand the geometry is compared to."""
     return tuple(
         joint.name
         for joint in sorted(component, key=lambda j: j.name)
@@ -294,7 +294,7 @@ def _analyse_loop(component: list[Joint]) -> Mechanism:
             order,
             joint_names,
             "a four-bar whose joint axes the contract does not record, so it cannot be "
-            "confirmed planar — re-run init against a URDF that declares joint axes",
+            "confirmed planar: re-run init against a URDF that declares joint axes",
             declared,
         )
     reference = axes[0]
@@ -346,7 +346,7 @@ def _analyse_loop(component: list[Joint]) -> Mechanism:
             f"this four-bar is a change-point linkage: {sums} are equal, the boundary of the "
             f"Grashof condition. The shortest link ({crank}, {_fmt(shortest)} m) can turn all "
             "the way round, but the linkage passes through a folded position where its motion "
-            "is indeterminate — which branch it takes is not decided by the link lengths."
+            "is indeterminate: which branch it takes is not decided by the link lengths."
         )
     elif s_plus_l < p_plus_q:
         verdict: Verdict = "rotates"

@@ -24,7 +24,7 @@ function withLinks(ids: string[], joints: RobotJoint[]): string[] {
   return [...out];
 }
 
-/** CAD-02: the link solids, redrawn from THIS payload every time the links change. */
+/** The link solids, redrawn from THIS payload every time the links change. */
 function Primitives({ links }: { links: RobotLink[] }) {
   const ctx = useScene();
   useEffect(() => {
@@ -36,7 +36,7 @@ function Primitives({ links }: { links: RobotLink[] }) {
   return null;
 }
 
-/** TEAM-02: the older revision, laid over this one while the version diff is on. Nothing without it. */
+/** The older revision, laid over this one while the version diff is on. Nothing without it. */
 function Ghost() {
   const ctx = useScene();
   const { compare } = useViewState();

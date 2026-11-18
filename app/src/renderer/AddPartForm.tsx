@@ -17,7 +17,7 @@ export interface AddPartSubmission {
   witness: string;
   /** No rail fits: make this one first (typed by the user, never defaulted). */
   newRail?: { id: string; voltage: string; capacity: string };
-  /** CAD-05: also hang the part on a link; the device add stays, so its rail and draw are still checked. */
+  /** Also hang the part on a link; the device add stays, so its rail and draw are still checked. */
   attach?: StructureSubmission;
 }
 
@@ -32,7 +32,7 @@ export interface StructureSubmission {
   parent: string;
   xyz: [number, number, number];
   witness: string;
-  /** CAD-05: the part's own mounting frame (the engine applies its position and orientation); only sent when the part has one. */
+  /** The part's own mounting frame (the engine applies its position and orientation); only sent when the part has one. */
   frame?: string;
 }
 export interface MaterialChoice { name: string; density_kg_m3: number }
@@ -50,7 +50,7 @@ const signedNumber = (v: string) => /^-?\d+(\.\d+)?$/.test(v.trim());
 /** The engine's `add` fields for a Structure submission; a part's frame goes as its id, so the engine applies the frame's position and orientation. */
 export const structureFields = (s: StructureSubmission) => ({ name: s.name, parent: s.parent, frame: { xyz: s.xyz }, ...(s.frame && { frame_id: s.frame }), joint: { type: "fixed" }, ...(s.kind === "stock" ? { stock: s.part, dimensions: s.dimensions, ...(s.material && { material: s.material }) } : { part: s.part }) });
 
-/** CAD-05: the attach that follows a device add. Refused: undo the writes this add made (the device, and the rail when it made one) and say so. Returns the refusal text, or null when attached. */
+/** The attach that follows a device add. Refused: undo the writes this add made (the device, and the rail when it made one) and say so. Returns the refusal text, or null when attached. */
 export async function attachAfterDevice(a: { attach: StructureSubmission; revision: string; railMade: boolean; write: (revision: string, kind: string, id: string, fields: Record<string, unknown>, source: string) => Promise<{ written: boolean; refusal: string | null }>; undo: () => Promise<boolean> }): Promise<string | null> {
   const att = await a.write(a.revision, "attach", a.attach.name, structureFields(a.attach), "picked in the app");
   if (att.written) return null;
@@ -159,7 +159,7 @@ export function AddPartForm({ witness: prefill, catalog = EMPTY, onAdd, askWitne
   const [railName, setRailName] = useState("main");
   const [volt, setVolt] = useState("");
   const [cap, setCap] = useState("");
-  const [attachTo, setAttachTo] = useState(""); // CAD-05: "" = just add the part; a link = attach it there instead
+  const [attachTo, setAttachTo] = useState(""); // "" = just add the part; a link = attach it there instead
   const [attXyz, setAttXyz] = useState(["0", "0", "0"]);
   const [snap, setSnap] = useState(false);
   const [attachError, setAttachError] = useState(false);
@@ -265,7 +265,7 @@ export function AddPartForm({ witness: prefill, catalog = EMPTY, onAdd, askWitne
           <small className="add-part-help">The supply this part runs from. For a battery, the most it can deliver is volts × amp-hours × C rating.</small>
         </div>
       )}
-      {part && !rail && catalog.rails.length > 0 && <small className="add-part-help">{part.fits.length > 1 ? "Several rails match this part's voltage" : "No rail matches this part's voltage"} — pick one</small>}
+      {part && !rail && catalog.rails.length > 0 && <small className="add-part-help">{part.fits.length > 1 ? "Several rails match this part's voltage" : "No rail matches this part's voltage"}. Pick one.</small>}
       {canAttach && (
         <Disclosure summary="Attach to a link">
           <div className="declare-review">

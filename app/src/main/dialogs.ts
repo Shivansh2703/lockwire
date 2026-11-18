@@ -1,4 +1,4 @@
-// The file dialog, main process only (plan v8 line 430: "Open robot"). Electron's native dialog never runs in the renderer -- this module is the only
+// The file dialog, main process only ("Open robot"). Electron's native dialog never runs in the renderer -- this module is the only
 // caller of `dialog.showOpenDialog`, so a picked path always comes from the OS chooser, never
 // from a string the renderer made up.
 import { homedir } from "node:os";

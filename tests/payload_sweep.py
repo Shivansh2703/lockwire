@@ -105,7 +105,7 @@ def _declaring_class(model: type[BaseModel], field: str) -> type:
 #: ``BudgetRow`` also has ``value``/``unit``/``kind``, and its ``kind`` is a
 #: rail category, not a number-kind — so "has the three fields" would have
 #: silently excused two real rows.
-#: A box adding a new self-kinding record and forgetting this tuple gets a red
+#: A change adding a new self-kinding record and forgetting this tuple gets a red
 #: from ``test_every_number_in_the_union_carries_its_kind`` naming both
 #: remedies, which is the failure we want.
 SELF_KINDED: tuple[type[BaseModel], ...] = (Figure, Alternative)
@@ -198,8 +198,9 @@ STRING_FIGURE_EXEMPTIONS: dict[str, str] = {
     "ScoredRecord.observed": "existing checker prose; observed_quantity is its typed twin",
     "ScoredRecord.expected": "existing checker prose; expected_quantity is its typed twin",
     "ScoredRecord.margin": "existing checker comparison margin prose",
+    "MissingInput.covers": "missing.py's plain words for what an item covers, e.g. '3 links', '1 device'",
     # producer-owned prose: checks.py assembles number + words at ~20 sites
-    "AddsUpRow.margin": "checks.py builds `<magnitude> <words>` at ~20 sites (its box, not this one)",
+    "AddsUpRow.margin": "checks.py builds `<magnitude> <words>` at ~20 sites (a separate sweep, not this one)",
     "AddsUpRow.name": "gui._scored_title's sentence, built from the same check-record prose",
     "AddsUpRow.text": "`<observed> vs <expected>`, both already strings on the check record",
     # producer-owned prose: report.py's human rendering, whose typed twins
@@ -213,7 +214,7 @@ STRING_FIGURE_EXEMPTIONS: dict[str, str] = {
     # sentences that open with a count
     "Card.title": "a sentence — '1 cable has no speed written down'",
     "Card.body": "a sentence — '2 checks here could not run, on ...'",
-    "PagePayload.qualifier": "a sentence — '8 things add up · 9 things I couldn't check'",
+    "PagePayload.qualifier": "a sentence — '8 things add up · 9 not scored'",
     # opaque identifiers and blobs that happen to open with a digit
     "EditPayload.contract_sha": "a git object id — an identifier, not a magnitude",
     "EditPayload.revision": "raw contract-byte revision token — an identifier, not a magnitude",

@@ -36,6 +36,7 @@ from lockwire.schema import (
     DeviceInstance,
     Physical,
     Quantity,
+    SCHEMA_VERSION,
     load_contract,
 )
 
@@ -92,6 +93,7 @@ class Preview:
     knock_on: list[KnockOn] = field(default_factory=list)
     delta_g: float = 0.0
     notes: list[str] = field(default_factory=list)
+    looped: bool = False  # the joint is driven inside a solved closed loop
 
 
 def _grams(part: CatalogPart | None) -> float | None:
@@ -115,18 +117,48 @@ def _with_delta(c: Contract, joint, grams: float) -> Contract:
     return c.model_copy(update={"devices": devices})
 
 
-def _loads(c: Contract) -> dict[str, float]:
-    loads = gravity_loads(c)
+def _why(info: dict) -> str:
+    """The check's own not-scored reason, as a ': reason' suffix (empty when it gave none)."""
+    why = "; ".join(info.get("reasons", [])).replace("gravity reach not scored: ", "")
+    return f": {why}" if why else ""
+
+
+def _loads(c: Contract, path: Path | None, info: dict | None = None) -> dict[str, float]:
+    info = {} if info is None else info
+    loads = gravity_loads(c, path, info)
     if loads is None:
-        raise ValueError("gravity load cannot be computed for this model (see `lockwire check`)")
+        raise ValueError(
+            f"gravity load cannot be computed for this model{_why(info)} (see 'lockwire check')"
+        )
     return loads
 
 
-def _knock_on(c: Contract, j, parts: dict, before: dict, after: dict) -> list[KnockOn]:
-    """One line per rotary joint above ``j``, load before -> after and its status."""
-    rows, by_child = [], {x.child: x for x in c.model.joints}
-    up = by_child.get(j.parent)
-    while up is not None:
+def _above(c: Contract, j) -> list:
+    """The joints above ``j`` on the way to the root, nearest first."""
+    by_child = {x.child: x for x in c.model.joints}
+    out, up = [], by_child.get(j.parent)
+    while up is not None and up not in out:
+        out.append(up)
+        up = by_child.get(up.parent)
+    return out
+
+
+def _same(a: dict[str, float], b: dict[str, float]) -> bool:
+    return a.keys() == b.keys() and all(abs(a[k] - b[k]) <= 1e-9 * max(1.0, abs(b[k])) for k in a)
+
+
+def _knock_on(
+    c: Contract, j, parts: dict, before: dict, after: dict, loop: list[str] = ()
+) -> list[KnockOn]:
+    """One line per rotary joint above ``j``, per other driven joint of its closed loop and per
+    other scored joint whose load the swap changed, load before -> after and its status."""
+    rows, above = [], _above(c, j)
+    beside = [
+        x for x in c.model.joints
+        if x.type in _ROTARY and x not in above and x is not j and x.name in before
+        and (x.name in loop or abs(after.get(x.name, before[x.name]) - before[x.name]) > 1e-9)
+    ]  # fmt: skip
+    for up in above + beside:
         if up.type in _ROTARY:
             row = KnockOn(up.name, before.get(up.name), after.get(up.name))
             stall = parts.get(servo_for(c.servo, up.name))
@@ -135,7 +167,6 @@ def _knock_on(c: Contract, j, parts: dict, before: dict, after: dict) -> list[Kn
                 row.was = status(stall.value, row.before)[0]
                 row.status, row.ratio = status(stall.value, row.after)
             rows.append(row)
-        up = by_child.get(up.parent)
     return rows
 
 
@@ -151,7 +182,11 @@ def _declared_supply(c: Contract, joint: str) -> tuple[float | None, str | None]
 
 
 def preview(
-    c: Contract, joint: str, part_id: str | None = None, catalog: Path | str | None = None
+    c: Contract,
+    joint: str,
+    part_id: str | None = None,
+    catalog: Path | str | None = None,
+    contract_path: Path | None = None,
 ) -> Preview:
     """Every catalog servo with a stall torque and a mass, ranked for ``joint``, and the
     knock-on above it for ``part_id`` (default: the top candidate). Offline, writes nothing."""
@@ -167,24 +202,56 @@ def preview(
     old_g = _grams(old)
     swap_dev = next((d for d in c.devices if d.id == device_id(joint)), None)
     placed = swap_dev.physical.mass.base() * 1000 if swap_dev and swap_dev.physical else 0.0
-    before = _loads(c)
+    info: dict = {}
+    before = _loads(c, contract_path, info)
     if joint not in before:
-        raise ValueError(f"{joint}'s gravity load is not scored (see `lockwire check`)")
+        # the check says nothing about a solved loop's free pins: no servo drives them
+        why = _why(info) or ": a free pin of a closed loop, which no servo drives"
+        raise ValueError(f"{joint}'s gravity load is not scored{why} (see 'lockwire check')")
     pv = Preview(joint, current, before[joint], [])
+    siblings = info.get("loop", {}).get(joint, ())
     runs: dict[str, dict[str, float]] = {}
     higher: set[str] = set()
     volts: set[str] = set()  # voltage range does not cover the supply
     bus: set[str] = set()
+    weak: set[str] = set()  # stall below the joint's effort limit: check would fail it
+    effort = j.limits.effort if j.limits else None
     top = old.numbers.get("input_voltage_max") if old else None
     sup, rail_id = _declared_supply(c, joint)
     if sup is None and top is not None:
         sup = top.value
+    deltas = {
+        p.id: _grams(p) - (old_g - placed) if old_g is not None else _grams(p)
+        for p in parts.values()
+        if p.id != current and p.numbers.get("stall_torque") is not None and _grams(p) is not None
+    }
+    flat = None  # True: no candidate's mass changes any load, so every one reuses ``before``
+
+    def cached(delta: float) -> dict[str, float]:
+        nonlocal flat
+        if joint not in info.get("loop", {}) or not deltas:
+            return _loads(_with_delta(c, j, delta), contract_path)  # open chain: as before
+        if flat is None:
+            # A loop solve is ~0.75 s, so solve only the two ends of the masses tried (baseline,
+            # which is delta 0, counts as one). Every mass sits at one point, so at a fixed pose a
+            # load is linear in the mass and a joint's peak is a max of |linear| = convex in it.
+            # Convex and equal at both ends and at 0 means equal everywhere between, so when
+            # neither extreme moves any load (tight tolerance) no candidate can.
+            # ponytail: assumes the check's pose search lands on the same poses for any mass; a
+            # candidate that changed a load only by moving that search is missed. Loops of the
+            # check are the ceiling; per-candidate solves are the fallback below.
+            ends = {max(0.0, *deltas.values()), min(0.0, *deltas.values())} - {0.0}
+            flat = all(
+                _same(_loads(_with_delta(c, j, d), contract_path), before) for d in ends
+            )
+        return before if flat else _loads(_with_delta(c, j, delta), contract_path)
+
     for p in parts.values():
         stall, grams = p.numbers.get("stall_torque"), _grams(p)
         if p.id == current or stall is None or grams is None:
             continue
         delta = grams - (old_g - placed) if old_g is not None else grams
-        runs[p.id] = loads = _loads(_with_delta(c, j, delta))
+        runs[p.id] = loads = cached(delta)
         flags = []
         if old and old.bus and p.bus and old.bus != p.bus:
             flags.append("different bus")
@@ -201,26 +268,33 @@ def preview(
             volts.add(p.id)
             flags.append(f"needs at least {plo.value:g} V, above your supply's {sup:g} V")
         elif sup and rated and rated.value > sup:
+            # the supply is not outside its range (both branches above): it runs, weaker
             higher.add(p.id)
             flags.append(
                 f"rated at {rated.value:g} V; your supply is {'' if rail_id else 'at most '}"
-                f"{sup:g} V, expect less (needs new supply)"
+                f"{sup:g} V, expect less torque"
             )
+        if effort and stall.value < effort:
+            # check fails a joint whose effort limit is above its servo's stall torque
+            weak.add(p.id)
+            flags.append(f"below this joint's {effort:g} N*m effort limit")
         if p.id not in public:
             flags.append("private")
         st, ratio = status(stall.value, loads.get(joint, 0.0))
         load = loads.get(joint, 0.0)
-        drops = any(k.dropped for k in _knock_on(c, j, parts, before, loads))
+        drops = any(k.dropped for k in _knock_on(c, j, parts, before, loads, siblings))
         cand = Candidate(p.id, p.label, stall.value, grams, load, st, ratio, flags, p.name, drops)
         pv.candidates.append(cand)
     # strong enough, then a voltage range that covers the supply (over-volting can damage a
-    # servo), then the same bus, then fit before tight, then same supply, then a candidate that
+    # servo), then the same bus, then a stall at least the joint's effort limit (else check
+    # fails the joint), then fit before tight, then same supply, then a candidate that
     # tips no joint above it, then cited, then lightest: the top row needs the fewest changes
     pv.candidates.sort(
         key=lambda x: (
             x.status == "too weak",
             x.id in volts,
             x.id in bus,
+            x.id in weak,
             RANK[x.status],
             x.id in higher,
             x.drops,
@@ -246,7 +320,7 @@ def preview(
     else:
         who = "no current servo" if old is None else f"{current} has no input voltage"
         pv.notes.append(
-            f"{who}, so supply voltage is unknown — stall figures are at each servo's rated voltage"
+            f"{who}, so supply voltage is unknown: stall figures are at each servo's rated voltage"
         )
     if sup and all(x.id in volts for x in pv.candidates):
         pv.notes.append(
@@ -261,24 +335,30 @@ def preview(
         pv.notes.append(
             "the new servo is lighter; no mass is removed, so loads are slightly overstated"
         )
-    pv.knock_on = _knock_on(c, j, parts, before, after)
+    pv.knock_on = _knock_on(c, j, parts, before, after, siblings)
+    pv.looped = joint in info.get("loop", {})
+    if pv.looped:
+        pv.notes.append(
+            f"{joint} is in a closed loop: the servo's mass is put on its {j.child} link and the "
+            "loop is solved again; the loop's other driven joints are listed with their loads"
+        )
     return pv
 
 
-@_locked_write
-def apply_swap(
+def swap_text(
     contract_path: Path,
     joint: str,
     part_id: str,
     *,
     catalog: Path | str | None = None,
-    dry_run: bool = False,
-    expected_revision: str | None = None,
-) -> tuple[Preview, EditResult]:
-    """Write the swap as one edit: the joint's exact `servo:` entry and one device on the child
-    link with the new-minus-old servo mass (replacing an earlier swap's device for this joint;
-    none when the new servo is lighter). The version line is never touched (an old file moves up only through `lockwire upgrade`)."""
-    pv = preview(load_contract(contract_path), joint, part_id, catalog)
+    pv: Preview | None = None,
+) -> tuple[Preview, EditResult, str, str, Contract]:
+    """The swap as text, nothing written: the joint's exact `servo:` entry and one device on the
+    child link with the new-minus-old servo mass (replacing an earlier swap's device for this
+    joint; none when the new servo is lighter). Returns (preview, result with the diff, the text
+    read, the text a swap writes, that text's contract). ``pv`` is a preview already made for this
+    part. The version line is never touched (an old file moves up only through `lockwire upgrade`)."""
+    pv = pv or preview(load_contract(contract_path), joint, part_id, catalog, contract_path)
     original_text, doc, style = _load_doc_guarded(contract_path)
     contract = Contract.model_validate(doc)
     j = next(x for x in contract.model.joints if x.name == joint)
@@ -289,7 +369,9 @@ def apply_swap(
     elif old:
         servo["*"] = old
     doc["servo"] = servo
-    devices = doc.get("devices") or []
+    devices = doc.get("devices")
+    if devices is None:  # an explicit empty list is kept: it is the one in the file
+        devices = []
     at = next((i for i, d in enumerate(devices) if d.get("id") == device_id(joint)), None)
     if at is not None:
         del devices[at]
@@ -330,9 +412,11 @@ def apply_swap(
             [("mass", _flow_quantity(round(pv.delta_g, 3), "g")), ("mount_frame", j.child)]
         )
         entry["owner"] = owner
+        # a current lockfile records no witness for this derived part; older formats need one
+        witness = [] if contract.schema_version == SCHEMA_VERSION else [("witness", "w0")]
         entry["provenance"] = CommentedMap(
             [
-                ("witness", "w0"),
+                *witness,
                 ("source", "; ".join(sources)),
                 ("locked_at", dt.date.today()),
                 (
@@ -347,8 +431,8 @@ def apply_swap(
             doc["devices"] = devices
     new_text = _dump(doc, style)
     try:
-        Contract.model_validate(doc)
-    except Exception as error:  # noqa: BLE001 — refuse, never write an invalid file
+        swapped = Contract.model_validate(doc)
+    except Exception as error:  # noqa: BLE001 - refuse, never write an invalid file
         raise EditRefusal(f"swap of {joint}: {error}") from error
     diff = "".join(
         difflib.unified_diff(
@@ -366,6 +450,21 @@ def apply_swap(
     result = EditResult(
         diff=diff, lines=[f"swapped {joint} to {pv.chosen.name or part_id}", *pv.notes]
     )
+    return pv, result, original_text, new_text, swapped
+
+
+@_locked_write
+def apply_swap(
+    contract_path: Path,
+    joint: str,
+    part_id: str,
+    *,
+    catalog: Path | str | None = None,
+    dry_run: bool = False,
+    expected_revision: str | None = None,
+) -> tuple[Preview, EditResult]:
+    """Write ``swap_text`` as one edit."""
+    pv, result, original_text, new_text, _ = swap_text(contract_path, joint, part_id, catalog=catalog)
     if dry_run:
         return pv, result
     fd, tmp_name = tempfile.mkstemp(

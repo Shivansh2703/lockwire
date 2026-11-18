@@ -7,9 +7,9 @@
  *
  * this file composes no lens word and re-derives no geometry. It only narrows the check
  * payload's own `scene`/`graph` fields to the shapes `Canvas` already take, and decodes
- * nothing itself — `Canvas` -> `buildScene` -> `decode.ts` still own that.
+ * nothing itself: `Canvas` -> `buildScene` -> `decode.ts` still own that.
  *
- * `CheckPayload.scene` is `ScenePayload | SceneUnchanged | None` (api_payload.py) — only a real
+ * `CheckPayload.scene` is `ScenePayload | SceneUnchanged | None` (api_payload.py): only a real
  * `ScenePayload` (has `.parts`) has anything to draw; `SceneUnchanged` (`{unchanged: true}`) and
  * `null` both mean "nothing to show yet", same as no payload at all.
  */
@@ -38,6 +38,7 @@ import type { DeclareSubmitResult } from "./DeclareFace";
 import { isAddPartKey, typing } from "./shortcuts";
 import { ConnectionLines, ConnectionsPanel } from "./Connections";
 import { SwapPanel } from "./SwapPanel";
+import { jointTorque } from "./CheckPanel";
 import { CONN_LENSES, type ConnLens } from "./scene/connections";
 import { resetDesignView, setDesignView, useDesignView } from "./scene/designView";
 import {
@@ -64,8 +65,8 @@ declare global {
   }
 }
 
-// The hidden e2e's readback hook (E2-j2), same idiom as `lens-e2e-entry.tsx`'s
-// `__readCenterPixel` — but living in the REAL Canvas mount rather than a parallel test
+// The hidden e2e's readback hook, same idiom as `lens-e2e-entry.tsx`'s
+// `__readCenterPixel`: but living in the REAL Canvas mount rather than a parallel test
 // harness, so the pixel it reads comes from the app a person actually opens. Inert without a
 // caller: nothing here fires unless a test invokes it.
 let liveCtx: SceneContext | null = null;
@@ -117,9 +118,9 @@ function MountedCallouts({
   );
 }
 
-/** `PackedVectors.offset`/`.scale` are `null` on the wire when absent, and (E2-j2 rebase:
- * regenerated `api.gen.ts` via `lockwire api-types`, replacing this box's own provisional
- * hand-typed one -- rule 82) also optional now that the real schema marks them not-required;
+/** `PackedVectors.offset`/`.scale` are `null` on the wire when absent, and (the types are
+ * regenerated into `api.gen.ts` via `lockwire api-types`, replacing a provisional
+ * hand-typed one) also optional now that the real schema marks them not-required;
  * `decode.ts` reads `undefined` for "absent" instead. The only translation this file does. */
 function toPackedVectors(packed: {
   type: "i16";
@@ -178,7 +179,7 @@ function sceneOf(payload: Payload) {
 
 type TreeRow = { id: string; name: string; state?: Status; depth?: number; sel?: string; sels?: string[]; group?: { id: string; label: string; kind?: string } };
 const WORST: Status[] = ["bad", "warn", "go", "muted"];
-const DOT_WORDS: Partial<Record<Status, string>> = { bad: "fault", warn: "warn", go: "ok", muted: "Not checked" };
+const DOT_WORDS: Partial<Record<Status, string>> = { bad: "violation", warn: "warning", go: "ok", muted: "not checked" };
 const PART_STATE_WORDS: Record<string, string> = { fault: "Fails", warn: "Check", affected: "Affected", ok: "OK", unchecked: "Not checked", plain: "Not checked" };
 const stateValue = (state: string | undefined) => { const st = STATE[state as ApiScenePart["state"]] ?? "muted"; const w = PART_STATE_WORDS[state ?? "unchecked"]; return <span className="design-state"><i className={`kit-dot kit-s-${st}`} aria-hidden="true" />{w}</span>; };
 const KIND_WORDS: Record<string, string> = { device: "Part", rail: "Power rail", bus: "Data bus", link: "Link", other: "Structure" };
@@ -758,6 +759,7 @@ function DesignPanelBody({
   // A mesh named like the frame a device mounts on (the humanoid torso under its Jetson) is that frame, not part of the device.
   const partGroup = listRow?.group ?? part?.group; // the list's own group label
   const parentJoint = joint && jointsOf(payload).find((j) => j.child === joint.parent);
+  const checkedTorque = joint && payload && "adds_up" in payload ? jointTorque(payload.adds_up, joint.name) : null;
   // `details` is always visible; `more` sits behind "Details".
   const details: Row[] = groupHead
     ? [
@@ -790,6 +792,7 @@ function DesignPanelBody({
           { label: "Joint", value: joint.name },
           ...(joint.lower !== null || joint.upper !== null ? [{ label: "Lower", value: limit(joint.lower) }, { label: "Upper", value: limit(joint.upper) }] : []),
           ...(joint.effort !== null ? [{ label: "Effort", value: <Figure value={Number(joint.effort.toPrecision(4))} unit={joint.type === "prismatic" ? "N" : "N·m"} kind="declared" /> }] : []),
+          ...(checkedTorque ? [{ label: "Torque", value: checkedTorque }] : []), // Check's passed torque against this limit, the engine's numbers
         ]
       : [];
   if (joint) {

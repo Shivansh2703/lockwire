@@ -18,7 +18,7 @@ const cards = [
 ];
 const PAGE = {
   ...X500_CHECK_PAYLOAD, revision: "r", cards, joints: [joint("elbow"), joint("wrist")], links: [], scene: null,
-  faces: {}, health: null,
+  faces: {}, health: null, violations: 1, warnings: 1, unchecked: 0, // the engine's counts, what the screen shows
 };
 
 let container: HTMLDivElement;
@@ -38,7 +38,7 @@ afterEach(() => {
 describe("Check panel", () => {
   it("renders one row per finding with target chips and selecting one hands its joint to RobotView", async () => {
     Object.assign(window, { lockwire: {
-      startFromUrdf: vi.fn().mockResolvedValue({ started: false, opened: { opened: true, path: "/tmp/r.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } }),
+      startFromUrdf: vi.fn().mockResolvedValue({ started: false, opened: { opened: true, path: "/tmp/r.yaml", payload: { ...X500_CHECK_PAYLOAD, violations: 1, warnings: 1, unchecked: 0 }, checkPayload: X500_CHECK_PAYLOAD } }),
       getContractPage: vi.fn().mockResolvedValue(PAGE), getDeclareForm: vi.fn().mockResolvedValue({}), getHistory: vi.fn().mockResolvedValue([]),
     } });
     root = createRoot(container);
@@ -52,7 +52,7 @@ describe("Check panel", () => {
     expect(rows[0]!.parentElement!.querySelector(".kit-chip")!.getAttribute("title")).toBe("elbow"); // the full id is the tooltip
     let props = robotView.mock.lastCall![0];
     expect(props.selected).toBe("elbow"); // the first problem is open on landing: 0 taps to see it
-    expect(container.querySelector(".check-verdict")!.textContent).toBe("VerdictNO-GO1 fault · 1 warningCompare with datasheetRe-check"); // the verdict card leads the panel
+    expect(container.querySelector(".check-verdict")!.textContent).toBe("VerdictNO-GO1 violation · 1 warningCompare with datasheetRe-check"); // the verdict card leads the panel
     expect(container.querySelector(".check-verdict-actions")!.textContent).toBe("Compare with datasheetRe-check"); // one wrapping group: never clipped at 1280x800
 
     act(() => rows[1]!.click());
@@ -62,20 +62,20 @@ describe("Check panel", () => {
     const after = [...container.querySelectorAll<HTMLButtonElement>(".kit-finding")];
     expect(after.map((r) => r.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
     expect(after[1]!.classList.contains("is-selected")).toBe(true);
-    expect(container.querySelector(".check-count")!.textContent).toBe("1 fault · 1 warning");
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 violation · 1 warning");
     expect(container.querySelectorAll(".finding-fix")).toHaveLength(1); // detail opens inline on the one selected row
   });
 
   it("groups repeated findings into one row and lets a member be picked (check 1)", async () => {
     const same = (id: string) => ({ ...first!, severity: "violation" as const, shape: "devices/*/drives_joint", title: "drives_joint doesn't match", label: "Drives joint", targets: [{ kind: "joint" as const, id, label: id }] });
-    const grouped = { ...PAGE, verdict: "GO_WITH_NOTES", cards: [same("a"), same("b"), same("c")] };
+    const grouped = { ...PAGE, verdict: "GO_WITH_NOTES", warnings: 0, cards: [same("a"), same("b"), same("c")] };
     const onRecheck = vi.fn();
     root = createRoot(container);
     act(() => root.render(<CheckPanel payload={grouped as never} selected={null} onSelect={() => {}} onRecheck={onRecheck} />));
     const rows = [...container.querySelectorAll(".kit-finding")];
     expect(rows).toHaveLength(1);
     expect(rows[0]!.querySelector(".kit-finding-title")!.textContent).toBe("Drives joint x3");
-    expect(container.querySelector(".check-count")!.textContent).toBe("1 fault");
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 violation");
     expect(container.querySelector(".check-headline")!.classList).toContain("verdict-go-with-notes"); // packaged e2e reads it
     act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "Re-check")!.click());
     expect(onRecheck).toHaveBeenCalledTimes(1);
@@ -121,7 +121,7 @@ describe("Check panel", () => {
   });
 
   it("an open card with no figures still says what was found in words", () => {
-    const body = "Measured joint torque limit is unset (0) in the model; torque is not checked. Needs a positive joint effort limit.";
+    const body = "Found joint torque limit is unset (0) in the model; torque is not checked. Needs a positive joint effort limit.";
     const fig = (value: number) => ({ value, unit: "W", kind: "declared", by: "x" });
     const mk = (n: number, figures: boolean) => ({ ...first!, severity: "warning" as const, shape: `s${n}`, title: `t${n}`, label: `l${n}`, targets: [], body,
       observed: figures ? fig(1) : null, expected: figures ? fig(2) : null });
@@ -137,11 +137,12 @@ describe("Check panel", () => {
 
   it("folds not-checked cards into one disclosure and counts only problems", () => {
     const mk = (severity: "violation" | "not_scored", n: number) => ({ ...first!, severity, shape: `s${n}`, title: `t${n}`, label: `l${n}`, targets: [], quantity: n === 2 ? "devices/d/physical/mass" : "topology/x" });
-    const page = { ...PAGE, cards: [mk("violation", 0), mk("violation", 1), mk("not_scored", 2), mk("not_scored", 3), mk("not_scored", 4)] };
+    const page = { ...PAGE, cards: [mk("violation", 0), mk("violation", 1), mk("not_scored", 2), mk("not_scored", 3), mk("not_scored", 4)], violations: 2, warnings: 0, unchecked: 3,
+      findings: ["devices/d/physical/mass", "topology/x"].map((quantity) => ({ severity: "not_scored", quantity })) }; // each row has its finding: counted
     const onJump = Object.assign(vi.fn(), { can: () => true });
     root = createRoot(container);
     act(() => root.render(<CheckPanel payload={page as never} selected={null} onSelect={() => {}} onJump={onJump} onCompare={() => {}} />));
-    expect(container.querySelector(".check-count")!.textContent).toBe("2 faults · 3 not scored");
+    expect(container.querySelector(".check-count")!.textContent).toBe("2 violations · 3 not scored");
     expect(container.querySelector(".check-verdict")!.textContent).toContain("Compare with datasheet"); // whole-robot compare stays on the verdict card
     expect(container.querySelector(".check-list > .kit-disclosure summary")!.textContent).toBe("Not scored (3)");
     expect([...container.querySelectorAll(".finding-card > .kit-btn")].map((b) => b.textContent)).toEqual(["Declare it", "Declare it", "Declare it"]); // a part row says Declare it
@@ -149,36 +150,44 @@ describe("Check panel", () => {
     expect(container.querySelectorAll(".check-list > div > .kit-finding")).toHaveLength(2);
   });
 
-  it("frames without mass is a quiet note under the rows, not a counted problem", () => {
-    const raw = "WARNING model/links/massless_frames\n  observed   3 massless frames (sensor/mount frames, normal): base_footprint, imu_link, ...";
+  it("frames without mass is a warning row in the list, so the count line's warning has a row; never the one opened first", () => {
+    const raw = "WARNING model/links/massless_frames\n  observed   3 massless frames (sensor or mount frames: fine if none is a real part): base_footprint, imu_link, ...";
     const note = { ...first!, severity: "warning" as const, quantity: "model/links/massless_frames", raw, targets: [] };
     root = createRoot(container);
-    act(() => root.render(<CheckPanel payload={{ ...PAGE, cards: [cards[0]!, note] } as never} selected={null} onSelect={() => {}} />));
-    expect(container.querySelector(".check-count")!.textContent).toBe("1 fault");
-    expect(container.querySelectorAll(".kit-finding")).toHaveLength(1);
-    expect(container.querySelector(".check-note")!.textContent).toBe("3 frames without mass — normal for sensor and mount frames");
+    const onSelect = vi.fn();
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, warnings: 1, cards: [note, cards[0]!] } as never} selected={null} onSelect={onSelect} />));
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 violation · 1 warning");
+    expect([...container.querySelectorAll(".check-list .kit-finding-title")].map((t) => t.textContent)).toEqual([cards[0]!.title, "3 frames without mass, normal for sensor and mount frames"]);
+    expect(container.querySelector(".check-note")).toBeNull();
+    expect(onSelect).toHaveBeenCalledWith(1); // the violation opens first
   });
 
-  it("a warning-only robot counts an amber warning, never a bare finding or a red fault", () => {
+  it("a warning-only robot counts an amber warning, never a bare finding or a red violation", () => {
     root = createRoot(container);
-    act(() => root.render(<CheckPanel payload={{ ...PAGE, verdict: "GO", cards: [cards[1]!] } as never} selected={null} onSelect={() => {}} />));
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, verdict: "GO", violations: 0, cards: [cards[1]!] } as never} selected={null} onSelect={() => {}} />));
     expect(container.querySelector(".check-count")!.textContent).toBe("1 warning");
-    expect([container.querySelectorAll(".check-count-warn").length, container.querySelectorAll(".check-count-fault").length]).toEqual([1, 0]);
+    expect([container.querySelectorAll(".check-count-warn").length, container.querySelectorAll(".check-count-violation").length]).toEqual([1, 0]);
   });
 
-  it("faults count red and warnings amber, side by side", () => {
+  it("the count line is the engine's counts, not the number of rows drawn", () => {
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, verdict: "GO_WITH_NOTES", violations: 0, warnings: 6, unchecked: 13, cards: [cards[1]!] } as never} selected={null} onSelect={() => {}} />));
+    expect(container.querySelector(".check-count")!.textContent).toBe("6 warnings · 13 not scored");
+  });
+
+  it("violations count red and warnings amber, side by side", () => {
     root = createRoot(container);
     act(() => root.render(<CheckPanel payload={PAGE as never} selected={null} onSelect={() => {}} />));
-    expect([container.querySelector(".check-count-fault")!.textContent, container.querySelector(".check-count-warn")!.textContent]).toEqual(["1 fault", "1 warning"]);
+    expect([container.querySelector(".check-count-violation")!.textContent, container.querySelector(".check-count-warn")!.textContent]).toEqual(["1 violation", "1 warning"]);
   });
 
   it("accepted findings show as a muted Accepted section, counted, never red", () => {
     const accepted = [{ title: "Total mass off", observed: "1.554", reason: "battery not modelled", witness: "sam", date: "2026-11-06" }];
     root = createRoot(container);
-    act(() => root.render(<CheckPanel payload={{ ...PAGE, cards: [cards[0]!], accepted } as never} selected={null} onSelect={() => {}} />));
-    expect(container.querySelector(".check-count")!.textContent).toBe("1 fault · 1 accepted");
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, warnings: 0, cards: [cards[0]!], accepted } as never} selected={null} onSelect={() => {}} />));
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 violation · 1 accepted");
     expect(container.querySelector(".kit-disclosure summary")!.textContent).toBe("Accepted (1)");
-    expect(container.querySelector(".kit-disclosure .check-note")!.textContent).toBe("Total mass off: battery not modelled. Signed by sam, 2026-11-06");
+    expect(container.querySelector(".kit-disclosure .check-note")!.textContent).toBe("Total mass off: battery not modelled. Witness: sam, 2026-11-06");
   });
 });
 
@@ -216,9 +225,10 @@ describe("Check filter", () => {
     expect(opts.join("|")).not.toMatch(/rail\.|wire\.|5v/);
   });
 
-  it("a part with no name anywhere reads as its kind and id, e.g. rail 5v", () => {
+  it("a part with no name anywhere reads as the engine's id, never a name the app builds (rail 5v)", () => {
     render();
-    expect([...container.querySelectorAll(".check-filter option")].map((o) => o.textContent)).toContain("rail 5v");
+    const options = [...container.querySelectorAll(".check-filter option")].map((o) => o.textContent);
+    expect([options.includes("5v"), options.includes("rail 5v")]).toEqual([true, false]);
   });
 
   it("Clear resets the part filter too: all rows back and the part select reads Any part", () => {
@@ -242,16 +252,16 @@ describe("Check mode header", () => {
   it("a rail's budget card and its current-limit card are one row, both findings open", () => {
     const [b] = X500_CHECK_PAYLOAD.cards, amps = { title: "Over its current limit", raw: "7.04 A (mode: nominal)", observed: { ...b!.observed!, value: 7.04, unit: "A" } };
     root = createRoot(container);
-    act(() => root.render(<CheckPanel payload={{ ...PAGE, cards: [{ ...b!, cluster_root: "r" }, { ...b!, ...amps, cluster_root: "r" }] } as never} selected={0} onSelect={() => {}} />));
-    expect([container.querySelector(".check-count")!.textContent, container.querySelectorAll(".check-detail").length]).toEqual(["1 fault", 2]); // bites two red rows for one rail
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, warnings: 0, cards: [{ ...b!, cluster_root: "r" }, { ...b!, ...amps, cluster_root: "r" }] } as never} selected={0} onSelect={() => {}} />));
+    expect([container.querySelector(".check-count")!.textContent, container.querySelectorAll(".check-detail").length]).toEqual(["1 violation", 2]); // bites two red rows for one rail
   });
   it("one rail's per-mode findings are one row; its mode blocks lead with the typed numbers, the figures behind the exact finding", () => {
     root = createRoot(container);
-    act(() => root.render(<CheckPanel payload={X500_CHECK_PAYLOAD} selected={0} onSelect={() => {}} />));
+    act(() => root.render(<CheckPanel payload={{ ...X500_CHECK_PAYLOAD, violations: 1, unchecked: 4 }} selected={0} onSelect={() => {}} />));
     const rows = [...container.querySelectorAll(".kit-finding")].map((r) => r.textContent);
     expect(rows.filter((t) => /rail overloaded/.test(t!))).toHaveLength(1);
     expect(rows.join("|")).not.toMatch(/ mode/);
-    expect(container.querySelector(".check-count")!.textContent).toBe("1 fault · 4 not scored"); // plain words, no engine arithmetic ("2 modes")
+    expect(container.querySelector(".check-count")!.textContent).toBe("1 violation · 4 not scored"); // plain words, no engine arithmetic ("2 modes")
     expect(container.querySelectorAll(".check-detail .finding-alt").length).toBeGreaterThan(0);
     expect([...container.querySelectorAll(".check-detail .finding-alt")].every((a) => a.closest(".check-detail > .kit-disclosure") === null)).toBe(true); // Instead sits under Fix, not inside the exact-finding disclosure
     const heads = [...container.querySelectorAll(".check-detail")].map((d) => d.closest("details")!.querySelector("summary")!.textContent);
@@ -279,8 +289,8 @@ describe("Check raw output", () => {
     expect(container.textContent).not.toMatch(/Numbers not shown/);
   });
 
-  it("a fault with no drawn figures states its measured and needed values outside the closed disclosure", () => {
-    show({ raw, observed: null, expected: null, severity: "violation", body: "Measured 5 V sags to 4.65 V. Needs >= 4.75 V.", figure_note: null });
+  it("a violation with no drawn figures states its measured and needed values outside the closed disclosure", () => {
+    show({ raw, observed: null, expected: null, severity: "violation", body: "Found 5 V sags to 4.65 V. Needs >= 4.75 V.", figure_note: null });
     const p = [...container.querySelectorAll(".finding-body")].find((e) => /4\.65 V/.test(e.textContent!))!;
     expect(p.closest("details")).toBeNull();
   });
@@ -419,5 +429,25 @@ describe("Check panel, a GO that compared nothing physical", () => {
   });
   it("leaves a NOT SCORED document unchanged", () => {
     expect(draw({ verdict: "NOT_SCORED", headline: "Nothing could be compared yet", scored: 0, adds_up: [] })).not.toContain("Nothing physical compared");
+  });
+});
+
+describe("passed joint torques", () => {
+  const passed = (q: string, o: string, e: string, m: string) => ({ name: `${q}: ${o} of ${e.slice(3)} — ${m}`, text: `${o} vs ${e}`, margin: m, mark: null, raw: `model/joints/${q}/limits/effort\n  observed: ${o}\n  expected: ${e}\n  margin: ${m}` });
+  const adds_up = [passed("shoulder", "0.81 N*m", "<= 1.50 N*m joint effort limit", "0.69 N*m headroom"), { name: "wire: 6.42 A of 18.00 A", text: "", margin: "", mark: null, raw: "topology/wires/w/ampacity\n  observed: 6.42 A" }];
+  const pick = (value: string) => act(() => {
+    const s = container.querySelector<HTMLSelectElement>(".check-filter select")!;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(s, value);
+    s.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  it("stay out of the default view; 'Passed torques' lists each as the engine's line with its bar and margin", () => {
+    root = createRoot(container);
+    act(() => root.render(<CheckPanel payload={{ ...PAGE, adds_up } as never} selected={0} onSelect={() => {}} />));
+    expect(container.textContent).not.toContain("headroom");
+    pick("passed");
+    expect([...container.querySelectorAll(".kit-finding-title")].map((e) => e.textContent)).toEqual(["shoulder: 0.81 N*m of 1.50 N*m joint effort limit — 0.69 N*m headroom"]);
+    act(() => container.querySelector<HTMLButtonElement>(".kit-finding")!.click());
+    expect(container.querySelector(".check-limit-words")!.textContent).toBe("0.69 N*m headroom");
+    expect(container.querySelector<HTMLElement>(".check-limit")!.dataset.ratio).toBe("0.540");
   });
 });

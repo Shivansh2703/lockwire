@@ -23,26 +23,49 @@ a model with no lockfile, an agent calls `check_model(path="robot.urdf")`.
 
 ## Claude Code
 
+In your robot's repo, with its model in `robot.urdf`:
+
 ```bash
 claude mcp add lockwire -- uvx --from "lockwire[mcp]" lockwire mcp
+lockwire start robot.urdf
 lockwire agent-setup --claude
 ```
 
-The second line writes the rules, a pre-commit hook, a CI workflow, and the edit hook in
-`.claude/settings.json`. Before Claude Code writes or edits a URDF, SDF or `lockwire.yaml`,
-`lockwire hook-check` checks the new content against the lock. If it breaks the locked
-physics, the edit is blocked and the agent sees why:
+The second line locks the model's physics in `lockwire.yaml`. The third writes the rules, a
+pre-commit hook, a CI workflow, and the edit hook in `.claude/settings.local.json`. Before Claude Code
+writes or edits a URDF, SDF or `lockwire.yaml`, `lockwire hook-check` checks the new content
+against the lock. If it breaks the locked physics, the edit is blocked and the agent sees why.
+
+To try it, save the
+[SO-101 arm model](https://raw.githubusercontent.com/TheRobotStudio/SO-ARM100/a758567c3978dfeefe282ede0500085a48fe8f78/Simulation/SO101/so101_new_calib.urdf)
+as `robot.urdf` in an empty folder, run the last two lines above, and ask Claude Code to set the
+base link mass to 9.2. The edit is blocked with:
 
 ```text
 lockwire: this edit to robot.urdf breaks the locked physics. Undo it, or ask a human to re-lock:
-VIOLATION model/links/base_link/mass: model file has mass 9.2, expected locked mass 1.2
+VIOLATION model/links/base_link/mass: model file has mass 9.2 kg, expected locked mass 0.147 kg
+  the model changed: a person must review it and re-lock, not you
 ```
 
-The hook runs the same Python that ran `agent-setup`. If you ran `agent-setup` through `uvx`,
-the hook instead calls `lockwire` from your PATH, or `uvx lockwire` if there is none, so it
-keeps working after uv's cache is cleaned; with neither, model edits are blocked with a line
-saying so. If Lockwire can't check an edit to one of
-those files, the edit is blocked with one line naming the error; edits to other files always
+The hook runs the Lockwire of the Python that ran `agent-setup`. If that Python is gone, or
+you ran `agent-setup` through `uvx`, it uses a `lockwire` on your PATH, else `uvx lockwire`, so it
+keeps working after uv's cache is cleaned. It uses each one only if it runs (`--version` works),
+so a stale launcher left by an old install is skipped. If none runs, a model edit is blocked with
+one line:
+
+```text
+lockwire could not be run, so this robot-model edit is blocked: install or repair it (uv tool install lockwire, then lockwire agent-setup --claude) and retry, or remove the PreToolUse entry with lockwire hook-check from .claude/settings.local.json
+```
+
+The hook goes in `.claude/settings.local.json`, Claude Code's file for this machine
+only, because it can name a Python on your machine: add that file to `.gitignore` and commit the
+other files `agent-setup` writes; each teammate runs `lockwire agent-setup --claude`. Claude Code
+reads hooks from both `.claude/settings.json` and `.claude/settings.local.json`. A hook an older
+Lockwire wrote into `.claude/settings.json` is moved out the next time you run
+`lockwire agent-setup --claude`, which prints
+`moved the Lockwire edit hook out of .claude/settings.json into .claude/settings.local.json` and
+leaves the rest of that file as it was. If you edited that file by hand, it is left alone and the
+run names the entry to delete instead. If Lockwire can't check an edit to a URDF, SDF or `lockwire.yaml`, the edit is blocked with one line naming the error; edits to other files always
 go through. To remove the hook, delete the `PreToolUse` entry whose command contains
 `lockwire hook-check`.
 
@@ -98,10 +121,10 @@ format, so in Codex the pre-commit hook and CI catch a bad edit instead.
    lockwire declare lockwire.yaml <path> "<value>" --source "<where>" --witness "<name>"
    ```
 
-   The path is `/`-separated, for example:
+   The path is `/`-separated, for example, for a device `dev.pi5` in your lock:
 
    ```bash
-   lockwire declare lockwire.yaml devices/dev.pi5/power/draw "5 W" --source "bench meter" --witness "Maya Chen"
+   lockwire declare lockwire.yaml devices/dev.pi5/power/draw "5 W" --source "bench meter" --witness "Your Name"
    ```
 
    An agent never picks a witness name itself, and never re-locks (`lockwire start --force`)

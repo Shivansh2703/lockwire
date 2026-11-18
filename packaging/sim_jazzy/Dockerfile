@@ -1,15 +1,15 @@
-# CI-only image for E5.9/E5.10 (the simulator runs on GitHub, never on the
-# owner's Mac). Deliberately separate from packaging/motion/Dockerfile: that file
+# CI-only image for the simulator runs (they run on GitHub, never on a
+# developer's Mac). Deliberately separate from packaging/motion/Dockerfile: that file
 # is arm64-pinned, guarded behind an authorized-capture build, and bakes an
 # unrelated synthetic-pendulum admission fixture via a fixed ENTRYPOINT. This
 # image instead mounts the live repo read-only at /ws and runs
 # packaging/sim_jazzy/run_e5_10.sh, which drives the real
-# tests/fixtures/e5_10_real_scenarios/ fixtures (X500, ANYmal).
+# tests/fixtures/real_scenarios/ fixtures (X500, ANYmal).
 #
 # ubuntu-latest GitHub runners are amd64, so the base and every apt package
 # below are pinned to their amd64 build/digest, fetched directly from
 # registry-1.docker.io and packages.ros.org on 2026-09-28 (measured, not
-# assumed — see the worker report for how).
+# assumed: see the worker report for how).
 #
 # ponytail: this drops the elaborate dpkg-deb/apt-cache-show receipt
 # machinery in packaging/motion/Dockerfile. That machinery exists there to
@@ -44,7 +44,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # X500 flies on the stack its fixture pins -- PX4 SITL, not a hand-written
-# motor loop. tests/fixtures/e5_10_real_scenarios/sources.json pins PX4-Autopilot
+# motor loop. tests/fixtures/real_scenarios/sources.json pins PX4-Autopilot
 # release v1.16.2 (commit 54f0455...); that release's own docs pair it with
 # Gazebo Harmonic on Ubuntu 24.04 (docs.px4.io/v1.16/en/sim_gazebo_gz), which is
 # exactly the gz version the ros-jazzy-*-vendor packages above already provide.
@@ -146,7 +146,7 @@ RUN if [ "$LOCKWIRE_PX4" = 1 ]; then \
 COPY packaging/sim_jazzy/run-e5-10-admission.sh /opt/lockwire/run-e5-10-admission.sh
 COPY packaging/sim_jazzy/anymal_runner.py /opt/lockwire/anymal_runner.py
 COPY packaging/sim_jazzy/x500_runner.py /opt/lockwire/x500_runner.py
-COPY tests/fixtures/e5_10_real_scenarios /opt/lockwire/e5_10_real_scenarios
+COPY tests/fixtures/real_scenarios /opt/lockwire/real_scenarios
 RUN chmod +x /opt/lockwire/run-e5-10-admission.sh
 
 ENTRYPOINT ["/bin/bash"]

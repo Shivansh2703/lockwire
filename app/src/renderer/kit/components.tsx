@@ -16,6 +16,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { Icon, type IconName } from "./icons";
+import { useShown } from "../shown";
 
 export type Status = "go" | "warn" | "bad" | "muted";
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
@@ -225,6 +226,8 @@ export function FindingRow({
   selected,
   onSelect,
   onChip,
+  advice,
+  noWord,
 }: {
   severity: Status;
   title: ReactNode;
@@ -236,16 +239,20 @@ export function FindingRow({
   onSelect?: () => void;
   /** Chips become buttons, drawn after the row button (a button cannot hold buttons). */
   onChip?: (chip: KitChip) => void;
+  /** Advice outside the verdict: the quiet "i" mark, never the warning triangle or its word. */
+  advice?: boolean;
+  /** No visible state word (a row outside the counted check, e.g. the 3D view's placement). */
+  noWord?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const list = (chips ?? []).map((c) => (typeof c === "string" ? { label: c } : c)).flatMap((c) => (expanded && c.more ? c.more : [c]));
   const head = (
     <>
-      <span className={`kit-mark kit-s-${severity}`} aria-hidden="true">{MARK[severity] ? <Icon name={MARK[severity]} /> : <i className="kit-dot" />}</span>
-      <span className="kit-sr">{SEVERITY_WORD[severity]}: </span>
+      <span className={`kit-mark kit-s-${advice ? "muted" : severity}`} aria-hidden="true">{advice ? <b className="finding-info">i</b> : MARK[severity] ? <Icon name={MARK[severity]} /> : <i className="kit-dot" />}</span>
+      <span className="kit-sr">{advice ? "Advice" : SEVERITY_WORD[severity]}: </span>
       <span className="kit-finding-head">
         <span className="kit-finding-title">{title}</span>
-        {VISIBLE_WORD[severity] && <small className={`kit-finding-word kit-s-${severity}`} aria-hidden="true">{VISIBLE_WORD[severity]}</small>}
+        {!advice && !noWord && VISIBLE_WORD[severity] && <small className={`kit-finding-word kit-s-${severity}`} aria-hidden="true">{VISIBLE_WORD[severity]}</small>}
       </span>
     </>
   );
@@ -284,7 +291,7 @@ export function FindingRow({
 
 // Status never by colour alone: bad and warn get an icon and a word; a grey row says why it is grey.
 const MARK: Partial<Record<Status, IconName>> = { go: "ok", warn: "alert", bad: "fail" };
-const VISIBLE_WORD: Partial<Record<Status, string>> = { warn: "Check", bad: "Fails", muted: "Not checked" };
+const VISIBLE_WORD: Partial<Record<Status, string>> = { warn: "Check", bad: "Fails", muted: "Not scored" };
 const SEVERITY_WORD: Record<Status, string> = { go: "Pass", warn: "Warning", bad: "Fails", muted: "Info" };
 
 export type FigureKind = "declared" | "measured" | "derived" | "catalog" | "projected";
@@ -526,8 +533,9 @@ export function Notice({
 export const shortCommand = (c: string): string =>
   c.split(" ").map((t) => t.replace(/^\/(?:[^/\s]+\/)+([^/\s]+\/[^/\s]+)$/, "…/$1")).join(" ");
 
-// `display` overrides what shows; copy and the title always take the full `command`.
+// `display` overrides what shows; copy always takes the full `command`. The title and the default text show no machine path (`useShown`).
 export function CommandLine({ command, display }: { command: string; display?: string }) {
+  const shown = useShown();
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(command);
@@ -536,8 +544,8 @@ export function CommandLine({ command, display }: { command: string; display?: s
     }
   };
   return (
-    <span className="kit-cli" title={command}>
-      <code className="kit-cli-text">{display ?? shortCommand(command)}</code>
+    <span className="kit-cli" title={shown(command)}>
+      <code className="kit-cli-text">{display ?? shortCommand(shown(command))}</code>
       <IconButton icon="copy" label="Copy" onClick={copy} />
     </span>
   );

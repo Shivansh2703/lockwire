@@ -13,7 +13,7 @@ export type Level = "warn" | "bad" | "pass" | "selected";
 export interface Highlight { id: string; level: Level; /** whole-robot finding: a faint tint, no outline */ faint?: boolean }
 type V3 = [number, number, number];
 export interface Skeleton {
-  segments: { from: V3; to: V3; joint: string; /** the link this bone rides on when posed */ link: string }[];
+  segments: { from: V3; to: V3; joint: string; /** the link this bone rides on when posed */ link: string; /** ends at the link's centre of mass, not at a joint */ com?: true }[];
   nodes: { id: string; position: V3; axis: V3; link: string }[];
   base: V3 | null;
   /** The root link's name: the pedestal answers to it, so a fixed root joint lights something. */
@@ -26,7 +26,8 @@ const v3 = (p: number[]): V3 => [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0];
 const dist = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 /** Bone from each joint's parent-link origin to the joint, and joint to child-link origin
- * (zero-length ones skipped); a node per joint; a base at the root link. */
+ * (zero-length ones skipped); a node per joint; a base at the root link. A leaf link with no
+ * shape (a foot whose mesh files are missing) gets a bone from its origin to its centre of mass. */
 export function buildSkeleton(joints: RobotJoint[], links: RobotLink[]): Skeleton {
   const at = new Map(links.map((l) => [l.name, v3(l.position)]));
   const shaped = new Set(links.filter((l) => l.solids?.length).map((l) => l.name)); // a drawn primitive replaces the bone at that link
@@ -45,12 +46,28 @@ export function buildSkeleton(joints: RobotJoint[], links: RobotLink[]): Skeleto
   const pts = [...nodes.map((n) => n.position), ...at.values()];
   const extent = Math.max(0, ...[0, 1, 2].map((k) => Math.max(...pts.map((p) => p[k]!)) - Math.min(...pts.map((p) => p[k]!))));
   const parents = new Set(joints.map((j) => j.parent));
-  const leaf = joints.find((j) => !parents.has(j.child) && j.type !== "fixed");
+  // Only a joint a motor drives counts: a floating, planar or ball joint is how a file sets a base or body free.
+  const actuated = (j: RobotJoint) => j.type === "revolute" || j.type === "continuous" || j.type === "prismatic";
+  const leaves = joints.filter((j) => !parents.has(j.child) && actuated(j));
+  // An arm's gripper: one chain end (an arm, even a one-joint arm off the root), or several that all hang off one
+  // link some actuated joint carries (a gripper's fingers). Legs end on several links; wheels hang off a body no
+  // motor moves (a floating base does not count). Fingers on different links read as legs: the file cannot tell
+  // them apart (lead's decision).
+  const byChild = new Map(joints.map((j) => [j.child, j]));
+  const moved = (link: string): boolean => { const j = byChild.get(link); return !!j && (actuated(j) || (j.type === "fixed" && moved(j.parent))); };
+  const gripper = leaves.length === 1 || (leaves.length > 1 && leaves.every((j) => j.parent === leaves[0]!.parent) && moved(leaves[0]!.parent));
+  const leaf = gripper ? leaves[0] : undefined;
   const last = segments.at(-1);
   const tipAt = leaf && (at.get(leaf.child) ?? v3(leaf.position));
   const dir = last ? ([last.to[0] - last.from[0], last.to[1] - last.from[1], last.to[2] - last.from[2]] as V3) : null;
   const len = dir ? Math.hypot(...dir) : 0;
   const tip = leaf && tipAt && dir && len > 0 ? { position: tipAt, dir: dir.map((c) => c / len) as V3, joint: leaf.name, link: leaf.child } : null;
+  for (const l of links) {
+    const by = joints.find((j) => j.child === l.name);
+    const from = at.get(l.name)!;
+    if (!by || parents.has(l.name) || shaped.has(l.name) || l.name === tip?.link || !l.com || dist(from, v3(l.com)) <= 1e-6) continue;
+    segments.push({ from, to: v3(l.com), joint: by.name, link: l.name, com: true });
+  }
   return { segments, nodes, base: (root && at.get(root)) || null, baseLink: root, tip, radius: Math.max(extent * 0.05, 0.004) };
 }
 
@@ -72,7 +89,9 @@ export function skeletonMeshes(sk: Skeleton): THREE.Mesh[] {
     const r = taper(i, sk.segments.length);
     const a = new THREE.Vector3(...s.from);
     const d = new THREE.Vector3(...s.to).sub(a);
-    const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(d.length() - 2 * r, 1e-4), 6, 20), tint());
+    // A bone to a centre of mass is thinner with a flat end: it stops where the file's mass is, not at a foot.
+    const geo = s.com ? new THREE.CylinderGeometry(r * 0.6, r * 0.6, d.length(), 20) : new THREE.CapsuleGeometry(r, Math.max(d.length() - 2 * r, 1e-4), 6, 20);
+    const m = new THREE.Mesh(geo, tint());
     m.position.copy(a).addScaledVector(d, 0.5);
     m.quaternion.setFromUnitVectors(Y, d.normalize());
     m.userData = { partId: s.joint, bone: true, link: s.link }; // pickable, but only joints glow
@@ -396,7 +415,7 @@ export function applyHighlight(ctx: SceneContext, highlight: Highlight[], select
   paint(ctx);
 }
 
-/** Parts not in `ids` are hidden (not dimmed), and so is every id in `hidden`; null/empty bring them back. GRAPH-1 and the View menu both come through here (VIEW-1). */
+/** Parts not in `ids` are hidden (not dimmed), and so is every id in `hidden`; null/empty bring them back. GRAPH-1 and the View menu both come through here. */
 export function applyIsolate(ctx: Pick<SceneContext, "meshes"> & { needsRender?: boolean }, ids: readonly string[] | null, hidden: readonly string[] = []): void {
   const keep = ids && new Set(ids);
   const gone = new Set(hidden);

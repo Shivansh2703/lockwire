@@ -1,5 +1,5 @@
 // Theme follows the OS by default; a user's explicit choice overrides it and
-// persists. All colour VALUES live in theme.css — this file only ever
+// persists. All colour VALUES live in theme.css: this file only ever
 // reads/writes the `data-theme` attribute and the stored preference, never a
 // colour.
 export type Theme = "light" | "dark";
@@ -11,7 +11,7 @@ function storedTheme(): Theme | null {
     const value = window.localStorage.getItem(STORAGE_KEY);
     return value === "light" || value === "dark" ? value : null;
   } catch {
-    return null; // storage unavailable (private mode, disabled) — fall back to OS
+    return null; // storage unavailable (private mode, disabled): fall back to OS
   }
 }
 
@@ -25,7 +25,7 @@ export function currentTheme(): Theme {
 }
 
 /** Call once at startup. A prior explicit choice is re-applied; otherwise the
- * OS preference is left to `prefers-color-scheme` in theme.css — no attribute
+ * OS preference is left to `prefers-color-scheme` in theme.css: no attribute
  * is written, so a later OS change keeps following live. */
 export function initTheme(): void {
   const saved = storedTheme();

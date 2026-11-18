@@ -2,15 +2,15 @@
  * Decode the packed geometry `lockwire`'s sidecar ships for a scene (docs/wire-format.md).
  *
  * `PackedVectors` (positions, normals): little-endian int16, `value[i] = int16[i] * scale +
- * offset[i % 3]`. Normals omit `scale`/`offset` on the wire (both `null`/absent) — their
+ * offset[i % 3]`. Normals omit `scale`/`offset` on the wire (both `null`/absent): their
  * implicit scale is `1/32767` and offset `[0, 0, 0]`, since they already lie in [-1, 1].
  *
- * `PackedIndices`: little-endian, unsigned, `type` names the width (`"u16"` | `"u32"`) — a
+ * `PackedIndices`: little-endian, unsigned, `type` names the width (`"u16"` | `"u32"`): a
  * decoder must branch on it, never assume one.
  *
  * `translation` is a label-placement ORIGIN, never a transform: positions are already
  * world-space. `decodePartPositions` below decodes only `positions` and never reads
- * `translation` at all — that is what keeps the bug (applying it) out of this file rather
+ * `translation` at all: that is what keeps the bug (applying it) out of this file rather
  * than merely untested.
  */
 
@@ -50,7 +50,7 @@ export function decodePackedVectors(packed: PackedVectors): Float64Array {
   return out;
 }
 
-/** Branches on `type` — `"u16"` is `Uint16Array`-shaped, `"u32"` is `Uint32Array`-shaped. */
+/** Branches on `type`: `"u16"` is `Uint16Array`-shaped, `"u32"` is `Uint32Array`-shaped. */
 export function decodePackedIndices(packed: PackedIndices): Uint32Array {
   const bytes = base64ToBytes(packed.data);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -64,7 +64,7 @@ export function decodePackedIndices(packed: PackedIndices): Uint32Array {
 }
 
 /** A part's decoded vertex positions. `translation` is a label origin (docs/wire-format.md)
- * and is never applied here — the positions on the wire are already world-space. */
+ * and is never applied here: the positions on the wire are already world-space. */
 export function decodePartPositions(part: { positions: PackedVectors }): Float64Array {
   return decodePackedVectors(part.positions);
 }

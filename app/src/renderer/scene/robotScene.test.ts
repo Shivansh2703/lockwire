@@ -275,7 +275,7 @@ describe("framingDistance", () => {
   });
 });
 
-describe("skeleton under link solids (CAD-02)", () => {
+describe("skeleton under link solids", () => {
   it("draws no bone into a link that has its own solid, so the two do not overlap", () => {
     const shaped = links.map((l) => (l.name === "l1" ? { ...l, solids: [{ kind: "box" as const, size: [0.1, 0.1, 0.2], position: [0, 0, 0.1], rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1] }] } : l));
     const joint1 = (sk: ReturnType<typeof buildSkeleton>) => sk.segments.filter((s) => s.joint === "SHOULDER").length;
@@ -285,7 +285,7 @@ describe("skeleton under link solids (CAD-02)", () => {
 });
 
 
-describe("applyTheme with other decor in the scene (CAD-02)", () => {
+describe("applyTheme with other decor in the scene", () => {
   it("rebuilds the grid and leaves a support polygon group alone instead of throwing", () => {
     for (const name of ["canvas-a", "grid", "part", "glow-warn", "glow-bad", "go", "accent", "outline"]) document.documentElement.style.setProperty(`--${name}`, "#888888");
     const scene = new THREE.Scene();
@@ -351,5 +351,65 @@ describe("POSE-1 posing the scene", () => {
     expect(pos(ctx, "l4")).not.toEqual([0.5, 0, 0.3]);
     applyPose(ctx, joints, {}, linkOf);
     expect(ctx.meshes.map((m) => m.position.toArray())).toEqual(links.slice(2).map((l) => l.position));
+  });
+});
+
+describe("a robot without its mesh files", () => {
+  // trunk -> two legs, hip -> knee -> calf leaf; the calf's mass sits 0.1 below its knee.
+  const legJoints = ["l", "r"].flatMap((s, i) => [
+    { ...joint(`${s}_hip`, "trunk", `${s}_thigh`, [0, i ? -0.1 : 0.1, 0]), axis: [0, 1, 0] },
+    { ...joint(`${s}_knee`, `${s}_thigh`, `${s}_calf`, [0, i ? -0.1 : 0.1, -0.2]), axis: [0, 1, 0] },
+  ]);
+  const legLinks: RobotLink[] = [
+    { name: "trunk", position: [0, 0, 0] },
+    ...["l", "r"].flatMap((s, i) => {
+      const y = i ? -0.1 : 0.1;
+      return [{ name: `${s}_thigh`, position: [0, y, 0], com: [0, y, -0.1] }, { name: `${s}_calf`, position: [0, y, -0.2], com: [0, y, -0.3] }];
+    }),
+  ];
+  it("gives each leaf link a bone to its centre of mass, so a leg goes past its knee, and no gripper", () => {
+    const sk = buildSkeleton(legJoints, legLinks);
+    const calf = sk.segments.filter((s) => s.link === "l_calf");
+    expect(calf).toEqual([{ from: [0, 0.1, -0.2], to: [0, 0.1, -0.3], joint: "l_knee", link: "l_calf", com: true }]);
+    expect(sk.segments.filter((s) => s.com)).toHaveLength(2); // the thighs are not leaves: their bone ends at the knee
+    expect(sk.tip).toBeNull(); // two chain ends: legs, not an arm
+    const bone = skeletonMeshes(sk).find((m) => m.userData.link === "l_calf" && m.userData.bone)!;
+    expect(bone.geometry).toBeInstanceOf(THREE.CylinderGeometry); // flat end at the centre of mass, no rounded foot
+  });
+  it("leaves an arm as it was: its one chain end keeps the gripper and gets no extra bone", () => {
+    const withCom = links.map((l) => (l.name === "l4" ? { ...l, com: [0.6, 0, 0.3] } : l));
+    expect(buildSkeleton(joints, withCom)).toEqual(buildSkeleton(joints, links));
+  });
+});
+
+describe("the gripper hint", () => {
+  const at = (js: RobotJoint[], root = "base") => [{ name: root, position: [0, 0, 0] }, ...js.map((j) => ({ name: j.child, position: j.position }))];
+  const tip = (js: RobotJoint[], root?: string) => buildSkeleton(js, at(js, root)).tip?.joint ?? null;
+  const fingers = (a: string, b: string) => [...joints.slice(1), joint("FINGER_L", a, "fl", [0.55, 0.01, 0.3]), joint("FINGER_R", b, "fr", [0.55, -0.01, 0.3])];
+  const legs = (n: number) => Array.from({ length: n }, (_, i) => [joint(`hip${i}`, "trunk", `thigh${i}`, [i, 0.1, 0]), joint(`knee${i}`, `thigh${i}`, `calf${i}`, [i, 0.1, -0.2])]).flat();
+  it("is drawn on a single-ended arm, even a one-joint arm off the root", () => {
+    expect(tip([joint("J1", "base", "l1", [0, 0, 0.1])])).toBe("J1");
+    expect(tip(joints.slice(1))).toBe("WRIST");
+  });
+  it("is drawn on two fingers that hang off one link", () => expect(tip(fingers("l4", "l4"))).toBe("FINGER_L"));
+  // Design choice: fingers off different links look exactly like two legs in the file, and earlier only
+  // one of them got the hint anyway. No hint.
+  it("is not drawn on fingers that hang off different links", () => expect(tip(fingers("l3", "l4"))).toBeNull());
+  it("is not drawn on a quadruped's feet, a quadruped with a tail, or a rover's wheels", () => {
+    expect(tip(legs(4), "trunk")).toBeNull();
+    expect(tip([...legs(4), joint("tail", "trunk", "tl", [-0.3, 0, 0])], "trunk")).toBeNull();
+    const wheels = [{ ...joint("fix", "base", "body", [0, 0, 0.1]), type: "fixed" as const }, joint("L", "body", "wl", [0, 0.2, 0.1]), joint("R", "body", "wr", [0, -0.2, 0.1])];
+    expect(tip(wheels)).toBeNull();
+  });
+  // A body on a floating joint is how MuJoCo and SDF files set a mobile robot free; no motor moves it (round 3).
+  const free = (child: string): RobotJoint => ({ ...joint("free", "world", child, [0, 0, 0.3]), type: "floating" });
+  it("is not drawn on a rover or a quadruped on a floating base, nor on a lone free body", () => {
+    expect(tip([free("body"), joint("L", "body", "wl", [0, 0.2, 0.3]), joint("R", "body", "wr", [0, -0.2, 0.3])], "world")).toBeNull();
+    expect(tip([free("trunk"), ...legs(4)], "world")).toBeNull();
+    expect(tip([free("body")], "world")).toBeNull();
+  });
+  it("is still drawn on an arm on a floating base: two fingers on one link, or one free end", () => {
+    expect(tip([free("base"), ...fingers("l4", "l4")], "world")).toBe("FINGER_L");
+    expect(tip([free("base"), ...joints.slice(1)], "world")).toBe("WRIST");
   });
 });

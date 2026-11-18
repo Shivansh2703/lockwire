@@ -5,6 +5,7 @@ import { PRODUCT_NAME } from "../shared/branding";
 import type { Card } from "./checkFacePayload";
 import { Button, Disclosure, Field, Notice, Panel, StatusPill } from "./kit";
 import { VERDICT } from "./FindingList";
+import { useShown } from "./shown";
 
 /** The proposal under the Declare form: the value, source and witness about to be declared.
  * Compare sends it to the named read-only what-if route; it never measures, infers or writes. */
@@ -44,6 +45,7 @@ const pill = (verdict: string) => {
 };
 
 export function MeasureCompareDeclare({ observation: selected, contractPath, expectedRevision, onValue }: MeasureCompareDeclareProps) {
+  const shown = useShown(); // the diff names the robot file by its full path: shown relative, never this machine's folders
   const [compareStatus, setCompareStatus] = useState<"idle" | "comparing" | "ready" | "refused">("idle");
   const [comparison, setComparison] = useState<{
     current: string;
@@ -126,7 +128,7 @@ export function MeasureCompareDeclare({ observation: selected, contractPath, exp
             <p>
               scored {comparison.currentScored ?? "unscored"} {"→"} {comparison.proposedScored ?? "unscored"}; findings {comparison.currentFindings} {"→"} {comparison.proposedFindings}
             </p>
-            <pre className="finding-raw">{comparison.diff}</pre>
+            <pre className="finding-raw">{shown(comparison.diff)}</pre>
           </Disclosure>
         </div>
       )}

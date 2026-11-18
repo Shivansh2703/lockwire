@@ -1,7 +1,7 @@
 """The fact diff: what changed in the facts, not in the text.
 
 Two loaded contracts in, a diff document out. Nothing here reads git (that is
-``gitref.py``) and nothing here prints (``cli.py`` does that) — this module
+``gitref.py``) and nothing here prints (``cli.py`` does that) - this module
 only compares.
 
 The comparison is over the *validated* contract, not the YAML text, so a
@@ -17,10 +17,11 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 
 from lockwire.checks import run_record_checks
+from lockwire.edit import witness_words
 from lockwire.schema import Contract, load_contract
 
 # Path segments whose value *is* a declared ceiling. A number growing under one
-# of these is a limit being raised — the edit that makes a finding go away
+# of these is a limit being raised - the edit that makes a finding go away
 # without the robot changing, so it is called out rather than listed as one
 # more field change.
 LIMIT_SEGMENTS = frozenset(
@@ -44,7 +45,7 @@ LIMIT_SEGMENTS = frozenset(
 )
 
 # The entity collections a person thinks in. An added or removed row here is
-# reported once, by id — not as forty field changes underneath it.
+# reported once, by id - not as forty field changes underneath it.
 ENTITY_KINDS = (
     "devices",
     "device_models",
@@ -235,7 +236,7 @@ def render_lines(diff: FactDiff) -> list[str]:
     for change in diff.changes:
         provenance = ""
         if change.witness or change.source:
-            provenance = f"  [{change.witness or 'no name on record'} · {change.source or '?'}]"
+            provenance = f"  [{witness_words(change.witness) or 'no name on record'} · {change.source or '?'}]"
         flag = "  limit raised" if change.limit_raised else ""
         lines.append(f"~ {change.path}: {change.old} -> {change.new}{provenance}{flag}")
     for entry in diff.added:
@@ -249,12 +250,16 @@ def render_lines(diff: FactDiff) -> list[str]:
     return lines
 
 
-def load_contract_text(text: str) -> Contract:
-    """Load a contract held in memory (the version git handed back)."""
+def load_contract_text(text: str, lock: Path | None = None) -> Contract:
+    """Load a contract held in memory (the version git handed back). ``lock`` is the lock file
+    this text is a revision of: its model file is read beside it, never beside the temp copy."""
     with NamedTemporaryFile("w", suffix=".yaml", encoding="utf-8", delete=False) as handle:
         handle.write(text)
         temp = Path(handle.name)
     try:
-        return load_contract(temp)
+        contract = load_contract(temp)
     finally:
         temp.unlink(missing_ok=True)
+    if contract.model is not None:
+        object.__setattr__(contract.model, "_lockfile", lock and Path(lock).resolve())
+    return contract

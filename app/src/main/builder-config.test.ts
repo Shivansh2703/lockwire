@@ -21,7 +21,7 @@ function readBuildConfig(): {
   return JSON.parse(readFileSync(PKG_PATH, "utf8")).build;
 }
 
-describe("the packaging config in package.json's build key (E6-C2)", () => {
+describe("the packaging config in package.json's build key", () => {
   it("test_all_eight_electron_fuses_and_the_ad_hoc_reset_are_named", () => {
     const fuses = readBuildConfig().electronFuses;
     expect(fuses, "no build.electronFuses in package.json").toBeDefined();
@@ -88,7 +88,7 @@ describe("the packaging config in package.json's build key (E6-C2)", () => {
     // `mac.arch` field -- arch is only settable per-target
     // (`TargetConfiguration.arch`, core.d.ts). 7a4da3e's `mac.arch: [arm64]` was never
     // schema-validated (its own commit message: "accept line not run") and would have
-    // failed the same way this box's first attempt at that shape did:
+    // failed the same way an earlier attempt at that shape did:
     // "configuration.mac should be one of these: null". So the arch ceiling is carried
     // across as `target: [{ target: <existing>, arch: ["arm64"] }]`, not as a bare
     // `mac.arch` key.

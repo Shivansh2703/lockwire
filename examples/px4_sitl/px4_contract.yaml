@@ -16,7 +16,7 @@ device_models:
 devices:
   - id: px4.sensor_combined.0
     model: mdl.imu
-    owner: shivansh
+    owner: avery
     driver:
       topic: /fmu/out/sensor_combined
       nominal_rate_hz: 250.0
@@ -27,7 +27,7 @@ devices:
           unit: m/s^2
   - id: px4.battery_status.0
     model: mdl.battery
-    owner: shivansh
+    owner: avery
     driver:
       topic: /fmu/out/battery_status
       nominal_rate_hz: 5.0

@@ -6,7 +6,7 @@
     <script>
       // Renders the REAL scene once and reads back the center pixel with gl.readPixels — a
       // screenshot proves nothing was pasted over the window; a raw framebuffer read proves the
-      // mesh was actually drawn (see e2-pixel-check.ts's header comment).
+      // mesh was actually drawn (see e2e-pixel-check.ts's header comment).
       window.__runSceneCheck = function (partsJson) {
         var parts = JSON.parse(partsJson);
         var canvas = document.getElementById("c");

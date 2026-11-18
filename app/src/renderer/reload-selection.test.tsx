@@ -1,5 +1,5 @@
 /**
- * E2.2 — the Design tab's selected part survives a reopen when the part is still there,
+ * The Design tab's selected part survives a reopen when the part is still there,
  * and the missing/stale-revision refusal at App.tsx:157/175 writes nothing.
  *
  * Selection is `selectionStore.ts`'s own key: `DesignPanel` ties it to
@@ -176,7 +176,7 @@ async function openSelectEditAndReopen(
   await act(async () => {});
 }
 
-describe("E2.2 -- selection survives a reopen that keeps the part, and is cleared when it does not", () => {
+describe("selection survives a reopen that keeps the part, and is cleared when it does not", () => {
   it("keeps the selected part id when the reopened scene is unchanged", async () => {
     const writeContract = vi.fn().mockResolvedValue({ payload: { written: true, revision: "revision" } });
     const firstPage = page({ revision: "revision", hash: "hash", parts: [scenePart("frame")] });
@@ -196,7 +196,7 @@ describe("E2.2 -- selection survives a reopen that keeps the part, and is cleare
   });
 });
 
-describe("E2.2 -- a stale/missing revision refuses an edit and writes nothing", () => {
+describe("a stale/missing revision refuses an edit and writes nothing", () => {
   it("shows the reload refusal and never calls the write IPC for it", async () => {
     const writeContract = vi.fn().mockResolvedValue({ payload: { written: true, revision: "revision" } });
     const firstPage = page({ revision: "revision", hash: "hash", parts: [scenePart("frame")] });

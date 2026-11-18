@@ -2,7 +2,7 @@
 
 `report_html` renders two engineer-facing documents and is unchanged. This module
 builds the page payload the desktop app and the sidecar serve: the same contract graph, the same
-findings, the same numbers — said in words a robotics student can act on, with the
+findings, the same numbers - said in words a robotics student can act on, with the
 exact machine text one click away so nothing is softened out of existence.
 
 No screen here predicts anything. Every sentence is a comparison between two
@@ -12,6 +12,7 @@ records that already exist.
 from __future__ import annotations
 
 import re
+from collections import Counter
 import types
 from pathlib import Path
 from typing import Any, Union, get_args, get_origin
@@ -21,6 +22,7 @@ from pydantic import BaseModel
 
 from lockwire import plugins, units
 from lockwire.checks import (
+    canonical_observed,
     power_rollup,
     rail_sweep,
     _ScoreBook,
@@ -35,14 +37,17 @@ from lockwire.cli_line import cli_line, cli_line as quote_path  # build_payload 
 from lockwire.constraints import constraint_rows
 from lockwire.controls import joint_step, margin_findings, margins
 from lockwire.describe import describe_all, engineer_detail, render_power_tree
-from lockwire.edit import resolve_witness
+from lockwire.edit import resolve_witness, witness_words
 from lockwire.forces import force_document
 from lockwire.motor_card import check_kv_kt
 from lockwire.report import (
     Finding,
+    delta_words,
+    plain_text,
     format_display,
     RecordReport,
     VerdictCode,
+    advice_phrase,
     limit_raised_mark,
     verdict,
     verdict_headline,
@@ -52,6 +57,8 @@ from lockwire.report_html import (
     _budget_rows,
     _graph,
     _redact_path,
+    _redact_paths_in_text,
+    _redaction_scope,
     _redact_witness,
     document_identity,
 )
@@ -63,6 +70,7 @@ from lockwire.copy import (
     fix_text,
     group_title,
     human_name,
+    label_name,
     instead_row,
     robot_title,
     value_name,
@@ -126,7 +134,7 @@ def _shape(finding: Finding) -> str:
     ``devices/dev.imu/signals/accel_x/variance`` and its five siblings become
     ``devices/*/signals/*/variance``, so one blind spot repeated across six channels
     reads as one line instead of six near-identical ones. Only the member segment is
-    blanked — the kind of check it was is what remains, and that is what the reader
+    blanked - the kind of check it was is what remains, and that is what the reader
     is being told.
     """
     if re.fullmatch(r"model/joints/.+/limits/effort", finding.quantity):
@@ -178,7 +186,7 @@ def finding_labels(contract: Contract, findings: list[Finding]) -> list[dict[str
                 or f.quantity.endswith("/set_power_mode/draw")
             )
         ):
-            label = f"{human_name(short_name(rail['id']))} rail overloaded"
+            label = f"{label_name(short_name(rail['id']))} rail overloaded"
         out.append(
             {
                 "label": label,
@@ -200,9 +208,16 @@ def _subject(finding: Finding) -> str:
 
 
 def _named_graph(graph: dict[str, list[dict[str, str]]]) -> dict[str, list[dict[str, str]]]:
-    """Display only: parts the contract names by id (dev.x, rail.5v, w.pack) read as people name them."""
-    named = ("device", "host", "bus", "rail", "wire")
-    nodes = [{**n, "label": human_name(n["label"])} if n["kind"] in named else n for n in graph["nodes"]]
+    """Display only: every part (links and joints too) read as people name it, never a raw id."""
+    nodes = [{**n, "label": label_name(n["label"])} if n["kind"] != "connector" else n for n in graph["nodes"]]
+    # two parts that read the same ("Battery" the device and "Battery" the rail) get their id
+    seen = Counter(n["label"] for n in nodes if n["kind"] != "connector")
+    nodes = [
+        {**n, "label": f"{n['label']} ({n['id'].split(':', 1)[-1]})"}
+        if n["kind"] != "connector" and seen[n["label"]] > 1
+        else n
+        for n in nodes
+    ]
     return {**graph, "nodes": nodes}
 
 
@@ -238,6 +253,12 @@ def _plain_ids(text: str) -> str:
 
 
 def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
+    """The card's (title, body), field words said plainly (``report.plain_text``)."""
+    title, body = _sentence_words(contract, group)
+    return _upper_first(plain_text(title)), plain_text(body)  # a title opens with a capital
+
+
+def _sentence_words(contract: Contract, group: list[Finding]) -> tuple[str, str]:
     """Return (title, body) for one card, in words that name the physical thing."""
     first = group[0]
     shape = _shape(first)
@@ -256,16 +277,20 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
             f"{len(group)} checks here could not run, on {subjects}. Nothing failed - "
             "but nothing was verified either. The exact reasons are below."
             if len(group) > 1
-            else f"Nothing failed here - the check could not run. {_upper_first(first.observed)}."
+            else f"Nothing failed here - the check could not run. {_upper_first(plain_text(first.observed))}."
         )
     else:
-        measured = f"Measured {first.observed}. Needs {first.expected}."
+        if first.quantity == "model/tip_margin":  # computed from the model, not measured; no "Needs" without a threshold
+            measured = f"Computed {first.observed}. {_upper_first(first.expected)}."
+        else:  # only preflight (stage set) and the health ledger's samples are readings; the rest are read from the files
+            reading = first.stage is not None or first.quantity.startswith("health/")
+            measured = f"{'Measured' if reading else 'Found'} {first.observed}. Needs {first.expected}."
         if first.delta:
-            measured += f" Off by {first.delta}."
+            measured += f" {_upper_first(delta_words(first.delta))}."
 
     if _weak_servo(first):
         return (
-            f"{human_name(_subject(first)).removeprefix('Servo ')}: servo {_nm(first.observed)}, "
+            f"{human_name(_subject(first)).removeprefix('servo ')}: servo {_nm(first.observed)}, "
             f"joint limit {_nm(first.expected)}",
             f"The servo gives {'at most ' if 'peak (stall)' in first.observed else ''}{_nm(first.observed)}"
             f"{' even at stall' if 'peak (stall)' in first.observed else ' continuously'}, but the joint's effort limit is "
@@ -293,12 +318,12 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
             return (f"{human_name(label)} rail load{in_mode}", measured)
         if kind == "mass_total" and first.severity != "not_scored":  # a gap is not a total
             # This total is summed from the model's own YAML
-            # declarations (URDF link masses + device masses) — no scale was
+            # declarations (URDF link masses + device masses) - no scale was
             # ever read. "Measured" implies a recording; say what it actually is.
             declared = f"Declared {first.observed} (sum of the model's links and devices)."
             declared += f" Needs {first.expected}."
             if first.delta:
-                declared += f" Off by {first.delta}."
+                declared += f" {_upper_first(delta_words(first.delta))}."
             return (
                 "Robot over weight limit" if stopped else "Total weight",
                 declared,
@@ -322,13 +347,13 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
         if first.observed == "no declared traffic on this bus":
             return (
                 f"{len(group)} {'cable' if len(group) == 1 else 'cables'}: traffic not declared",
-                f"{subjects} — a bitrate is written down, but nothing says what's "
+                f"{subjects}: a bitrate is written down, but nothing says what's "
                 f"actually sent over them, so I can't tell you whether it fits. "
                 f"That's a blind spot, not a fault.",
             )
         return (
             f"{len(group)} {'cable' if len(group) == 1 else 'cables'}: speed not declared",
-            f"{subjects} — without a bitrate I can't tell you whether the messages "
+            f"{subjects}: without a bitrate I can't tell you whether the messages "
             f"you're sending fit down them. That's a blind spot, not a fault.",
         )
 
@@ -350,11 +375,17 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
         )
 
     if shape == "model/structure_hash":
-        return (
-            "CAD file not linked",
-            "No URDF file is recorded against this lockfile, so if someone moves a mount "
-            "or swaps the frame, nothing here notices.",
-        )
+        if first.observed.startswith("no model file in provenance"):
+            return (
+                "CAD file not linked",
+                "No URDF file is recorded against this lockfile, so if someone moves a mount "
+                "or swaps the frame, nothing here notices.",
+            )
+        if stopped:
+            return ("The model file differs from the lock", measured)
+        if first.severity == "warning":
+            return ("The model's structure needs a look", measured)
+        return ("The model file was not re-checked", measured)
 
     if first.quantity == "model/links/massless_frames":  # _shape blanks the last segment
         return ("Frames without mass", measured)
@@ -365,8 +396,8 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
         if len(group) > 1:
             return (f"{len(group)} links changed their {what} since the lock", measured)
         link = human_name(first.quantity.split("/")[2])
-        now = re.search(r"has mass ([\d.e+-]+)$", first.observed)
-        was = re.search(r"locked mass ([\d.e+-]+)$", first.expected)
+        now = re.search(r"has mass ([\d.e+-]+)(?: kg)?$", first.observed)
+        was = re.search(r"locked mass ([\d.e+-]+)(?: kg)?$", first.expected)
         if what == "mass" and now and was:
             return (
                 f"{link} mass changed from its locked value: {float(now[1]):.4g} kg now, "
@@ -378,19 +409,19 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
     if shape == "model/links/*/mass":
         # A URDF link with no `<inertial>` is usually a fixed
         # reference frame (a camera parent, an optical frame), not a physical
-        # part — wording it as "N parts have no weight recorded" reads as N
+        # part - wording it as "N parts have no weight recorded" reads as N
         # real components left unweighed.
         thing = "frame declares" if len(group) == 1 else "frames declare"
         return (
             f"{len(group)} {'frame' if len(group) == 1 else 'frames'} missing mass",
-            f"{subjects} — likely fixed/reference frames in the URDF rather than "
+            f"{subjects}: likely fixed/reference frames in the URDF rather than "
             "physical parts; missing from your weight total and your centre of gravity.",
         )
     if shape.endswith("/physical/mass") or shape.endswith("/mass"):
         thing = "part has" if len(group) == 1 else "parts have"
         return (
             f"{len(group)} {'part' if len(group) == 1 else 'parts'} missing mass",
-            f"{subjects} — missing from your weight total and your centre of gravity.",
+            f"{subjects}: missing from your weight total and your centre of gravity.",
         )
 
     if shape.endswith("/identity") or "collision" in shape:
@@ -411,13 +442,13 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
 
     if shape == "scene/*/unclaimed":
         # H1 (2026-09-06): the raw quantity ("unclaimed") used to leak straight
-        # into the generic title below, once per scene-only id — collapse them
+        # into the generic title below, once per scene-only id - collapse them
         # into one plain-word card naming every part.
         thing = "part" if len(group) == 1 else "parts"
         return (
             f"{len(group)} {thing} not declared",
             f"{_join([finding.quantity.split('/')[1] for finding in group])}: "
-            "the model names parts the contract doesn't declare — declare them "
+            "the model names parts the contract doesn't declare: declare them "
             f"({cli_line('lockwire', 'add', 'device')} …), or give the model extras.lockwire.id for "
             "the parts that are devices, or leave them as structure by removing the id",
         )
@@ -466,6 +497,8 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
             else _subject(f)
             for p, f in zip(parts, group)
         ]
+        if pin := _pin_title(first):
+            return (pin, measured)
         subjects_named = _join([human_name(s) for s in dict.fromkeys(named)])
         label = finding_label(first)
         # "Tip margin: Tip Margin" says one thing twice.
@@ -473,7 +506,38 @@ def _sentence(contract: Contract, group: list[Finding]) -> tuple[str, str]:
         return (title, measured)
     if len(group) > 1:
         return (f"{len(group)} checks couldn't run", measured)
+    ids = [part for part in first.quantity.split("/") if "." in part]
+    if not ids:  # no part id: a field key, said as its label ("discharge_temp_c")
+        label = check_label(first.quantity)
+        who = label[:1].lower() + label[1:]
+    else:  # the kind word, when the id says it: "controller 12 V rail"
+        kind = {"rail": "rail", "w": "wire", "bus": "bus"}.get(ids[-1].split(".", 1)[0])
+        who += f" {kind}" if kind and not who.endswith(kind) else ""
     return (f"Couldn't check {who}", measured)
+
+
+#: Pin checks (pins.py) all sit on the wire's own path, so the generic "Wire check: <wire>"
+#: title hid what is wrong. Each says the problem and the pin, from its own observed words.
+_PIN_TITLES = (
+    (re.compile(r"^(\S+ \S+) is reserved: .*strapping"), "Reserved boot pin: {}"),
+    (re.compile(r"^(\S+ \S+) is reserved: "), "Reserved pin: {}"),
+    (re.compile(r"^(\S+ \S+) is input-only"), "Input-only pin used as an output: {}"),
+    (re.compile(r"^(\S+ \S+) is on ADC2"), "ADC2 pin read while the radio is on: {}"),
+    (re.compile(r" all drive one net$"), "Two outputs drive one net{}"),
+    (re.compile(r"^(\S+ \S+) drives only [\d.]+ V high"), "Logic high too low: {}"),
+    (re.compile(r"^(\S+ \S+) drives [\d.]+ V low"), "Logic low too high: {}"),
+    (re.compile(r"^\S+ is [\d.]+ V; .* drives [\d.]+ V$"), "Logic level too high for the input{}"),
+)
+
+
+def _pin_title(first: Finding) -> str | None:
+    """The title of a pin check's card, or None for any other finding."""
+    if not re.fullmatch(r"topology/wires/[^/]+", first.quantity):
+        return None
+    for pattern, title in _PIN_TITLES:
+        if m := pattern.search(first.observed):
+            return title.format(_plain_ids(m[1]) if m.groups() else "")
+    return None
 
 
 def _raw_text(group: list[Finding], *, redact_paths: bool = False) -> str:
@@ -481,15 +545,15 @@ def _raw_text(group: list[Finding], *, redact_paths: bool = False) -> str:
     blocks = []
     for finding in group:
         lines = [f"{finding.severity.upper()} {finding.quantity}"]
-        lines.append(f"  observed   {finding.observed}")
-        lines.append(f"  expected   {finding.expected}")
+        lines.append(f"  observed   {plain_text(finding.observed)}")
+        lines.append(f"  expected   {plain_text(finding.expected)}")
         owner = finding.owner
         source = finding.source
         if redact_paths:
             owner = _redact_witness(owner)
             source = _redact_path(source)
         for label, value in (
-            ("delta", finding.delta),
+            ("delta", finding.delta and delta_words(finding.delta)),
             ("dependent", finding.dependent),
             ("owner", owner),
             ("source", source),
@@ -502,10 +566,10 @@ def _raw_text(group: list[Finding], *, redact_paths: bool = False) -> str:
 
 
 def _faults(contract: Contract, group: list[Finding]) -> list[str]:
-    """The ids a finding is actually *about* — the thing that is wrong.
+    """The ids a finding is actually *about* - the thing that is wrong.
 
     A budget's own id is never a graph node, so a rail-power card resolves to the
-    rail it constrains — otherwise the headline finding highlights nothing.
+    rail it constrains - otherwise the headline finding highlights nothing.
 
     Dependents are deliberately excluded: a device drawing exactly its datasheet
     figure off an overloaded rail is the casualty, not the fault, and painting it
@@ -551,7 +615,7 @@ def _targets(contract: Contract, group: list[Finding]) -> list[dict[str, Any]]:
             parts = [id_, *sorted(_rail_consumers(contract, id_))] if kind == "rail" else [id_]
             if kind == "joint":  # mesh robots key meshes by the moving link, not the joint
                 parts += [j.child for j in (model.joints if model else []) if j.name == id_]
-            found.append({"kind": kind, "id": id_, "label": human_name(id_), "parts": parts})
+            found.append({"kind": kind, "id": id_, "label": label_name(id_), "parts": parts})
 
     def device(id_: str) -> None:
         add("device", id_)
@@ -723,8 +787,8 @@ def _robot_model(contract: Contract) -> dict[str, list[dict[str, Any]]]:
                 "type": joint.type,
                 "parent": joint.parent,
                 "child": joint.child,
-                "parent_name": human_name(joint.parent),
-                "child_name": human_name(joint.child),
+                "parent_name": label_name(joint.parent),
+                "child_name": label_name(joint.child),
                 "position": list(frame[1]),
                 "axis": list(_apply_r(frame[0], axis)),
                 "rpy": list(joint.origin.rpy),
@@ -740,6 +804,8 @@ def _robot_model(contract: Contract) -> dict[str, list[dict[str, Any]]]:
     named = {p.name: p.value * scale.get(p.unit or "m", 1.0) for p in contract.params or []}
 
     def solid_row(shape: Any, pose: Any) -> dict[str, Any] | None:
+        if shape.kind == "mesh":
+            return None  # LinkSolid lists primitives only; a mesh row made the app refuse the page
         dims = [*(shape.size or ()), shape.radius, shape.length]
         if any(isinstance(d, str) and d not in named for d in dims):
             return None  # an unknown named dimension: nothing to check
@@ -760,6 +826,13 @@ def _robot_model(contract: Contract) -> dict[str, list[dict[str, Any]]]:
         rows = (solid_row(s, link_pose[link.name]) for s in link.collision or link.geometry or [])
         return [r for r in rows if r is not None]
 
+    def com(link: Any) -> list[float] | None:
+        pose = link_pose.get(link.frame or link.name)
+        if link.com is None or pose is None:
+            return None
+        d = _apply_r(pose[0], link.com)
+        return [pose[1][0] + d[0], pose[1][1] + d[1], pose[1][2] + d[2]]
+
     def mass_note(link: Any) -> str | None:
         if "mass" in link._derived:  # filled in memory from its shapes, never saved
             return f"mass {link.mass.value:.3g} kg, derived from its shapes and material"
@@ -772,6 +845,7 @@ def _robot_model(contract: Contract) -> dict[str, list[dict[str, Any]]]:
                 "name": link.name,
                 "position": list(link_pose[link.name][1]),
                 "solids": solids(link),
+                "com": com(link),
                 "mass_note": mass_note(link),
             }
             for link in model.links
@@ -785,7 +859,7 @@ def _robot_model(contract: Contract) -> dict[str, list[dict[str, Any]]]:
 
 
 def _affected(contract: Contract, group: list[Finding]) -> list[str]:
-    """The ids dragged in by someone else's fault — casualties, not causes.
+    """The ids dragged in by someone else's fault - casualties, not causes.
 
     These still light up when the card is selected (they are part of the story),
     but they are drawn differently, because the legend promises the reader that
@@ -814,7 +888,7 @@ def _hits(contract: Contract, group: list[Finding]) -> list[str]:
 def _consumer_files(contract: Contract, group: list[Finding]) -> list[str] | None:
     """The repo file(s) a `DependencyEdge` names as depending on a finding's quantity
     . Display only: this is exactly `DependencyEdge.code`, keyed off the exact
-     quantity path an edge declares — never a filename inferred from a device id or a
+     quantity path an edge declares - never a filename inferred from a device id or a
      naming convention. ``None`` when no edge names this quantity: not every
      finding comes from an edge, and that absence must render as absence, not a guess.
     """
@@ -844,7 +918,7 @@ def _grouped(findings: list[Finding]) -> list[list[Finding]]:
             continue
         shape = _shape(finding)
         # A bus's bandwidth can be not_scored two different, non-overlapping ways
-        # (no bitrate at all vs. a bitrate with no declared traffic) — same shape,
+        # (no bitrate at all vs. a bitrate with no declared traffic) - same shape,
         # different blind spot, so they must not collapse into one card.
         key = (
             (finding.severity, shape, finding.observed)
@@ -875,7 +949,7 @@ def _dedupe_run_findings(
 ) -> tuple[list[Finding], set[tuple[str, str, str]]]:
     """A finding present in both the record checks and the run's
     cross-record stage (e.g. the mass budget, scored again at stage 4) is one
-    fact, not two — it stays in the record section and drops out of the run
+    fact, not two - it stays in the record section and drops out of the run
     section, so neither the headline count nor the run's own count double it.
     Returns the run findings with duplicates removed, and the keys that were
     echoed (so the surviving record card can say "also seen in the run").
@@ -920,11 +994,12 @@ def _card(
     owner: str | None = None,
     cluster_root: str | None = None,
     involves: list[str] | None = None,
+    next_command: str | None = None,
 ) -> dict[str, Any]:
     """The one constructor for every `api_payload.Card`-shaped dict `gui.py` emits.
 
     `_cards()` and `_empty_state_card()` used to build this
-    shape by hand, independently — an asymmetric field addition between them is
+    shape by hand, independently - an asymmetric field addition between them is
     exactly what put `consumer` on one and not the other. Routing both through this
     function makes that impossible: a field added here reaches both producers by
     construction, not by someone remembering to touch the second call site.
@@ -962,6 +1037,7 @@ def _card(
         "owner": owner,
         "cluster_root": cluster_root,
         "involves": involves or [],
+        "next_command": next_command,
     }
 
 
@@ -1021,6 +1097,7 @@ def _cards(
                 owner=group[0].owner,
                 cluster_root=group[0].cluster_root,
                 involves=_involves(contract, group),
+                next_command=group[0].next_command,
             )
         )
     return cards
@@ -1083,7 +1160,7 @@ def _figure(quantity: Quantity | None, kind: str, by: str) -> dict[str, Any] | N
 
 
 def _comparator(expected: str) -> str:
-    """The bound `Finding.expected` opens with, if any — a symbol, not a number."""
+    """The bound `Finding.expected` opens with, if any - a symbol, not a number."""
     for symbol in ("<=", ">="):
         if expected.startswith(symbol):
             return symbol
@@ -1093,7 +1170,7 @@ def _comparator(expected: str) -> str:
 def _scene_labels(contract: Contract, findings: list[Finding]) -> list[dict[str, Any]]:
     """One pinned label per violation/warning card: which part, how bad, in plain figures.
 
-    Pinned WITHOUT a click — these are the labels the scene draws by default.
+    Pinned WITHOUT a click - these are the labels the scene draws by default.
     The two magnitudes are typed (`api_payload.Figure`), not the
     `"35.20 W vs <= 15.60 W"` string this emitted until 2026-09-08: a formatted
     number carries no number-kind and nothing notices. `scene_js` formats them.
@@ -1121,7 +1198,7 @@ def _scene_labels(contract: Contract, findings: list[Finding]) -> list[dict[str,
 
 
 def _setup_gaps(contract: Contract) -> list[dict[str, str]]:
-    """What this lockfile still doesn't say — the first-run screen, told honestly.
+    """What this lockfile still doesn't say - the first-run screen, told honestly.
 
     These are not findings. A brand-new lockfile is mostly empty by definition, and
     the GUI's job on day one is to say what to fill in next rather than to look green.
@@ -1158,7 +1235,7 @@ def _setup_gaps(contract: Contract) -> list[dict[str, str]]:
         gaps.append(
             {
                 "title": "No power rails declared",
-                "why": "Until rails exist I can't tell you whether your parts overload them — "
+                "why": "Until rails exist I can't tell you whether your parts overload them: "
                 "the check that finds most real build defects.",
                 "snippet": (
                     "topology:\n"
@@ -1207,7 +1284,7 @@ def _setup_gaps(contract: Contract) -> list[dict[str, str]]:
         gaps.append(
             {
                 "title": "No limits set",
-                "why": "Budgets are the lines you don't want to cross — rail power, total "
+                "why": "Budgets are the lines you don't want to cross: rail power, total "
                 "weight, runtime. Without them there's nothing to fail against.",
                 "snippet": (
                     "budgets:\n"
@@ -1232,49 +1309,56 @@ _STATE_BY_VERDICT_CODE: dict[VerdictCode, str] = {
 
 
 def _headline(
-    code: VerdictCode, violations: int, warnings: int, unchecked: int, adds_up: int = 0
+    code: VerdictCode,
+    violations: int,
+    warnings: int,
+    unchecked: int,
+    adds_up: int = 0,
+    scored: int | None = None,
+    advice: int = 0,
+    outside: int = 0,
 ) -> tuple[str, str, str]:
     """The one line at the top: state, headline, and the qualifier under it.
 
     ``state`` comes from ``report.verdict()``'s decision (``code``), not a local
-    recount of severities — the same decision `lockwire check` and the JSON/MCP
+    recount of severities - the same decision `lockwire check` and the JSON/MCP
     surfaces already render. The headline sentence itself is
     ``report.verdict_headline``: the same text `api.check`'s
     `CheckPayload.headline` now carries, read once and shared rather than
     reimplemented here a second time. The wording below is unchanged.
+    ``unchecked`` is check's own count; ``outside`` counts the not-scored rows check never
+    makes (the 3D view's placement), said apart in the app's words.
     """
     state = _STATE_BY_VERDICT_CODE[code]
-    headline = verdict_headline(violations, warnings, unchecked, adds_up)
+    headline = verdict_headline(violations, warnings, unchecked, adds_up, scored)
     adds_up_phrase = f"{adds_up} thing{' adds' if adds_up == 1 else 's add'} up" if adds_up else ""
-    couldnt_check_phrase = (
-        f"{unchecked} thing{'' if unchecked == 1 else 's'} I couldn't check" if unchecked else ""
-    )
+    # check's words for the same counts: "not scored", and advice said apart, last
+    couldnt_check_phrase = f"{unchecked} not scored" if unchecked else ""
     tail = " · ".join(phrase for phrase in (adds_up_phrase, couldnt_check_phrase) if phrase)
-    if violations:
-        return (state, headline, tail)
-    if adds_up == 0:
+    floor = not violations and (adds_up if scored is None else scored) == 0
+    if floor:
         # Presence floor: a zero denominator is never a pass, and a
         # warning over nothing compared ("Nothing stops you") reads as one.
-        # Amber, not green — the verdict code (decision.code) is unchanged;
+        # Amber, not green - the verdict code (decision.code) is unchanged;
         # only this display collapses to "nothing to show yet" (A2, usage
         # audit finding 4). NOT SCORED is amber, not grey ("neutral").
-        return ("warn", headline, couldnt_check_phrase)
-    if warnings:
-        return (state, headline, tail)
-    if unchecked:
-        return (state, headline, f"{tail} - a pass does not cover those")
+        state, tail = "warn", couldnt_check_phrase
+    if unchecked and not (violations or warnings or floor):
+        tail += " - a pass does not cover those"
+    outside_phrase = f"{outside} not part of the check" if outside else ""
+    tail = " · ".join(phrase for phrase in (tail, outside_phrase, advice_phrase(advice)) if phrase)
     return (state, headline, tail)
 
 
 _NOTHING_DECLARED_NEXT_STEP = (
-    f"nothing declared yet — add what is on it: {cli_line('lockwire', 'add')} device|rail|bus …, "
+    f"nothing declared yet: add what is on it: {cli_line('lockwire', 'add')} device|rail|bus …, "
     f"or declare from the model: {cli_line('lockwire', 'scene', 'import')}"
 )
 
 
 def _nothing_declared(contract: Contract) -> bool:
     """the empty-state face. True when the lockfile has no devices, rails,
-    buses or budgets — the honest state of a lockfile straight out of `start`,
+    buses or budgets - the honest state of a lockfile straight out of `start`,
     which knows only the frame."""
     topology = contract.topology
     return (
@@ -1319,10 +1403,15 @@ def _scored_name(quantity: str) -> str:
 
 
 def _scored_title(contract: Contract, record: Any) -> str:
+    """``_scored_title_words`` with field words said plainly (``report.plain_text``)."""
+    return plain_text(_scored_title_words(contract, record))
+
+
+def _scored_title_words(contract: Contract, record: Any) -> str:
     """Plain-word row title for a passed comparison, in `_sentence()`'s voice: name
     the physical thing, what it measured against what it's allowed, then the margin.
     The exact quantity path and machine text stay behind the "Show the exact
-    finding" toggle (``_adds_up_rows``' ``raw`` field) — this is only the title.
+    finding" toggle (``_adds_up_rows``' ``raw`` field) - this is only the title.
     """
     quantity = record.quantity
     budget = _budget(contract, quantity)
@@ -1330,32 +1419,39 @@ def _scored_title(contract: Contract, record: Any) -> str:
         rail_name = short_name(budget.rail) if budget.rail else _scored_name(quantity)
         mode = f", in its {budget.draw_mode} mode" if budget.draw_mode != "nominal" else ""
         limit = record.expected.removeprefix("<= ")
-        return f"{rail_name} rail{mode}: {record.observed} of {limit} — {record.margin}"
+        return f"{rail_name} rail{mode}: {record.observed} of {limit}, {record.margin}"
+    if budget is not None and budget.kind == "mass_total" and quantity.endswith("/nominal"):
+        return f"Total mass: {record.observed} against the declared {record.expected}, {record.margin}"
     if budget is not None and budget.kind == "mass_total":
         limit = record.expected.removeprefix("<= ")
-        return f"Payload mass: {record.observed} of {limit} allowed — {record.margin}"
+        return f"Payload mass: {record.observed} of {limit} allowed, {record.margin}"
     if budget is not None and budget.kind == "endurance":
         required = record.expected.removeprefix(">= ")
         return f"Flight time on the declared pack: {record.observed}, {required} required"
     if quantity.endswith("/power/rail"):
         device_id = quantity.split("/")[1]
-        return f"{short_name(device_id)} on the {record.observed} rail: {record.margin}"
+        return f"{short_name(device_id)} on the {record.observed} rail, as declared: {record.margin}"
     if quantity.startswith("devices/") and quantity.endswith("/placement"):
         device_id = quantity.split("/")[1]
-        return f"{short_name(device_id)} sits where the contract says — {record.margin}"
+        return f"{short_name(device_id)} sits where the contract says: {record.margin}"
+    if quantity.startswith("devices/") and "/envelopes/" in quantity:
+        parts = quantity.split("/")
+        return f"{short_name(parts[1])} {parts[-1]}: {record.observed} {record.expected}, {record.margin}"
     # ampacity / bandwidth / link budget / torque / thermal, and anything else
-    # scored: the same "observed of limit — margin" shape, named by its subject.
+    # scored: the same "observed of limit - margin" shape, named by its subject.
     subject = quantity.split("/")[2] if quantity.startswith("model/joints/") else None
     subject = subject or _scored_name(quantity)
     limit = record.expected.removeprefix("<= ").removeprefix(">= ")
-    return f"{subject}: {record.observed} of {limit} — {record.margin}"
+    if "/standing/" in quantity:
+        return f"{subject}: {record.observed}; limit {limit.removesuffix(' joint effort limit')}, {record.margin}"
+    return f"{subject}: {record.observed} of {limit}, {record.margin}"
 
 
 def _scored_mark(contract: Contract, record: Any) -> str | None:
     """the standing "limit raised" mark on the budget this pass is about.
 
     A budget cleared by raising its limit passes, so it reaches the reader only
-    here — as a row in "what adds up". Without the mark the row is a plain green
+    here - as a row in "what adds up". Without the mark the row is a plain green
     pass and nothing on the page says the goalposts moved.
     """
     budget = _budget(contract, record.quantity)
@@ -1368,13 +1464,13 @@ def _adds_up_rows(contract: Contract, records: list[Any]) -> list[dict[str, str 
     return [
         {
             "name": _scored_title(contract, record),
-            "text": f"{record.observed} vs {record.expected}",
+            "text": plain_text(f"{record.observed} vs {record.expected}"),
             "margin": record.margin,
             "mark": _scored_mark(contract, record),
             "raw": (
                 f"{record.quantity}\n"
-                f"  observed: {record.observed}\n"
-                f"  expected: {record.expected}\n"
+                f"  observed: {plain_text(record.observed)}\n"
+                f"  expected: {plain_text(record.expected)}\n"
                 f"  margin: {record.margin}"
             ),
         }
@@ -1440,17 +1536,18 @@ _COMMAND_MODES = {
     "help": "reference",  # lists the commands; no app face
     "serve": "reference",  # the sidecar launcher: infra, not a mode of its own
     # A detection/forwarding corpus report, not part of the contract-findings
-    # page (the paths table says "page: no") — reference like report/describe.
+    # page (the paths table says "page: no") - reference like report/describe.
     "bench": "reference",
     "export": "reference",  # writes an artefact for someone else to consume
     "import": "reference",  # measured: refuses unconditionally, never reads a manifest
     # into a contract, so it doesn't contradict the outward-only rule and isn't a
-    # declare-side round trip either — a refusal-only command, grouped with export
+    # declare-side round trip either - a refusal-only command, grouped with export
     "diff": "reference",  # a read-only comparison of two facts, no design/check/plan face
     "log": "reference",  # read-only contract history, served without a new app mode
     "blame": "reference",  # read-only declared-fact provenance, alongside contract history
     "api-schema": "reference",  # the payload union's JSON schema
     "api-types": "reference",  # The app's TypeScript types, generated from the same union
+    "api-args-schema": "reference",  # the Assistant's tool argument definitions, from the sidecar commands
 }
 
 
@@ -1462,7 +1559,7 @@ def _design_face(contract: Contract) -> dict[str, Any]:
     parts = []
     for device in contract.devices:
         power = device.power
-        rail = short_name(power.rail) if power is not None else "—"
+        rail = short_name(power.rail) if power is not None else ""
         draw = _figure(power.draw if power is not None else None, "declared", "schema.Contract")
         parts.append({"id": short_name(device.id), "rail": rail, "draw": draw})
     return {
@@ -1483,7 +1580,7 @@ def _declare_face(contract_path: Path | None) -> dict[str, Any]:
             cli_line("lockwire", "apply", "changes.yaml"),
             cli_line("lockwire", "add", "device") + f" --model <model-id> --rail <rail-id> {path}",
             # a reviewer approves or questions a declared value, in the
-            # same face — the notes land beside the fact they judge, not in a
+            # same face - the notes land beside the fact they judge, not in a
             # section of their own.
             f"{cli_line('lockwire', 'review', path)} devices.dev.<id>.physical.mass "
             f'--approve --witness "your name"',
@@ -1500,7 +1597,7 @@ def _unwrap_optional(annotation: Any) -> Any:
 
     Handles both ``Optional[X]``/``Union[X, None]`` (origin ``typing.Union``)
     and the ``X | None`` syntax the schema mostly writes (origin
-    ``types.UnionType``) — pydantic does not normalise one to the other in
+    ``types.UnionType``) - pydantic does not normalise one to the other in
     ``FieldInfo.annotation``, and checking only ``typing.Union`` silently
     stopped the walk at every ``SomeModel | None`` field (measured: it never
     reached a single device's ``physical``/``power``/``thermal`` block).
@@ -1528,13 +1625,13 @@ def _declare_rows(
     group: str | None = None,
     short_parts: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
-    """Every ``schema.Quantity`` reachable from ``model_cls``, present or not. Walked from the model's own fields — same recursion `declare`'s
+    """Every ``schema.Quantity`` reachable from ``model_cls``, present or not. Walked from the model's own fields - same recursion `declare`'s
     own path navigation uses (dict-shaped blocks by field name, id/name-keyed
-    lists by entry) — so a path this emits is a path `declare` accepts, and
+    lists by entry) - so a path this emits is a path `declare` accepts, and
     nothing here re-derives a value the contract does not already hold.
 
     ``mount_xyz``-shaped fields (``tuple[Quantity, Quantity, Quantity]``) are
-    ONE declarable quantity, not three — `declare` writes the whole tuple in
+    ONE declarable quantity, not three - `declare` writes the whole tuple in
     one call (`edit.parse_value`'s ``mount_xyz`` special case), so splitting
     it into per-axis rows would offer a path `declare` cannot accept.
 
@@ -1551,9 +1648,9 @@ def _declare_rows(
         if group is not None:
             owner, rest = group, (*short_parts, name)  # `group` arrives already human
         elif label_parts:
-            owner, rest = human_name(label_parts[0]), (*label_parts[1:], name)
+            owner, rest = label_name(label_parts[0]), (*label_parts[1:], name)
         else:
-            owner, rest = human_name(name), ()
+            owner, rest = label_name(name), ()
         return {"group": owner, "short": value_name(rest) if rest else owner}
 
     for name, field in model_cls.model_fields.items():
@@ -1606,7 +1703,7 @@ def _declare_rows(
                             provenance,
                             f"{group} · {human_name(str(ident))}"
                             if group
-                            else human_name(str(ident)),
+                            else label_name(str(ident)),
                             (),
                         )
                     )
@@ -1754,11 +1851,11 @@ def _plan_face(
 
 
 def _reference_face(contract: Contract, contract_path: Path | None) -> dict[str, Any]:
-    """The Reference face: four drawers over what the CLI already produces —
-     describe, report, scan — plus the per-device reference sheets
+    """The Reference face: four drawers over what the CLI already produces -
+     describe, report, scan - plus the per-device reference sheets
     . Each drawer's ``cli_line`` uses the command's real flags
      (``report``'s printed line is ``-o/--out`` + ``--no-open``, never
-     ``--html`` — measured, that flag does not exist)."""
+     ``--html`` - measured, that flag does not exist)."""
     cpath = str(contract_path) if contract_path is not None else "lockwire.yaml"
     files = describe_all(contract, human=True)
     by_id = {d.id: d for d in contract.devices}
@@ -1771,7 +1868,7 @@ def _reference_face(contract: Contract, contract_path: Path | None) -> dict[str,
     devices = [
         {
             "id": name.removesuffix(".md"),
-            "name": human_name(name.removesuffix(".md")),
+            "name": label_name(name.removesuffix(".md")),
             "text": text,
             "mount_mm": mount_mm(name.removesuffix(".md")),
         }
@@ -1788,14 +1885,14 @@ def _reference_face(contract: Contract, contract_path: Path | None) -> dict[str,
         {
             "title": "Engineer report",
             "content": "A kept, versioned, print-ready document: an identity line and "
-            "provenance on every page — what a student hands a supervisor.\n\n"
+            "provenance on every page: what a student hands a supervisor.\n\n"
             + engineer_detail(contract),
             "provenance": "generated from the contract, deterministic",
             "cli_line": cli_line("lockwire", "report", cpath, "-o", "report.html", "--no-open"),
         },
         {
             "title": "Hardware scan",
-            "content": "Enumerates this machine's own hardware into a draft — never "
+            "content": "Enumerates this machine's own hardware into a draft, never "
             "authoritative, always reviewed before it is locked.",
             "provenance": "from this machine, unreviewed",
             "cli_line": cli_line("lockwire", "scan", "--robot") + " <robot-name>",
@@ -1827,11 +1924,11 @@ def _faces(
 
 def _accepted_rows(contract: Contract, accepted: list[Finding]) -> list[dict[str, str]]:
     """Findings the lockfile accepted on record (`accepted:`): shown muted, never hidden."""
-    pins = {(a.id, a.observed): a for a in contract.accepted or []}
+    pins = {(a.id, canonical_observed(a.observed)): a for a in contract.accepted or []}  # as check matches
     titles = [_sentence(contract, [f])[0] for f in accepted]
     rows = []
     for f, title in zip(accepted, titles, strict=True):
-        pin = pins[(f.quantity, f.observed)]
+        pin = pins[(f.quantity, canonical_observed(f.observed))]
         if titles.count(title) > 1:
             # Six servos over the same rail read as one row repeated; name the device
             # the way the CLI's `accepted:` line does (its id in the finding's path).
@@ -1842,7 +1939,7 @@ def _accepted_rows(contract: Contract, accepted: list[Finding]) -> list[dict[str
                 "title": title,
                 "observed": f.observed,
                 "reason": pin.reason,
-                "witness": pin.provenance.witness or "no name on record",
+                "witness": witness_words(pin.provenance.witness) or "no name on record",
                 "date": str(pin.provenance.locked_at),
             }
         )
@@ -1908,7 +2005,7 @@ def _wiring(contract: Contract) -> dict[str, list[dict[str, Any]]]:
         "wiring_devices": [
             {
                 "id": did,
-                "name": human_name(did),
+                "name": label_name(did),
                 "connectors": [
                     {
                         "name": cn,
@@ -1924,11 +2021,11 @@ def _wiring(contract: Contract) -> dict[str, list[dict[str, Any]]]:
         "wiring_wires": [
             {
                 "id": w.id,
-                "name": human_name(w.id),
+                "name": label_name(w.id),
                 "from_pin": key(w.from_),
                 "to_pin": key(w.to),
                 "rail": w.rail,
-                "rail_label": human_name(w.rail) if w.rail else None,
+                "rail_label": label_name(w.rail) if w.rail else None,
                 "net": w.net,
                 "awg": w.awg,
             }
@@ -1970,7 +2067,7 @@ def _wiring_live(contract: Contract, devices: list[dict[str, Any]]) -> dict[str,
     findings = [
         {
             "wire": f.quantity.split("/")[-1],
-            "wire_name": human_name(f.quantity.split("/")[-1]),
+            "wire_name": label_name(f.quantity.split("/")[-1]),
             "problem": f.observed,
             "limit": f.expected,
         }
@@ -2032,7 +2129,7 @@ def _power_more(
         ],
         "power_stress": [
             {
-                "part": human_name(r.part),
+                "part": label_name(r.part),
                 "quantity": plain(r.quantity),
                 "value": r.value,
                 "rating": r.rating,
@@ -2075,7 +2172,7 @@ def _power_stages(contract: Contract) -> list[dict[str, Any]]:
                 continue
             draw = d.power.draw
             loads.append(
-                {"id": human_name(d.id), "watts": draw.base() if draw is not None else None}
+                {"id": label_name(d.id), "watts": draw.base() if draw is not None else None}
             )
         stages.append(
             {
@@ -2155,7 +2252,7 @@ def _controls_motors(contract: Contract) -> list[dict[str, Any]]:
         out.append(
             {
                 "id": m.id,
-                "label": human_name(m.id),
+                "label": label_name(m.id),
                 "facts": facts,
                 "torque_nm": tq,
                 "speed_rad_s": sp,
@@ -2203,7 +2300,7 @@ def _controls_joints(contract: Contract) -> list[dict[str, Any]]:
         out.append(
             {
                 "joint": ctl.joint,
-                "label": human_name(ctl.joint),
+                "label": label_name(ctl.joint),
                 "facts": facts,
                 "t_s": [float(step.t[i]) for i in keep],
                 "position": [float(step.y[i]) for i in keep],
@@ -2239,6 +2336,7 @@ def _requirements(
     )
 
 
+@_redaction_scope
 def build_payload(
     contract: Contract,
     *,
@@ -2257,11 +2355,13 @@ def build_payload(
     scored_records = list(record.scored_records) if isinstance(record, RecordReport) else []
 
     placement_scores: _ScoreBook | None = None
+    placed: list[Finding] = []
     if scene is not None:
         placement_scores = _ScoreBook()
-        record_findings += check_scene_placement(contract, scene, scores=placement_scores)
+        placed = check_scene_placement(contract, scene, scores=placement_scores)
+        record_findings += placed
         # A placement pass ("the model agrees with the declared mount point") is
-        # a thing that adds up exactly like any other passed comparison — it must
+        # a thing that adds up exactly like any other passed comparison - it must
         # land in scored/adds_up/the drawer, not just colour a part green.
         scored_records += placement_scores.records
 
@@ -2277,7 +2377,11 @@ def build_payload(
     if placement_scores is not None:
         scored = (scored or 0) + len(placement_scores)
     adds_up = len(scored_records)
-    state, headline, qualifier = _headline(decision.code, violations, warnings, unchecked, adds_up)
+    advice = sum(f.advice_unsourced for f in everything)
+    outside = sum(f.severity == "not_scored" for f in placed)  # `lockwire check` never makes these
+    state, headline, qualifier = _headline(
+        decision.code, violations, warnings, unchecked - outside, adds_up, scored, advice, outside
+    )
     cards = _cards(contract, record_findings, echoed=echoed, redact_paths=redact_paths)
     if contract_path is not None:  # the app's terminal opens in the robot's folder: file name only
         for card in cards:
@@ -2286,10 +2390,12 @@ def build_payload(
             )
     if _nothing_declared(contract) and all(c["severity"] == "not_scored" for c in cards):
         # a lockfile fresh out of `start` has nothing to compare, so the
-        # generic per-severity grammar above produces no card at all — the page
+        # generic per-severity grammar above produces no card at all - the page
         # then falls back to "Nothing disagrees", which reads as a pass over a
         # page that checked nothing. Say what to do next instead.
         qualifier = _NOTHING_DECLARED_NEXT_STEP
+        # a matched model check alone is no reason for green over "Nothing to check yet"
+        state, headline = "warn", "Nothing could be compared yet"
         cards = [_empty_state_card(), *cards]  # notes (e.g. SDF values) stay, after the next step
 
     payload: dict[str, Any] = {
@@ -2332,7 +2438,9 @@ def build_payload(
             plan_outcomes=plan_outcomes,
         ),
         "cli_line": cli_line,
-        "document_identity": document_identity(contract_path),
+        "document_identity": (_redact_paths_in_text if redact_paths else str)(
+            document_identity(contract_path)
+        ),
     }
     plugins.ensure()
     payload["requirements"] = _requirements(plan_path, everything, scored_records, contract_path)

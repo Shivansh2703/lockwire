@@ -29,7 +29,7 @@ writes an HTML report and keeps it as the `lockwire-report` build artifact, pass
 
 ### Inputs
 
-The same list as the Action's `action.yml` (a test keeps them equal):
+Every input of the Action (the same list as its `action.yml`):
 
 | Input | Default | What it does |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ The same list as the Action's `action.yml` (a test keeps them equal):
 | `model` | | A URDF, xacro or SDF to check directly when the repo has no lockfile; overrides `contract`. |
 | `adopt` | `false` | `true` annotates and summarises but never fails the job (see Adopt mode). A comma list of finding ids or prefixes (`datasheet/,model/links/`) annotates only those. |
 | `strict` | `false` | Treat warnings as failures (GO with notes exits 1). |
-| `version` | (the Action's own code) | Pin a release from PyPI, e.g. `0.2.7`. |
+| `version` | (the Action's own code) | Pin a release from PyPI, e.g. `0.5.3`. |
 | `python-version` | `3.12` | Python to run Lockwire with. |
 | `mass` | | With `model`, the datasheet mass to compare, e.g. `1.8 kg`. |
 | `source` | | Where `mass` comes from, a URL or title. |
@@ -87,7 +87,7 @@ the sheet was read and what its weight includes.
 
 Publish that file somewhere public (a `gh-pages` branch, say) and point a badge at it:
 `![datasheet](https://img.shields.io/endpoint?url=<public URL of datasheet.json>)`.
-The Action creates the folder if it is missing. It needs the Action's own code or a release that has `badge-json`.
+The Action creates the folder if it is missing. If you pin `version`, pick a release that has `badge-json`.
 
 ## Any other CI
 
@@ -108,16 +108,23 @@ In `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Shivansh2703/lockwire
-    rev: v0.5.0
+    rev: v0.5.3
     hooks:
       - id: lockwire-check
 ```
 
 The hook runs `lockwire check` on `lockwire.yaml` whenever a commit touches a model file
 (`.urdf`, `.xacro`, `.sdf`) or the lockfile. Set `rev:` to the release you installed: each
-release adds its tag (`v0.2.7` and later).
+release adds its tag.
 
-`lockwire agent-setup` writes both the workflow and the pre-commit entry for you;
-`lockwire agent-setup --ci` writes only the workflow.
+`lockwire agent-setup` writes both for you: the workflow, on `@v0`, and the pre-commit entry,
+pinned to the Lockwire that ran it; `lockwire agent-setup --ci` writes only the workflow. If your
+`.pre-commit-config.yaml` already pins an older Lockwire, `agent-setup` leaves the file alone
+and says so:
+
+```console
+kept .pre-commit-config.yaml, but its Lockwire pin rev: v0.5.1 is older than
+this Lockwire and may not read its lockfiles; change that line to rev: v0.5.3
+```
 
 See also: [using Lockwire](users.md), [every check](checks.md).

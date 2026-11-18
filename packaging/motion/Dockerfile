@@ -1,32 +1,32 @@
-# The base is the official ROS image digest approved for E5.9a.
+# The base is the official ROS image, pinned by digest.
 FROM ros:jazzy-ros-core@sha256:17142ce4cb561d70d61f4fb485177caf0d6cceca4ccc418704168ff45f3713e5
 
 # The direct stable-Noble arm64 pins are recorded in packages.lock.  The full
 # dpkg closure remains deliberately unresolved until the sanctioned build
 # records it; this guard prevents an accidentally floating install.
 COPY packaging/motion/packages.lock /opt/lockwire/packages.lock
-ARG LOCKWIRE_E5_9_CAPTURE_BUILD=0
-ENV LOCKWIRE_E5_9_DIRECT_SELECTORS="ros-jazzy-gz-ros2-control=1.2.20-1noble.20260904.032933 ros-jazzy-joint-trajectory-controller=4.42.1-1noble.20260904.012550 ros-jazzy-ros-gz-sim=1.0.24-1noble.20260904.032840 ros-jazzy-gz-sim-vendor=0.0.13-1noble.20260904.022149"
-RUN test "$LOCKWIRE_E5_9_CAPTURE_BUILD" = 1 \
+ARG LOCKWIRE_MOTION_CAPTURE_BUILD=0
+ENV LOCKWIRE_MOTION_DIRECT_SELECTORS="ros-jazzy-gz-ros2-control=1.2.20-1noble.20260904.032933 ros-jazzy-joint-trajectory-controller=4.42.1-1noble.20260904.012550 ros-jazzy-ros-gz-sim=1.0.24-1noble.20260904.032840 ros-jazzy-gz-sim-vendor=0.0.13-1noble.20260904.022149"
+RUN test "$LOCKWIRE_MOTION_CAPTURE_BUILD" = 1 \
  || grep -qx 'resolution_status=resolved-by-authorized-build' /opt/lockwire/packages.lock \
- || (echo 'E5.9a package closure is not yet authorized' >&2; exit 78)
+ || (echo 'the full package list is not recorded yet: run the capture build once (--build-arg LOCKWIRE_MOTION_CAPTURE_BUILD=1) to record it' >&2; exit 78)
 
 # Only the explicitly authorized capture build may resolve the still-unlocked
 # transitive closure. These deliberately separate layers are capture-only. Their
 # BEGIN/DONE markers identify update, download, install and receipt work in a
 # retained --progress=plain log. Every direct package version remains explicit.
-RUN printf '%s\n' 'E5_9_UPDATE_BEGIN' >&2 \
+RUN printf '%s\n' 'MOTION_UPDATE_BEGIN' >&2 \
  && apt-get update \
- && printf '%s\n' 'E5_9_UPDATE_DONE' >&2
+ && printf '%s\n' 'MOTION_UPDATE_DONE' >&2
 
 RUN mkdir -p /opt/lockwire/archives/partial /opt/lockwire/receipt \
- && printf '%s\n' 'E5_9_DOWNLOAD_BEGIN' >&2 \
+ && printf '%s\n' 'MOTION_DOWNLOAD_BEGIN' >&2 \
  && DEBIAN_FRONTEND=noninteractive apt-get \
     -o Dpkg::Use-Pty=0 \
     -o Dir::Cache::archives=/opt/lockwire/archives \
     -o APT::Keep-Downloaded-Packages=true \
     install --download-only --no-install-recommends -y \
-    $LOCKWIRE_E5_9_DIRECT_SELECTORS \
+    $LOCKWIRE_MOTION_DIRECT_SELECTORS \
  && deb_count="$(find /opt/lockwire/archives -maxdepth 1 -type f -name '*.deb' | wc -l)" \
  && test "$deb_count" -gt 0 \
  && find /opt/lockwire/archives -maxdepth 1 -type f -name '*.deb' -print0 \
@@ -38,15 +38,15 @@ RUN mkdir -p /opt/lockwire/archives/partial /opt/lockwire/receipt \
  && rm /opt/lockwire/receipt/deb-files.nul \
  && deb_bytes="$(find /opt/lockwire/archives -maxdepth 1 -type f -name '*.deb' -exec stat -c '%s' {} + \
       | awk '{ total += $1 } END { print total + 0 }')" \
- && printf 'E5_9_DOWNLOAD_DONE count=%s bytes=%s\n' "$deb_count" "$deb_bytes" >&2
+ && printf 'MOTION_DOWNLOAD_DONE count=%s bytes=%s\n' "$deb_count" "$deb_bytes" >&2
 
 # Bind the four requested direct artifacts to their lock records before any
 # package is installed. Control metadata explicitly scopes all other archives
 # to the transitive closure.
-RUN LOCKWIRE_E5_9_LOCK_PATH=/opt/lockwire/packages.lock \
-    LOCKWIRE_E5_9_ARCHIVES=/opt/lockwire/archives \
+RUN LOCKWIRE_MOTION_LOCK_PATH=/opt/lockwire/packages.lock \
+    LOCKWIRE_MOTION_ARCHIVES=/opt/lockwire/archives \
     python3 - <<'PY'
-# E5_9_DIRECT_VERIFY_PY_BEGIN
+# MOTION_DIRECT_VERIFY_PY_BEGIN
 import hashlib
 import os
 import subprocess
@@ -54,11 +54,11 @@ from pathlib import Path
 
 
 def fail(message):
-    raise SystemExit(f"E5.9 direct artifact verification failed: {message}")
+    raise SystemExit(f"direct package verification failed: {message}")
 
 
-lock_path = Path(os.environ["LOCKWIRE_E5_9_LOCK_PATH"])
-archives = Path(os.environ["LOCKWIRE_E5_9_ARCHIVES"])
+lock_path = Path(os.environ["LOCKWIRE_MOTION_LOCK_PATH"])
+archives = Path(os.environ["LOCKWIRE_MOTION_ARCHIVES"])
 expected = {}
 for line_number, raw_line in enumerate(lock_path.read_text(encoding="utf-8").splitlines(), 1):
     line = raw_line.strip()
@@ -90,7 +90,7 @@ if not expected:
     fail("lock has no direct package records")
 
 declared = {}
-for selector in os.environ["LOCKWIRE_E5_9_DIRECT_SELECTORS"].split():
+for selector in os.environ["LOCKWIRE_MOTION_DIRECT_SELECTORS"].split():
     package, separator, version = selector.partition("=")
     if not separator or not package or not version:
         fail(f"invalid direct selector: {selector}")
@@ -151,25 +151,25 @@ for artifact in sorted(archives.glob("*.deb")):
 missing = sorted(expected.keys() - seen)
 if missing:
     fail(f"missing direct artifacts: {', '.join(missing)}")
-# E5_9_DIRECT_VERIFY_PY_END
+# MOTION_DIRECT_VERIFY_PY_END
 PY
 
-RUN printf '%s\n' 'E5_9_INSTALL_BEGIN' >&2 \
+RUN printf '%s\n' 'MOTION_INSTALL_BEGIN' >&2 \
  && DEBIAN_FRONTEND=noninteractive apt-get \
     -o Dpkg::Use-Pty=0 \
     -o Dir::Cache::archives=/opt/lockwire/archives \
     --no-download install --no-install-recommends -y \
-    $LOCKWIRE_E5_9_DIRECT_SELECTORS \
- && printf '%s\n' 'E5_9_INSTALL_DONE' >&2
+    $LOCKWIRE_MOTION_DIRECT_SELECTORS \
+ && printf '%s\n' 'MOTION_INSTALL_DONE' >&2
 
-RUN printf '%s\n' 'E5_9_CLOSURE_DPKG_BEGIN' >&2 \
+RUN printf '%s\n' 'MOTION_CLOSURE_DPKG_BEGIN' >&2 \
  && dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\t${source:Package}\n' \
       > /opt/lockwire/receipt/dpkg.unsorted.tsv \
  && LC_ALL=C sort /opt/lockwire/receipt/dpkg.unsorted.tsv \
       > /opt/lockwire/receipt/dpkg.tsv \
  && rm /opt/lockwire/receipt/dpkg.unsorted.tsv \
- && printf 'E5_9_CLOSURE_DPKG_DONE rows=%s\n' "$(wc -l < /opt/lockwire/receipt/dpkg.tsv)" >&2 \
- && printf '%s\n' 'E5_9_CLOSURE_APT_SHOW_BEGIN' >&2 \
+ && printf 'MOTION_CLOSURE_DPKG_DONE rows=%s\n' "$(wc -l < /opt/lockwire/receipt/dpkg.tsv)" >&2 \
+ && printf '%s\n' 'MOTION_CLOSURE_APT_SHOW_BEGIN' >&2 \
  && awk -F '\t' 'NF != 4 || $1 == "" || $2 == "" || $3 == "" { exit 64 } { print $1 "=" $2 }' \
       /opt/lockwire/receipt/dpkg.tsv > /opt/lockwire/receipt/apt-show-selectors.txt \
  && test -s /opt/lockwire/receipt/apt-show-selectors.txt \
@@ -184,8 +184,8 @@ RUN printf '%s\n' 'E5_9_CLOSURE_DPKG_BEGIN' >&2 \
  && test -s /opt/lockwire/receipt/expected-package-version-architecture.tsv \
  && cmp -s /opt/lockwire/receipt/expected-package-version-architecture.tsv \
       /opt/lockwire/receipt/actual-package-version-architecture.tsv \
- && printf 'E5_9_CLOSURE_APT_SHOW_DONE bytes=%s\n' "$(wc -c < /opt/lockwire/receipt/apt-show.txt)" >&2 \
- && printf '%s\n' 'E5_9_CLOSURE_COPYRIGHT_BEGIN' >&2 \
+ && printf 'MOTION_CLOSURE_APT_SHOW_DONE bytes=%s\n' "$(wc -c < /opt/lockwire/receipt/apt-show.txt)" >&2 \
+ && printf '%s\n' 'MOTION_CLOSURE_COPYRIGHT_BEGIN' >&2 \
  && find /usr/share/doc -type f -name copyright -print0 \
       > /opt/lockwire/receipt/copyright-files.nul \
  && LC_ALL=C sort -z -o /opt/lockwire/receipt/copyright-files.nul \
@@ -193,11 +193,11 @@ RUN printf '%s\n' 'E5_9_CLOSURE_DPKG_BEGIN' >&2 \
  && xargs -0 sha256sum < /opt/lockwire/receipt/copyright-files.nul \
       > /opt/lockwire/receipt/copyright-sha256.txt \
  && rm /opt/lockwire/receipt/copyright-files.nul \
- && printf 'E5_9_CLOSURE_COPYRIGHT_DONE rows=%s\n' "$(wc -l < /opt/lockwire/receipt/copyright-sha256.txt)" >&2 \
+ && printf 'MOTION_CLOSURE_COPYRIGHT_DONE rows=%s\n' "$(wc -l < /opt/lockwire/receipt/copyright-sha256.txt)" >&2 \
  && test -s /opt/lockwire/receipt/deb-sha256.txt \
- && printf 'E5_9_CLOSURE_DEB_HASH_DONE rows=%s\n' "$(wc -l < /opt/lockwire/receipt/deb-sha256.txt)" >&2 \
+ && printf 'MOTION_CLOSURE_DEB_HASH_DONE rows=%s\n' "$(wc -l < /opt/lockwire/receipt/deb-sha256.txt)" >&2 \
  && rm -rf /var/lib/apt/lists/* /opt/lockwire/archives \
- && printf '%s\n' 'E5_9_CLOSURE_RECEIPT_DONE' >&2
+ && printf '%s\n' 'MOTION_CLOSURE_RECEIPT_DONE' >&2
 
 COPY packaging/motion/run-admission.sh /opt/lockwire/run-admission.sh
 COPY tests/fixtures/motion_admission /workspace

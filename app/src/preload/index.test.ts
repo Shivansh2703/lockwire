@@ -38,7 +38,7 @@ it("shows a failed command as a plain sentence", async () => {
 });
 
 describe("preload exposes a small, explicitly enumerated API", () => {
-  it("test_exposed_surface_is_exactly_the_forty_four_named_methods", async () => {
+  it("test_exposed_surface_is_exactly_the_forty_six_named_methods", async () => {
     await import("./index");
     expect(Object.keys(exposed.lockwire as object).sort()).toEqual([
       "applyAssistant",
@@ -47,7 +47,6 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       "choosePackageFolder",
       "choosePlan",
       "compareContractWhatIf",
-      "designPower",
       "diffContract",
       "editContract",
       "getAssistantSettings",
@@ -58,8 +57,8 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       "getStarters",
       "killTerminal",
       "newRobot",
-      "onAgentEvent",
       "onAssistantEvent",
+      "onAssistantShow",
       "onCloseRobot",
       "onOpenedFromMenu",
       "onShowShortcuts",
@@ -77,10 +76,9 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       "sendAssistant",
       "sendRobotCommand",
       "setAssistantSettings",
-      "startAgent",
+      "showAssistantFinding",
       "startFromUrdf",
       "startTerminal",
-      "stopAgent",
       "swapPreview",
       "undoContract",
       "writeContract",
@@ -104,7 +102,6 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       getHistory: (a: unknown) => Promise<unknown>;
       choosePlan: () => Promise<unknown>;
       startFromUrdf: (a?: unknown) => Promise<unknown>;
-      designPower: (a: string, b: string, c: string) => Promise<unknown>;
     };
     await bridge.editContract({ path: "a.json", contents: "{}" });
     await bridge.runProbe({ probe: "battery" });
@@ -120,7 +117,6 @@ describe("preload exposes a small, explicitly enumerated API", () => {
     await bridge.getHistory({ contract: "c" });
     await bridge.choosePlan();
     await bridge.startFromUrdf();
-    await bridge.designPower("c", "4S, 5 V 3 A", "r");
 
     expect(invokeCalls).toEqual([
       ["lockwire:run", "contract:edit", { path: "a.json", contents: "{}" }],
@@ -137,7 +133,6 @@ describe("preload exposes a small, explicitly enumerated API", () => {
       ["lockwire:run", "contract:history", { contract: "c" }],
       ["lockwire:run", "file:choose-plan", undefined],
       ["lockwire:run", "file:start-urdf", undefined],
-      ["lockwire:run", "agent:power-design", { contract: "c", spec: "4S, 5 V 3 A", revision: "r" }],
     ]);
   });
 

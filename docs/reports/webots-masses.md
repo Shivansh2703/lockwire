@@ -2,7 +2,7 @@
 
 ## Summary
 
-We summed the `Physics` mass of every robot PROTO in `projects/robots` of cyberbotics/webots (commit b3f283949798b8f26a3dcc4df931f71f5148bc93, a Webots R2025b development state) and compared it with the weight the robot's own maker publishes. 73 robot models were looked at. 10 agree within 5 %, 14 differ by more than 5 % and need a scope check before anyone calls them a bug (CANDIDATE), 1 is a clear mismatch with a one-line fix drafted but not yet submitted upstream (CATCH: the Bitcraze Crazyflie, 50 g in the model against 31.3 g from the vendor), and 48 could not be compared (no vendor weight found, or the model does not state a mass). Franka Emika Panda is counted as agreeing on its default configuration (hand included, -2.0 %); the arm alone would be -6.2 %. Nothing here is a claim that a model is wrong: a vendor weight and a simulation mass are often measured with different things attached. The table says which.
+We summed the `Physics` mass of every robot PROTO in `projects/robots` of cyberbotics/webots (commit b3f283949798b8f26a3dcc4df931f71f5148bc93, a Webots R2025b development state) and compared it with the weight the robot's own maker publishes. 73 robot models were looked at. 10 agree within 5 %, 14 differ by more than 5 % and need a scope check before anyone calls them a bug (CANDIDATE), 1 is a clear mismatch with a one-line fix (CATCH: the Bitcraze Crazyflie, 50 g in the model against 31.3 g from the vendor), and 48 could not be compared (no vendor weight found, the model's mass comes wholly or partly from density, the model states no mass, or the vendor figure was not sought or its source not opened; the Limits section counts each). Franka Emika Panda is counted as agreeing on its default configuration (hand included, -2.0 %); the arm alone would be -6.2 %. Nothing here is a claim that a model is wrong: a vendor weight and a simulation mass are often measured with different things attached. The table says which.
 
 ## Method
 
@@ -20,7 +20,7 @@ Verdicts. The tolerance is 5 %.
 - CATCH: more than 5 % apart and the vendor scope has been matched as far as the vendor's documents allow, so scope does not explain it.
 - NOT COMPARED: no usable vendor weight, or the model has no stated mass.
 
-Delta is (model - vendor) / vendor.
+Delta is (model minus vendor) / vendor.
 
 ## Full table
 
@@ -29,7 +29,7 @@ Delta is (model - vendor) / vendor.
 | UR3e | 10.7985 | 11.2 | "Weight including cable 11,2 kg" (6 m cable) | -3.6 | AGREES | https://www.universal-robots.com/media/1807464/ur3e_e-series_datasheets_web.pdf |
 | UR5e | 21.7 | 20.6 | "Weight including cable 20,6 kg" (6 m cable) | 5.3 | CANDIDATE | https://www.universal-robots.com/media/1807465/ur5e_e-series_datasheets_web.pdf |
 | UR10e | 33.104 | 33.5 | "Weight including cable 33,5 kg" (6 m cable) | -1.2 | AGREES | https://www.universal-robots.com/media/1807466/ur10e_e-series_datasheets_web.pdf |
-| Franka Emika Panda | 17.4519 | 17.8 | "Weight ~ 17.8 kg" (robot section; the "Moving mass ~ 12.8 kg" and controller "Weight ~ 7 kg" are separate lines). Earlier May 2018 datasheet (reseller copy) said "weight ~ 18 kg" | -2.0 | AGREES | https://s3-eu-central-1.amazonaws.com/franka-de-uploads/uploads/Datasheet-EN.pdf (Wayback 2019-10-20 copy of Franka Emika own file) |
+| Franka Emika Panda | 17.4519 | 17.8 | "Weight ~ 17.8 kg" (robot section; the "Moving mass ~ 12.8 kg" and controller "Weight ~ 7 kg" are separate lines). Earlier May 2018 datasheet (reseller copy) said "weight ~ 18 kg" | -2.0 | AGREES | https://web.archive.org/web/20191020114440/https://s3-eu-central-1.amazonaws.com/franka-de-uploads/uploads/Datasheet-EN.pdf (Wayback copy of Franka Emika's own file) |
 | Epson SCARA T6 | 22.001 | 22 | "Weight: 22 kg: 48.5 lb" ; sensotek mirror of Epson sheet: "Weight (cables not included) 22 kg" | 0.0 | AGREES | https://epson.com/For-Work/Robots/SCARA/T6-B-All-in-One-SCARA-Robot/p/RT6B-602SS |
 | Niryo Ned | 1.4622 | 6.5 | "Weight 6,5 kg" (no scope words in the table; Ned technical specifications page, Wayback 2023 copy of docs.niryo.com) | -77.5 | CANDIDATE | https://web.archive.org/web/2023/https://docs.niryo.com/product/ned/source/hardware/technical_specifications.html |
 | Irb4600-40 | 0.0 | | | | NOT COMPARED | |
@@ -39,18 +39,18 @@ Delta is (model - vendor) / vendor.
 | Boston Dynamics Spot | 27.2257 | 32.5 | "Net Weight 32.5 kg (71.7 lbs)"; battery listed separately "Weight 4.2 kg" | -16.2 | CANDIDATE | https://bostondynamics.com/wp-content/uploads/2020/05/spot-spec-sheet.pdf |
 | Boston Dynamics Atlas (DRC) | 89.0291 | | | | NOT COMPARED | |
 | Adept Pioneer 3-AT | 12.0 | 14 | "Weight (kg) 14" (3-AT column, Appendix C Specifications, Pioneer 3 operations manual; the 3-DX text says "Weighing only 9 kg (20 pounds with one battery)") | -14.3 | CANDIDATE | http://vigir.missouri.edu/~gdesouza/Research/MobileRobotics/Software/P3OpMan5.pdf |
-| Adept Pioneer 3-DX | 6.73 | 9 | "Weighing only 9 kg (20 pounds with one battery)" |  | NOT COMPARED | http://vigir.missouri.edu/~gdesouza/Research/MobileRobotics/Software/P3OpMan5.pdf |
+| Adept Pioneer 3-DX | 6.73 | 9 | "Weighing only 9 kg (20 pounds with one battery)" | partly from density | NOT COMPARED | http://vigir.missouri.edu/~gdesouza/Research/MobileRobotics/Software/P3OpMan5.pdf |
 | Husarion ROSbot | 2.45 | 2.45 | "Weight 2,84 kg / 100 oz (with camera and LiDAR), 2,45 kg / 86 oz (without camera and LiDAR)" | 0.0 | AGREES | https://husarion.com/manuals/rosbot/ |
 | Husarion ROSbot XL | 3.704 | 5.38 | "Weight * 5380g" with footnote "*With mecanum wheels, RPi5 SBC and no sensors." | -31.2 | CANDIDATE | https://husarion.com/manuals/rosbot-xl/ |
 | ROBOTIS OP3 | 3.1475 | 3.5 | "About 3.5kg (without skin cover)" | -10.1 | CANDIDATE | https://emanual.robotis.com/docs/en/platform/op3/introduction/ |
 | ROBOTIS DARwIn-OP | 2.9253 | 2.9 | "Weight: 2.9kg (6.39lb)" (Mechanical specs) | 0.9 | AGREES | https://emanual.robotis.com/docs/en/platform/op/references/ |
 | ROBOTIS DARwIn-OP (Hinge2 variant) | 3.1077 | 2.9 | "Weight: 2.9kg (6.39lb)" (Mechanical specs of DARwIn-OP) | 7.2 | CANDIDATE | https://emanual.robotis.com/docs/en/platform/op/references/ |
 | SoftBank/Aldebaran NAO | 5.1476 | 5.4 | "Weight: 5.4kg" (NAO H25 Construction) | -4.7 | AGREES | http://doc.aldebaran.com/2-4/family/nao_h25/dimensions_h25.html |
-| KUKA youBot | 37.168 | 25.3 | base "Overall Weight : ~20 kg"; arm "Weight : 5.3 kg" (vendor wiki). Same vendor Kinematics page: base frame Mass 19.8 kg excluding wheels and plate, wheels 1.40 kg each, plate 2.397 kg | 46.9 | CANDIDATE | http://www.youbot-store.com/wiki/index.php/YouBot_Detailed_Specifications (Wayback 2016-11-02); http://www.youbot-store.com/developers/kuka-youbot-kinematics-dynamics-and-3d-model (Wayback 2019-03-20) |
+| KUKA youBot | 37.168 | 25.3 | base "Overall Weight : ~20 kg"; arm "Weight : 5.3 kg" (vendor wiki). Same vendor Kinematics page: base frame Mass 19.8 kg excluding wheels and plate, wheels 1.40 kg each, plate 2.397 kg | 46.9 | CANDIDATE | https://web.archive.org/web/20220121011803/http://www.youbot-store.com/wiki/index.php/YouBot_Detailed_Specifications (the vendor's site no longer answers; Wayback copy); https://web.archive.org/web/20240216234245/http://www.youbot-store.com/developers/kuka-youbot-kinematics-dynamics-and-3d-model (Wayback 2019-03-20) |
 | MiR100 | 77.273 | 62.5 | "Weight (without load) 62.5 kg" (MiR100 data sheet, 05 2016) | 23.6 | CANDIDATE | https://howtorobot.com/sites/default/files/2021-12/mir100-datasheet_%282%291.pdf |
-| GCtronic Elisa-3 | 0.039 | 0.039 | "Size, weight 50 mm diameter, 30 mm height, 39 g" |  | NOT COMPARED | http://www.gctronic.com/doc/index.php/Elisa-3 |
-| GCtronic e-puck | 0.16 | 0.15 | "Size, weight 70 mm diameter, 55 mm height, 150 g" (e-puck version 1.3 column; version 2 column: 130 g) | 6.7 | CANDIDATE | http://www.gctronic.com/doc/index.php/e-puck2 |
-| ROBOTIS TurtleBot3 Burger | 0.8827 | 1.0 | "Weight (+ SBC + Battery + Sensors) 1kg" (Burger column) |  | NOT COMPARED | https://emanual.robotis.com/docs/en/platform/turtlebot3/features/ |
+| GCtronic Elisa-3 | 0.039 | 0.039 | "Size, weight 50 mm diameter, 30 mm height, 39 g" | partly from density | NOT COMPARED | https://www.gctronic.com/doc/index.php/Elisa-3 |
+| GCtronic e-puck | 0.16 | 0.15 | "Size, weight 70 mm diameter, 55 mm height, 150 g" (e-puck version 1.3 column; version 2 column: 130 g) | 6.7 | CANDIDATE | https://www.gctronic.com/doc/index.php/e-puck2 |
+| ROBOTIS TurtleBot3 Burger | 0.8827 | 1.0 | "Weight (+ SBC + Battery + Sensors) 1kg" (Burger column) | partly from density | NOT COMPARED | https://emanual.robotis.com/docs/en/platform/turtlebot3/features/ |
 | Mobsya Thymio II | 0.248 | | | | NOT COMPARED | |
 | Clearpath Moose | 1590.0 | | | | NOT COMPARED | |
 | A4 Portal | 0.0 | | | | NOT COMPARED | |
@@ -110,7 +110,7 @@ Delta is (model - vendor) / vendor.
 - ROBOTIS OP3 (-10.1 %). The model sum is a lower bound (one density-derived solid not added) and the vendor figure is "About 3.5 kg". Likely within tolerance once that solid is counted; check its derived mass.
 - ROBOTIS DARwIn-OP Hinge2 variant (+7.2 %). The variant is a Cyberbotics modification with extra joints, compared with the base robot's 2.9 kg. Not a vendor product, so probably not a defect.
 - KUKA youBot (+46.9 % as summed over all template branches, about +21 % in the default one-arm configuration, 30.7 kg against 25.3 kg). The vendor's own pages disagree with each other (their 3D-model page implies about 33 kg), and the 25.3 kg is a sum of two vendor lines. Check which youBot figure is authoritative and whether the model's wheels and plate are counted twice.
-- MiR100 (+23.6 %). Other MiR brochures list 65 and 70 kg; against 70 kg the delta is +10.4 %. Check which data sheet revision the model followed.
+- MiR100 (+23.6 %). Other MiR brochures list 65 and 70 kg; against 70 kg the delta is +10.4 %. Check which data sheet revision the model followed. This is the Webots MiR100 model, not the DFKI `mir_robot` model on the [upstream fixes page](../ledger.md), which was compared with a different (67 kg) sheet.
 - GCtronic e-puck (+6.7 %). The vendor figure is a rounded 150 g (the version 2 column says 130 g). Likely rounding; check which version the model is.
 - PAL Robotics TIAGo Base (-18.2 %). The vendor says "including batteries"; 40 kg minus the 7.5 kg battery line is 32.5 kg, which is -0.7 % from the model. Check whether the model omits batteries on purpose.
 - PAL Robotics TIAGo Lite (-8.4 %). The column of the vendor table was read from page order, so first confirm the tab. Then check the same battery scope as for TIAGo Base.
@@ -119,7 +119,7 @@ Delta is (model - vendor) / vendor.
 
 ## The catch: Bitcraze Crazyflie
 
-`projects/robots/bitcraze/crazyflie/protos/Crazyflie.proto` line 222 has `mass 0.05`. Bitcraze's Crazyflie 2.1 datasheet states "Takeoff weight: 29g", its Multi-ranger deck page states "Weight: 2.3g", and the model includes the four Multi-ranger range sensors, giving 31.3 g (model +60 %). The datasheet also gives "Max recommended payload weight: 15 g"; taking the takeoff weight plus the full payload (44 g) the model is still +12 %. The controller's altitude feedforward (48 rad/s, with four propellers at `thrustConstants 4e-05`) carries about 37.6 g, so the controller was not set for 50 g either, and the altitude controller has an integral term. The fix is a one-line change to `mass 0.0313`. The fix is drafted as a patch. It has not been submitted to cyberbotics/webots as a pull request. Not verified: we did not run the Crazyflie worlds with the new mass, and a lower mass raises angular acceleration under the same attitude gains.
+`projects/robots/bitcraze/crazyflie/protos/Crazyflie.proto` line 222 has `mass 0.05`. Bitcraze's Crazyflie 2.1 datasheet states "Takeoff weight: 29g", its Multi-ranger deck page states "Weight: 2.3g", and the model includes the four Multi-ranger range sensors, giving 31.3 g (model +60 %). The datasheet also gives "Max recommended payload weight: 15 g"; taking the takeoff weight plus the full payload (44 g) the model is still +12 %. The controller's altitude feedforward (48 rad/s, with four propellers at `thrustConstants 4e-05`) carries about 37.6 g, so the controller was not set for 50 g either, and the altitude controller has an integral term. The fix is a one-line change to `mass 0.0313`. Not verified: we did not run the Crazyflie worlds with the new mass, and a lower mass raises angular acceleration under the same attitude gains.
 
 ## Limits
 
@@ -134,7 +134,7 @@ Delta is (model - vendor) / vendor.
 
 Other limits: a vendor weight is one number with unclear scope more often than not; we recorded the scope words but did not contact any vendor. Some vendor sources are mirrors or archived copies of the vendor's file, marked in the table. Template handling is approximate. Only masses were compared, not inertias or centres of mass. One reading per vendor figure.
 
-## Reproduce
+## Source checked
 
 Pinned Webots commit: b3f283949798b8f26a3dcc4df931f71f5148bc93.
 
@@ -142,4 +142,4 @@ Pinned Webots commit: b3f283949798b8f26a3dcc4df931f71f5148bc93.
 git clone https://github.com/cyberbotics/webots.git && git -C webots checkout b3f283949798b8f26a3dcc4df931f71f5148bc93
 ```
 
-Then add up the `Physics` masses of each PROTO under `projects/robots` by the rules in Method, and compare with the vendor figures in the table above. The vendor figures, scope words, links and verdicts were filled in by hand. The scripts used for this pass are not published here.
+Then add up the `Physics` masses of each PROTO under `projects/robots` by the rules in Method, and compare with the vendor figures in the table above. The vendor figures, scope words, links and verdicts were filled in by hand, and no script is published, so this is a hand check, not a one-command rerun.

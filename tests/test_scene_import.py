@@ -57,7 +57,7 @@ def x500_scene():
 
 
 def test_x500_import_covers_every_device_with_its_own_source(x500_contract, x500_scene):
-    result = build_import(x500_contract, x500_scene, witness="human", source_person="Shivansh")
+    result = build_import(x500_contract, x500_scene, witness="human", source_person="Alex Rivera")
     device_ids = {d.id for d in x500_contract.devices}
     rows_with_entries = [r for r in result.rows if r.action == "written"]
     assert {r.device_id for r in rows_with_entries} == device_ids
@@ -72,7 +72,7 @@ def test_x500_import_covers_every_device_with_its_own_source(x500_contract, x500
     for entry in result.entries:
         assert set(entry.keys()) <= {"path", "value", "unit", "source", "witness", "note"}
         assert {"path", "value", "source", "witness", "note"} <= set(entry.keys())
-        assert "Shivansh" in entry["source"]
+        assert "Alex Rivera" in entry["source"]
         assert entry["witness"] == "human"
     # every mount_xyz value is finite and inside the scene bounds
     lo, hi = x500_scene.bounds
@@ -90,7 +90,7 @@ def test_x500_import_camera_has_no_declared_mount_frame_so_gets_two_entries(
         x500_contract,
         x500_scene,
         witness="human",
-        source_person="Shivansh",
+        source_person="Alex Rivera",
         only=["dev.camera.oak-d-lite"],
     )
     assert len(result.entries) == 2
@@ -103,9 +103,9 @@ def test_x500_import_camera_has_no_declared_mount_frame_so_gets_two_entries(
     assert frame_entry["value"] == "x500_frame"
     assert "unit" not in frame_entry
     xyz_entry = next(e for e in result.entries if e["path"].endswith("mount_xyz"))
-    assert xyz_entry["source"] == ("x500.glb node dev.camera.oak-d-lite; confirmed by Shivansh"), (
-        "source names the contract id (what the contract knows), not the mesh node name"
-    )
+    assert xyz_entry["source"] == (
+        "x500.glb node dev.camera.oak-d-lite; confirmed by Alex Rivera"
+    ), "source names the contract id (what the contract knows), not the mesh node name"
 
 
 def test_x500_import_motor_already_has_mount_frame_so_gets_one_entry(x500_contract, x500_scene):
@@ -113,7 +113,7 @@ def test_x500_import_motor_already_has_mount_frame_so_gets_one_entry(x500_contra
         x500_contract,
         x500_scene,
         witness="human",
-        source_person="Shivansh",
+        source_person="Alex Rivera",
         only=["dev.motor.m1"],
     )
     assert len(result.entries) == 1
@@ -125,14 +125,14 @@ def test_x500_import_only_filters_to_named_devices(x500_contract, x500_scene):
         x500_contract,
         x500_scene,
         witness="human",
-        source_person="Shivansh",
+        source_person="Alex Rivera",
         only=["dev.camera.oak-d-lite"],
     )
     assert {r.device_id for r in result.rows} == {"dev.camera.oak-d-lite"}
 
 
 def test_x500_import_skips_non_device_parts(x500_contract, x500_scene):
-    result = build_import(x500_contract, x500_scene, witness="human", source_person="Shivansh")
+    result = build_import(x500_contract, x500_scene, witness="human", source_person="Alex Rivera")
     device_ids = {d.id for d in x500_contract.devices}
     assert result.skipped_non_devices
     assert device_ids.isdisjoint(result.skipped_non_devices)
@@ -143,7 +143,7 @@ def test_x500_import_skips_non_device_parts(x500_contract, x500_scene):
 
 def test_declared_device_within_tolerance_is_not_touched(clean_contract):
     scene = _scene(_part("dev.imu", (0.1, -0.04, 0.02)))
-    result = build_import(clean_contract, scene, witness="human", source_person="Shivansh")
+    result = build_import(clean_contract, scene, witness="human", source_person="Alex Rivera")
     row = next(r for r in result.rows if r.device_id == "dev.imu")
     assert row.action == "agrees, not touched"
     assert not any(e["path"].startswith("devices/dev.imu/") for e in result.entries)
@@ -151,7 +151,7 @@ def test_declared_device_within_tolerance_is_not_touched(clean_contract):
 
 def test_declared_device_past_tolerance_default_run_lists_and_does_not_write(clean_contract):
     scene = _scene(_part("dev.imu", (0.1, -0.04, 0.026)))
-    result = build_import(clean_contract, scene, witness="human", source_person="Shivansh")
+    result = build_import(clean_contract, scene, witness="human", source_person="Alex Rivera")
     row = next(r for r in result.rows if r.device_id == "dev.imu")
     assert row.action == "differs by 6.0 mm, not touched"
     assert not any(e["path"].startswith("devices/dev.imu/") for e in result.entries)
@@ -160,7 +160,7 @@ def test_declared_device_past_tolerance_default_run_lists_and_does_not_write(cle
 def test_declared_too_writes_the_correction(clean_contract):
     scene = _scene(_part("dev.imu", (0.1, -0.04, 0.026)))
     result = build_import(
-        clean_contract, scene, witness="human", source_person="Shivansh", declared_too=True
+        clean_contract, scene, witness="human", source_person="Alex Rivera", declared_too=True
     )
     row = next(r for r in result.rows if r.device_id == "dev.imu")
     assert "written" in row.action
@@ -174,7 +174,7 @@ def test_declared_too_writes_the_correction(clean_contract):
 def test_no_device_parts_refuses(clean_contract):
     scene = _scene(_part("bus.usb0", (0.0, 0.0, 0.0)))
     with pytest.raises(SceneImportRefusal):
-        build_import(clean_contract, scene, witness="human", source_person="Shivansh")
+        build_import(clean_contract, scene, witness="human", source_person="Alex Rivera")
 
 
 def test_anymal_d_model_has_single_root_for_import(clean_contract):
@@ -188,7 +188,7 @@ def test_anymal_d_model_has_single_root_for_import(clean_contract):
     clean_contract.model = parse_urdf(FIXTURES / "anymal_d.urdf")
     scene = _scene(_part("base", (0.0, 0.0, 0.0)))
     result = build_import(
-        clean_contract, scene, witness="human", source_person="Shivansh", link_based=True
+        clean_contract, scene, witness="human", source_person="Alex Rivera", link_based=True
     )
     assert result.root == "base"
 
@@ -202,7 +202,7 @@ def test_link_based_no_join_explains_instead_of_refusing(clean_contract):
         _part("rotor_0", (0.1, 0.1, 0.0)),
     )
     result = build_import(
-        clean_contract, scene, witness="human", source_person="Shivansh", link_based=True
+        clean_contract, scene, witness="human", source_person="Alex Rivera", link_based=True
     )
     assert result.entries == ()
     assert result.explanation is not None
@@ -224,9 +224,11 @@ def test_write_change_file_refuses_bad_witness_direct_library_call(
     from lockwire.edit import EditRefusal
     from lockwire.scene_import import write_change_file
 
-    result = build_import(x500_contract, x500_scene, witness=bad_witness, source_person="Shivansh")
+    result = build_import(
+        x500_contract, x500_scene, witness=bad_witness, source_person="Alex Rivera"
+    )
     out = tmp_path / "changes.yaml"
-    with pytest.raises(EditRefusal, match="--witness must name a real person"):
+    with pytest.raises(EditRefusal, match="--witness (is missing: give the name|must name a real person)"):
         write_change_file(result.entries, out, scene_source=x500_scene.source)
     assert not out.exists()
 
@@ -234,7 +236,7 @@ def test_write_change_file_refuses_bad_witness_direct_library_call(
 def test_written_change_file_parses_and_has_exact_keys(tmp_path, x500_contract, x500_scene):
     from lockwire.scene_import import write_change_file
 
-    result = build_import(x500_contract, x500_scene, witness="human", source_person="Shivansh")
+    result = build_import(x500_contract, x500_scene, witness="human", source_person="Alex Rivera")
     out = tmp_path / "changes.yaml"
     write_change_file(result.entries, out, scene_source=x500_scene.source)
     data = YAML(typ="safe").load(out.read_text())
@@ -250,7 +252,7 @@ def test_write_change_file_failure_preserves_existing_output(
     """A failed staged dump cannot truncate the change file; a good write leaves no .bak."""
     from lockwire.scene_import import write_change_file
 
-    result = build_import(x500_contract, x500_scene, witness="human", source_person="Shivansh")
+    result = build_import(x500_contract, x500_scene, witness="human", source_person="Alex Rivera")
     out = tmp_path / "changes.yaml"
     out.write_bytes(b"# existing change file\n- path: old\n")
 
@@ -305,7 +307,7 @@ def test_scene_import_write_race_keeps_draft_and_undo_bytes(tmp_path, monkeypatc
                     "--witness",
                     "human",
                     "--source-person",
-                    "Shivansh",
+                    "Alex Rivera",
                     "--out",
                     str(out),
                     "--write",
@@ -365,7 +367,7 @@ def test_scene_import_write_contract_failure_restores_draft_and_undo(tmp_path, m
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
             "--write",
@@ -387,7 +389,7 @@ def test_scene_import_write_rollback_failure_retains_prior_draft_bytes(
     contract = tmp_path / "contract.yaml"
     contract.write_bytes(X500_CONTRACT.read_bytes())
     original_contract = contract.read_bytes()
-    result = build_import(x500_contract, x500_scene, witness="human", source_person="Shivansh")
+    result = build_import(x500_contract, x500_scene, witness="human", source_person="Alex Rivera")
     out = tmp_path / "changes.yaml"
     original_draft = b"# retained draft\n- path: old\n"
     original_undo = b"# retained undo\n- path: older\n"

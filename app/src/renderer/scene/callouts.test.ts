@@ -380,8 +380,7 @@ describe("CalloutLayer", () => {
 //
 // test_a_label_is_click_through_to_its_source_and_its_run is intentionally
 // absent. `SceneLabel` (api_payload.py) has no source-line or run-id field to
-// click through to, and the selection read (e1-b3) hasn't landed to give one
-// a destination. `CalloutLayer.onLabelClick` (above) already fires with the
+// click through to. `CalloutLayer.onLabelClick` (above) already fires with the
 // callout's own id -- the mechanism this test would exercise -- but "its
 // source and its run" cannot be proven true without inventing the very
-// contract e2-e refused to invent for the same reason.
+// contract the mesh decoder refused to invent for the same reason.

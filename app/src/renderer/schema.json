@@ -594,6 +594,18 @@
             "title": "Label",
             "type": "string"
           },
+          "next_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Next Command"
+          },
           "observed": {
             "anyOf": [
               {
@@ -757,7 +769,7 @@
       },
       "CheckPayload": {
         "additionalProperties": false,
-        "description": "``api.check`` / ``lockwire check --json``.\n\n``scene`` is a sidecar-only addition (not a CLI field \u2014 scene discovery keeps\n``lockwire check`` scene-free by design, ``cli.py:454``): present only on\nthe ``/v1/run`` reply, and only when a scene sits beside the contract.\n``None`` when there is no scene to offer; ``SceneUnchanged`` when the\ncaller's ``scene.have`` already matches the current hash.\n\n``headline`` is the plain-words sentence for the verdict --\n``api.check``'s own field, not shared with ``PlanPayload``\n(its door does not fill it), computed once by ``report.verdict_headline``\nand reused, never re-derived by a consumer.\n\n``graph`` rides beside ``scene`` for the same reason and on the same\ncondition: the app's Design tab needs the lens bar's words\n(``GraphLens.label``/``.caption``) next to the scene it labels, and\n``report_html._graph`` already computes exactly this dict for the page\npayload (``gui.py:1019``) \u2014 this is the same call, not a second one.\n``None`` when there is no contract to derive it from (a refusal never\nreaches this far) or no scene sits beside the contract, matching\n``scene``'s own condition so the two never disagree about whether a\nDesign tab has anything to show.",
+        "description": "``api.check`` / ``lockwire check --json``.\n\n``scene`` is a sidecar-only addition (not a CLI field - scene discovery keeps\n``lockwire check`` scene-free by design, ``cli.py:454``): present only on\nthe ``/v1/run`` reply, and only when a scene sits beside the contract.\n``None`` when there is no scene to offer; ``SceneUnchanged`` when the\ncaller's ``scene.have`` already matches the current hash.\n\n``headline`` is the plain-words sentence for the verdict --\n``api.check``'s own field, not shared with ``PlanPayload``\n(its door does not fill it), computed once by ``report.verdict_headline``\nand reused, never re-derived by a consumer.\n\n``graph`` rides beside ``scene`` for the same reason and on the same\ncondition: the app's Design tab needs the lens bar's words\n(``GraphLens.label``/``.caption``) next to the scene it labels, and\n``report_html._graph`` already computes exactly this dict for the page\npayload (``gui.py:1019``) - this is the same call, not a second one.\n``None`` when there is no contract to derive it from (a refusal never\nreaches this far) or no scene sits beside the contract, matching\n``scene``'s own condition so the two never disagree about whether a\nDesign tab has anything to show.",
         "properties": {
           "accepted": {
             "anyOf": [
@@ -828,6 +840,17 @@
             "pattern": "\\S",
             "title": "Headline",
             "type": "string"
+          },
+          "missing_inputs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MissingInputs"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "not_compared": {
             "default": [],
@@ -1214,6 +1237,11 @@
       "Counts": {
         "additionalProperties": false,
         "properties": {
+          "advice": {
+            "default": 0,
+            "title": "Advice",
+            "type": "integer"
+          },
           "not_scored": {
             "title": "Not Scored",
             "type": "integer"
@@ -1259,7 +1287,7 @@
       },
       "DeclareFormPayload": {
         "additionalProperties": false,
-        "description": "``gui.build_declare_form`` \u2014 every declarable quantity plus the witness\nbox. Unenveloped like the page (seam 1): this form's face render is\nthe app's own, not this door's, so there is no ``artifact_type`` to\ndiscriminate on yet.",
+        "description": "``gui.build_declare_form`` - every declarable quantity plus the witness\nbox. Unenveloped like the page (seam 1): this form's face render is\nthe app's own, not this door's, so there is no ``artifact_type`` to\ndiscriminate on yet.",
         "properties": {
           "add_part": {
             "$ref": "#/components/schemas/AddPartPayload"
@@ -1296,7 +1324,7 @@
       },
       "DeclareRow": {
         "additionalProperties": false,
-        "description": "One quantity ``lockwire declare`` could write, present or not.\n\nWalked from ``schema.Contract``'s own models (nothing here re-derives\na value or invents a path) \u2014 ``path`` is the exact ``/``-separated string\n``declare``'s own ``path`` argument takes. ``kind`` is always ``\"declared\"``:\nevery one of these is, by definition, a fact the contract itself would\nhold (the own example row is ``Quantity.value`` -> ``declared``). Scoped\nto ``schema.Quantity``-typed fields only \u2014 a bare unitless number\n(``efficiency``, ``gear_ratio``) is not a \"quantity\" in the sense and is\nout of this change's charter.\n\n``value``/``unit`` are ``None`` when the fact has never been declared;\n``provenance`` is the nearest ancestor block's own ``provenance`` (schema's\nper-block provenance, same rule ``edit.provenance_owner_path`` already\nencodes), ``None`` when nothing has stamped one yet.",
+        "description": "One quantity ``lockwire declare`` could write, present or not.\n\nWalked from ``schema.Contract``'s own models (nothing here re-derives\na value or invents a path) - ``path`` is the exact ``/``-separated string\n``declare``'s own ``path`` argument takes. ``kind`` is always ``\"declared\"``:\nevery one of these is, by definition, a fact the contract itself would\nhold (the own example row is ``Quantity.value`` -> ``declared``). Scoped\nto ``schema.Quantity``-typed fields only - a bare unitless number\n(``efficiency``, ``gear_ratio``) is not a \"quantity\" in the sense and is\nout of this change's charter.\n\n``value``/``unit`` are ``None`` when the fact has never been declared;\n``provenance`` is the nearest ancestor block's own ``provenance`` (schema's\nper-block provenance, same rule ``edit.provenance_owner_path`` already\nencodes), ``None`` when nothing has stamped one yet.",
         "properties": {
           "group": {
             "title": "Group",
@@ -1391,7 +1419,7 @@
       },
       "DeclareWitnessBox": {
         "additionalProperties": false,
-        "description": "The declare form's witness field, pre-filled exactly as a submit with no\n``--witness`` would resolve it (``edit.resolve_witness``) \u2014 a config\ndefault arrives already marked ``\"(default)\"``; no default is `\"\"`, which\nstill refuses on submit exactly like the CLI (O8's refusal side).",
+        "description": "The declare form's witness field, pre-filled exactly as a submit with no\n``--witness`` would resolve it (``edit.resolve_witness``) - a config\ndefault arrives already marked ``\"(default)\"``; no default is `\"\"`, which\nstill refuses on submit exactly like the CLI (O8's refusal side).",
         "properties": {
           "prefill": {
             "title": "Prefill",
@@ -1406,7 +1434,7 @@
       },
       "DescribePayload": {
         "additionalProperties": false,
-        "description": "``api.describe`` \u2014 filename -> Markdown. The member that carries prose,\nnot the page dict: ``files`` is ``describe.describe_all``'s output.",
+        "description": "``api.describe`` - filename -> Markdown. The member that carries prose,\nnot the page dict: ``files`` is ``describe.describe_all``'s output.",
         "properties": {
           "artifact_type": {
             "const": "lockwire-describe",
@@ -1514,7 +1542,7 @@
       },
       "DiffPayload": {
         "additionalProperties": false,
-        "description": "`api.diff` / `lockwire diff --json` \u2014 what changed in the facts.",
+        "description": "`api.diff` / `lockwire diff --json` - what changed in the facts.",
         "properties": {
           "added": {
             "items": {
@@ -1569,7 +1597,7 @@
       },
       "EditPayload": {
         "additionalProperties": false,
-        "description": "``api.declare`` \u2014 the write door's document. This is the member that\ncarries a diff; ``written`` is False under ``--dry-run``.\n\n``contract_sha`` is ``None`` with ``contract_sha_error`` set (same\nshape as the fix on ``api.add``) when the write landed but the\npost-write disk re-read that names its sha then faulted \u2014 ``written``\nstill reports what the writer did, never the re-read's outcome.",
+        "description": "``api.declare`` - the write door's document. This is the member that\ncarries a diff; ``written`` is False under ``--dry-run``.\n\n``contract_sha`` is ``None`` with ``contract_sha_error`` set (same\nshape as the fix on ``api.add``) when the write landed but the\npost-write disk re-read that names its sha then faulted - ``written``\nstill reports what the writer did, never the re-read's outcome.",
         "properties": {
           "artifact_type": {
             "const": "lockwire-edit-result",
@@ -1756,7 +1784,7 @@
       },
       "Figure": {
         "additionalProperties": false,
-        "description": "**One number on screen, typed** \u2014 the shape every figure a door renders\nas a number takes, so the number kind is a property of the value rather than of a\nlookup table someone forgot to extend.\n\n``NUMBER_KINDS`` (below) covers numeric-*typed* fields. It cannot cover a\nnumber a producer has already formatted into a ``str``: measured on the\nx500 fixture, ``SceneLabel.figure`` read ``\"35.20 W vs <= 15.60 W\"`` \u2014 two\nnumbers on screen, the exact words, carrying no kind, with nothing to\nnotice. *A number stopped being a number, for that guard, the moment\nsomeone formatted it.* **The number kind is a claim about\nnumbers on screen, so a preformatted string figure defeats it.**\n\nA ``Figure`` carries its own kind, so a field typed as one needs no\n``NUMBER_KINDS`` row \u2014 ``numeric_fields()`` skips it deliberately.\n**The renderer formats it** (``value:.2f`` + unit, ``report.format_magnitude``'s\none rule, one line of JS in ``gui``/``scene_js``); no producer here emits a\npreformatted numeric string, and\n``test_no_door_emits_a_preformatted_number_outside_the_named_exemptions``\nholds that against every document the doors actually emit.",
+        "description": "**One number on screen, typed** - the shape every figure a door renders\nas a number takes, so the number kind is a property of the value rather than of a\nlookup table someone forgot to extend.\n\n``NUMBER_KINDS`` (below) covers numeric-*typed* fields. It cannot cover a\nnumber a producer has already formatted into a ``str``: measured on the\nx500 fixture, ``SceneLabel.figure`` read ``\"35.20 W vs <= 15.60 W\"`` - two\nnumbers on screen, the exact words, carrying no kind, with nothing to\nnotice. *A number stopped being a number, for that guard, the moment\nsomeone formatted it.* **The number kind is a claim about\nnumbers on screen, so a preformatted string figure defeats it.**\n\nA ``Figure`` carries its own kind, so a field typed as one needs no\n``NUMBER_KINDS`` row - ``numeric_fields()`` skips it deliberately.\n**The renderer formats it** (``value:.2f`` + unit, ``report.format_magnitude``'s\none rule, one line of JS in ``gui``/``scene_js``); no producer here emits a\npreformatted numeric string, and\n``test_no_door_emits_a_preformatted_number_outside_the_named_exemptions``\nholds that against every document the doors actually emit.",
         "properties": {
           "by": {
             "title": "By",
@@ -1983,6 +2011,14 @@
             "default": null,
             "title": "Stage"
           },
+          "unsolved_poses": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/UnsolvedPose"
+            },
+            "title": "Unsolved Poses",
+            "type": "array"
+          },
           "witness": {
             "anyOf": [
               {
@@ -2087,6 +2123,14 @@
             ],
             "default": null
           },
+          "joint_torques": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/JointTorqueRow"
+            },
+            "title": "Joint Torques",
+            "type": "array"
+          },
           "mass_total": {
             "$ref": "#/components/schemas/ForceFigure"
           },
@@ -2116,6 +2160,25 @@
               "$ref": "#/components/schemas/ForceFigure"
             },
             "title": "Not Scored",
+            "type": "array"
+          },
+          "stance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StanceRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "standing": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StandingRow"
+            },
+            "title": "Standing",
             "type": "array"
           }
         },
@@ -2624,6 +2687,65 @@
         "title": "JointHeadroom",
         "type": "object"
       },
+      "JointTorqueRow": {
+        "additionalProperties": false,
+        "description": "One scored joint's holding torque, passing or not (checks.check_gravity_reach).",
+        "properties": {
+          "headroom": {
+            "title": "Headroom",
+            "type": "number"
+          },
+          "joint": {
+            "title": "Joint",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "number"
+          },
+          "loop": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LoopTorque"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "peak": {
+            "title": "Peak",
+            "type": "number"
+          },
+          "pose_deg": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Pose Deg",
+            "type": "object"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "joint",
+          "peak",
+          "unit",
+          "limit",
+          "headroom",
+          "pose_deg",
+          "passed"
+        ],
+        "title": "JointTorqueRow",
+        "type": "object"
+      },
       "KitOption": {
         "additionalProperties": false,
         "description": "One kit structure part (channel, plate, standoff) the Structure tab can attach.",
@@ -2784,6 +2906,69 @@
         },
         "title": "LogPayload",
         "type": "array"
+      },
+      "LoopTorque": {
+        "additionalProperties": false,
+        "description": "A solved closed loop's side of one ``JointTorqueRow`` (checks._loop_worst).",
+        "properties": {
+          "at_file_pose": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At File Pose"
+          },
+          "lowest": {
+            "title": "Lowest",
+            "type": "number"
+          },
+          "lowest_pose_deg": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Lowest Pose Deg",
+            "type": "object"
+          },
+          "refined": {
+            "enum": [
+              "yes",
+              "no",
+              "capped"
+            ],
+            "title": "Refined",
+            "type": "string"
+          },
+          "solved": {
+            "title": "Solved",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unsolved_poses": {
+            "items": {
+              "$ref": "#/components/schemas/UnsolvedPose"
+            },
+            "title": "Unsolved Poses",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lowest",
+          "lowest_pose_deg",
+          "at_file_pose",
+          "solved",
+          "total",
+          "refined",
+          "unsolved_poses"
+        ],
+        "title": "LoopTorque",
+        "type": "object"
       },
       "MaterialCompare": {
         "additionalProperties": false,
@@ -2987,6 +3172,77 @@
         "title": "MeshGap",
         "type": "object"
       },
+      "MissingInput": {
+        "additionalProperties": false,
+        "description": "One absent input (``missing.missing_inputs``): what, what it covers, what it lets Lockwire check, how to add it.",
+        "properties": {
+          "covers": {
+            "title": "Covers",
+            "type": "string"
+          },
+          "how": {
+            "title": "How",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unlocks": {
+            "title": "Unlocks",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "covers",
+          "unlocks",
+          "how",
+          "lines"
+        ],
+        "title": "MissingInput",
+        "type": "object"
+      },
+      "MissingInputs": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MissingInput"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "not_declared": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotDeclared"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "MissingInputs",
+        "type": "object"
+      },
       "MotionJoint": {
         "additionalProperties": false,
         "description": "One joint's absolute speed, acceleration and torque per sample, with its own limits.",
@@ -3120,6 +3376,44 @@
         "title": "NotCompared",
         "type": "object"
       },
+      "NotDeclared": {
+        "additionalProperties": false,
+        "description": "What the robot declares none of, and the commands that start a battery and a rail.",
+        "properties": {
+          "first": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "array"
+          },
+          "start": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Start",
+            "type": "array"
+          }
+        },
+        "required": [
+          "names",
+          "start",
+          "first"
+        ],
+        "title": "NotDeclared",
+        "type": "object"
+      },
       "PackedIndices": {
         "additionalProperties": false,
         "properties": {
@@ -3192,7 +3486,7 @@
       },
       "PagePayload": {
         "additionalProperties": false,
-        "description": "``gui.build_payload``'s dict, field for field \u2014 the union's largest\nmember, and the only one with no envelope (seam 1 in the module docstring).",
+        "description": "``gui.build_payload``'s dict, field for field - the union's largest\nmember, and the only one with no envelope (seam 1 in the module docstring).",
         "properties": {
           "accepted": {
             "default": [],
@@ -3740,7 +4034,7 @@
       },
       "PlanStepPayload": {
         "additionalProperties": false,
-        "description": "One plan step's disposition (the app shows each agent call\nand lockwire's reply as a read-only timeline, from the command record; the\noperator sees what the agent was told, and nothing in the app\nsteers the agent), joined from ``PlanReport``'s own ``outcomes`` and\n``findings`` \u2014 ``plan.py`` already computes both; this only correlates\nwhat it returns (no second scorer). The join key is identity:\n``AssertionOutcome.path == Finding.quantity`` \u2014 every ``UNSCORED`` outcome\n``validate_plan`` emits carries exactly one ``not_scored`` Finding at the\nsame path, whose ``action`` names the missing fact.",
+        "description": "One plan step's disposition (the app shows each agent call\nand lockwire's reply as a read-only timeline, from the command record; the\noperator sees what the agent was told, and nothing in the app\nsteers the agent), joined from ``PlanReport``'s own ``outcomes`` and\n``findings`` - ``plan.py`` already computes both; this only correlates\nwhat it returns (no second scorer). The join key is identity:\n``AssertionOutcome.path == Finding.quantity`` - every ``UNSCORED`` outcome\n``validate_plan`` emits carries exactly one ``not_scored`` Finding at the\nsame path, whose ``action`` names the missing fact.",
         "properties": {
           "not_scored_reason": {
             "anyOf": [
@@ -4340,7 +4634,7 @@
       },
       "ReferenceDrawer": {
         "additionalProperties": false,
-        "description": "One of the Reference face's four drawers \u2014 a thing the\nCLI already produces (``describe``/``report``/``baseline``/``scan``),\nnamed with its content, its provenance and the exact CLI line that\nreproduces it in a terminal. Nothing here is computed twice: ``content``\nis always a producer's own output (``describe_all`` for the describe\ndrawer; a fixed description for the other three, which need inputs the\npage does not have \u2014 a recording, this machine).",
+        "description": "One of the Reference face's four drawers - a thing the\nCLI already produces (``describe``/``report``/``baseline``/``scan``),\nnamed with its content, its provenance and the exact CLI line that\nreproduces it in a terminal. Nothing here is computed twice: ``content``\nis always a producer's own output (``describe_all`` for the describe\ndrawer; a fixed description for the other three, which need inputs the\npage does not have - a recording, this machine).",
         "properties": {
           "cli_line": {
             "title": "Cli Line",
@@ -4490,7 +4784,7 @@
       },
       "ReviewNote": {
         "additionalProperties": false,
-        "description": "A reviewer's judgement of a declared value, written into the file.\n\n`state` is exactly one of these two words. The witness gate is the\n*existing* `validate_witness` (edit.py) \u2014 imported lazily inside the\nvalidator to avoid a module-level cycle (edit.py imports from schema.py).",
+        "description": "A reviewer's judgement of a declared value, written into the file.\n\n`state` is exactly one of these two words. The witness gate is the\n*existing* `validate_witness` (edit.py) - imported lazily inside the\nvalidator to avoid a module-level cycle (edit.py imports from schema.py).",
         "properties": {
           "at": {
             "format": "date",
@@ -4766,6 +5060,21 @@
       "RobotLink": {
         "additionalProperties": false,
         "properties": {
+          "com": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Com"
+          },
           "mass_note": {
             "anyOf": [
               {
@@ -4871,7 +5180,7 @@
       },
       "SceneLabel": {
         "additionalProperties": false,
-        "description": "The pinned label the 3D scene draws on a faulty part.\n\n``figure: str`` until 2026-09-08 \u2014 ``\"35.20 W vs <= 15.60 W\"``, the very\nstring that showed a formatted number defeats ``NUMBER_KINDS``. Now the two\nnumbers are typed and the callout in ``scene_js`` formats them.\nNumeric findings carry typed magnitudes. Structural findings can carry\ntext operands without numeric quantities, so either figure remains\n``| None``; the renderer omits an absent figure instead of inventing one.",
+        "description": "The pinned label the 3D scene draws on a faulty part.\n\n``figure: str`` until 2026-09-08 - ``\"35.20 W vs <= 15.60 W\"``, the very\nstring that showed a formatted number defeats ``NUMBER_KINDS``. Now the two\nnumbers are typed and the callout in ``scene_js`` formats them.\nNumeric findings carry typed magnitudes. Structural findings can carry\ntext operands without numeric quantities, so either figure remains\n``| None``; the renderer omits an absent figure instead of inventing one.",
         "properties": {
           "comparator": {
             "title": "Comparator",
@@ -5176,7 +5485,7 @@
       },
       "SceneUnchanged": {
         "additionalProperties": false,
-        "description": "The sidecar's reply when a caller's ``scene.have`` already matches \u2014\nships no geometry. ``unchanged`` is always ``True``; the shape\nexists so ``{\"unchanged\": true}`` is a typed member, not a bare dict.",
+        "description": "The sidecar's reply when a caller's ``scene.have`` already matches -\nships no geometry. ``unchanged`` is always ``True``; the shape\nexists so ``{\"unchanged\": true}`` is a typed member, not a bare dict.",
         "properties": {
           "asset_path": {
             "anyOf": [
@@ -5228,7 +5537,7 @@
       },
       "ScoredRecord": {
         "additionalProperties": false,
-        "description": "A comparison that PASSED: two populated operands, no violation.\n\nFindings only ever carry problems and blind spots; this is the missing\n\"it agrees\" half. ``quantity`` is the contract path (exact-text toggle\nonly); ``observed``/``expected``/``margin`` are already plain words for\ndirect rendering \u2014 never a quantity path or code identifier.",
+        "description": "A comparison that PASSED: two populated operands, no violation.\n\nFindings only ever carry problems and blind spots; this is the missing\n\"it agrees\" half. ``quantity`` is the contract path (exact-text toggle\nonly); ``observed``/``expected``/``margin`` are already plain words for\ndirect rendering - never a quantity path or code identifier.",
         "properties": {
           "detail": {
             "anyOf": [
@@ -5301,6 +5610,14 @@
               }
             ],
             "default": null
+          },
+          "unsolved_poses": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/UnsolvedPose"
+            },
+            "title": "Unsolved Poses",
+            "type": "array"
           }
         },
         "required": [
@@ -5334,6 +5651,272 @@
           "snippet"
         ],
         "title": "SetupGap",
+        "type": "object"
+      },
+      "StanceCase": {
+        "additionalProperties": false,
+        "properties": {
+          "case": {
+            "title": "Case",
+            "type": "string"
+          },
+          "feet": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Feet",
+            "type": "array"
+          },
+          "forces": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forces"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case",
+          "label",
+          "feet",
+          "forces",
+          "note"
+        ],
+        "title": "StanceCase",
+        "type": "object"
+      },
+      "StanceFoot": {
+        "additionalProperties": false,
+        "properties": {
+          "fore_aft_travel_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fore Aft Travel M"
+          },
+          "height_range_m": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Range M"
+          },
+          "link": {
+            "title": "Link",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "position_m": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Position M",
+            "type": "array"
+          },
+          "shape": {
+            "title": "Shape",
+            "type": "string"
+          },
+          "swept": {
+            "title": "Swept",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "link",
+          "shape",
+          "position_m",
+          "height_range_m",
+          "fore_aft_travel_m",
+          "swept"
+        ],
+        "title": "StanceFoot",
+        "type": "object"
+      },
+      "StanceRecord": {
+        "additionalProperties": false,
+        "description": "The robot's stance at the model file's pose: feet, centre of mass, forces per case.",
+        "properties": {
+          "balance_margin_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Balance Margin M"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/StanceCase"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "com_m": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Com M"
+          },
+          "feet": {
+            "items": {
+              "$ref": "#/components/schemas/StanceFoot"
+            },
+            "title": "Feet",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "weight_n": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight N"
+          }
+        },
+        "required": [
+          "feet",
+          "com_m",
+          "weight_n",
+          "cases",
+          "balance_margin_m",
+          "reason"
+        ],
+        "title": "StanceRecord",
+        "type": "object"
+      },
+      "StandingRow": {
+        "additionalProperties": false,
+        "description": "One joint's torque in one standing load case (checks.check_standing_sweep).",
+        "properties": {
+          "at_file_nm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At File Nm"
+          },
+          "case": {
+            "title": "Case",
+            "type": "string"
+          },
+          "feet": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Feet",
+            "type": "array"
+          },
+          "foot_force_n": {
+            "title": "Foot Force N",
+            "type": "number"
+          },
+          "joint": {
+            "title": "Joint",
+            "type": "string"
+          },
+          "leg": {
+            "title": "Leg",
+            "type": "string"
+          },
+          "limit_nm": {
+            "title": "Limit Nm",
+            "type": "number"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "peak_nm": {
+            "title": "Peak Nm",
+            "type": "number"
+          },
+          "peak_pose_deg": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Peak Pose Deg",
+            "type": "object"
+          },
+          "share": {
+            "title": "Share",
+            "type": "number"
+          }
+        },
+        "required": [
+          "joint",
+          "case",
+          "feet",
+          "leg",
+          "foot_force_n",
+          "at_file_nm",
+          "peak_nm",
+          "peak_pose_deg",
+          "limit_nm",
+          "share",
+          "passed"
+        ],
+        "title": "StandingRow",
         "type": "object"
       },
       "StartPayload": {
@@ -5783,6 +6366,35 @@
         "title": "TipReadout",
         "type": "object"
       },
+      "UnsolvedPose": {
+        "additionalProperties": false,
+        "description": "A grid pose of a solved closed loop that got no number, and why (statics.LOOP_WHY).",
+        "properties": {
+          "angles_deg": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Angles Deg",
+            "type": "object"
+          },
+          "reason": {
+            "enum": [
+              "cannot be assembled",
+              "near lock",
+              "reached only through a lock",
+              "pin limit"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "angles_deg"
+        ],
+        "title": "UnsolvedPose",
+        "type": "object"
+      },
       "WhatIfFact": {
         "additionalProperties": false,
         "properties": {
@@ -6150,7 +6762,7 @@
   },
   "info": {
     "title": "lockwire",
-    "version": "0.1.0"
+    "version": "0.5.3"
   },
   "openapi": "3.1.0",
   "paths": {},
@@ -6218,6 +6830,10 @@
       "by": "page._motor_curves",
       "kind": "derived"
     },
+    "Counts.advice": {
+      "by": "api.verdict_document",
+      "kind": "derived"
+    },
     "Counts.not_scored": {
       "by": "report.verdict",
       "kind": "derived"
@@ -6274,6 +6890,22 @@
       "by": "page._headroom",
       "kind": "derived"
     },
+    "JointTorqueRow.headroom": {
+      "by": "checks.check_gravity_reach",
+      "kind": "derived"
+    },
+    "JointTorqueRow.limit": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "JointTorqueRow.peak": {
+      "by": "checks.check_gravity_reach",
+      "kind": "derived"
+    },
+    "JointTorqueRow.pose_deg": {
+      "by": "checks.check_gravity_reach",
+      "kind": "derived"
+    },
     "LinkSolid.length": {
       "by": "schema.Shape",
       "kind": "declared"
@@ -6293,6 +6925,26 @@
     "LinkSolid.size": {
       "by": "schema.Shape",
       "kind": "declared"
+    },
+    "LoopTorque.at_file_pose": {
+      "by": "checks._loop_worst",
+      "kind": "derived"
+    },
+    "LoopTorque.lowest": {
+      "by": "checks._loop_worst",
+      "kind": "derived"
+    },
+    "LoopTorque.lowest_pose_deg": {
+      "by": "checks._loop_worst",
+      "kind": "derived"
+    },
+    "LoopTorque.solved": {
+      "by": "checks._loop_worst",
+      "kind": "derived"
+    },
+    "LoopTorque.total": {
+      "by": "checks._loop_worst",
+      "kind": "derived"
     },
     "MaterialCompareRow.delta_margin_nm": {
       "by": "page._material_compare",
@@ -6521,6 +7173,10 @@
       "by": "schema.Joint",
       "kind": "declared"
     },
+    "RobotLink.com": {
+      "by": "page._robot_model",
+      "kind": "derived"
+    },
     "RobotLink.position": {
       "by": "gui._robot_model",
       "kind": "derived"
@@ -6568,6 +7224,58 @@
     "ScenePayload.vertices": {
       "by": "scene.load_scene",
       "kind": "measured"
+    },
+    "StanceCase.forces": {
+      "by": "standing.split_forces",
+      "kind": "derived"
+    },
+    "StanceFoot.fore_aft_travel_m": {
+      "by": "standing.analyse",
+      "kind": "derived"
+    },
+    "StanceFoot.height_range_m": {
+      "by": "standing.analyse",
+      "kind": "derived"
+    },
+    "StanceFoot.position_m": {
+      "by": "standing.lowest_point",
+      "kind": "derived"
+    },
+    "StanceRecord.balance_margin_m": {
+      "by": "standing.load_cases",
+      "kind": "derived"
+    },
+    "StanceRecord.com_m": {
+      "by": "standing.analyse",
+      "kind": "derived"
+    },
+    "StanceRecord.weight_n": {
+      "by": "standing.analyse",
+      "kind": "derived"
+    },
+    "StandingRow.at_file_nm": {
+      "by": "checks.check_standing_sweep",
+      "kind": "derived"
+    },
+    "StandingRow.foot_force_n": {
+      "by": "standing.split_forces",
+      "kind": "derived"
+    },
+    "StandingRow.limit_nm": {
+      "by": "schema.Contract",
+      "kind": "declared"
+    },
+    "StandingRow.peak_nm": {
+      "by": "checks.check_standing_sweep",
+      "kind": "derived"
+    },
+    "StandingRow.peak_pose_deg": {
+      "by": "checks.check_standing_sweep",
+      "kind": "derived"
+    },
+    "StandingRow.share": {
+      "by": "checks.check_standing_sweep",
+      "kind": "derived"
     },
     "SupportPolygon.points": {
       "by": "page._support_polygon",
@@ -6617,6 +7325,10 @@
     },
     "TipReadout.xyz": {
       "by": "page._tip_readout",
+      "kind": "derived"
+    },
+    "UnsolvedPose.angles_deg": {
+      "by": "checks._loop_worst",
       "kind": "derived"
     },
     "WiringPinFact.level_v": {

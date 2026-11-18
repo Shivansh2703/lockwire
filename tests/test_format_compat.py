@@ -75,7 +75,7 @@ def test_upgrade_on_a_06_file_changes_only_the_schema_version_line(rel, tmp_path
     assert src.read_bytes() == (ROOT / rel).read_bytes()
 
 
-# ---- WITNESS-OPT: a model block without provenance is a 0.7-only shape.
+# ---- witness optional: a model block without provenance is a 0.7-only shape.
 
 _OLD = 'schema_version: "0.6"\nrobot:\n  name: r\n'
 

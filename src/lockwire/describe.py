@@ -3,7 +3,7 @@
 `lockwire describe` renders one plain-Markdown page per device: what it
 measures, what it adjusts, what limits are enforced, and where each number
 comes from. Every line is read from a schema field that already exists in the
-contract — nothing here is inferred, predicted, or guessed. A field the
+contract - nothing here is inferred, predicted, or guessed. A field the
 contract does not declare renders as "nothing declared", never a blank or a
 made-up value.
 """
@@ -13,7 +13,8 @@ from __future__ import annotations
 import re
 
 from lockwire.checks import compute_system_cg, unknown_draw_message
-from lockwire.copy import human_name, robot_title
+from lockwire.copy import human_name, label_name, robot_title
+from lockwire.edit import witness_words
 from lockwire.forces import force_document, render_markdown
 from lockwire.report import format_display, format_magnitude
 from lockwire.schema import (
@@ -40,12 +41,27 @@ def _joint_units(joint_type: str) -> tuple[str, str, str]:
     return _JOINT_UNITS.get(joint_type, _DEFAULT_JOINT_UNITS)
 
 
+def _source_words(provenance: Provenance) -> str:
+    return provenance.source if provenance.source and provenance.source.strip() else "no source recorded"
+
+
+def _named(identifier: str, name: str | None = None) -> str:
+    """An id with its recorded name first ("DroneCAN GNSS (fam.gnss.dronecan)"), or the id alone:
+    a name made up from the id can be cased wrong, which is worse than the id."""
+    return f"{name} ({identifier})" if name and name != identifier else identifier
+
+
+def _rail(identifier: str) -> str:
+    """"rail <id>", unless the id already says rail ("rail.5v", not "rail rail.5v")."""
+    return identifier if identifier.lower().startswith("rail") else f"rail {identifier}"
+
+
 def _provenance_suffix(provenance: Provenance | None) -> str:
     if provenance is None:
         return ""
-    parts = [f"source: {provenance.source}", f"locked_at: {provenance.locked_at}"]
+    parts = [f"source: {_source_words(provenance)}", f"locked_at: {provenance.locked_at}"]
     if provenance.witness:
-        parts.insert(0, f"witness: {provenance.witness}")
+        parts.insert(0, f"witness: {witness_words(provenance.witness)}")
     if provenance.bag_sha256 is not None:
         parts.append(f"bag_sha256: {provenance.bag_sha256}")
     return " (" + ", ".join(parts) + ")"
@@ -56,8 +72,8 @@ def _provenance_block(label: str, provenance: Provenance | None) -> list[str]:
         return []
     lines = [
         f"- {label}:",
-        f"  - witness: {provenance.witness or "no name on record"}",
-        f"  - source: {provenance.source}",
+        f"  - witness: {witness_words(provenance.witness) or "no name on record"}",
+        f"  - source: {_source_words(provenance)}",
     ]
     lines.append(f"  - locked_at: {provenance.locked_at}")
     if provenance.bag_sha256 is not None:
@@ -119,27 +135,28 @@ def _joint_limit_lines(joint: Joint) -> list[str]:
 
 
 def _enforcement_detail(value: str) -> str:
-    return (
-        f"declared enforcement provenance: {value} "
-        "(metadata only; does not prove physical protection)"
-    )
+    return f"enforced by {value}, as declared; Lockwire cannot see that it is fitted"
 
 
 def _measures_section(instance: DeviceInstance) -> list[str]:
     driver = instance.driver
     if driver is None or not driver.signals:
-        return ["Measures: nothing declared."]
+        return ["Nothing declared."]
     lines = ["| signal | field | unit |", "| --- | --- | --- |"]
     for name, source in sorted(driver.signals.items()):
         lines.append(f"| {name} | {source.field} | {source.unit} |")
-    if driver.topic is not None:
-        lines.append(f"- topic: {driver.topic}")
-    if driver.msg_type is not None:
-        lines.append(f"- msg_type: {driver.msg_type}")
-    if driver.nominal_rate_hz is not None:
-        lines.append(f"- nominal_rate_hz: {driver.nominal_rate_hz:g}")
-    if driver.payload_bytes is not None:
-        lines.append(f"- payload_bytes: {driver.payload_bytes}")
+    extras = [
+        f"- {name}: {value}"
+        for name, value in (
+            ("topic", driver.topic),
+            ("msg_type", driver.msg_type),
+            ("nominal_rate_hz", None if driver.nominal_rate_hz is None else f"{driver.nominal_rate_hz:g}"),
+            ("payload_bytes", driver.payload_bytes),
+        )
+        if value is not None
+    ]
+    if extras:  # a list glued to a table renders as one block
+        lines += ["", *extras]
     return lines
 
 
@@ -166,7 +183,7 @@ def _adjusts_section(
         else:
             lines.extend(_joint_limit_lines(joint))
     if not lines:
-        return ["Adjusts: nothing declared."]
+        return ["Nothing declared."]
     return lines
 
 
@@ -177,7 +194,7 @@ def _limits_section(
     model_prov_suffix = _provenance_suffix(model.provenance) if model is not None else ""
 
     def band_details(band: Band) -> str:
-        return f", declared enforcement: {band.enforced_by}" if band.enforced_by else ""
+        return f", enforced by {band.enforced_by}, as declared" if band.enforced_by else ""
 
     if model is not None and model.hard_limits:
         for channel, band in sorted(model.hard_limits.items()):
@@ -215,7 +232,7 @@ def _limits_section(
         power = instance.power
         if power.draw is not None:
             lines.append(
-                f"- power draw: {format_magnitude(power.draw.value, power.draw.unit)} on {power.rail}"
+                f"- power draw: {format_magnitude(power.draw.value, power.draw.unit)} on {_named(power.rail)}"
             )
         else:
             lines.append(f"- power draw: {unknown_draw_message(instance.id, power.rail)}")
@@ -233,27 +250,27 @@ def _limits_section(
                 else "at an undeclared voltage"
             )
             lines.append(
-                f"  - rail {rail.id} capacity: {format_magnitude(rail.capacity.value, rail.capacity.unit)}"
+                f"  - {_rail(rail.id)} capacity: {format_magnitude(rail.capacity.value, rail.capacity.unit)}"
                 f" {voltage}{_provenance_suffix(rail.provenance)}"
             )
             if rail.capacity_enforced_by is not None:
                 lines.append(
-                    f"  - rail {rail.id} capacity {_enforcement_detail(rail.capacity_enforced_by)}"
+                    f"  - {_rail(rail.id)} capacity {_enforcement_detail(rail.capacity_enforced_by)}"
                 )
             if rail.voltage_range is not None:
                 lines.append(
-                    f"  - rail {rail.id} voltage range: "
+                    f"  - {_rail(rail.id)} voltage range: "
                     f"[{format_magnitude(rail.voltage_range.min.value, rail.voltage_range.min.unit)}, "
                     f"{format_magnitude(rail.voltage_range.max.value, rail.voltage_range.max.unit)}]"
                 )
             if rail.current_limit is not None:
                 lines.append(
-                    f"  - rail {rail.id} current limit: "
+                    f"  - {_rail(rail.id)} current limit: "
                     f"{format_magnitude(rail.current_limit.value, rail.current_limit.unit)}"
                 )
                 if rail.current_limit_enforced_by is not None:
                     lines.append(
-                        f"  - rail {rail.id} current_limit "
+                        f"  - {_rail(rail.id)} current limit "
                         f"{_enforcement_detail(rail.current_limit_enforced_by)}"
                     )
 
@@ -322,7 +339,7 @@ def _limits_section(
             )
 
     if not lines:
-        return ["Limits enforced: nothing declared."]
+        return ["Nothing declared."]
     return lines
 
 
@@ -331,14 +348,15 @@ def describe_device(contract: Contract, device: DeviceInstance, human: bool = Fa
     model = contract.device_model(device.model)
     family = contract.family(model.family) if model is not None else None
 
-    lines = [f"# {human_name(device.id) if human else device.id}", ""]
-    lines.append(f"- model: {human_name(device.model) if human else device.model}")
+    lines = [f"# {label_name(device.id) if human else _named(device.id)}", ""]
+    lines.append(f"- model: {label_name(device.model) if human else _named(device.model)}")
     if family is not None:
-        lines.append(f"- family: {family.id} — {family.name}")
+        lines.append(f"- family: {family.name if human else _named(family.id, family.name)}")
     lines.append(f"- owner: {device.owner}")
     if device.identity is not None:
         lines.append(f"- identity strength: {device.identity.effective_strength()}")
-        lines.append(f"- bus: {device.identity.bus_ref}")
+        bus = device.identity.bus_ref
+        lines.append(f"- bus: {label_name(bus) if human else _named(bus)}")
     for connector in device.connectors or []:
         pins = ", ".join(f"{p.number}: {p.name or '-'}" for p in connector.pins or [])
         lines.append(f"- connector {connector.id} ({connector.type or 'untyped'}): {pins}")
@@ -369,7 +387,7 @@ def describe_device(contract: Contract, device: DeviceInstance, human: bool = Fa
     prov_lines = _provenance_block("instance", device.provenance) + _provenance_block(
         "model", model.provenance if model is not None else None
     )
-    lines.extend(prov_lines if prov_lines else ["Provenance: nothing declared."])
+    lines.extend(prov_lines if prov_lines else ["Nothing declared."])
     lines.append("")
 
     return "\n".join(lines)
@@ -432,10 +450,10 @@ def _joints_table(contract: Contract, human: bool = False) -> list[str]:
                 continue
             kind = _JOINT_WORDS.get(str(joint.type), str(joint.type).capitalize())
             cells = (
-                human_name(joint.name),
+                label_name(joint.name),
                 kind,
-                human_name(joint.parent),
-                human_name(joint.child),
+                label_name(joint.parent),
+                label_name(joint.child),
             )
         else:
             cells = (joint.name, joint.type, joint.parent, joint.child)
@@ -447,12 +465,12 @@ def _joints_table(contract: Contract, human: bool = False) -> list[str]:
 def _mass_reasons(contract: Contract, human: bool = False) -> list[str]:
     """A link with geometry but no mass says why its mass could not be derived."""
     notes = [
-        f"- {human_name(link.name) if human else link.name}: {why}"
+        f"- {label_name(link.name) if human else link.name}: {why}"
         for link in (contract.model.links if contract.model else [])
         if isinstance(why := mass_derivation(link), str)
     ]
     notes += [
-        f"- {human_name(link.name) if human else link.name}: {link.mass.value:.4g} kg, {link.mass_note}"
+        f"- {label_name(link.name) if human else link.name}: {link.mass.value:.4g} kg, {link.mass_note}"
         for link in (contract.model.links if contract.model else [])
         if link.mass_note and link.mass
     ]
@@ -465,7 +483,7 @@ def _mag(human: bool, value: float, unit: str) -> str:
 
 
 def _rail_voltage_label(rail: Rail, human: bool = False) -> str:
-    """an undeclared voltage is painted "unknown" — never blank, never invented."""
+    """an undeclared voltage is painted "unknown" - never blank, never invented."""
     if rail.voltage is None:
         return "unknown"
     return _mag(human, rail.voltage.value, rail.voltage.unit)
@@ -484,9 +502,9 @@ def _rail_loads(contract: Contract, rail: Rail, depth: int, human: bool = False)
             else unknown_draw_message(device.id, power.rail)
         )
         lines.append(
-            f"{indent}- {human_name(device.id)} · {draw}"
+            f"{indent}- {label_name(device.id)} · {draw}"
             if human
-            else f"{indent}- load {device.id}: {draw}"
+            else f"{indent}- load {_named(device.id)}: {draw}"
         )
     return lines
 
@@ -497,7 +515,7 @@ def _rail_subtree(
     """One rail plus its converter edge (if any), its loads, and its children.
 
     The converter is its own node, never the rail standing in for
-    it. A converter is drawn only where one actually exists — ``upstream ==
+    it. A converter is drawn only where one actually exists - ``upstream ==
     "battery"`` or a parent rail id AND ``efficiency != 1.0``; the fixture
     convention (x500) is that ``efficiency == 1.0`` is a pass-through, not a
     converter, and ``upstream is None`` means no conversion edge was sourced at
@@ -516,14 +534,14 @@ def _rail_subtree(
     capacity = _mag(human, rail.capacity.value, rail.capacity.unit)
     if human:
         detail = (
-            f"up to {capacity}, voltage unknown"
+            f"up to {capacity}, voltage not declared"
             if rail.voltage is None
             else f"{_rail_voltage_label(rail, human)}, up to {capacity}"
         )
-        lines.append(f"{indent}- {human_name(rail.id)} · {detail}")
+        lines.append(f"{indent}- {label_name(rail.id)} · {detail}")
     else:
         lines.append(
-            f"{indent}- rail {rail.id} ({_rail_voltage_label(rail, human)}, capacity {capacity})"
+            f"{indent}- {_rail(rail.id)}: {_rail_voltage_label(rail, human)}, capacity {capacity}"
         )
     lines.extend(_rail_loads(contract, rail, depth + 1, human))
     for child in contract.topology.rails if contract.topology is not None else []:
@@ -535,7 +553,7 @@ def _rail_subtree(
 def render_power_tree(contract: Contract, human: bool = False) -> list[str]:
     """The rail roll-up (``Rail.upstream``/``efficiency``, ``checks.power_rollup``)
     rendered as a power tree: source -> converter -> rail -> loads. ZERO NEW
-    PHYSICS — this paints what the contract already declares and computes,
+    PHYSICS - this paints what the contract already declares and computes,
     nothing inferred or guessed."""
     topology = contract.topology
     if topology is None or not topology.rails:
@@ -581,7 +599,7 @@ def describe_system(contract: Contract, human: bool = False) -> str:
             lines.append("| --- | --- | --- | --- | --- | --- | --- |")
         else:
             lines.append(
-                "| id | voltage | voltage_range | capacity | current_limit | upstream | efficiency | charged_by |"
+                "| rail | voltage | voltage range | capacity | current limit | fed from | efficiency | charged by |"
             )
             lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
         for rail in topology.rails:
@@ -608,15 +626,16 @@ def describe_system(contract: Contract, human: bool = False) -> str:
                 current_limit += f" ({_enforcement_detail(rail.current_limit_enforced_by)})"
             if human:
                 lines.append(
-                    f"| {human_name(rail.id)} | {voltage} | {voltage_range} | {capacity} | {current_limit} | "
-                    f"{human_name(rail.upstream) if rail.upstream else '-'} | "
-                    f"{human_name(rail.charged_by) if rail.charged_by else '-'} |"
+                    f"| {label_name(rail.id)} | {voltage} | {voltage_range} | {capacity} | {current_limit} | "
+                    f"{label_name(rail.upstream) if rail.upstream else '-'} | "
+                    f"{label_name(rail.charged_by) if rail.charged_by else '-'} |"
                 )
                 continue
             lines.append(
-                f"| {rail.id} | {voltage} | {voltage_range} | "
+                f"| {_named(rail.id)} | {voltage} | {voltage_range} | "
                 f"{capacity} | {current_limit} | "
-                f"{rail.upstream or '-'} | {rail.efficiency:g} | {rail.charged_by or '-'} |"
+                f"{_named(rail.upstream) if rail.upstream not in (None, 'battery') else rail.upstream or '-'} | "
+                f"{rail.efficiency:g} | {_named(rail.charged_by) if rail.charged_by else '-'} |"
             )
         lines.append("")
 
@@ -629,7 +648,7 @@ def describe_system(contract: Contract, human: bool = False) -> str:
     if topology is not None and topology.buses:
         lines.append("## Buses")
         lines.append("")
-        lines.append("| bus | kind | speed |" if human else "| id | kind | bitrate |")
+        lines.append("| bus | kind | speed |" if human else "| bus | kind | bitrate |")
         lines.append("| --- | --- | --- |")
         for bus in topology.buses:
             bitrate = "-" if bus.bitrate is None else f"{bus.bitrate:g}"
@@ -637,7 +656,7 @@ def describe_system(contract: Contract, human: bool = False) -> str:
                 bitrate = "-" if bus.bitrate is None else _bit_rate(bus.bitrate)
                 lines.append(f"| {_bus_name(bus.id)} | {bus.kind.upper()} | {bitrate} |")
                 continue
-            lines.append(f"| {bus.id} | {bus.kind} | {bitrate} |")
+            lines.append(f"| {_named(bus.id)} | {bus.kind} | {bitrate} |")
         lines.append("")
 
     if topology is not None and topology.battery is not None and not (human and tree):
@@ -656,15 +675,18 @@ def describe_system(contract: Contract, human: bool = False) -> str:
     if topology is not None and topology.wires:
         lines.append("## Wires")
         lines.append("")
-        lines.append("| id | awg | installation | rail |")
-        lines.append("| --- | --- | --- | --- |")
+        lines.append("| wire | AWG | run | rail | between |")
+        lines.append("| --- | --- | --- | --- | --- |")
         for wire in topology.wires:
-            rail = wire.rail or (
-                f"{wire.from_.device} to {wire.to.device}" if wire.from_ and wire.to else ""
-            )
+            ends = f"{wire.from_.device} to {wire.to.device}" if wire.from_ and wire.to else ""
+            name, rail = _named(wire.id), wire.rail or ""
+            if human:  # the sheet a person reads: names, not ids
+                name, rail = label_name(wire.id), label_name(rail) if rail else ""
+                if wire.from_ and wire.to:
+                    ends = f"{label_name(wire.from_.device)} to {human_name(wire.to.device)}"
             awg = "" if wire.awg is None else wire.awg
-            installation = wire.installation or ""
-            lines.append(f"| {wire.id} | {awg} | {installation} | {rail} |")
+            installation = (wire.installation or "").replace("free_air", "in free air")
+            lines.append(f"| {name} | {awg} | {installation} | {rail} | {ends} |")
         lines.append("")
 
     lines.extend(_edges_table(contract))
@@ -723,12 +745,12 @@ def describe_system(contract: Contract, human: bool = False) -> str:
         lines.append("")
 
     # the same force numbers the check document carries, rendered from that
-    # same payload so the two faces cannot print different figures — or a figure
+    # same payload so the two faces cannot print different figures - or a figure
     # without its kind. The human face shows three plain lines; the rest is `engineer_detail`.
     if human:
         lines.extend(_forces_plain(force_document(contract, compute_system_cg(contract))))
     else:
-        lines.extend(render_markdown(force_document(contract, compute_system_cg(contract))))
+        lines.extend(render_markdown(force_document(contract, compute_system_cg(contract)), contract))
         lines.append(_device_count_line(contract))
         lines.append("")
 
@@ -746,7 +768,7 @@ def describe_all(contract: Contract, human: bool = False) -> dict[str, str]:
 
 def engineer_detail(contract: Contract) -> str:
     """What the plain Forces lines leave out: every mass row, kind and ceiling, plus the device tally."""
-    lines = render_markdown(force_document(contract, compute_system_cg(contract)))
+    lines = render_markdown(force_document(contract, compute_system_cg(contract)), contract)
     return "\n".join([*lines, _device_count_line(contract), ""])
 
 
@@ -777,7 +799,7 @@ def _forces_plain(document: dict) -> list[str]:
                 if "no mass_total budget" in entry.get("not_scored_because", "")
                 else "details in the Engineer report"
             )
-            return f"NOT SCORED — {because}"
+            return f"NOT SCORED: {because}"
         value = entry["value"]
         unit = entry["unit"]
         if isinstance(value, list):  # one unit for the whole vector, so no per-component g/mm steps
@@ -805,7 +827,7 @@ def _bit_rate(bits: float) -> str:
 
 
 def _bus_name(identifier: str) -> str:
-    return human_name(identifier).replace("CAN DroneCAN", "CAN (DroneCAN)")
+    return label_name(identifier).replace("CAN DroneCAN", "CAN (DroneCAN)")
 
 
 def _budget_name(identifier: str) -> str:
@@ -816,4 +838,4 @@ def _budget_name(identifier: str) -> str:
         return f"{tail} power"
     if head == "mass" and tail:
         return f"{tail} mass"
-    return human_name(head) if head in ("endurance", "power", "mass") else human_name(identifier)
+    return label_name(head) if head in ("endurance", "power", "mass") else label_name(identifier)

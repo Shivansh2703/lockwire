@@ -15,10 +15,12 @@ vi.mock("node:child_process", () => { const mod = { execFile: (...a: unknown[]) 
 const winOpts = vi.fn();
 const printToPDF = vi.fn();
 const loadFile = vi.fn();
+const pdfSession = { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn(), webRequest: { onHeadersReceived: vi.fn() } };
+const fromPartition = vi.fn((_p: string) => pdfSession);
 class FakeWindow { webContents = { printToPDF: (o: unknown) => printToPDF(o) }; loadFile = (f: string) => loadFile(f); destroy = vi.fn(); }
-vi.mock("electron", () => ({ BrowserWindow: function (o: unknown) { winOpts(o); return new FakeWindow(); }, dialog: { showMessageBox: (o: unknown) => showMessageBox(o) }, shell: { showItemInFolder: (p: string) => showItemInFolder(p) } }));
+vi.mock("electron", () => ({ BrowserWindow: function (o: unknown) { winOpts(o); return new FakeWindow(); }, dialog: { showMessageBox: (o: unknown) => showMessageBox(o) }, session: { fromPartition: (p: string) => fromPartition(p) }, shell: { showItemInFolder: (p: string) => showItemInFolder(p) } }));
 
-import { EXPORTS, exportRobot, saveCopy, savePicture } from "./exports";
+import { EXPORTS, PDF_CSP, PDF_PARTITION, exportRobot, saveCopy, savePicture } from "./exports";
 
 let dir = "";
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "exports-")); vi.clearAllMocks(); execFile.mockImplementation((...a: unknown[]) => (a[3] as (e: null, r: object) => void)(null, { stdout: "", stderr: "" })); });
@@ -138,12 +140,27 @@ describe("Report (PDF)", () => {
     expect([execFile.mock.calls[0]![1].slice(0, 2), loadFile.mock.calls[0]![0]]).toEqual([["report", "/r/arm.yaml"], execFile.mock.calls[0]![1][3]]);
   });
 
+  it("prints in its own session, outside the app's script-blocking CSP, so the report's script draws its findings; that session grants no permission", async () => {
+    writesHtml();
+    printToPDF.mockResolvedValue(Buffer.from("%PDF"));
+    pick.mockResolvedValue(join(dir, "a.pdf"));
+    await exportRobot("/r/arm.yaml", pdf);
+    expect([fromPartition.mock.calls[0]![0], PDF_PARTITION.startsWith("persist:"), (winOpts.mock.calls[0]![0] as { webPreferences: { session: unknown } }).webPreferences.session]).toEqual(["lockwire-report-pdf", false, pdfSession]);
+    const deny = vi.fn();
+    pdfSession.setPermissionRequestHandler.mock.calls[0]![0](null, "media", deny);
+    expect([deny.mock.calls[0]![0], pdfSession.setPermissionCheckHandler.mock.calls[0]![0]()]).toEqual([false, false]);
+    const headers = vi.fn();
+    pdfSession.webRequest.onHeadersReceived.mock.calls[0]![0]({ responseHeaders: {} }, headers);
+    expect(headers.mock.calls[0]![0].responseHeaders["Content-Security-Policy"]).toEqual([PDF_CSP]);
+    expect([PDF_CSP.includes("connect-src 'none'"), PDF_CSP.includes("default-src 'none'"), /script-src[^;]*'self'|https?:/.test(PDF_CSP)]).toEqual([true, true, false]);
+  });
+
   it("prints in a hidden, sandboxed window with no node access", async () => {
     writesHtml();
     printToPDF.mockResolvedValue(Buffer.from("%PDF"));
     pick.mockResolvedValue(join(dir, "a.pdf"));
     await exportRobot("/r/arm.yaml", pdf);
-    expect(winOpts).toHaveBeenCalledWith({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    expect(winOpts).toHaveBeenCalledWith({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, session: pdfSession } });
   });
 
   it("refuses in plain words when no report is loaded, before any dialog", async () => {

@@ -8,7 +8,7 @@ Z-up. Namespace-agnostic (Collada documents are commonly namespaced,
 
 stdlib only: `xml.etree.ElementTree`, `math`, `pathlib`. Refusal posture mirrors
 `urdf.py`'s `_refuse_doctype_entity` (checked on raw bytes before any XML parser sees them)
-and reuses `scene.py`'s `SceneRefusal` — plain words, never a raw exception.
+and reuses `scene.py`'s `SceneRefusal` - plain words, never a raw exception.
 """
 
 import math
@@ -48,7 +48,7 @@ def _child(el: ET.Element, name: str) -> ET.Element | None:
 
 
 def _refuse_doctype_entity(raw: bytes, path: Path) -> None:
-    """Same posture as `urdf._refuse_doctype_entity`: refuse on raw bytes before parsing —
+    """Same posture as `urdf._refuse_doctype_entity`: refuse on raw bytes before parsing -
     an internal `<!ENTITY>` still expands under stdlib `xml.etree`, so refusing before the
     parser ever sees it is the only safe posture."""
     if _has_doctype_entity(raw):

@@ -32,11 +32,11 @@
     },
     {
       "id": "plan",
-      "title": "Agent plan and what-if",
+      "title": "Plan and what-if",
       "use": "Score an intended plan, or a proposed change, before anything executes.",
       "code": [
         "lockwire plan lockwire.yaml plan.yaml",
-        "lockwire what-if lockwire.yaml --change \"devices/dev.gnss-receiver/physical/mass=60 g\" --source \"my scale\" --witness me"
+        "lockwire what-if lockwire.yaml --change \"devices/dev.gnss-receiver/physical/mass=60 g\" --source '<where this number comes from>' --witness '<your name>'"
       ],
       "note": "plan.yaml holds steps, for example: steps: [{kind: rail_load, rail: rail.supply-5v, draw: {value: 10, unit: W}}]"
     },
@@ -54,9 +54,9 @@
   ],
   "features": [
     { "id": "check", "name": "Check", "how": "See which numbers do not add up.", "code": "lockwire check lockwire.yaml" },
-    { "id": "declare", "name": "Declare a fact", "how": "Set one value with a source and a witness.", "code": "lockwire declare lockwire.yaml devices/dev.power-module.pm02-v3/physical/mass \"25 g\" --source \"my scale\" --witness me" },
+    { "id": "declare", "name": "Declare a fact", "how": "Set one value with a source and a witness.", "code": "lockwire declare lockwire.yaml devices/dev.power-module.pm02-v3/physical/mass \"25 g\" --source '<where this number comes from>' --witness '<your name>'" },
     { "id": "add", "name": "Add a part", "how": "Add a device, rail, bus or battery block.", "code": "lockwire add --help" },
-    { "id": "design", "name": "Design (place, move, rotate, reparent)", "how": "Put a part in the 3D model and move it. Switch on the Power, Data and Mechanical connection views to see them drawn on the robot, and use W, A, S, D to move the camera.", "code": "lockwire move lockwire.yaml dev.power-module.pm02-v3 --offset 0.01,0,0.02 --unit m --source \"tape measure\" --witness me" },
+    { "id": "design", "name": "Design (place, move, rotate, reparent)", "how": "Put a part in the 3D model and move it. Switch on the Power, Data and Mechanical connection views to see them drawn on the robot, and use W, A, S, D to move the camera.", "code": "lockwire move lockwire.yaml dev.power-module.pm02-v3 --offset 0.01,0,0.02 --unit m --source '<where this number comes from>' --witness '<your name>'" },
     { "id": "plan", "name": "Plan and what-if", "how": "Score a plan or a change without editing the lockfile.", "code": "lockwire plan lockwire.yaml plan.yaml" },
     { "id": "report", "name": "Report", "how": "Write one HTML page to share.", "code": "lockwire report lockwire.yaml -o report.html --no-open" },
     { "id": "describe", "name": "Describe", "how": "Write a reference sheet per part.", "code": "lockwire describe lockwire.yaml --out ref" },

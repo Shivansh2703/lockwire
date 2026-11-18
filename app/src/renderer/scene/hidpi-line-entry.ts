@@ -1,6 +1,6 @@
 // Browser-side entry for the HiDPI resolution-uniform settling check (see
-// scene-hidpi.e2e.test.ts). Draws a real `LineMaterial`/`Line2` fat line — the consumer
-// buildScene's `resolution` uniform exists for — through a plain `WebGLRenderer` at whatever
+// scene-hidpi.e2e.test.ts). Draws a real `LineMaterial`/`Line2` fat line: the consumer
+// buildScene's `resolution` uniform exists for: through a plain `WebGLRenderer` at whatever
 // `devicePixelRatio` the hidden window was launched with, once per resolution convention, and
 // reports how many DEVICE pixels the line's thickness actually occupies. Nothing here is
 // reimplemented from LineMaterial/Line2/LineGeometry; only the harness plumbing is new.
@@ -29,8 +29,8 @@ window.__runHidpiLineCheck = function (canvasId, mode, linewidth) {
   const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-  // "no-fix" reproduces the box's actual bug: no setPixelRatio call at all (renderer stays at
-  // its 1x default), exactly the pre-fix state buildScene.ts/Canvas.tsx were bounced for.
+  // "no-fix" reproduces the original bug: no setPixelRatio call at all (renderer stays at
+  // its 1x default), exactly the pre-fix state of buildScene.ts/Canvas.tsx.
   if (mode !== "no-fix") renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(CSS_WIDTH, CSS_HEIGHT, false);
 
@@ -64,7 +64,7 @@ window.__runHidpiLineCheck = function (canvasId, mode, linewidth) {
   const gl = renderer.getContext();
   const col = new Uint8Array(drawingHeight * 4);
   // A single-pixel-wide column through the horizontal line's x-center, full drawing-buffer
-  // height — readPixels operates in DEVICE pixels regardless of CSS size, which is exactly the
+  // height: readPixels operates in DEVICE pixels regardless of CSS size, which is exactly the
   // unit this check needs.
   gl.readPixels(Math.floor(drawingWidth / 2), 0, 1, drawingHeight, gl.RGBA, gl.UNSIGNED_BYTE, col);
 
@@ -81,9 +81,9 @@ window.__runHidpiLineCheck = function (canvasId, mode, linewidth) {
 };
 
 /** Exercises the REAL `buildScene` (the actual fix location: buildScene.ts's own
- * `setPixelRatio` call) — this is what the mutation bite in the box brief's accept line targets.
+ * `setPixelRatio` call): this is what the mutation bite targets.
  * A probe `Line2` is added to buildScene's own scene/renderer after construction; buildScene
- * itself never gains a Line2 (charter #1-#4 stay untouched, this box's fix is setPixelRatio
+ * itself never gains a Line2 (the scene setup stays untouched, the fix is setPixelRatio
  * only). */
 window.__runHidpiLineCheckViaBuildScene = function (canvasId, linewidth) {
   const canvas = document.getElementById(canvasId) as HTMLCanvasElement;

@@ -50,7 +50,7 @@ export interface SagRow { id: string; name: string; nominal: number; volts: numb
 export function sagRows(g: GraphLens, names: ReadonlyMap<string, string> = new Map()): SagRow[] {
   return g.nodes.flatMap((n) => {
     const sag = railSag(n);
-    return sag === undefined ? [] : [{ id: n.id, name: names.get(n.id) ?? n.label.replace(/^rail\./, "").replace(/[-_.]+/g, " ").replace(/^./, (c) => c.toUpperCase()), nominal: n.nominal_v!, volts: sag * n.nominal_v!, sag }];
+    return sag === undefined ? [] : [{ id: n.id, name: names.get(n.id) ?? n.label, nominal: n.nominal_v!, volts: sag * n.nominal_v!, sag }];
   });
 }
 
@@ -63,12 +63,12 @@ const rate = (v: number) => {
 
 function meta(n: GraphNode, lens: ConnLens): Pick<ConnRow, "meta" | "state" | "frac"> {
   const v = n.value;
-  if (lens === "mechanical") return v == null ? { meta: "mass unknown", state: "warn" } : { meta: v < 1 ? `${num(v * 1000)} g` : `${num(v)} kg` };
+  if (lens === "mechanical") return v == null ? { meta: "no mass written down", state: "warn" } : { meta: v < 1 ? `${num(v * 1000)} g` : `${num(v)} kg` };
   if (n.kind === "rail") {
     const lim = n.limit ?? 0;
     return { meta: `${v == null ? "?" : num(v)} / ${num(lim)} W`, state: over(n) ? "bad" : undefined, frac: v != null && lim > 0 ? v / lim : undefined };
   }
-  if (lens === "power" && n.kind === "device") return v == null ? { meta: "draw unknown", state: "warn" } : { meta: `${num(v)} W` };
+  if (lens === "power" && n.kind === "device") return v == null ? { meta: "no draw written down", state: "warn" } : { meta: `${num(v)} W` };
   if (n.kind === "bus") return { meta: [n.sub.split(" · ")[0], v != null && rate(v)].filter(Boolean).join(" ") };
   if (n.kind === "source" || n.kind === "host") return { meta: tidyNumbers(n.sub) };
   return { meta: "" };
@@ -94,7 +94,7 @@ export function connectionRows(g: GraphLens, lens: ConnLens, names: ReadonlyMap<
   const walk = (id: string, depth: number, seen: Set<string>): string[] => {
     const n = byId.get(id);
     if (!n || seen.has(id)) return [];
-    const row: ConnRow = { id, name: names.get(id) ?? n.label.charAt(0).toUpperCase() + n.label.slice(1), depth, members: [id], ...meta(n, lens) };
+    const row: ConnRow = { id, name: names.get(id) ?? n.label, depth, members: [id], ...meta(n, lens) };
     rows.push(row);
     for (const k of kids.get(id) ?? []) row.members.push(...walk(k, depth + 1, new Set(seen).add(id)));
     return row.members;

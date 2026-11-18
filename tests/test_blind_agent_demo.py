@@ -102,7 +102,7 @@ def test_demo_parses_rendered_hard_limit_with_declared_enforcement(demo):
 
     rendered = describe_device(contract, device)
 
-    assert "declared enforcement: firmware" in rendered
+    assert "enforced by firmware, as declared" in rendered
     assert demo._parse_hard_limit(rendered, "accel_z") == (-80.0, 80.0)
 
 
@@ -118,7 +118,7 @@ def test_demo_parses_only_the_enforced_section(demo):
 
 ## Limits enforced
 
-- declared datasheet/model rating accel_z: [-80, 80] m/s^2, declared enforcement: firmware
+- declared datasheet/model rating accel_z: [-80, 80] m/s^2, enforced by firmware, as declared
 
 ## Provenance
 

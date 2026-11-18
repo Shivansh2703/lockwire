@@ -10,11 +10,11 @@ import { PRODUCT_NAME } from "../shared/branding";
 import { FailureBanner, useSidecarFailed } from "./FailureBanner";
 
 // Real sidecar.ts driven by the same fake-child harness sidecar.test.ts uses (reuse
-// the sidecar-lifecycle box's own exported surface rather than re-walking child-exit
+// sidecar.ts's own exported surface rather than re-walking child-exit
 // handling here). createRequire, not `new URL(x, import.meta.url)`: the latter throws
-// "URL must be of scheme file" under this worktree's jsdom test environment -- an
+// "URL must be of scheme file" under this repo's jsdom test environment -- an
 // environment defect that reproduces even on the unmodified sidecar.test.ts, so it's
-// worked around here rather than fixed there (out of this box's file list).
+// worked around here rather than fixed there (out of this file's scope).
 const FAKE = createRequire(import.meta.url).resolve("../../test/fake-sidecar.mjs");
 
 function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -39,7 +39,7 @@ let root: Root;
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
-  // e9-join: FailureBanner/useSidecarFailed now read the sidecar through the preload
+  // FailureBanner/useSidecarFailed read the sidecar through the preload
   // bridge (window.lockwire), never by importing "../main/sidecar" directly -- jsdom has
   // no real preload, so this stubs the bridge, but backs it with the SAME real sidecar.ts
   // module and real child process the tests below already drive. Only the plumbing layer
@@ -70,7 +70,7 @@ function renderBanner() {
   });
 }
 
-describe("FailureBanner (e2-h)", () => {
+describe("FailureBanner", () => {
   it("test_a_child_exit_shows_the_banner_and_offers_exactly_one_restart", async () => {
     // The restart button calls the plain startSidecar() a real menu/hotkey would --
     // point resolveSidecarCommand() at the fake child via its env escape hatch so the
@@ -101,7 +101,7 @@ describe("FailureBanner (e2-h)", () => {
 
   it("test_no_in_flight_call_hangs_after_the_child_exits", async () => {
     // A real server that never answers, so the in-flight fetch is genuinely pending
-    // when the child dies mid-command -- the brief's decisive case, not idle failure.
+    // when the child dies mid-command -- the decisive case, not idle failure.
     const server = createServer(() => {});
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();

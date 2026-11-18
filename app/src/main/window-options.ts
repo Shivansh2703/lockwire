@@ -7,7 +7,7 @@ import { PRODUCT_NAME } from "../shared/branding";
 
 // Pure data, no electron import at runtime (the only reference above is a `type` import, erased
 // by `verbatimModuleSyntax`) -- so the flag-absent direction is provable by a plain unit test on
-// this object, never by a launch (review lead, TODO.md e2-i2: "testing 'it would be visible' by
+// this object, never by a launch ("testing 'it would be visible' by
 // making it visible is testing a fire alarm by starting a fire").
 export type Bounds = { x: number; y: number; width: number; height: number };
 
@@ -66,11 +66,11 @@ export function windowOptions(hidden: boolean, bounds?: Bounds): BrowserWindowCo
   };
 }
 
-// e2-hh3: same pure-options shape as windowOptions() above, for the e2e check harnesses
+// Same pure-options shape as windowOptions() above, for the e2e check harnesses
 // (hidpi-line-check.ts, e2e-pixel-check.ts) that load a bare check page rather than the
 // production app -- 64x64, no preload, offscreen rendering off. Extracted so the `show` flag's
 // two directions are provable on the returned object, never by launching electron and looking
-// for a window (the unrunnable bite this box replaces).
+// for a window (the unrunnable check this replaces).
 export function harnessWindowOptions(hidden: boolean): BrowserWindowConstructorOptions {
   return {
     ...(hidden ? { show: false } : {}),

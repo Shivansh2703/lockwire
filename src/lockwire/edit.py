@@ -1,10 +1,10 @@
-"""``lockwire declare`` / ``lockwire apply`` / ``lockwire add`` — the edit primitive.
+"""``lockwire declare`` / ``lockwire apply`` / ``lockwire add`` - the edit primitive.
 
 The YAML is the truth. Every edit lands as one declared fact carrying a
 source and a witness, written through a ruamel round-trip load/modify/dump
 so existing comments, key order and quoting style survive untouched outside the
 edited lines. Nothing is written unless the edited document validates through
-``Contract`` first — the same byte cap and anchor/alias refusal the rest of the
+``Contract`` first - the same byte cap and anchor/alias refusal the rest of the
 codebase applies to a lockfile apply here too.
 """
 
@@ -14,6 +14,7 @@ import base64
 import datetime as dt
 import copy
 import difflib
+import errno
 import hashlib
 import io
 import json
@@ -28,7 +29,7 @@ import unicodedata
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cache, wraps
 from pathlib import Path
 import typing
@@ -72,6 +73,30 @@ _journal_off: ContextVar[bool] = ContextVar("journal_off", default=False)  # sta
 def contract_revision(path: Path | str) -> str:
     """Opaque revision for the exact contract bytes, not its semantic hash."""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def link_new(source: Path | str, target: Path | str) -> None:
+    """Place `source`'s bytes at `target` without ever replacing it; `FileExistsError` if taken.
+
+    ponytail: a hard link is atomic against a racing writer. A runtime with no `os.link`
+    (Pyodide) or a file system that refuses links gets an exclusive create + copy instead:
+    it still never replaces an existing target, but a concurrent reader may briefly see a
+    partly written file. Fine for a single-user browser/removable-drive case.
+    """
+    try:
+        os.link(source, target)
+        return
+    except (AttributeError, NotImplementedError):
+        pass
+    except OSError as exc:
+        if exc.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP):
+            raise
+    with open(target, "xb") as out:  # raises FileExistsError, never touches an existing file
+        try:
+            out.write(Path(source).read_bytes())
+        except BaseException:
+            Path(target).unlink(missing_ok=True)
+            raise
 
 
 @contextmanager
@@ -141,7 +166,7 @@ def _locked_write(function: Any) -> Any:
     return wrapped
 
 
-# the style `init` writes when no existing list tells us otherwise —
+# the style `init` writes when no existing list tells us otherwise -
 # schema.py's `save_contract` uses the same setting, so the two agree.
 _DEFAULT_SEQUENCE_STYLE = (4, 2)  # (sequence indent, dash offset)
 
@@ -156,7 +181,7 @@ def _sniff_sequence_style(text: str) -> tuple[int, int]:
     one written by hand at the tool's other historic default, indents the
     dash under its key (``devices:\\n  - id:``, offset 2). ruamel's indent
     setting is document-wide, not per-key, so ANY block list in the file
-    (top-level or nested) tells us the whole file's style — read it from the
+    (top-level or nested) tells us the whole file's style - read it from the
     first ``key:`` line immediately followed by a ``- `` item at the same or
     deeper indent. No block list anywhere (a brand-new/list-less file) falls
     back to the same style `init` writes, so the two always agree.
@@ -174,12 +199,12 @@ _SRC_TEXT_ATTR = "_lockwire_src_text"
 def _construct_yaml_float_keeping_src(constructor: Any, node: Any) -> Any:
     """Load a float the normal ruamel way, then remember its exact source text.
 
-    `ScalarFloat` does not keep the characters it was parsed from — only
+    `ScalarFloat` does not keep the characters it was parsed from - only
     width/precision/exponent metadata, which its own representer uses to
     *reconstruct* a string. That reconstruction is lossy: on a full
     double-precision mantissa it can drift the last digit by one ULP even
     though the field was never touched (seen on a
-    real `init anymal_d.urdf` -> `add family`: 10 untouched floats drifted —
+    real `init anymal_d.urdf` -> `add family`: 10 untouched floats drifted -
     comparing the reconstructed text's parsed *value* to the original
     misses all of them, since a drifted string still parses back to
     the same float64). Stashing the raw text here and having the representer
@@ -198,7 +223,7 @@ def _represent_scalar_float_keeping_src(representer: Any, data: Any) -> Any:
     the same `ScalarFloat` instance `_construct_yaml_float_keeping_src`
     tagged); anything `declare`/`add` set is a plain float/int/new
     `ScalarFloat` from `parse_value` and goes through ruamel's normal
-    (reconstructing) path instead — which is fine, it has no "original" text
+    (reconstructing) path instead - which is fine, it has no "original" text
     to preserve.
     """
     node = RoundTripRepresenter.represent_scalar_float(representer, data)
@@ -209,11 +234,11 @@ def _represent_scalar_float_keeping_src(representer: Any, data: Any) -> Any:
 
 
 def _yaml(sequence: int = 4, offset: int = 2) -> YAML:
-    """This module's own round-trip settings — never schema.py's loader.
+    """This module's own round-trip settings - never schema.py's loader.
 
     Preserve existing quote characters, the file's own sniffed list style
     (see `_sniff_sequence_style`), and never re-wrap a long line (ruamel's
-    default width is 80 and counts against every scalar, not just prose — a
+    default width is 80 and counts against every scalar, not just prose - a
     long provenance note would otherwise get rewrapped on every write that
     merely touches a sibling key). The float constructor/representer pair is
     registered so an untouched float scalar survives byte-for-byte.
@@ -322,6 +347,16 @@ def _parse_value(raw: str, *, field_name: str) -> Any:
         if not isinstance(value, dict):
             raise EditRefusal("mount_shape must be a JSON object")
         return value
+    if field_name == "mass_tolerance":  # "2 %" -> rel_pct, "0.05 kg" -> abs
+        band = re.match(rf"^({_NUM})\s*(%|{_UNIT_CHARS})$", text)
+        if not band:
+            raise EditRefusal(f'mass_tolerance must be like "2 %" or "0.05 kg"; got "{text}".')
+        number, unit = float(band[1]), band[2]
+        if unit != "%" and not units.known(unit):
+            raise EditRefusal(f"unknown unit {unit!r} in {raw!r}")
+        out = CommentedMap([("rel_pct", number)] if unit == "%" else [("abs", _flow_quantity(number, unit))])
+        out.fa.set_flow_style()
+        return out
     if text.lower() in _BOOL:
         return _BOOL[text.lower()]
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
@@ -364,7 +399,7 @@ def _attach_unit(value: Any, unit: str) -> Any:
     """Merge a change entry's sibling `unit:` key into its `value:`.
 
     `lockwire scene import` writes the raw model numbers this way: a bare
-    3-list for a mount_xyz triple, or a bare number for a single quantity —
+    3-list for a mount_xyz triple, or a bare number for a single quantity -
     the schema's `{value, unit}` shape is the schema layer's job, not the importer's.
     """
     if not units.known(unit):
@@ -380,10 +415,24 @@ def _attach_unit(value: Any, unit: str) -> Any:
     return value
 
 
+_TOLERANCE_KEYS = {"rel_pct", "abs", "min", "typ", "max"}
+
+
+def tolerance_text(tol: dict, unit: str = "") -> str:
+    """A tolerance as a person reads it: `± 2 %`, `± 0.05 kg`, `1.18 to 1.3 kg` (min/max are in `unit`)."""
+    if tol.get("rel_pct") is not None:
+        return f"\u00b1 {tol['rel_pct']:g} %"
+    if tol.get("abs") is not None:
+        return f"\u00b1 {tol['abs']['value']:g} {tol['abs']['unit']}"
+    return f"{tol.get('min', tol.get('typ')):g} to {tol.get('max', tol.get('typ')):g} {unit}".rstrip()
+
+
 def format_value(value: Any) -> str:
     """Render a parsed value the way `declared ...` and diffs describe it."""
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, dict) and value and set(value) <= _TOLERANCE_KEYS:
+        return tolerance_text(value)
     if isinstance(value, dict) and "value" in value and "unit" in value:
         return f"{value['value']:g} {value['unit']}"
     if (
@@ -412,7 +461,7 @@ def split_path(path: str) -> list[str]:
 def _navigate(doc: Any, segments: list[str], *, create: bool) -> Any:
     """Walk `doc` along `segments`; create missing dict children when `create`.
 
-    Never creates a new list entry — reaching a list segment that no id/name
+    Never creates a new list entry - reaching a list segment that no id/name
     matches is always a refusal (that is `lockwire add`'s job, not declare's).
     """
     node = doc
@@ -437,7 +486,7 @@ def _navigate(doc: Any, segments: list[str], *, create: bool) -> Any:
             if hit is None:
                 raise EditRefusal(
                     f"no entry with id/name {seg!r} at {'/'.join(walked)} "
-                    "(use `lockwire add` to create a new device/rail/bus)"
+                    "(use 'lockwire add' to create a new device/rail/bus)"
                 )
             node = hit
         else:
@@ -478,7 +527,7 @@ def provenance_owner_path(segments: list[str]) -> list[str]:
 
 
 # owners with no `provenance` field of their own (schema.py forbids
-# extras — a field is only added by a schema change) get a comment stamp instead.
+# extras - a field is only added by a schema change) get a comment stamp instead.
 # `Link` and `ActuatorCase` likewise have no provenance field; their changed
 # facts receive source/witness comments rather than invalid extra schema keys.
 # Entries are matched by PREFIX because the resolved owner includes its name
@@ -501,8 +550,26 @@ def _by(witness: str | None) -> str:
     return f", witness {witness}" if witness else ""
 
 
+# What each stored witness level means, in the words a person reads. Only w0 (a declared
+# change, hw.py) and w2 (the model file, urdf.py) have a meaning in the code; the rest name
+# no person and say only that. No level code reaches a person; the stored code never changes.
+_LEVEL_WORDS = {
+    "w0": "none named (declared, not measured)",
+    "w2": "the model file",
+    "human": "a person, not named",
+    "live": "live reading",
+}
+
+
+def witness_words(witness: str | None) -> str | None:
+    """A stored witness as a person reads it: a name as is, a level code (w0..w6, human, live) in words."""
+    if witness and re.fullmatch(r"w[0-6]|human|live", witness):
+        return _LEVEL_WORDS.get(witness, "none named")
+    return witness
+
+
 def _att(witness: str | None, source: str) -> str:
-    return f"witness {witness}, source {source}" if witness else f"source {source}"
+    return f"witness {witness_words(witness)}, source {source}" if witness else f"source {source}"
 
 
 def _witnessless(node: Any) -> bool:
@@ -615,6 +682,12 @@ def _mesh_link_fields(contract_path: Path, fields: dict[str, Any]) -> tuple[dict
     return {**fields, "geometry": [shape]}, lines
 
 
+def _note_text(locked_at: dt.date, note: str) -> str:
+    """User note text as stored: "<date> note:" (no colon after the date) and later lines
+    indented, so no line of it has the "<date>: <field> declared" shape of a tool stamp."""
+    return f"{locked_at.isoformat()} note: " + "\n  ".join(note.splitlines())
+
+
 def _stamp_provenance(
     doc: Any,
     owner_segments: list[str],
@@ -628,7 +701,7 @@ def _stamp_provenance(
     """Stamp the owning block's provenance without erasing another fact's.
 
     A device/rail/bus has ONE `provenance` block for every fact it carries
-    (mass, radio numbers, mount point, ...) — the honest fix is provenance
+    (mass, radio numbers, mount point, ...) - the honest fix is provenance
     per fact, a schema change. Until then:
     a fresh provenance is written plainly; an EXISTING one keeps its
     witness/source (the facts it already covers) and gets the new fact
@@ -677,7 +750,7 @@ def _stamp_provenance(
         prov["note"] = f"{old_note}\n{stamp}" if old_note else stamp
     prov["locked_at"] = locked_at
     if note:
-        prov["note"] = f"{prov['note']}\n{locked_at.isoformat()}: {note}"
+        prov["note"] = f"{prov['note']}\n{_note_text(locked_at, note)}"
 
 
 def _stamp_comment_provenance(
@@ -699,7 +772,7 @@ def _stamp_comment_provenance(
     `name` (`model/links/x500_frame`); both are plain `CommentedMap`s once
     resolved, so the same call handles either.
 
-    `yaml_set_comment_before_after_key` is additive, not a replace — each
+    `yaml_set_comment_before_after_key` is additive, not a replace - each
     call adds one more comment line above the key, so successive stamps
     accumulate the same way a structured provenance's `source`/`note` do.
     Unstructured and best-effort: nothing here is read back by `check` or
@@ -708,6 +781,14 @@ def _stamp_comment_provenance(
     stamp = f"{locked_at.isoformat()}: {field_leaf} declared{_by(witness)}, source {source}"
     if note:
         stamp += f"; {note}"
+    stamp = " ".join(stamp.split())  # a comment is one line: a multi-line note would break the YAML
+    if next(iter(owner), None) == field_leaf:
+        # A first key prints on its list item's "-" line; a comment above it would land
+        # between the two, so it goes at the end of the key's line instead.
+        prior = (owner.ca.items.get(field_leaf) or [None] * 3)[2]
+        prior = prior.value.strip().removeprefix("#").strip() if prior else ""
+        owner.yaml_add_eol_comment(f"{prior}; {stamp}" if prior else stamp, field_leaf)
+        return
     owner.yaml_set_comment_before_after_key(field_leaf, before=stamp, indent=2)
 
 
@@ -818,7 +899,7 @@ def _load_doc_guarded(contract_path: Path) -> tuple[str, Any, tuple[int, int]]:
 def _load_doc_bytes_guarded(raw_bytes: bytes) -> tuple[str, Any, tuple[int, int]]:
     size = len(raw_bytes)
     if size > MAX_CONTRACT_BYTES:
-        raise ValueError(f"contract file exceeds size limit ({size} bytes > {MAX_CONTRACT_BYTES})")
+        raise ValueError(f"lockfile exceeds size limit ({size} bytes > {MAX_CONTRACT_BYTES})")
     text = raw_bytes.decode("utf-8")
     lf_text = text.replace("\r\n", "\n")  # CRLF file: parse/sniff/diff as LF, write back as CRLF
     style = _sniff_sequence_style(lf_text)
@@ -850,7 +931,7 @@ def _apply_collection_append(doc: Any, index: int, change: Change, collection_ke
 
     `apply` could stamp a fact inside a
     device/rail/bus, but a whole new `budgets`/`families`/`device_models` row
-    has no owning block yet to stamp provenance onto — `declare`'s generic
+    has no owning block yet to stamp provenance onto - `declare`'s generic
     "set a leaf, stamp the parent's provenance" model does not fit "create the
     parent". Each row gets its own provenance (kept as authored if the row
     already carries one, e.g. from a hand-written change file; stamped from
@@ -1003,39 +1084,79 @@ def redo_edit(contract_path: Path) -> None:
     _journal_move(contract_path, "redo", "undo")
 
 
-def _is_valid_witness_name(witness: str) -> bool:
-    """True for a name ``validate_witness`` would accept: non-blank, not "you",
-    not an assistant name. Shared so a config default gets the identical bar a
-    hand-typed ``--witness`` does — a bad default must fail open into
-    the existing refusal, never bypass it under the "(default)" mark.
+_WITNESS_DEFAULT_MARK = " (default)"
+_WITNESS_MAX_LEN = 80
+# Control characters, line/paragraph separators, lone surrogates: never in a saved name.
+_UNSAFE_NAME_CATEGORIES = {"Cc", "Cs", "Zl", "Zp"}
+
+
+def _is_loadable_witness_name(witness: str) -> bool:
+    """The bar a witness already in a lockfile must clear to LOAD (review notes, via
+    ``schema.ReviewNote``): non-blank, not "you", not an assistant name, not a bare
+    "<your name>" placeholder. Kept as lenient as 0.5.2 so every old lockfile still loads.
     """
     if not witness or not witness.strip():
+        return False
+    if re.fullmatch(r"<[^<>]*>", witness.strip()):  # a "<your name>" placeholder pasted as is
         return False
     return witness.strip().lower() not in _ASSISTANT_NAME_DENYLIST | {"you"}
 
 
-def validate_witness(witness: str, *, refusal: str) -> None:
-    """Refuse a witness that is blank, the bare word "you", or an assistant name.
-
-    Shared by both write paths (``_apply_change`` and ``add_entry``) so the
-    refusal list lives in one place. Does not pick a default witness itself —
-    that is ``resolve_witness``'s job; this still refuses a blank/"you"
-    string whether it arrived as-is or as an unmarked default.
+def _is_valid_witness_name(witness: str) -> bool:
+    """The bar for a witness being WRITTEN (and for a name blame reads from a note):
+    the load bar plus one line, no control characters, no ``<`` or ``>``, at most 80
+    characters (the "(default)" mark not counted), so a name can't break the note's
+    stamp lines or carry markup. A config default gets this same bar.
     """
+    name = witness.removesuffix(_WITNESS_DEFAULT_MARK) if witness else witness
+    if not _is_loadable_witness_name(witness) or len(name) > _WITNESS_MAX_LEN:
+        return False
+    return not any(c in "<>" or unicodedata.category(c) in _UNSAFE_NAME_CATEGORIES for c in name)
+
+
+def shown_name(name: str, limit: int = 40) -> str:
+    """A refused name as a refusal shows it: quoted, and cut to ``limit`` characters with "..."."""
+    return repr(name if len(name) <= limit else name[:limit].rstrip() + "...")
+
+
+def validate_written_witness(witness: str, *, refusal: str) -> None:
+    """Refuse a witness about to be written that fails ``_is_valid_witness_name``.
+
+    Every write path calls this one (``_apply_change``, ``add_entry``, renames,
+    deletes, ``apply_review``, scene import, the config default writer).
+    """
+    if not witness.strip():  # nothing typed: say what to type, not "not ''"
+        raise EditRefusal(refusal.split("--witness")[0] + _NO_WITNESS)
+    if len(witness.removesuffix(_WITNESS_DEFAULT_MARK)) > _WITNESS_MAX_LEN:  # say the limit
+        head, _, rest = refusal.partition("--witness")
+        raise EditRefusal(f"{head}--witness is over the {_WITNESS_MAX_LEN}-character limit; it{rest}")
     if not _is_valid_witness_name(witness):
         raise EditRefusal(refusal)
 
 
+def validate_witness(witness: str, *, refusal: str) -> None:
+    """LOAD-TIME ONLY: ``schema.ReviewNote`` calls this by name while reading a lockfile.
+
+    Lenient on purpose (``_is_loadable_witness_name``) so an old lockfile still loads.
+    A write path must call ``validate_written_witness``; ``tests/test_no_name_surfaces.py``
+    pins that nothing but ``schema.py`` calls this one.
+    """
+    if not _is_loadable_witness_name(witness):
+        raise EditRefusal(refusal)
+
+
+_NO_WITNESS = "--witness is missing: give the name of the person who checked this value"
+#: The witness of a what-if when none is given: it writes nothing, so no one vouches for it.
+WHAT_IF_WITNESS = "nobody (a what-if writes nothing)"
+
+
 _WITNESS_CONFIG_ENV = "LOCKWIRE_WITNESS_CONFIG"
-_WITNESS_DEFAULT_MARK = " (default)"
-# Control characters, line/paragraph separators, lone surrogates: never in a saved name.
-_UNSAFE_NAME_CATEGORIES = {"Cc", "Cs", "Zl", "Zp"}
 
 
 def default_witness_config_path() -> Path:
     """Where the per-machine witness default lives.
 
-    ``LOCKWIRE_WITNESS_CONFIG`` overrides the path outright — tests use this so
+    ``LOCKWIRE_WITNESS_CONFIG`` overrides the path outright - tests use this so
     a run never reads or depends on a real file of the user's (a test never
     touches a real file by default). Otherwise the app
     and CLI share one XDG-style location.
@@ -1080,7 +1201,7 @@ def write_default_witness(name: str) -> str:
     name before it replaces the old one.
     """
     stripped = name.strip()
-    validate_witness(stripped, refusal=f"Use your real name, not {name!r}.")
+    validate_written_witness(stripped, refusal=f"Use your real name, not {shown_name(name)}.")
     if any(unicodedata.category(c) in _UNSAFE_NAME_CATEGORIES for c in stripped):
         raise EditRefusal("A name can't contain line breaks or control characters.")
     path = default_witness_config_path()
@@ -1113,9 +1234,9 @@ def resolve_witness(witness: str | None) -> str:
     """An explicit ``--witness`` wins; an absent/blank one falls back to the
     per-machine config default, marked "(default)".
 
-    The mark is written straight into the value that ends up stored — the
+    The mark is written straight into the value that ends up stored - the
     same string lands in the file's ``witness:`` field, in ``describe``'s
-    per-device page, and (once merged) in ``blame``'s row for this record —
+    per-device page, and (once merged) in ``blame``'s row for this record -
     so a defaulted witness can never render identically to a hand-entered
     one on any surface that just echoes ``provenance.witness``. Does not
     itself refuse: a resolved value that is still blank, or a config value
@@ -1123,7 +1244,7 @@ def resolve_witness(witness: str | None) -> str:
     unmarked and is refused exactly as before.
 
     Only OMISSION (``witness is None``) taking the default. An
-    explicit blank — ``--witness ""`` or all-whitespace — is a different act:
+    explicit blank - ``--witness ""`` or all-whitespace - is a different act:
     the caller deliberately passed nothing, so silently attributing a
     default witness to them would be wrong even though the string looks the
     same as an omission once ``.strip``-ed. That case is refused here,
@@ -1131,7 +1252,7 @@ def resolve_witness(witness: str | None) -> str:
     used for a hand-typed blank/"you"/assistant name.
     """
     if witness is not None and not witness.strip():
-        raise EditRefusal(f"--witness must name a real person, not {witness!r}")
+        raise EditRefusal(_NO_WITNESS)
     if witness and witness.strip():
         return witness
     default = read_default_witness()
@@ -1148,8 +1269,8 @@ def source_is_absolute(source: str) -> bool:
 
     Lexical, no filesystem touched: a POSIX absolute path, a ``~`` home path, a
     backslash-rooted or UNC Windows path, or a drive path (``C:``, ``C:/``,
-    ``C:\\``). A URL is *not* absolute in this sense — it travels with the
-    contract — and the scheme length is what separates the two: ``https:`` is a
+    ``C:\\``). A URL is *not* absolute in this sense - it travels with the
+    contract - and the scheme length is what separates the two: ``https:`` is a
     URL, ``C:`` is a drive letter.
     """
     text = source.strip()
@@ -1159,31 +1280,40 @@ def source_is_absolute(source: str) -> bool:
 
 
 def validate_source(source: str, *, prefix: str = "") -> None:
-    """Refuse a blank source, and refuse an absolute path.
+    """Refuse a blank source, a line break or control character, and an absolute path.
 
-    Shared by every write door — ``_apply_change`` (for ``--source`` and, via
+    Shared by every write door - ``_apply_change`` (for ``--source`` and, via
     ``iter_written_sources``, for every source the change's *value* lands),
     ``add_entry`` (which every ``_build_*`` and ``_add_battery_entry`` runs
-    through) and ``scene_import.write_change_file`` — so the rule lives in one
+    through) and ``scene_import.write_change_file`` - so the rule lives in one
     place, the way ``validate_witness`` does. A source that survives this is relative, and a
     relative source resolves from the contract's own directory
     (``resolve_source``), so the evidence travels with the contract.
     """
     if not source or not source.strip():
         raise EditRefusal(f"{prefix}--source is required")
+    if re.fullmatch(r"<[^<>]*>", source.strip()):  # a "<where it comes from>" placeholder pasted as is
+        raise EditRefusal(
+            f"{prefix}--source is still the placeholder {source.strip()!r}: "
+            "replace it with where the number comes from"
+        )
+    if any(unicodedata.category(c) in _UNSAFE_NAME_CATEGORIES for c in source):
+        raise EditRefusal(
+            f"{prefix}--source must be one line: remove the line break or control character"
+        )
     if source_is_absolute(source):
         raise EditRefusal(
-            f"{prefix}--source must be a path relative to the contract, a URL or a cited "
-            f"title, not the absolute path {source.strip()!r} — an absolute path names a "
+            f"{prefix}--source must be a path relative to the lockfile, a URL or a cited "
+            f"title, not the absolute path {source.strip()!r}: an absolute path names a "
             f"file only this machine has, so the evidence cannot travel with the "
-            f"contract"
+            f"lockfile"
         )
 
 
 def iter_written_sources(path: str, value: Any) -> Iterator[tuple[str, str]]:
     """Every source string a change would land, with the path it lands at.
 
-    ``--source`` is the witness's citation for the edit; this is the other half —
+    ``--source`` is the witness's citation for the edit; this is the other half -
     the value side. ``declare devices/x/provenance/source /Users/me/ds.pdf`` and an
     appended row carrying its own ``provenance.source`` both write a source field
     without ever touching ``--source``, so both are walked here and validated by the
@@ -1204,7 +1334,7 @@ def relative_source(contract_path: Path, file_path: Path) -> str:
     """The portable spelling of a file a write path was handed as a path.
 
     ``lockwire start /home/me/robot.urdf`` must not stamp ``/home/me`` into the
-    contract — nobody else has that directory. The path is re-read from the
+    contract - nobody else has that directory. The path is re-read from the
     contract's own directory instead, so the model file travels with the
     contract. Falls back to the bare filename when no relative spelling exists
     (a different Windows drive).
@@ -1219,26 +1349,48 @@ def resolve_source(contract_path: Path, source: str) -> Path | None:
     """Where a relative file source points, read from the contract's own directory.
 
     A source is a file beside the contract, a URL or a cited title. Only
-    the first kind resolves — a URL, a cited title and (refused on write, but
+    the first kind resolves - a URL, a cited title and (refused on write, but
     still found in older contracts) an absolute path return ``None``. The
     contract's directory is the anchor, never the working directory, so the same
     contract resolves the same way from anywhere.
     """
     text = source.strip()
-    if not text or source_is_absolute(text) or _URL_SCHEME.match(text) or " " in text:
+    if not text or source_is_absolute(text) or _URL_SCHEME.match(text):
         return None
-    return contract_path.resolve().parent / text
+    path = contract_path.resolve().parent / text
+    # a cited title has spaces, but so may a folder name: keep it only when the file is there
+    return None if " " in text and not path.is_file() else path
+
+
+_CHEMISTRY_ALIASES = {  # extra spellings; the targets are checked against the schema's accepted set
+    "lfp": "lifepo4",
+    "liion": "li-ion",
+    "lithiumion": "li-ion",
+    "lithiumpolymer": "lipo",
+    "sla": "lead-acid",
+    "pb": "lead-acid",
+}
+
+
+def normalize_chemistry(raw: str) -> str:
+    """What people type -> the accepted code; case, spaces, '-' and '_' are ignored. Unknown stays as typed."""
+    accepted = typing.get_args(typing.get_args(schema.Battery.model_fields["chemistry"].annotation)[0])
+    key = {re.sub(r"[-_\s]", "", c): c for c in accepted}
+    key |= {a: c for a, c in _CHEMISTRY_ALIASES.items() if c in accepted}
+    return key.get(re.sub(r"[-_\s]", "", raw).lower(), raw)
 
 
 def _apply_change(doc: Any, index: int, change: Change) -> str:
+    if change.path == "topology/battery/chemistry" and isinstance(change.value, str):
+        change = replace(change, value=normalize_chemistry(change.value))
     if change.witness is not None or change.source:  # an anonymous edit may give no source
         validate_source(change.source, prefix=f"entry {index} ({change.path}): ")
     for where, written in iter_written_sources(change.path, change.value):
         validate_source(written, prefix=f"entry {index} ({where}): ")
     if change.witness is not None:
-        validate_witness(
+        validate_written_witness(
             change.witness,
-            refusal=f"entry {index} ({change.path}): --witness must name a real person, not {change.witness!r}",
+            refusal=f"entry {index} ({change.path}): --witness must name a real person, not {shown_name(change.witness)}",
         )
     segments = split_path(change.path)
     if len(segments) == 1 and segments[0] in _COLLECTION_APPEND_KINDS:
@@ -1300,7 +1452,7 @@ def propose_changes_from_bytes(
             if declared not in SUPPORTED_SCHEMA_VERSIONS:
                 raise UnsupportedSchemaVersion(declared, SUPPORTED_SCHEMA_VERSIONS)
             before = Contract.model_validate(doc)
-        except Exception:  # noqa: BLE001 — an unloadable "before" owes no mark
+        except Exception:  # noqa: BLE001 - an unloadable "before" owes no mark
             before = None
 
     lines: list[str] = []
@@ -1347,6 +1499,8 @@ def propose_changes_from_bytes(
             tofile=str(contract_path),
         )
     )
+    if after.model is not None:  # the proposal reads its model file beside the lock it edits
+        object.__setattr__(after.model, "_lockfile", contract_path.resolve())
     return EditProposal(EditResult(diff=diff, lines=lines), after, new_text, original_text)
 
 
@@ -1371,7 +1525,7 @@ def apply_changes(
     ``journal=False`` writes no undo journal: for a copy the user never sees.
 
     Nothing is written when any entry is malformed or the resulting document
-    fails to validate — the raised ``EditRefusal`` names the failing entry.
+    fails to validate - the raised ``EditRefusal`` names the failing entry.
     """
     proposal = propose_changes(contract_path, changes)
     if dry_run:
@@ -1458,7 +1612,7 @@ def apply_review(
     """Approve or question one already-declared value, appending a review note
     to the owning block's provenance, atomically.
 
-    Same load -> mutate -> validate -> write shape as ``apply_changes`` — one
+    Same load -> mutate -> validate -> write shape as ``apply_changes`` - one
     writer, not a second one. The witness-blank/assistant-name refusal
     and the "questioned needs a note" refusal are not duplicated here: they
     are ``schema.ReviewNote``'s own validators, reached through the reload
@@ -1471,6 +1625,7 @@ def apply_review(
     owner = _navigate(doc, owner_segments, create=False)
     if not isinstance(owner, dict) or not isinstance(owner.get("provenance"), dict):
         raise EditRefusal(f"cannot review {path}: nothing declared there yet (no provenance)")
+    validate_written_witness(witness, refusal=f"--witness must name a real person, not {shown_name(witness)}")
     prov = owner["provenance"]
     entry = CommentedMap()
     entry["state"] = state
@@ -1517,6 +1672,13 @@ def apply_review(
         tmp_path.unlink(missing_ok=True)
 
 
+def _problem(path: str, error: Any) -> str:
+    """One validation error as `<path>: <words>`, or `<path> is missing`, as load errors read."""
+    if error.get("type") == "missing":
+        return f"{path} is missing"
+    return f"{path}: {plain_message(error)}"
+
+
 def _correlate_failure(doc: Any, changes: list[Change], error: Exception) -> str:
     """Turn a validation failure into "entry N (path): message" when possible."""
     errors = getattr(error, "errors", None)
@@ -1529,13 +1691,15 @@ def _correlate_failure(doc: Any, changes: list[Change], error: Exception) -> str
                     or loc_path.startswith(change.path + "/")
                     or (change.path.startswith(loc_path + "/") if loc_path else False)
                 ):
+                    if pydantic_error.get("type") == "missing":
+                        return f"entry {index}: {loc_path or change.path} is missing"
                     return f"entry {index} ({change.path}): {plain_message(pydantic_error)}"
     lines = (
-        [".".join(map(str, e["loc"])) + ": " + plain_message(e) for e in errors()]
+        [_problem(_loc_to_path(doc, e.get("loc", ())) or "lockfile", e) for e in errors()]
         if callable(errors)
         else [str(error)]
     )
-    return f"contract invalid after {len(changes)} change(s): " + "; ".join(lines)
+    return f"lockfile invalid after {len(changes)} change(s): " + "; ".join(lines)
 
 
 # ------------------------------------------------- add device|rail|bus|family|model|budget|gearbox
@@ -1590,7 +1754,7 @@ def add_entry(
     if witness is not None or source:  # an anonymous edit may give no source
         validate_source(source)
     if witness is not None:
-        validate_witness(witness, refusal=f"--witness must name a real person, not {witness!r}")
+        validate_written_witness(witness, refusal=f"--witness must name a real person, not {shown_name(witness)}")
 
     original_text, doc, style = _load_doc_guarded(contract_path)
     locked_at = locked_at or dt.date.today()
@@ -1767,10 +1931,10 @@ def add_entry(
     if not new_id:
         raise EditRefusal("--id is required")
 
-    # "one datasheet, one submit" — a device whose --family/--model
+    # "one datasheet, one submit" - a device whose --family/--model
     # name records that do not exist yet gets them created alongside it, in
     # this same in-memory doc, so the eventual disk write is one transaction
-    # (nothing lands unless the whole thing validates — see the tail below).
+    # (nothing lands unless the whole thing validates - see the tail below).
     # A device whose family/model already exist behaves exactly as before.
     created_with_device: list[tuple[str, CommentedMap]] = []
     if kind == "device":
@@ -1865,14 +2029,14 @@ def add_entry(
                 sorted(m["id"] for m in models if isinstance(m, dict) and m.get("id"))
             )
             raise EditRefusal(
-                f"model {model_ref!r} is not declared — declare it first: "
+                f"model {model_ref!r} is not declared: declare it first: "
                 f"lockwire add model {contract_path} --id {model_ref} --family <fam.id> "
                 "--source ... --witness ... "
                 f"(or use an existing id: {existing or 'none declared yet'})"
             )
 
     # One shared stamper for every record this call writes ("one
-    # witness line" for the three records) — a family/model created *because*
+    # witness line" for the three records) - a family/model created *because*
     # this device named them is not itself witnessed a second time; its
     # provenance points at the device that brought it in instead of repeating
     # the name. A family/model that already existed is untouched, unstamped.
@@ -2523,7 +2687,7 @@ _MIRROR_NORMAL = {"xz": 1, "yz": 0, "xy": 2}
 
 
 def _neg(value: Any) -> Any:
-    """Minus a number or a param dimension ("name" <-> "-name", PARAM-NEG); never -0.0."""
+    """Minus a number or a param dimension ("name" <-> "-name", a negated param); never -0.0."""
     if isinstance(value, str):
         return value[1:] if value.startswith("-") else f"-{value}"
     return 0.0 if value == 0 else -value
@@ -2675,7 +2839,7 @@ def delete_entry(
     if witness is not None or source:  # an anonymous edit may give no source
         validate_source(source)
     if witness is not None:
-        validate_witness(witness, refusal=f"--witness must name a real person, not {witness!r}")
+        validate_written_witness(witness, refusal=f"--witness must name a real person, not {shown_name(witness)}")
     original_text, doc, style = _load_doc_guarded(contract_path)
     locked_at = locked_at or dt.date.today()
     if kind == "group":
@@ -2816,7 +2980,7 @@ def _leave_groups(doc: Any, part: str) -> list[str]:
 # ---- one id and every reference to it, in one write.
 # Each kind lists EVERY place the schema holds that id: a reference missing here is a visible
 # omission, not a silent dangling name. Spec: "/" walks keys, "[]" every list element, a final
-# "{}" renames the keys of that mapping. Modes: id (exact), dim (also "-name", PARAM-NEG),
+# "{}" renames the keys of that mapping. Modes: id (exact), dim (also "-name", a negated param),
 # path (a contract path segment after its collection name, the matcher idea).
 # Not covered (names only in free-form structural/simulation inputs): see the docs.
 _PATHS = (
@@ -2978,7 +3142,7 @@ def rename_entry(
     if witness is not None or source:  # an anonymous edit may give no source
         validate_source(source)
     if witness is not None:
-        validate_witness(witness, refusal=f"--witness must name a real person, not {witness!r}")
+        validate_written_witness(witness, refusal=f"--witness must name a real person, not {shown_name(witness)}")
     original_text, doc, style = _load_doc_guarded(contract_path)
     locked_at = locked_at or dt.date.today()
     model = doc.get("model") if kind in ("link", "joint") else None
@@ -3111,10 +3275,10 @@ def _add_battery_entry(
     locked_at: dt.date,
     dry_run: bool,
 ) -> EditResult:
-    """Create or update `topology/battery` — a singleton, not an id'd collection.
+    """Create or update `topology/battery` - a singleton, not an id'd collection.
 
     `Battery` (schema.py) has no `provenance` field and forbids extras
-    (schema fields are added by a schema change) — source/witness/chemistry
+    (schema fields are added by a schema change) - source/witness
     are recorded as a YAML comment on the `battery:` key instead of a
     structured block. Unstructured: `check`/`describe` never read it back.
     """
@@ -3134,10 +3298,25 @@ def _add_battery_entry(
     _copy_optional(battery, fields, _BATTERY_F1A)
 
     stamp = f"{locked_at.isoformat()}: battery declared{_by(witness)}, source {source}"
-    if fields.get("chemistry"):
-        stamp += f"; chemistry {fields['chemistry']}"
+    chem = None
+    if fields.get("chemistry"):  # the same write `declare topology/battery/chemistry` does
+        chem = Change(
+            path="topology/battery/chemistry",
+            value=fields["chemistry"],
+            source=source,
+            witness=witness,
+            note=note,
+            locked_at=locked_at,
+        )
+        _apply_change(doc, 1, chem)
+        try:  # the same one-line refusal `declare` gives, nothing written
+            Contract.model_validate(doc)
+        except Exception as error:  # noqa: BLE001
+            if (msg := _correlate_failure(doc, [chem], error)).startswith("entry 1"):
+                raise EditRefusal(msg) from error
     if note:
         stamp += f"; {note}"
+    stamp = " ".join(stamp.split())  # one comment line, as in `_stamp_comment_provenance`
     topology.yaml_set_comment_before_after_key("battery", before=stamp, indent=2)
 
     new_text = _dump(doc, style)
@@ -3204,7 +3383,7 @@ def _stamp_add_provenance(
 
     A one-submit device add calls this 2-3 times with the SAME ``locked_at``
     object; ruamel anchors/aliases a repeated node by identity, and this repo
-    refuses anchors on read (``_reject_yaml_anchors_aliases``) — so each call
+    refuses anchors on read (``_reject_yaml_anchors_aliases``) - so each call
     gets its own fresh ``date``, never the caller's shared one.
     """
     if witness is None and not (source and source.strip()):
@@ -3216,7 +3395,7 @@ def _stamp_add_provenance(
     prov["source"] = source
     prov["locked_at"] = dt.date.fromordinal(locked_at.toordinal())
     if note:
-        prov["note"] = f"{locked_at.isoformat()}: {note}"
+        prov["note"] = _note_text(locked_at, note)
     entry["provenance"] = prov
 
 
@@ -3242,7 +3421,7 @@ def _build_device(fields: dict[str, Any]) -> CommentedMap:
             [("bus_ref", fields["identity_bus_ref"]), ("host", fields["identity_host"])]
         )
     if fields.get("physical_mass") or fields.get("physical_mount_frame"):
-        # mass and mount_frame are independently optional — declare either alone.
+        # mass and mount_frame are independently optional - declare either alone.
         physical = CommentedMap()
         if fields.get("physical_mass"):
             physical["mass"] = parse_value(
@@ -3256,7 +3435,7 @@ def _build_device(fields: dict[str, Any]) -> CommentedMap:
             raise EditRefusal("device power draw needs --rail")
         power = CommentedMap()
         power["rail"] = fields["power_rail"]
-        # draw is optional — a device may declare a rail with unknown draw.
+        # draw is optional - a device may declare a rail with unknown draw.
         if fields.get("power_draw"):
             power["draw"] = parse_value(fields["power_draw"], field_name="draw", flag="--draw")
         entry["power"] = power
@@ -3290,7 +3469,7 @@ def _build_rail(fields: dict[str, Any]) -> CommentedMap:
             raise EditRefusal(f"rail requires --{required}")
     entry = CommentedMap()
     entry["id"] = fields["id"]
-    # voltage is optional — capacity alone still describes a rail.
+    # voltage is optional - capacity alone still describes a rail.
     if fields.get("voltage"):
         entry["voltage"] = parse_value(fields["voltage"], field_name="voltage", flag="--voltage")
     entry["capacity"] = parse_value(fields["capacity"], field_name="capacity", flag="--capacity")
@@ -3397,7 +3576,7 @@ def _build_model(fields: dict[str, Any], doc: Any) -> CommentedMap:
             sorted(f["id"] for f in families if isinstance(f, dict) and f.get("id"))
         )
         raise EditRefusal(
-            f"family {family_ref!r} is not declared — declare it first: "
+            f"family {family_ref!r} is not declared: declare it first: "
             "lockwire add family ... --id <fam.id> --name ... --source ... --witness ... "
             f"(or use an existing id: {existing or 'none declared yet'})"
         )
@@ -3494,8 +3673,8 @@ def _build_gearbox(fields: dict[str, Any], doc: Any) -> CommentedMap:
 # and the contract is the thing that can be edited. The scene is rebuilt from the
 # contract afterwards by the code that already builds it.
 #
-# All three go through `apply_changes` — the same writer `lockwire declare` calls
-# — so source, witness and provenance are stamped by one gate, and a
+# All three go through `apply_changes` - the same writer `lockwire declare` calls
+# - so source, witness and provenance are stamped by one gate, and a
 # refusal raised here happens before `apply_changes` opens the file at all, which
 # is what leaves a refused edit byte-identical.
 
@@ -3511,7 +3690,7 @@ def _require_unit(unit: str | None, accepted: tuple[str, ...], *, what: str) -> 
     """Refuse a missing or wrong-dimension unit rather than guessing one.
 
     The joint-limit rule read across to pose: a number without its unit is
-    refused, never defaulted. Defaulting is the failure this exists to prevent —
+    refused, never defaulted. Defaulting is the failure this exists to prevent -
     ``--rpy 0,0,90`` meant in degrees and silently read as radians is a 90-radian
     rotation that no later check can tell from an intended one.
     """
@@ -3522,7 +3701,7 @@ def _require_unit(unit: str | None, accepted: tuple[str, ...], *, what: str) -> 
         )
     if unit.strip() not in accepted:
         raise EditRefusal(
-            f"--unit {unit.strip()!r} is not a {what} unit; give one of {', '.join(accepted)}"
+            f"--unit {unit.strip()!r} is not accepted for {what}; give one of {', '.join(accepted)}"
         )
     return unit.strip()
 
@@ -3538,7 +3717,7 @@ def _link_tree(contract: Any) -> tuple[dict[str, str], dict[str, str], set[str]]
     Every pose refusal below reads this one map. A second tree walk that
     disagreed with this one is exactly how a cycle would get into the file,
     and a cycle in the file makes `checks._fixed_frame_transforms` return no
-    transform for the whole subtree — the CG composition would go quiet rather
+    transform for the whole subtree - the CG composition would go quiet rather
     than wrong, and nothing else in the repo would notice.
 
     ponytail: a link named as the child of two joints keeps the last one seen.
@@ -3548,8 +3727,8 @@ def _link_tree(contract: Any) -> tuple[dict[str, str], dict[str, str], set[str]]
     """
     if contract.model is None:
         raise EditRefusal(
-            "this contract records no model, so there is no link tree to edit — "
-            "run `lockwire start <urdf>` or `lockwire init` against a model first"
+            "this contract records no model, so there is no link tree to edit: "
+            "run 'lockwire start <urdf>' or 'lockwire init' against a model first"
         )
     parent_of: dict[str, str] = {}
     joint_of: dict[str, str] = {}
@@ -3576,7 +3755,7 @@ def _chain_to_root(parent_of: dict[str, str], link: str) -> list[str]:
 
 
 def _resolve_pose_target(contract: Any, target: str) -> tuple[str, str]:
-    """``("device", id)`` or ``("link", name)`` — what ``target`` names, or a refusal."""
+    """``("device", id)`` or ``("link", name)`` - what ``target`` names, or a refusal."""
     if any(device.id == target for device in contract.devices):
         return "device", target
     if contract.model is not None and any(link.name == target for link in contract.model.links):
@@ -3588,7 +3767,7 @@ def _resolve_pose_target(contract: Any, target: str) -> tuple[str, str]:
 
 
 def _joint_placing(contract: Any, link: str, *, verb: str) -> str:
-    """The joint whose child is ``link`` — the joint that places it in its parent."""
+    """The joint whose child is ``link`` - the joint that places it in its parent."""
     _parent_of, joint_of, _links = _link_tree(contract)
     if link not in joint_of:
         raise EditRefusal(
@@ -3635,6 +3814,7 @@ def place(
     expected_revision: str | None = None,
 ) -> EditResult:
     """Place an existing device on a model link in one atomic contract write."""
+    unit = _require_unit(unit, _length_units(), what="an offset")  # a missing unit is said first
     contract = load_contract(contract_path)
     kind, name = _resolve_pose_target(contract, target)
     if kind != "device":
@@ -3647,7 +3827,6 @@ def place(
         raise EditRefusal(
             f"placement parent {on!r} does not resolve: the recorded model has no link by that name"
         )
-    unit = _require_unit(unit, _length_units(), what="an offset")
     return apply_changes(
         contract_path,
         [
@@ -3784,8 +3963,8 @@ def rotate(
     unit = _require_unit(unit, tuple(_ROTATION_UNITS), what="a rotation")
     if kind == "device":
         raise EditRefusal(
-            f"{name!r} is a device, and the contract records no orientation for a device: "
-            "`physical` carries mass, placement and mount shape, but no orientation. "
+            f"{name!r} is a device, and the lockfile records no orientation for a device: "
+            "'physical' carries mass, placement and mount shape, but no orientation. "
             "Rotate the link it is mounted to instead, and if a device really "
             "needs its own orientation that is a schema change (open an issue to propose it)."
         )
@@ -3821,7 +4000,7 @@ def reparent(
 
     A device changes the link it is mounted to (``physical/mount_frame``); a link
     changes its placing joint's ``parent``, which moves the link tree and
-    therefore ``structure_hash`` — that move is PRINTED, never silent, because a
+    therefore ``structure_hash`` - that move is PRINTED, never silent, because a
     silent one makes every later model import look like drift
     (``urdf.describe_structure_drift``).
 

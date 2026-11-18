@@ -477,7 +477,7 @@ def test_a_questioned_review_requires_a_note():
 
 
 def test_a_contract_with_review_notes_round_trips(tmp_path):
-    # Parity-anchor law: anchored on the checked-in fixture's literal text, not
+    # Anchored on the checked-in fixture's literal text, not
     # on a model also dumped.
     fixture = Path(__file__).parent / "fixtures" / "review_notes.yaml"
     contract = load_contract(fixture)
@@ -907,7 +907,7 @@ def test_v04_upgrade_refuses_actuator_cases_hidden_in_legacy_version():
         Contract.model_validate(legacy)
     assert Contract.model_validate(legacy | {"schema_version": "0.5"}).actuator_cases
 
-    with pytest.raises(ValueError, match="legacy contract must not contain actuator_cases"):
+    with pytest.raises(ValueError, match="legacy lockfile must not contain actuator_cases"):
         upgrade_contract_document(legacy)
     assert legacy["schema_version"] == "0.3"
     empty = {"schema_version": "0.2", "robot": {"name": "old"}, "actuator_cases": []}
@@ -1405,7 +1405,7 @@ def _defeat_geometry_yaml(
     base_n: int = 10,
     name_prefix: str = "a",
 ) -> str:
-    """Reviewer defeat: deep alias fan-out under the byte cap.
+    """Deep alias fan-out under the byte cap.
 
     6 alias levels × fan-out 4 → shared-ref / anchor structure the composed-tree
     walk must catch. Base list is intentionally small: with grammar-complete
@@ -2325,7 +2325,7 @@ def test_f1a_reader_refuses_a_key_it_does_not_know_and_names_it():
     """An older reader meets a newer file through extra="forbid": the plain error names the key."""
     data = _f1a_data()
     data["topology"]["protection"][0]["melt_curve_id"] = "x"
-    with pytest.raises(ContractError, match=r"topology\.protection\.0\.melt_curve_id: unknown key"):
+    with pytest.raises(ContractError, match=r"topology/protection/0/melt_curve_id: unknown key"):
         load_contract_bytes(json.dumps(data).encode(), name="lockfile")
 
 
@@ -2410,7 +2410,7 @@ def test_f1b_physically_impossible_values_are_refused(where, key, bad):
 def test_f1b_reader_refuses_a_key_it_does_not_know_and_names_it():
     data = _f1b_data()
     data["controllers"][0]["feedforward"] = 1.0
-    with pytest.raises(ContractError, match=r"controllers\.0\.feedforward: unknown key"):
+    with pytest.raises(ContractError, match=r"controllers/0/feedforward: unknown key"):
         load_contract_bytes(json.dumps(data).encode(), name="lockfile")
 
 
@@ -2486,7 +2486,7 @@ def _drop_channel(d):
 @pytest.mark.parametrize(
     "edit, match",
     [
-        (_drop_channel, r"assertions\.0\.channel"),
+        (_drop_channel, r"assertions/0/channel"),
         (lambda d: d["assertions"][0].update(window_s=0.0), "window_s"),
         (lambda d: d["model"]["links"][1]["material"].update(density_kg_m3=0.0), "density"),
         (lambda d: d["modes"]["transitions"].append({"from": "run", "to": "fly"}), "fly"),
@@ -2520,7 +2520,7 @@ def test_f1e_edge_refuses_a_band_tolerance_it_cannot_score():
 def test_f1e_reader_refuses_a_key_it_does_not_know_and_names_it():
     data = _f1e_data()
     data["modes"]["transitions"][0]["guard"] = "armed"
-    with pytest.raises(ContractError, match=r"modes\.transitions\.0\.guard: unknown key"):
+    with pytest.raises(ContractError, match=r"modes/transitions/0/guard: unknown key"):
         load_contract_bytes(json.dumps(data).encode(), name="lockfile")
 
 
@@ -2620,7 +2620,7 @@ def test_f1c_wire_with_neither_rail_nor_ends_makes_check_exit_2_with_one_line(tm
     lock.write_text(json.dumps(data))
     result = CliRunner().invoke(app, ["check", str(lock)])
     assert result.exit_code == 2 and result.output.strip().splitlines() == [
-        "lock.yaml: topology.wires.1: wire 'wire.tx' has no rail and no from/to pins: give it one"
+        "lock.yaml: topology/wires/1: wire 'wire.tx' has no rail and no from/to pins: give it one"
     ]
 
 
@@ -2662,7 +2662,7 @@ def test_check_is_clean_on_power_wire_plus_gaugeless_signal_wire(tmp_path):
 def test_f1c_reader_refuses_a_key_it_does_not_know_and_names_it():
     data = _f1c_data()
     data["devices"][0]["connectors"][0]["pins"][0]["drive_strength"] = "high"
-    with pytest.raises(ContractError, match=r"connectors\.0\.pins\.0\.drive_strength: unknown key"):
+    with pytest.raises(ContractError, match=r"connectors/0/pins/0/drive_strength: unknown key"):
         load_contract_bytes(json.dumps(data).encode(), name="lockfile")
 
 
@@ -2742,7 +2742,7 @@ def test_f1ds_invalid_values_are_refused(edit, match):
 def test_f1ds_reader_refuses_a_key_it_does_not_know_and_names_it():
     data = _f1ds_data()
     data["model"]["links"][1]["geometry"][0]["fillet"] = 0.002
-    with pytest.raises(ContractError, match=r"geometry\.0\.fillet: unknown key"):
+    with pytest.raises(ContractError, match=r"geometry/0/fillet: unknown key"):
         load_contract_bytes(json.dumps(data).encode(), name="lockfile")
 
 
@@ -2807,7 +2807,7 @@ def test_cad04_pattern_round_trips_and_unknown_key_is_refused(tmp_path):
     dump = {"mode": "json", "exclude_none": True}
     assert load_contract(out).to_file_data(**dump)["patterns"] == data["patterns"]
     data["patterns"][0]["spacing"] = 1
-    with pytest.raises(ContractError, match=r"patterns\.0\.spacing: unknown key"):
+    with pytest.raises(ContractError, match=r"patterns/0/spacing: unknown key"):
         load_contract_bytes(json.dumps(data).encode())
 
 
@@ -2884,3 +2884,21 @@ def test_a_provenance_may_omit_its_witness_but_a_review_may_not():
     assert Provenance(source="s", locked_at="2026-01-01").witness is None
     with pytest.raises(ValueError, match="witness"):
         ReviewNote(state="approved", at="2026-01-01")
+
+
+def test_a_missing_field_is_named_by_its_slash_path_as_edits_name_it():
+    import io
+
+    from ruamel.yaml import YAML
+
+    from lockwire.schema import load_contract_bytes
+    from lockwire.start_operation import EXAMPLES
+
+    yaml = YAML()
+    data = yaml.load((EXAMPLES / "drone" / "contract.yaml").read_text())
+    del data["devices"][0]["id"]
+    text = io.StringIO()
+    yaml.dump(data, text)
+    with pytest.raises(ContractError) as error:
+        load_contract_bytes(text.getvalue().encode(), name="lock.yaml")
+    assert "lock.yaml: devices/0/id is missing" in error.value.lines, error.value.lines

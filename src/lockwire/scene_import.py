@@ -28,8 +28,9 @@ from lockwire.edit import (
     _replace,
     apply_changes,
     propose_changes,
+    shown_name,
     validate_source,
-    validate_witness,
+    validate_written_witness,
 )
 from lockwire.scene import Scene
 from lockwire.scene_view import resolve_scene
@@ -97,13 +98,13 @@ def build_import(
     if not any(d.id in parts_by_id for d in devices):
         if link_based:
             # A URDF/SDF's parts are links, not devices (the name join). Nothing joining
-            # is a normal outcome of a fresh model, not a tool failure — explain it in
+            # is a normal outcome of a fresh model, not a tool failure - explain it in
             # plain words and hand back zero entries rather than refusing.
             link_ids = ", ".join(sorted(parts_by_id)) or "no links at all"
             device_ids_str = ", ".join(sorted(d.id for d in devices)) or "no devices"
             explanation = (
                 f"the model names {link_ids}; the contract's devices are {device_ids_str}; "
-                "no device is called that — name a device after its link, or give the "
+                "no device is called that: name a device after its link, or give the "
                 "model extras.lockwire.id"
             )
             return ImportResult(
@@ -208,13 +209,13 @@ def build_import(
 
 
 def write_change_file(entries: tuple[dict[str, Any], ...], out: Path, *, scene_source: str) -> None:
-    """The single place this module writes bytes to disk — every witness and
+    """The single place this module writes bytes to disk - every witness and
     every source in ``entries`` is validated here, before the file is opened, so no write
     path around this module (direct library call included) can land a blank or "you"
     witness, or an absolute source path.
     """
     for witness in {entry["witness"] for entry in entries if "witness" in entry}:
-        validate_witness(witness, refusal=f"--witness must name a real person, not {witness!r}")
+        validate_written_witness(witness, refusal=f"--witness must name a real person, not {shown_name(witness)}")
     for source in {str(entry["source"]) for entry in entries if "source" in entry}:
         validate_source(source)
     yaml = YAML()
@@ -235,7 +236,7 @@ def write_change_file(entries: tuple[dict[str, Any], ...], out: Path, *, scene_s
     temporary_path = Path(temporary_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(f"# written by lockwire scene import — {scene_source}, {today}\n")
+            handle.write(f"# written by lockwire scene import: {scene_source}, {today}\n")
             yaml.dump([_flow_lists(entry) for entry in entries], handle)
         if out.exists():
             _replace(temporary_path, out, journal=False)  # a change file is no lockfile: no undo journal

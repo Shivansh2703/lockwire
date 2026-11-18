@@ -10,7 +10,7 @@ Undo half: the anchor in every restore test is **git itself** —
 ``git show HEAD:<file>`` run as a separate command and diffed against the
 file on disk — never ``lockwire.vcs`` asked what it just did.
 
-Parity-anchor law throughout: assertions run `git log` / `git status` /
+Anchored throughout: assertions run `git log` / `git status` /
 `git show` as separate subprocess calls compared against literals, never
 re-read through `vcs.py` or `gitref.py` themselves.
 """
@@ -180,7 +180,7 @@ def scratch_repo(tmp_path):
 def test_a_message_mentioning_remote_is_not_mistaken_for_a_push(scratch_repo):
     out = vcs.commit_contract(
         scratch_repo / "lockwire.yaml",
-        message="relocate remote antenna mass; witness: shivansh",
+        message="relocate remote antenna mass; witness: avery",
         paths=[str(scratch_repo / "lockwire.yaml")],
         dry_run=True,
     )
@@ -292,7 +292,7 @@ def test_no_code_path_here_pushes():
     """Sweeps the whole door, not one function — the claim is `vcs.py` plus
     the git door it calls through.
 
-    pushing is the owner's hand, never the board's. Two checks make the
+    pushing is the user's hand, never the code's. Two checks make the
     whole-module claim: `vcs.py` never shells out except through `gitref`
     (no `subprocess` import here), and `gitref.py`, the one door,
     exposes no argv that names `push`, `remote` or `--set-upstream`.

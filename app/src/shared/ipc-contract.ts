@@ -6,7 +6,7 @@ export const RUN_CHANNEL = "lockwire:run";
 
 // main -> renderer push, unrelated to RUN_CHANNEL's renderer -> main invoke: the sidecar's
 // state changes on its own schedule (child exit, ready line), not in response to a renderer
-// call, so it can't be an invoke reply. Read-only for the renderer either way (e9-join).
+// call, so it can't be an invoke reply. Read-only for the renderer either way.
 export const SIDECAR_STATE_CHANGED_CHANNEL = "lockwire:sidecar-state-changed";
 
 // main -> renderer: File > Open Robot... finished; payload { result: StartUrdfResult } | { error }.
@@ -20,13 +20,22 @@ export const THEME_CHANNEL = "lockwire:toggle-theme";
 // main -> renderer push: Assistant tool-call progress ({ type: "tool", name }) and the final
 // message ({ type: "done", turn }). Same shape as the pushes above.
 export const ASSISTANT_EVENT_CHANNEL = "lockwire:assistant-event";
+// The stand-in name every dry run carries (main/assistant.ts); the panel never shows it as a name.
+export const DRY_RUN_WITNESS = "your name";
+/** A dry run's diff as the panel's folded "exact change" shows it: the saved name where the stand-in was, or with none saved the stand-in left out.
+ * Display only: what Apply sends is not this text. Kept here, beside the stand-in, because it rewrites the engine's own journal words, not app copy. */
+export const shownDiff = (diff: string, name: string): string => {
+  const at = DRY_RUN_WITNESS.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return name ? diff.replace(new RegExp(`(witness:? )${at}`, "g"), (_m, w: string) => w + name)
+    : diff.replace(new RegExp(`, witness ${at}`, "g"), "").split("\n").filter((l) => !new RegExp(`^\\+\\s*witness: ${at}$`).test(l)).join("\n");
+};
+// main -> renderer push: a show tool of the Assistant (main/assistantShow.ts) changed what is on
+// screen. View only: it never touches the robot file.
+export const ASSISTANT_SHOW_CHANNEL = "lockwire:assistant-show";
 
 // main -> renderer push: the drawer Terminal's pty output ({ type: "data", data }) and its end
 // ({ type: "exit", code }).
 export const TERMINAL_EVENT_CHANNEL = "lockwire:terminal-event";
-
-// main -> renderer push: the Agent tab's stream ({ contract, event: AgentEvent }).
-export const AGENT_EVENT_CHANNEL = "lockwire:agent-event";
 
 export const PERMITTED_COMMAND_CLASSES = [
   "contract:edit",
@@ -57,13 +66,11 @@ export const PERMITTED_COMMAND_CLASSES = [
   "assistant:send",
   "assistant:apply",
   "assistant:cancel",
+  "assistant:show-finding",
   "terminal:start",
   "terminal:write",
   "terminal:resize",
   "terminal:kill",
-  "agent:start",
-  "agent:power-design",
-  "agent:stop",
 ] as const;
 
 export type CommandClass = (typeof PERMITTED_COMMAND_CLASSES)[number];
@@ -174,7 +181,7 @@ export type DiffRequest = { contract: string; a?: string; b?: string };
 export type HistoryRequest = { contract: string; revision_range?: string | null };
 
 // The Assistant (main/assistant.ts). The key only ever travels renderer -> main, never back.
-export type AssistantSettings = { hasKey: boolean; model: string; enabledRobots: string[] };
+export type AssistantSettings = { hasKey: boolean; model: string; enabledRobots: string[]; /** True when the tool table has the file tools, so the allow screen says the Assistant can read files in the robot's folder. */ files?: boolean };
 export type AssistantSetRequest = {
   key?: string;
   forgetKey?: boolean;
@@ -183,20 +190,51 @@ export type AssistantSetRequest = {
   disableRobot?: string;
 };
 export type AssistantSetResult = { settings: AssistantSettings; error?: string };
-export type AssistantSendRequest = { contract: string; revision: string; mode: string; text: string };
-export type AssistantProposal = { id: string; command: string; args: Record<string, unknown>; revision: string; /** The sidecar's own dry-run diff: what signing would change. */ diff: string };
-export type AssistantTurn = { text: string; proposals: AssistantProposal[]; error?: string };
-export type AssistantApplyResult = { ok: true } | { ok: false; error: string };
+/** What is on screen when a question is sent: the selected part and the open view. Nothing else about the screen is sent. */
+export type AssistantContext = { selection?: { id: string; name: string }; view?: "graph" | "power" | "data" | "mechanical" };
+export type AssistantSendRequest = { contract: string; revision: string; mode: string; text: string; context?: AssistantContext };
+/** One finding a proposal adds, clears or alters, in the engine's own words; `was` is what a changed one read before. */
+export type AssistantFindingChange = { kind: "new" | "cleared" | "changed"; severity: string; quantity: string; observed: string; expected: string; was?: string };
+/** The engine's check before and after a proposal, run on a temporary copy (main/proposalCheck.ts); `error` when it could not be compared. */
+export type AssistantComparison = { before: string; after: string; changes: AssistantFindingChange[] } | { error: string };
+export type AssistantProposal = { id: string; command: string; args: Record<string, unknown>; revision: string; /** The sidecar's own dry-run diff: what signing would change. */ diff: string; comparison?: AssistantComparison; /** True when this exact change is a fix `suggest-fixes` returned for this same file earlier in the conversation: the engine searched it and proved it. */ proved?: boolean;
+  note?: string; // main's own plain words shown with the card
+  /** propose-part only: each number main ACCEPTED under its number rule (the quote shows the value and unit), for the card's face. Page and quote are the assistant's reading, not checked against the file. */
+  cites?: { name: string; value: number; unit: string; page: number; quote: string }[];
+  /** A swap only: the old and the new servo, each by its catalog id and the catalog's own name (`catalog-parts`), for the card's words; absent when the catalog has none. */
+  swap?: { from?: { id: string; name: string }; to: { id: string; name: string } };
+};
+/** The engine's own word from a `check` of THIS turn (GO, NO-GO, ...), or "unknown" with the reason when no check gave one, for any reason. Never the model's words, never a remembered verdict. */
+export type AssistantVerdict = { word: string; reason?: string; /** ISO time, main's clock, when this verdict was taken: the panel keeps the newest of overlapping turns. */ at: string };
+export type AssistantTurn = {
+  text: string; proposals: AssistantProposal[]; error?: string;
+  /** On every turn, a failed one too: no check result this turn means "unknown", never a missing field. */
+  verdict: AssistantVerdict;
+  /** Numbers with a unit in `text` that no tool result of this conversation, the robot brief or the person's own messages holds with that value and unit, and verdict claims that are not `verdict`. The panel marks them unverified; `text` is never changed. */
+  ungrounded?: string[];
+  /** Verdict words in `text` that only a proposal of this turn supports (a what-if's proposed verdict, a fix search's verdict after, a card's After), not the robot's own check: the robot after the proposed change, not the robot now. Same item shape as `ungrounded`, never in it. */
+  proposedOnly?: string[];
+  /** One line per show tool that changed the screen this turn. */
+  shown?: string[];
+  /** The findings of the check `verdict` came from: each one's path and severity, the engine's own. Absent when `verdict` is unknown. The panel counts the faults and lists the rows from it. */
+  findings?: { quantity: string; severity: string }[];
+};
+/** `comparison`: nothing was written because the card's Before and After came out different at Apply: the card shows these and stays open. */
+export type AssistantApplyResult = { ok: true } | { ok: false; error: string; comparison?: AssistantComparison };
 export type AssistantEvent = { type: "tool"; name: string } | { type: "done"; turn: AssistantTurn };
-
-// The Agent tab (main/agent.ts): reads and proposes, streamed; `tools` is the session's live tool list.
-// `proposal` is held in the Assistant's store: "Review and sign" hands it to the Assistant tab's card. `usage` is the plain cost line.
-export type AssemblyScene = { index: number; title: string; links: string[]; newLink: string | null; parts?: string[] };
-export type AgentEvent =
-  | { type: "text"; text: string } | { type: "tool"; name: string } | { type: "tools"; tools: string[] }
-  | { type: "proposal"; proposal: AssistantProposal; check: string } | { type: "done"; error?: string; usage?: string }
-  | { type: "steps"; steps: AssemblyScene[] }; // Pro build instructions: each step's scene, root first; the renderer draws the picture
-export type AgentPush = { contract: string; event: AgentEvent };
+/** One change to what is on screen, asked for by a show tool. `part` and `parts` are 3D part ids (see `partOf`); `finding` is a card's place in the page's `cards`. */
+export type AssistantShow = { contract: string } & (
+  | { action: "select-part"; part: string }
+  | { action: "show-only"; parts: string[]; finding?: number }
+  | { action: "show-all" }
+  | { action: "show-connections"; lens: "power" | "data" | "mechanical" }
+  | { action: "open-graph" }
+);
+/** A robot-graph node id ("joint:elbow") as the 3D view's part id ("elbow"); null for a node with no body (a rail, a wire, the battery). */
+export const partOf = (id: string): string | null => (/^(link|joint|device):/.test(id) ? id.slice(id.indexOf(":") + 1) : null);
+/** The part ids the 3D view has a mesh for (scene/RobotView.tsx): a robot with scene parts draws those; one without draws its joints and the links that have solids.
+ * Main and the page both use it, so a show-only list never hides everything. */
+export const meshIds = (sceneParts: string[], joints: string[], solidLinks: string[]): string[] => (sceneParts.length ? sceneParts : [...joints, ...solidLinks]);
 
 export type TerminalStartRequest = { cols: number; rows: number; /** The open robot's folder; main falls back to home. */ cwd?: string };
 export type TerminalEvent = { type: "data"; data: string } | { type: "exit"; code: number };

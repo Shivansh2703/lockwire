@@ -1,5 +1,5 @@
 /**
- * TEAM-02: the older revision as a translucent ghost. Built through `partMesh` (one mesh per part,
+ * The older revision as a translucent ghost. Built through `partMesh` (one mesh per part,
  * same decode as the live scene) and added beside the live meshes, never into `ctx.meshes`, so it
  * is not picked, framed or themed. A part that did not move stays the plain neutral grey; only a
  * part that moved or went away takes a colour.

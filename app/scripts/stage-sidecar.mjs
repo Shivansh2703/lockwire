@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// e2-bd: stages the frozen Python sidecar where `sidecar.ts`'s resolveSidecarCommand()
+// Stages the frozen Python sidecar where `sidecar.ts`'s resolveSidecarCommand()
 // looks for it once packaged (`resourcesPath/sidecar-<platform>-<arch>/<binName>`,
 // sidecar.ts:65-69), before electron-builder runs. electron-builder's own
 // `${platform}`/`${arch}` macros pick the SAME live values on the SAME host in the
@@ -7,7 +7,7 @@
 // staged tree straight into Resources/ without a second naming convention to drift.
 //
 // PyInstaller's own spec (packaging/pro/lockwire.spec, else packaging/lockwire.spec) freezes an EXE named "lockwire",
-// not "lockwire-sidecar" -- that's the CLI's own binary name and out of this box's
+// not "lockwire-sidecar" -- that's the CLI's own binary name and out of this script's
 // scope to change (it's shared with CI/other consumers). This script renames only the
 // staged copy.
 import { execFileSync } from "node:child_process";
@@ -26,7 +26,7 @@ const REPO_ROOT = join(APP_ROOT, "..");
 const ARCH_FLAGS = ["ia32", "x64", "armv7l", "arm64", "universal"];
 
 /**
- * e2-bd2: the ONE place that decides which arch we are packaging for. An explicit
+ * The ONE place that decides which arch we are packaging for. An explicit
  * `--<arch>` flag (the same flag electron-builder's own CLI reads, e.g. from
  * `npm run package -- --x64`) wins; otherwise this is a same-arch build and the
  * build host's own `process.arch` is correct. `main()` below and `scripts/package.mjs`
@@ -34,16 +34,16 @@ const ARCH_FLAGS = ["ia32", "x64", "armv7l", "arm64", "universal"];
  * packages for can never express two different values, which is what let
  * `npm run package -- --x64` on an arm64 host stage into `sidecar-darwin-arm64` while
  * the packaged app's resolver (sidecar.ts:69) looks in `sidecar-darwin-x64`.
- * e2-bd3a: `--universal` is not yet implemented. A lipo build would be needed to create
+ * `--universal` is not yet implemented. A lipo build would be needed to create
  * a true universal binary; without it, staging a single-arch binary under a `universal`
  * name is a correctly-formed lie that breaks downstream consumers trusting the name.
- * Throw instead until the lipo build is available (e2-bd3).
+ * Throw instead until the lipo build is available.
  */
 export function resolveTargetArch(argv = process.argv.slice(2)) {
   const flag = argv.find((a) => ARCH_FLAGS.includes(a.replace(/^--/, "")));
   const arch = flag ? flag.replace(/^--/, "") : process.arch;
   if (arch === "universal") {
-    // Tracking: box e2-bd3 implements the real lipo build.
+    // A real lipo build is not written yet.
     throw new Error(
       "universal build is not implemented. --universal would stage a single-arch binary " +
       "under a universal name, breaking downstream consumers. Use --arm64, --x64, or another " +

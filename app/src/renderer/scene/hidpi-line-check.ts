@@ -1,11 +1,11 @@
 /**
  * Main-process side of the HiDPI resolution-uniform settling check. `devicePixelRatio` is
  * forced to 2 by passing `--force-device-scale-factor=2` on the electron COMMAND LINE (see
- * scene-hidpi.e2e.test.ts's spawnSync args) — `app.commandLine.appendSwitch` from inside this
+ * scene-hidpi.e2e.test.ts's spawnSync args): `app.commandLine.appendSwitch` from inside this
  * script is too late for this particular Chromium switch (measured: dpr stayed 1). Then this
  * reads back both candidate conventions' line thickness from `hidpi-line-check.html`. Same shape
  * as `e2e-pixel-check.ts` (`show: false`, no screenshot, never on
- * the owner's screen).
+ * the user's screen).
  */
 import { app, BrowserWindow } from "electron";
 

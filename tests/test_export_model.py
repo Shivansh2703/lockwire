@@ -22,7 +22,7 @@ from lockwire.export_model import (
     write_stl,
 )
 from lockwire.mesh_simple import read_stl
-from lockwire.schema import Shape
+from lockwire.schema import Mimic, Shape
 from lockwire.statics import link_frames
 from lockwire.mjcf import parse_mjcf
 from lockwire.sdf import parse_sdf
@@ -479,3 +479,17 @@ def test_mjcf_of_a_shaped_example_derives_inertia_and_keeps_mass_and_joints(tmp_
 def test_mjcf_of_a_massed_link_with_no_shapes_says_what_to_add(tmp_path):
     with pytest.raises(ValueError, match="declare the link's inertia, or give it shapes"):
         render(load_contract(EXAMPLES / "arm" / "contract.yaml").model, "mjcf", "x")
+
+
+def test_urdf_keeps_limit_and_mimic_when_the_lock_holds_them(tmp_path):
+    model = parse_urdf(FIXTURES / "gripper_mimic.urdf")  # the reader drops a follower's limit and mimic
+    model.joints[1].limits, model.joints[1].mimic = model.joints[0].limits, Mimic(joint="j", multiplier=-1.0)
+    el = ET.parse(write(model, "urdf", tmp_path / "o.urdf")).getroot()[-1]
+    assert (el.find("limit").get("velocity"), el.find("mimic").get("multiplier")) == ("1.0", "-1.0")
+
+
+def test_urdf_export_warns_which_joints_lack_effort_or_velocity_but_still_writes(tmp_path):
+    out, lock = tmp_path / "o.urdf", EXAMPLES / "arm-power" / "contract.yaml"
+    res = CliRunner().invoke(app, ["export", str(lock), "--format", "urdf", "--out", str(out)])
+    assert res.exit_code == 0 and out.exists()
+    assert "(shoulder: velocity; elbow: velocity); ROS will not load" in " ".join(res.output.split())

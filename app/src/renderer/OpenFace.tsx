@@ -14,7 +14,7 @@ export const VIEW_HINT = "Drag to turn · two-finger scroll to move · pinch to 
 export interface OpenFaceProps {
   /** The engine answers; until then every way in is disabled, so nothing fails with a raw error. */
   connected?: boolean;
-  /** Genuinely empty on first launch -- no example rows (plan v8 line 430). */
+  /** Genuinely empty on first launch -- no example rows. */
   recent?: Recent[];
   /** The engine failed to start: one line instead of an empty examples list. */
   engineError?: string;
@@ -24,14 +24,14 @@ export interface OpenFaceProps {
   /** A starter's name, or null for a blank robot. */
   onNewRobot?: (starter: string | null) => void;
   onOpenRecent?: (path: string) => void;
-  /** One quiet way to the Agent with no robot open: the app opens a blank robot and shows the Agent. */
-  onAgent?: () => void;
+  /** One quiet way to the assistant with no robot open: the app opens a blank robot and shows the assistant panel. */
+  onAssistant?: () => void;
 }
 
 // One short label per bundled starter, "kind · name", and a muted line saying what its check finds (counted by running
 // `lockwire check` on each: the two that fail come first, so the first catch is the first chip). Full provenance stays
 // in the tooltip.
-const LABEL: Record<string, string> = { "arm-power": "Desk arm · findings to catch", "servo-bench": "Servo bench · built to fail", arm: "Arm · SO-101", drone: "Drone · X500", humanoid: "Humanoid · ToddlerBot", quadruped: "Quadruped · Solo-12", rover: "Rover · TurtleBot3", "hexapod-param": "Hexapod · design example", "rover-param": "Rover · resizable example" };
+const LABEL: Record<string, string> = { "arm-power": "Desk arm · built to fail", "servo-bench": "Servo bench · built to fail", arm: "Arm · SO-101", drone: "Drone · X500", humanoid: "Humanoid · ToddlerBot", quadruped: "Quadruped · Solo-12", rover: "Rover · TurtleBot3", "hexapod-param": "Hexapod · design example", "rover-param": "Rover · resizable example" };
 // [what `lockwire check` really gives, muted line]; tests/test_starters.py reads this table and fails when a starter's result moves.
 const NOTE: Record<string, [string, string]> = { "arm-power": ["fails", "A made-up arm with findings"], "servo-bench": ["fails", "Two findings, on purpose"], arm: ["clean", "Nothing disagrees"], drone: ["clean", "Nothing disagrees"], humanoid: ["clean", "Nothing disagrees"], quadruped: ["warns", "One note to read"], rover: ["warns", "One note to read"], "hexapod-param": ["clean", "Made-up, nothing disagrees"], "rover-param": ["clean", "Made-up, nothing disagrees"] };
 const FAILING = ["arm-power", "servo-bench"];
@@ -47,7 +47,7 @@ export function OpenFace({
   starters = [],
   onNewRobot,
   onOpenRecent,
-  onAgent,
+  onAssistant,
 }: OpenFaceProps) {
   const [drag, setDrag] = useState(false);
   return (
@@ -99,7 +99,7 @@ export function OpenFace({
             ))}
           </ul>
           <p className="open-face-blank"><Button variant="quiet" disabled={!connected} onClick={() => onNewRobot?.(null)}>Start from blank</Button></p>
-          {onAgent && <p className="open-face-blank"><Button variant="quiet" disabled={!connected} onClick={onAgent}>Ask the Agent to design one</Button></p>}
+          {onAssistant && <p className="open-face-blank"><Button variant="quiet" disabled={!connected} onClick={onAssistant}>Ask the Assistant to design one</Button></p>}
         </div>
 
         <div className="open-face-recents">

@@ -40,7 +40,7 @@ _STARTER_KIND = {
     "x500-v2-px4": "drone",
 }
 
-# CLI wiring (lane A2): `presets.override = preset` from a --preset option.
+# CLI wiring: `presets.override = preset` from a --preset option.
 override: str | None = None
 
 

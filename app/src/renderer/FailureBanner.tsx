@@ -1,7 +1,7 @@
-// Plan v8 lines 396-398: when the sidecar dies, the window shows a plain banner, no
+// When the sidecar dies, the window shows a plain banner, no
 // in-flight call hangs, exactly one restart is offered, and nothing keeps showing a
 // number whose source is gone. Reuse, not re-walk: the child-exit event and the
-// restart entry point are the sidecar-lifecycle box's own exported surface.
+// restart entry point are sidecar.ts's own exported surface.
 import { useEffect, useState } from "react";
 
 import { PRODUCT_NAME } from "../shared/branding";

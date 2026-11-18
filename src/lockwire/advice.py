@@ -1,17 +1,17 @@
 """The alternatives half of the advice sentence.
 
 ``check_budgets`` (``checks.py``) already knows a rail_power budget is over its
-limit; this module answers the second half of the sentence — "what else could
-carry it" — headroom on every OTHER rail_power budget, plus a projected
+limit; this module answers the second half of the sentence - "what else could
+carry it" - headroom on every OTHER rail_power budget, plus a projected
 regulator suggestion. It computes nothing about rail membership itself:
 Reuse means ``checks.power_rollup``'s own return values (rail totals, the
 per-rail unknown-consumer sets) are passed in as plain data, never re-walked.
-This module never imports ``checks`` — the call only ever goes the other way,
+This module never imports ``checks`` - the call only ever goes the other way,
 so there is no cycle.
 
 Every number carries its ``kind`` (a catalog or projected
 figure is shown only with its own visual mark and word, never in the same
-style as a measured one): headroom is ``derived-by-<check>`` — the same
+style as a measured one): headroom is ``derived-by-<check>`` - the same
 rollup ``check_budgets`` itself scores against; a suggested regulator rating
 is ``projected``, a number this product is choosing, not measuring.
 
@@ -43,7 +43,7 @@ class Alternative(BaseModel):
     unit: str
     kind: str  # "derived-by-<check>" | "projected" | "none"
     #: The word for a ``projected`` figure. Required when ``kind ==
-    #: "projected"`` — a projected figure reaching a door carries its mark and
+    #: "projected"`` - a projected figure reaching a door carries its mark and
     #: its word, not a corrected sentence saying it is unenforced.
     mark: str | None = None
     #: The rail this remedy points at (a move: the rail to move to; a regulator: the
@@ -72,7 +72,7 @@ def build_rail_alternatives(
     """Alternatives for a rail_power budget over its limit on ``over_rail_id``.
 
     ``rail_totals``/``rail_unknown`` must come from ``checks.power_rollup`` run
-    against the same contract and draw mode as the violation being explained —
+    against the same contract and draw mode as the violation being explained -
     the shared builder that every call site (and every mutation bite) goes
     through, so a broken kind anywhere breaks every caller alike.
     """

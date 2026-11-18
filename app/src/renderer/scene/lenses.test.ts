@@ -39,7 +39,7 @@ describe("test_a_lens_draws_only_the_parts_the_payload_puts_in_it", () => {
 
   it("a part named in no lens for a given filter is excluded, by node id", () => {
     // chassis has no "power" entry in its payload `lenses` (mechanical-only) — this is the
-    // negative half rule 22 above wants: the exclusion, checked by name, not just the inclusion.
+    // negative half of the check above: the exclusion, checked by name, not just the inclusion.
     expect(partsForLens(parts, "power").map((p) => p.node)).not.toContain("chassis");
   });
 });

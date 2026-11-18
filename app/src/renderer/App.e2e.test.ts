@@ -72,8 +72,7 @@ function runBounded(command: string, args: string[], options: {
   });
 }
 
-// E2-j2 rebase ("one source" proof): the App.tsx composition that came out of rebasing
-// e2-j2 onto e2-app-r2 has ONE payload state, read by both the Check tab (the leaf components
+// "One source" proof: the App.tsx composition has ONE payload state, read by both the Check tab (the leaf components
 // CheckFace assembles) and the Design tab (DesignPanel). This is the run that proves it is
 // really one source rather than two designs that happen to agree today: it drives the REAL
 // "Open robot" button through the REAL preload/ipc/sidecar path (scripts/e2e-drive.mjs,
@@ -186,7 +185,7 @@ describe("the app opens real lockfiles through the IPC door and both tabs read t
       // the window was never shown.
       expect(result.visible).toBe(false);
 
-      // Check tab: the real headline text, off the real sidecar reply (E2-hl).
+      // Check tab: the real headline text, off the real sidecar reply.
       expect(result.headlineText, "the .check-headline assertion").toBeTruthy();
       expect(result.headlineText!.length).toBeGreaterThan(0);
 

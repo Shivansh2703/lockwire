@@ -21,7 +21,7 @@ def test_github_format_annotates_and_summarises(monkeypatch, tmp_path):
     assert errors == [line for line in errors if "file=tests/fixtures/testbot.urdf::" in line]
     assert errors[0].startswith("::error file=tests/fixtures/testbot.urdf::model/structure_hash: ")
     assert "; run: lockwire start " in errors[0]
-    assert "::notice::8 check(s) not compared" in result.output
+    assert "::notice::8 not scored" in result.output
     text = summary.read_text()
     assert text.startswith("## Lockwire: NO-GO")
     assert "| violation | model/structure_hash |" in text
@@ -85,7 +85,7 @@ def test_baseline_fails_only_new_findings_and_adopt_prefix_never_fails(monkeypat
     run(app, ["start", "r.urdf", "--no-check"])
     assert run(app, ["check", "--write-baseline", "b.json"]).exit_code == 1  # datasheet gap
     quiet = run(app, ["check", "--baseline", "b.json", "--format", "github"])
-    assert quiet.exit_code == 0 and quiet.output.startswith("GO — no new findings since b.json")
+    assert quiet.exit_code == 0 and quiet.output.startswith("GO: no new findings since b.json")
     assert len(quiet.output.splitlines()) == 1  # no annotations for baselined findings
     urdf = tmp_path / "r.urdf"
     urdf.write_text(

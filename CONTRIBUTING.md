@@ -27,12 +27,13 @@ git commit -s -m "your message"
 Maintainers may ask for changes to some modules to be discussed in an issue first.
 Changes to the lockfile schema are breaking changes and are always discussed first.
 
-## Add a starter
+## Add an example
 
-A starter is a ready lockfile for one kind of robot (drone, rover, arm...) that
+An example is a ready lockfile for one kind of robot (drone, rover, arm...) that
 `lockwire start --example <name>` writes for the user. Add one by pull request.
 
-One folder in `src/lockwire/examples/<name>/`:
+One folder in `src/lockwire/examples/<name>/` (a lockfile-only example, such as `servo-bench.yaml`,
+is a single `<name>.yaml` file there instead):
 
 - `contract.yaml`: the lockfile. Every number has a `provenance` source and a note with the arithmetic. Record a `model:` with the links the scene draws, and give every device a `physical.mount_frame` naming one, so dragging a part onto the body works. Name scene nodes after those links.
 - `starter.json`: `title`, `based_on`, `licence`, `licence_url`, `source_repo`, all filled in.
@@ -85,7 +86,7 @@ What a row needs:
   (the description package's link names).
 - `mass_total` and `dof`, both required. `reach_m`, `payload_kg` and `joint_speed_max` are optional.
 - Every number has `kind: datasheet`, a `source` that starts with the `https://` URL you
-  opened followed by the sheet's own words (`"https://... — Weight including cable 20,6 kg"`),
+  opened, a space, then the sheet's own words (`"https://... Weight including cable 20,6 kg"`),
   and `retrieved`: the day you opened it.
 - `mass_total` has a `scope` saying what the sheet's weight includes: `with_battery`, `dry`,
   `with_gripper`, `with_cable` or `arm_only`.

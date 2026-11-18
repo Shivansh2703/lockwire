@@ -5,16 +5,16 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-// Rule 42/e2-sm-r2: ownership of the resolution uniform was already tested and true; whether it
+// Ownership of the resolution uniform was already tested and true; whether it
 // holds the RIGHT value was not. This settles it BY EXECUTION, never by reading three's examples
-// (that reading is what got the previous box bounced) — a real hidden-electron GPU readback
-// (show:false, no screenshot, nothing on the owner's screen), same idiom as
+// (reading them is not proof) — a real hidden-electron GPU readback
+// (show:false, no screenshot, nothing on the user's screen), same idiom as
 // scene-pixel.e2e.test.ts, forced to devicePixelRatio 2 via Electron's
 // force-device-scale-factor switch, drawing a real Line2/LineMaterial (the actual future
 // consumer of `resolution`) and reading back its rasterized thickness in DEVICE pixels.
 //
-// WHAT EXECUTION FOUND, CONTRADICTING THE BRIEF'S PREMISE (rule 16 — a measurement that
-// contradicts the brief wins): the brief assumed CSS-pixel vs drawing-buffer-pixel `resolution`
+// WHAT EXECUTION FOUND, CONTRADICTING THE ORIGINAL ASSUMPTION (a measurement that
+// contradicts an assumption wins): it was assumed CSS-pixel vs drawing-buffer-pixel `resolution`
 // would render visibly different line thickness. Measured, they render IDENTICALLY. Reading
 // three's own LineSegments2.js (node_modules/three/examples/jsm/lines/LineSegments2.js:419-428)
 // explains why: `onBeforeRender(renderer)` unconditionally overwrites
@@ -23,9 +23,9 @@ import { describe, expect, it } from "vitest";
 // application (buildScene.ts's `SceneContext.resolution`) had set. So whatever convention
 // buildScene.handleResize picks for its own `resolution` field is UNOBSERVABLE in the rendered
 // pixels: three.js's own code always wins. That is why buildScene.ts's `resolution` assignment
-// is untouched by this box — changing its convention cannot fix or break line rendering.
+// is untouched by the fix — changing its convention cannot fix or break line rendering.
 //
-// The axis that DOES change the rendered result, and the one this box actually exists to fix, is
+// The axis that DOES change the rendered result, and the one the fix actually targets, is
 // whether `setPixelRatio` was called at all: without it the renderer's drawing buffer stays at
 // 1x (CSS-pixel-sized), so the viewport three.js copies into `resolution` is 1x too, and a line
 // asking for `linewidth` screen pixels draws at half the intended physical thickness on a 2x
@@ -109,7 +109,7 @@ describe("the resolution uniform's convention is settled by a real 2x GPU readba
       expect(result.cssThickness).toBeGreaterThanOrEqual(linewidth * 2 - 2);
       expect(result.cssThickness).toBeLessThanOrEqual(linewidth * 2 + 2);
 
-      // THE FAILING CASE (rule 30): without setPixelRatio, the same line renders at ~linewidth
+      // THE FAILING CASE: without setPixelRatio, the same line renders at ~linewidth
       // device pixels — half the correct physical thickness on this 2x display. A test pinned to
       // the fixed convention's band above would NOT tolerate this value; assert it explicitly so
       // the "other" (no-fix) case is shown, not just implied.

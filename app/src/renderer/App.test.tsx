@@ -157,31 +157,32 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     expect(newRobot.mock.calls).toEqual([[starter, undefined], [starter, true]]);
   });
 
-  it("with no robot open there is one Agent entry; it opens a blank robot and the Agent tab", async () => {
+  it("with no robot open there is one assistant entry; it opens a blank robot and the assistant panel", async () => {
     const newRobot = vi.fn().mockResolvedValue({ started: false, example: "/ud/examples/blank", opened: { opened: true, path: "/ud/examples/x/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
     Object.assign(window, { lockwire: { newRobot, getSidecarState: vi.fn().mockResolvedValue({ phase: "ready" }), onSidecarState: vi.fn().mockReturnValue(() => undefined), getStarters: vi.fn().mockResolvedValue([{ name: "rover", title: "Rover", based_on: "Rover" }]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
-      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {}, getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }) } });
+      getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]), onAssistantEvent: () => () => {}, getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }) } });
     root = createRoot(container);
     await act(async () => root.render(<App />));
-    const entries = [...container.querySelectorAll("button")].filter((b) => /Agent/.test(b.textContent!));
-    expect(entries.map((b) => b.textContent)).toEqual(["Ask the Agent to design one"]);
+    const entries = [...container.querySelectorAll("button")].filter((b) => /design one/.test(b.textContent!));
+    expect(entries.map((b) => b.textContent)).toEqual(["Ask the Assistant to design one"]);
     await act(async () => entries[0]!.click());
     expect(newRobot.mock.calls).toEqual([[null, undefined]]);
-    expect(container.querySelector("#side-drawer [role=tab][aria-selected=true]")!.textContent).toBe("Agent");
+    expect(container.querySelector("#side-drawer")!.hasAttribute("hidden")).toBe(false);
+    expect(container.querySelector("#side-drawer [role=tab][aria-selected=true]")!.textContent).toBe("Assistant");
   });
 
-  it("when the blank robot fails to open, the Agent entry does not leave the drawer set to pop open on the next robot", async () => {
+  it("when the blank robot fails to open, the assistant entry does not leave the drawer set to pop open on the next robot", async () => {
     const newRobot = vi.fn().mockRejectedValueOnce(new Error("could not open")).mockResolvedValue({ started: false, example: "/ud/examples/rover", opened: { opened: true, path: "/ud/examples/x/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
-    Object.assign(window, { lockwire: { newRobot, getSidecarState: vi.fn().mockResolvedValue({ phase: "ready" }), onSidecarState: vi.fn().mockReturnValue(() => undefined), getStarters: vi.fn().mockResolvedValue([{ name: "rover", title: "Rover", based_on: "Rover" }]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }), getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {}, getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }) } });
+    Object.assign(window, { lockwire: { newRobot, getSidecarState: vi.fn().mockResolvedValue({ phase: "ready" }), onSidecarState: vi.fn().mockReturnValue(() => undefined), getStarters: vi.fn().mockResolvedValue([{ name: "rover", title: "Rover", based_on: "Rover" }]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }), getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]), onAssistantEvent: () => () => {}, getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }) } });
     root = createRoot(container);
     await act(async () => root.render(<App />));
-    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Ask the Agent to design one")!.click());
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Ask the Assistant to design one")!.click());
     await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".open-face-new button")].find((b) => b.textContent!.startsWith("Rover ·"))!.click());
     expect(newRobot).toHaveBeenCalledTimes(2);
     expect(container.querySelector("#side-drawer")!.hasAttribute("hidden")).toBe(true);
   });
 
-  it("an example on the start screen opens in one tap and does not open the Agent", async () => {
+  it("an example on the start screen opens in one tap and does not open the assistant", async () => {
     const newRobot = vi.fn().mockResolvedValue({ started: false, example: "/ud/examples/rover", opened: { opened: true, path: "/ud/examples/x/lockwire.yaml", payload: X500_CHECK_PAYLOAD, checkPayload: X500_CHECK_PAYLOAD } });
     Object.assign(window, { lockwire: { newRobot, getSidecarState: vi.fn().mockResolvedValue({ phase: "ready" }), onSidecarState: vi.fn().mockReturnValue(() => undefined), getStarters: vi.fn().mockResolvedValue([{ name: "rover", title: "Rover", based_on: "Rover" }]), getContractPage: vi.fn().mockResolvedValue({ ...PAGE, revision: "a".repeat(64) }),
       getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
@@ -334,7 +335,7 @@ describe("App mounts OpenFace first, then CheckFace from the real preload reply"
     expect(headline).not.toBeNull();
     // The sentence moved to the pill's tooltip; the page shows the verdict and the count.
     expect(headline!.getAttribute("title")).toBe(X500_CHECK_PAYLOAD.headline);
-    expect(headline!.textContent).toMatch(/^VerdictNO-GO\d+ (?:faults?|warnings?)( · \d+ not scored)?$/);
+    expect(headline!.textContent).toMatch(/^VerdictNO-GO\d+ (?:violations?|warnings?)( · \d+ not scored)?$/);
   });
 });
 
@@ -668,7 +669,7 @@ describe("App owns the mode tab router", () => {
       field(label)!.dispatchEvent(new Event("input", { bubbles: true }));
     });
     const submitForm = () => act(async () => container.querySelector("form.design-controls")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    describe("attaching a component (CAD-05)", () => {
+    describe("attaching a component", () => {
       const withLink = { ...PAGE_WITH_SCENE, links: [{ name: "base", position: [0, 0, 0] }] };
       const attachServo = async (opened: Awaited<ReturnType<typeof openDesign>>) => {
         click("Add part"); chooseServo();
@@ -721,7 +722,7 @@ describe("App owns the mode tab router", () => {
       const drawerTabs = () => [...container.querySelectorAll('#side-drawer [role="tab"]')].map((t) => t.textContent);
       for (const [page, listed] of [[PAGE, undefined], [withParts, ["Parts"]], [withJoint, ["Controls"]], [wired, ["Wiring"]]] as const) {
         await openDesign(page);
-        Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {} });
+        Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {} });
         if (!listed) expect(button("Panels")).toBeUndefined();
         else { act(() => button("Panels").click()); expect(drawerTabs()).toEqual(listed); }
         for (const name of ["Power", "Controls", "Wiring", "Parts"]) expect(container.querySelector(".kit-slot-topRight")!.textContent).not.toContain(name);
@@ -732,17 +733,17 @@ describe("App owns the mode tab router", () => {
       const lens = (nodes: object[]) => ({ nodes, edges: [], label: "", caption: "" });
       const withParts = { ...PAGE, graph: { off: lens([]), mechanical: lens([{ id: "dev.servo", label: "dev.servo", sub: "", kind: "device" }]), power: lens([]), data: lens([]), health: lens([]) } } as unknown as PagePayload;
       await openDesign(withParts);
-      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {} });
+      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {} });
       act(() => button("Panels").click());
       const tabs = () => [...container.querySelectorAll('#side-drawer [role="tab"]')].map((t) => t.textContent);
       expect(tabs()).toEqual(["Parts"]);
       act(() => button("Assistant").click());
-      expect(tabs()).toEqual(["Assistant", "Agent", "Terminal"]);
+      expect(tabs()).toEqual(["Assistant", "Terminal"]);
     });
     it("two pin clicks in the Wiring panel write one wire, from then to, and reload the page", async () => {
       const bench = { ...PAGE, wiring_wires: [], wiring_devices: [{ id: "d", name: "D", connectors: [{ name: "J", pins: [{ key: "d|J|1", label: "1" }] }] }, { id: "e", name: "E", connectors: [{ name: "K", pins: [{ key: "e|K|2", label: "2" }] }] }] } as unknown as PagePayload;
       const { writeContract, getContractPage } = await openDesign(bench);
-      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {} });
+      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {} });
       act(() => button("Panels").click());
       act(() => [...container.querySelectorAll<HTMLElement>('#side-drawer [role="tab"]')].find((t) => t.textContent === "Wiring")!.click());
       const reads = getContractPage.mock.calls.length;
@@ -756,7 +757,7 @@ describe("App owns the mode tab router", () => {
     it("with no saved name, Save efficiency in the Power panel declares with no witness and no formal flag", async () => {
       const stage = { rail: "rail.a", label: "Rail A", depth: 0, fed_by: "battery", volts_in: 14.8, volts_out: 5, amps_out: 6.42, efficiency: 0.8, watts_out: 32.1, watts_in: 40.125, watts_lost: 8.025, capacity_w: 15, unknown_loads: 0, loads: [] };
       const { writeContract } = await openDesign({ ...PAGE, power_stages: [stage] } as unknown as PagePayload, "");
-      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {}, onAgentEvent: () => () => {} });
+      Object.assign(window.lockwire, { getAssistantSettings: vi.fn().mockResolvedValue({ hasKey: false, model: "", enabledRobots: [] }), onAssistantEvent: () => () => {} });
       act(() => button("Panels").click());
       act(() => [...container.querySelectorAll<HTMLElement>('#side-drawer [role="tab"]')].find((t) => t.textContent === "Power")!.click());
       type("efficiency for Rail A", "90");

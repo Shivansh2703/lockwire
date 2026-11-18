@@ -5,6 +5,8 @@ import { limbOf } from "./kit/limb";
 import type { DeclareFormPayload } from "../shared/api.gen";
 
 import { useShellCommand } from "./Shell";
+import { witnessWords } from "../shared/witness";
+import { useShown } from "./shown";
 import { Button, CommandLine, Disclosure, Field, FindingDetail, Figure, IconButton, Jumper, Notice, Panel, PartTree, Segmented } from "./kit";
 import { MeasureCompareDeclare } from "./MeasureCompareDeclare";
 import { lastCheckedBy, rememberCheckedBy } from "./recents";
@@ -13,7 +15,7 @@ import type { AddPartSubmission } from "./AddPartForm";
 export type { AddPartSubmission };
 export type { DeclareFormPayload } from "../shared/api.gen";
 
-// The Declare mode of the window (box e4-b, plan v8 §4/§7 E4): a form whose fields,
+// The Declare mode of the window: a form whose fields,
 // labels, units and number kinds all come from `api.declare_form`'s own payload
 // -- this component computes nothing about the CONTRACT. The one thing
 // it does compose is the footer CLI line and the submit args, both straight
@@ -22,7 +24,7 @@ export type { DeclareFormPayload } from "../shared/api.gen";
 // derived fact about the robot, just the same values spelled as a shell command.
 //
 // This is NOT the add-a-part form (one submit creating family, model and device) --
-// that is E5's,. This form always declares exactly one quantity per
+// that is `AddPartForm.tsx`. This form always declares exactly one quantity per
 // submit, the same shape `lockwire declare <contract> <path> <value> --source
 // <source> --witness <witness>` takes.
 
@@ -171,7 +173,7 @@ export function DeclareFace({
     setReviewRefusal(null);
   }
 
-  // Escape cancels the in-progress draft (E2.3): back to the selected row's own value and a
+  // Escape cancels the in-progress draft: back to the selected row's own value and a
   // blank source/witness, never a submit -- `submit()` is only ever reached from the Declare
   // button's onClick.
   function cancelDraft() {
@@ -198,7 +200,8 @@ export function DeclareFace({
 
   // Display only: long paths lose their middle; the value is never shortened.
   const mid = (s: string) => (s.length > 32 ? `${s.slice(0, 14)}…${s.slice(-14)}` : s);
-  const cliDisplay = [mid(shellQuote(contractPath)), mid(shellQuote(selectedPath))].reduce((line, p) => `${line} ${p}`, "lockwire declare") + ` ${[submittedValue, "--source", source, "--witness", witness].map(shellQuote).join(" ")}`;
+  const shown = useShown(); // display only: the robot's file reads relative, never this machine's folders; Copy keeps `cliLine`
+  const cliDisplay = [mid(shellQuote(shown(contractPath))), mid(shellQuote(selectedPath))].reduce((line, p) => `${line} ${p}`, "lockwire declare") + ` ${[submittedValue, "--source", source, "--witness", witness].map(shellQuote).join(" ")}`;
 
   const ready = value.trim() !== "" && source.trim() !== ""; // nothing to declare yet: no command chip
   const inShell = useShellCommand(ready ? cliLine : null);
@@ -294,7 +297,7 @@ export function DeclareFace({
                 rows={[
                   { label: "Declared", value: <Figure value={typeof selectedRow.value === "number" ? selectedRow.value : valueToString(selectedRow.value)} unit={selectedRow.unit ?? undefined} kind={selectedRow.kind} /> },
                   { label: "Source", value: selectedRow.provenance!.source },
-                  { label: "Checked by", value: selectedRow.provenance!.witness },
+                  { label: "Checked by", value: witnessWords(selectedRow.provenance!.witness) },
                 ]}
               />
             ) : selectedRow && <Notice kind="info">Nothing declared yet, so nothing to review.</Notice>}

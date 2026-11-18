@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- Same robot as arm.sdf. URDF has no joint pose: the joint origin is in the parent frame and the
+     arm frame IS the joint frame, so the arm's centre of mass is (0.1, 0, -0.1) from the joint in
+     the world, which in the joint frame (turned 90 deg about z) is (0, -0.1, -0.1). -->
+<robot name="posed_arm">
+  <link name="base"><inertial><mass value="1"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial></link>
+  <link name="arm"><inertial><origin xyz="0 -0.1 -0.1"/><mass value="2"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial></link>
+  <joint name="j" type="revolute">
+    <parent link="base"/><child link="arm"/>
+    <origin xyz="0.2 0 1.1" rpy="0 0 1.5707963267948966"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3" upper="3" effort="10" velocity="1"/>
+  </joint>
+</robot>

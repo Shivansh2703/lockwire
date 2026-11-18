@@ -25,8 +25,37 @@ Browse the catalog first: `lockwire catalog parts raspberry` lists matching part
 Add one part to your lockfile by its id, with no number typed:
 
 ```bash
+lockwire start --example rover
 lockwire add device lockwire.yaml --part rpi.pi5 --rail rail.controller-5v
 lockwire check lockwire.yaml
+```
+
+`add` prints the change as a diff. The new device has no `witness:` line: with `--part` and no
+`--witness`, nobody is named yet. Pass `--witness "Your Name"` to name the person who stands behind it. Other values in the example
+carry a stored witness code such as `w0` ([what each code means](../words.md#stored-witness-codes)).
+
+This check ends in `NO-GO` (exit 1), and that is the point: the Pi 5 pushes the 5 V controller rail over its limit.
+The lines that matter:
+
+```text
+VIOLATION rail.controller-5v subsystem: 2 members affected: budgets/bud.power.controller-5v, topology/rails/rail.controller-5v/current_limit
+    observed 21.55 W (draw mode: nominal), expected <= 20.00 W (off by +1.55 W, +8%)
+    observed 4.47 A computed draw on rail 'rail.controller-5v' (mode: start-up), expected <= 4.00 A published current_limit (off by +0.47 A, +12%)
+NO-GO: 2 violation(s), 1 warning(s) · 1 advice (not yet sourced, outside the verdict)
+```
+
+Moving the Pi to the other 5 V rail does not clear it: `rail.jetson-header-5v` is fed from
+`rail.controller-5v`, so its draw still counts there. What clears it here is taking load off the rail.
+If the Pi replaces the rover's Jetson, delete the Jetson. Every edit names a witness: the person who
+stands behind it, recorded next to the change and its source. Use your own name:
+
+```bash
+lockwire delete device lockwire.yaml --id dev.jetson-nano-computer --source "the Pi 5 replaces it" --witness "Your Name"
+lockwire check lockwire.yaml
+```
+
+```text
+GO with notes: 1 warning(s) · 1 advice (not yet sourced, outside the verdict)
 ```
 
 `--part` fills the model, mass, draw and source from the catalog. A part with a draw goes on a rail:
@@ -42,10 +71,15 @@ lockwire from-parts parts.txt --out lockwire.yaml   # also write a draft lockfil
 ```
 
 ```text
- line  qty  part                     result   catalog id                       confidence  label
- 1     6    SO-101 servo STS3215 x6  MATCHED  feetech.sts3215                  0.95        unverified
- 2     1    Jetson Orin Nano         MATCHED  nvidia.jetson-orin-nano-devkit   0.95        cited
+┏━━━━━━┳━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━┓
+┃ line ┃ qty ┃ part                    ┃ result  ┃ catalog id                     ┃ match ┃ label      ┃
+┡━━━━━━╇━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━┩
+│ 1    │ 6   │ SO-101 servo STS3215 x6 │ MATCHED │ feetech.sts3215                │ 0.95  │ unverified │
+│ 2    │ 1   │ Jetson Orin Nano        │ MATCHED │ nvidia.jetson-orin-nano-devkit │ 0.95  │ cited      │
+└──────┴─────┴─────────────────────────┴─────────┴────────────────────────────────┴───────┴────────────┘
 ```
+
+On a narrow terminal the columns wrap and long catalog ids split across lines.
 
 A number you wrote that disagrees with the catalog (a mass, a voltage) is printed as a
 `MISMATCH` line. It is information; a successful run exits 0.
@@ -81,11 +115,3 @@ Open a pull request. [CONTRIBUTING.md](../../CONTRIBUTING.md#add-a-part) lists w
 needs and how to test it.
 
 See also: [Part swap](part-swap.md), which ranks these parts for one joint of your robot.
-
-## Thrust tables
-
-`lockwire fly` (Pro) reads a motor and prop's thrust from `src/lockwire/thrust_tables.yaml`: the
-maker's own bench rows (throttle %, thrust g, current A, power W) at one cell count, with the URL
-they were read from. Name a table from your motor's device model with `thrust_table: <id>`. A
-motor with no table is reported as not scored, never guessed. To add one, open a pull request
-with a new entry and the maker's URL; the cited/unverified label follows the rule above.

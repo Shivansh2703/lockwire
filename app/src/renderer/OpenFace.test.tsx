@@ -85,7 +85,7 @@ describe("OpenFace", () => {
   it("the two examples that fail come first and say so, then real robots, then the design examples", () => {
     renderFace({ starters: WITH_FAILS });
     const labels = items().map((l) => l.querySelector("button")!.firstChild!.textContent!);
-    expect(labels).toEqual(["Desk arm · findings to catch", "Servo bench · built to fail", "Arm · SO-101", "Drone · X500", "Humanoid · ToddlerBot", "Quadruped · Solo-12", "Rover · TurtleBot3", "Hexapod · design example", "Rover · resizable example"]);
+    expect(labels).toEqual(["Desk arm · built to fail", "Servo bench · built to fail", "Arm · SO-101", "Drone · X500", "Humanoid · ToddlerBot", "Quadruped · Solo-12", "Rover · TurtleBot3", "Hexapod · design example", "Rover · resizable example"]);
     expect(labels.every((l) => /^[\w ]+ · .+/.test(l) && l.length <= 32)).toBe(true);
   });
 
@@ -117,18 +117,19 @@ describe("OpenFace", () => {
     act(() => items()[6]!.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(onNewRobot.mock.calls).toEqual([["rover-param"]]);
     expect(container.textContent).not.toContain("Drag to turn");
-    expect(container.textContent).toContain("URDF, SDF, xacro, MuJoCo, Webots or a lockfile"); // lane E OPEN-FMT hint, kept through the merge
+    expect(container.textContent).toContain("URDF, SDF, xacro, MuJoCo, Webots or a lockfile"); // the supported-formats hint
   });
 
-  it("the Agent entry is one quiet item beside Start from blank, one tap, and absent unless the app offers it", () => {
+  it("the assistant entry is one quiet item beside Start from blank, one tap, and absent unless the app offers it; nothing says Agent", () => {
     renderFace({ starters: ALL });
-    expect(container.textContent).not.toContain("Agent");
+    expect(container.textContent).not.toContain("design one");
     act(() => root.unmount());
-    const onAgent = vi.fn();
-    renderFace({ starters: ALL, onAgent });
-    const agent = [...container.querySelectorAll("button")].filter((b) => b.textContent!.includes("Agent"));
-    expect(agent.map((b) => b.textContent)).toEqual(["Ask the Agent to design one"]);
-    act(() => agent[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(onAgent).toHaveBeenCalledTimes(1);
+    const onAssistant = vi.fn();
+    renderFace({ starters: ALL, onAssistant });
+    expect(container.textContent).not.toMatch(/\bAgent\b/);
+    const entry = [...container.querySelectorAll("button")].filter((b) => b.textContent!.includes("design one"));
+    expect(entry.map((b) => b.textContent)).toEqual(["Ask the Assistant to design one"]);
+    act(() => entry[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(onAssistant).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,10 +6,10 @@ Build it by hand on the machine that ships it:
     uv run pyinstaller packaging/lockwire.spec --noconfirm
 
 PyInstaller cannot cross-compile, so this produces a binary for *this* machine's
-OS and architecture only — macOS arm64, macOS Intel and Linux x64 are three builds
-on three machines. releases are built and signed on the owner's M2 and CI is
+OS and architecture only: macOS arm64, macOS Intel and Linux x64 are three builds
+on three machines. releases are built and signed on the maintainer's Mac and CI is
 Linux-only, so nothing here may assume a Mac runner. This spec builds unsigned;
-signing under the hardened runtime is E6's.
+signing under the hardened runtime is a later step.
 
 Measured size, macOS arm64, 2026-09-08, unsigned: **56 MB** (`du -sh dist/lockwire`). The
 41 MB figure that used to be quoted for this file was the pywebview build; this is the
@@ -26,7 +26,7 @@ is longer than four lines:
   binary that serves nothing.
 
   Measured 2026-09-08: `pyinstaller-hooks-contrib` currently ships `hook-uvicorn.py`,
-  which collects the same modules on its own once uvicorn is anywhere in the graph —
+  which collects the same modules on its own once uvicorn is anywhere in the graph:
   a build with this line deleted still had all three. The line stays anyway. It is a
   third-party hook in a package that versions weekly (2026.7 today), the failure mode
   it guards is a binary that serves nothing, and the cost of keeping it is one line.
@@ -39,7 +39,7 @@ PyObjC/Cocoa into the bundle for a window that is never opened.
 
 `require_extras.check()` runs before `Analysis` and FAILS the build when an extra the
 binary's CLI offers unconditionally is not importable on this host. Without it the extras
-fail open — `collect_submodules` answers `[]` for an absent package instead of raising —
+fail open: `collect_submodules` answers `[]` for an absent package instead of raising:
 and the result is a green 39 MB binary whose `mcp` door exits 2 and tells the user to run
 `uv sync`, inside a binary with no venv to sync. See `packaging/require_extras.py`.
 
@@ -54,11 +54,11 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 # Absolute, derived from this spec's own location. The app must launch the sidecar by
-# its absolute path inside the bundle and never by searching PATH — a PATH lookup finds
+# its absolute path inside the bundle and never by searching PATH: a PATH lookup finds
 # whatever `lockwire` the user happens to have installed (a different version, or a
 # shim), which is a silent wrong-binary bug rather than a crash. Nothing in this
 # directory looks anything up on PATH.
-PACKAGING = Path(SPECPATH).resolve()  # noqa: F821 — PyInstaller injects SPECPATH
+PACKAGING = Path(SPECPATH).resolve()  # noqa: F821 (PyInstaller injects SPECPATH)
 PROJECT_ROOT = PACKAGING.parent
 ENTRY_SCRIPT = PACKAGING / "lockwire_entry.py"
 
@@ -66,9 +66,9 @@ ENTRY_SCRIPT = PACKAGING / "lockwire_entry.py"
 # `collect_submodules` returns [] for a module that is not installed rather than raising,
 # so every line below would fail open on a build host missing an extra and ship a green,
 # smaller binary whose doors die on first use. `require_extras` is the only thing standing
-# between that host and a release. See its docstring for the measurement (E6-MX).
+# between that host and a release. See its docstring for the measurement.
 sys.path.insert(0, str(PACKAGING))
-import require_extras  # noqa: E402 — must follow the sys.path line above
+import require_extras  # noqa: E402 (must follow the sys.path line above)
 
 require_extras.check(require_extras.FREE_CLAIMED)
 
@@ -120,7 +120,7 @@ exe = EXE(  # noqa: F821
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,  # PyInstaller cannot cross-compile: this is the build host's arch
-    codesign_identity=None,  # unsigned; signing is E6's
+    codesign_identity=None,  # unsigned; signing is a later step
     entitlements_file=None,
 )
 coll = COLLECT(  # noqa: F821

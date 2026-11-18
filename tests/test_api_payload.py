@@ -576,9 +576,9 @@ def test_declare_form_rows_carry_a_short_group_and_name():
     """The Declare list shows "X500 frame . mass", not "model x500 frame mass"."""
     rows = {r["path"]: r for r in api.declare_form(X500)["rows"]}
     row = rows["model/links/x500_frame/mass"]
-    assert (row["group"], row["short"]) == ("X500 Frame", "Model mass")
+    assert (row["group"], row["short"]) == ("X500 frame", "Model mass")
     mount = rows["devices/dev.flight-controller.pixhawk-6c/physical/mount_xyz"]
-    assert (mount["group"], mount["short"]) == ("Flight Controller Pixhawk 6C", "Mount position")
+    assert (mount["group"], mount["short"]) == ("Flight controller Pixhawk 6C", "Mount position")
 
 
 def test_declare_form_member_carries_every_declarable_quantity():
@@ -753,7 +753,7 @@ def test_every_number_in_the_union_carries_its_kind():
 # `measured` (`9341df0`). No branch in this lineage has ever called
 # file-derived mesh geometry `declared`. So: NOT relabelled. This test is the
 # bite target — flip any of these rows to `"declared"` and it reddens, naming
-# the field and the kind, per rule 12's "check both directions": the code does
+# the field and the kind, per the "check both directions" rule: the code does
 # not claim more than the kind rules grant (it is a real run over real geometry, not a
 # recording pretending to be a contract value), and the kind rules do not grant a
 # reading for "declared" (no contract author wrote these numbers) that the
@@ -862,6 +862,7 @@ def test_no_door_emits_a_preformatted_number_outside_the_named_exemptions(tmp_pa
     documents["page+clean"] = PagePayload.model_validate(build_payload(load_contract(CLEAN)))
     digest = "7" * 64  # deliberate leading-digit identifier corpus, not a measured artifact
     documents["start"] = documents["start"].model_copy(update={"revision": digest})
+    documents["check"] = documents["check"].model_copy(update={"revision": digest})
     scene = documents["page+scene"].scene
     documents["scene_identity_corpus"] = scene.model_copy(
         update={
@@ -1000,6 +1001,8 @@ def test_every_string_figure_exemption_satisfies_the_admission_rule(tmp_path):
     # Collect actual values from rendered documents
     found_values: dict[str, tuple[str, str]] = {}  # key -> (door_name, value)
     for door, document in _every_document(tmp_path).items():
+        if door == "log":  # the repository's own history: its newest rows change with every commit
+            continue
         for key, value in string_figures(document).items():
             if key not in found_values:  # Keep first occurrence
                 found_values[key] = (door, value)
@@ -1140,7 +1143,7 @@ def _all_reachable_field_names() -> set[str]:
 
 
 def test_self_kinded_and_marked_kinds_match_real_producers():
-    """The bounce this respin exists to close: `SELF_KINDED`, `MARKED_KINDS`
+    """The case this test exists to close: `SELF_KINDED`, `MARKED_KINDS`
     and `EXTENSION_POINTS` are hand-maintained lists next to code that can
     silently drift past them. Each half here is discovered from the real
     producers, not hand-listed a second time, so a new one that forgets to
@@ -1198,7 +1201,7 @@ def test_self_kinded_and_marked_kinds_match_real_producers():
 # bases refused the lens tests for exactly this — a renderer composing lens
 # words itself. This is the payload sweep that makes the rule durable: every
 # lens the union names carries its own caption, and every scene part the union
-# ships is claimed by at least one lens. Both are enumerations (rule 10/11):
+# ships is claimed by at least one lens. Both are enumerations (enumerations, not hand lists):
 # joining `Graph`/`ScenePart.lenses` and exempting either from the sweep are
 # one line each and opposites — this sweep JOINS, it exempts nothing.
 
@@ -1265,12 +1268,8 @@ def test_every_reference_drawer_names_a_real_flag():
     dropping `--no-open` or resurrecting a `--html` that was never real,
     turns this red on its own).
 
-    MEASURED: `api_payload.build_union` (the payload union's whole-document
-    assembler) is not on this branch — it lands later, still queued,
-    and the task brief names it as a blocker. The Reference face is
-    built by `gui.build_payload(...)["faces"]["reference"]`, the same
-    function `build_union`'s eventual page member calls — so this test
-    exercises the real producer, not a stand-in for the missing assembler.
+    The Reference face is built by `gui.build_payload(...)["faces"]["reference"]`,
+    so this test exercises the real producer, not a stand-in.
 
     Mutation bite: put `--html` into a drawer's `cli_line`, or drop
     `--no-open` from the report drawer's — this test goes red.
@@ -1481,7 +1480,7 @@ def test_no_layout_value_reaches_a_number_slot():
 
 
 def test_layout_sweep_catches_synthetic_violations_of_different_shapes():
-    """Rule 47: a sweep that only matches the one spelling of the violation it was written against
+    """A sweep that only matches the one spelling of the violation it was written against
     proves nothing. Four synthetic sources, each guilty in a DIFFERENT way than a literal
     `_figure(part.translation, ...)` call, all must be caught — plus one clean source (an f-string
     with no layout read) that must NOT be, so the sweep is not simply "any f-string is guilty"."""
@@ -1562,9 +1561,9 @@ def test_scene_parts_carry_their_component_group():
     camera = [p for p in parts if p["node"].startswith("camera")]
     assert camera and {p["group"]["id"] for p in camera} == {"dev.camera.oak-d-lite"}
     assert {p["group"]["kind"] for p in camera} == {"device"}
-    assert camera[0]["group"]["label"] == "Camera Oak D Lite"
+    assert camera[0]["group"]["label"] == "Camera oak d lite"
     assert {p["group"]["label"] for p in parts if p["group"]["id"] == "dev.motor.m1"} == {
-        "Motor M1"
+        "Motor m1"
     }
     assert {p["group"]["kind"] for p in parts} <= {"device", "rail", "bus", "link", "other"}
 

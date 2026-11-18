@@ -1,9 +1,14 @@
-# `lockwire describe`
+---
+title: Device pages
+description: "lockwire describe writes one plain Markdown page per device from the lockfile, for you or an AI agent."
+---
 
-A per-device reference file, generated from the contract. Every device gets a plain-Markdown
-page: what it measures, what it adjusts, what limits are enforced, and where each number comes
-from. No LLM, no guessing — every line is read from a schema field that already exists in the
-lockfile. This is the artifact an AI-agent hardware layer reads before touching the machine.
+# Device pages: `lockwire describe`
+
+`lockwire describe` writes one plain Markdown page per device, generated from the lockfile: what
+the device measures, what it adjusts, which limits are enforced, and where each number comes
+from. No language model and no guessing: every line is read from a field the lockfile already
+holds. An AI agent can read the page before it touches the robot.
 
 ## Usage
 
@@ -14,16 +19,15 @@ lockwire describe lockwire.yaml --out docs/devices/   # one <device_id>.md per d
 
 ## Example
 
-For a companion computer with three declared power modes:
+For the Jetson in the `arm-power` example (`lockwire start --example arm-power`, then
+`lockwire describe lockwire.yaml --out devices/`), `devices/dev.jetson.md` reads:
 
 ```markdown
-# dev.companion.jetson-orin-nano
+# dev.jetson
 
-- model: mdl.companion.jetson-orin-nano
-- family: fam.companion.sbc — Companion computer
-- owner: companion-compute
-- identity strength: positional
-- bus: bus.uart.companion
+- model: mdl.jetson-nano
+- family: Compute and control boards (fam.compute)
+- owner: you
 
 ## Role
 
@@ -31,34 +35,42 @@ component
 
 ## Measures
 
-Measures: nothing declared.
+Nothing declared.
 
 ## Adjusts
 
-Adjusts: nothing declared.
+Nothing declared.
 
 ## Limits enforced
 
-- power draw: 25.00 W on rail.pm02-5v
-  - mode 7W: 7.00 W
-  - mode 15W: 15.00 W
-  - mode 25W: 25.00 W
-  - rail rail.pm02-5v capacity: 15.60 W at 5.20 V (witness: w0, source: ..., locked_at: 2026-07-25)
+- input_voltage_range: [4.75 V, 5.25 V] (witness: none named, source: https://developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf, locked_at: 2026-11-13)
+- power draw: 11.25 W on rail.5v
+  - rail.5v capacity: 27.50 W at 5.00 V (witness: none named, source: https://www.pololu.com/product/4091, locked_at: 2026-11-13)
+
+## Provenance
+
+- instance:
+  - witness: none named
+  - source: https://developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf
+  - locked_at: 2026-11-13
+  - note: Catalog nvidia.jetson-nano-devkit draw_max 11.25 W (10 W module budget + 1.25 W carrier board, no peripherals).
+- model:
+  - witness: none named
+  - source: https://developer.download.nvidia.com/embedded/L4T/r32-3-1_Release_v1.0/Jetson_Nano_Developer_Kit_User_Guide.pdf
+  - locked_at: 2026-11-13
+  - note: Catalog row nvidia.jetson-nano-devkit: module requires at least 4.75 V; 5.25 V is the output of the supply NVIDIA names (no maximum is published); draw_max 11.25 W.
 ```
 
 ## `SYSTEM.md`
 
 Alongside the per-device pages, `--out` writes one `SYSTEM.md`: the robot name and schema
-version, rails, buses, batteries, wires, budgets, and the model record's joints — with a closing
+version, rails, buses, batteries, wires, budgets, and the model record's joints, mass and forces, with a closing
 count of how many devices measure, adjust, or are component-only.
 
 ## What it never does
 
-- Never infers a role, a unit, or a value from an id string or a guess — every field traces to a
-  schema entry, and a gap renders as `nothing declared`, not a blank or invented number.
-- Never predicts a reading or a limit that isn't already locked in the contract.
-- Never runs a model or calls out to anything — it is a pure rendering of data that was already
+- It never infers a role, a unit or a value from an id or a guess. Every field traces to an
+  entry in the lockfile, and a gap reads `Nothing declared.`, not a blank or an invented number.
+- It never predicts a reading or a limit that is not already in the lockfile.
+- It never runs a model or calls out to anything. It only renders data that is already
   checked in.
-
-Designed to be MHS-ready: the shape of a per-device reference file, generated from a verified
-contract.

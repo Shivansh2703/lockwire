@@ -103,9 +103,18 @@ def test_import_mhs_refused_quotes_d108(tmp_path: Path) -> None:
     flat = plain(result.output)
     assert "REFUSED" in flat
     assert (
-        "The inbound direction — importing a third-party manifest into a contract — is "
-        "refused until a standard manifest format exists; import is where lock-in happens." in flat
+        "The inbound direction (importing a third-party manifest into a contract) is "
+        "refused until a standard manifest format exists. Declare the values with `lockwire declare` "
+        "or `lockwire apply` instead." in flat
     )
+
+
+def test_export_mhs_with_out_says_to_redirect() -> None:
+    result = runner.invoke(
+        app,
+        ["export", str(FIXTURES / "contract_clean.yaml"), "--format", "mhs", "--out", "m.json"],
+    )
+    assert result.exit_code == 2 and "redirect" in plain(result.output)
 
 
 def test_export_mhs_library_and_cli_share_one_path(clean_contract: Contract) -> None:
@@ -278,3 +287,18 @@ def test_bom_drops_the_pack_row_only_on_a_declared_link() -> None:
     rows = api.bom_rows(c)
     assert [r["part"] for r in rows].count("battery") == 1
     assert "same mass" not in (api.bom_mass_note(c, rows) or "")
+
+
+def test_arm_power_bom_names_the_battery_its_makers_and_what_it_wrote(tmp_path: Path) -> None:
+    """Round 3: the pack's kind read "Compute and control boards", every maker cell was empty
+    and `--out` printed nothing. Mutation bite: drop the datasheet-maker rule or the `wrote`
+    line, or the pack's kind rule, and this fails."""
+    out = tmp_path / "bom.csv"
+    res = _bom(
+        [str(Path(api.__file__).parent / "examples/arm-power/contract.yaml"), "--out", str(out)]
+    )
+    assert res.exit_code == 0 and f"wrote {out}" in plain(res.stdout)
+    rows = {r["part"]: r for r in _csv_rows(out.read_text())}
+    assert rows["mdl.pack"]["kind"] == "Battery pack" and rows["mdl.pack"]["maker"] == "Gens ace"
+    assert rows["mdl.servo.xl330"]["maker"] == "ROBOTIS"
+    assert rows["esp32-devkitc-wroom-32"]["maker"] == "Espressif"  # catalog espressif.esp32-devkitc

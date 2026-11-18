@@ -1,4 +1,4 @@
-/** CAD-02: the drawn link follows every new payload, not the one present at load. */
+/** The drawn link follows every new payload, not the one present at load. */
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";

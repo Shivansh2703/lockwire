@@ -35,6 +35,7 @@ class Counts(_Strict):
     violation: int
     warning: int
     not_scored: int
+    advice: int = 0  # findings listed as advice, never counted in the three above
 
 
 #: ``report.verdict_word``'s spelling, not the raw ``VerdictCode``.
@@ -50,7 +51,7 @@ class NotCompared(_Strict):
 
 
 class _VerdictDocument(_Document):
-    """``api.verdict_document``, field for field — the one function behind
+    """``api.verdict_document``, field for field - the one function behind
     ``check`` and ``plan``, so one model behind both members."""
 
     robot: str
@@ -140,9 +141,9 @@ class PlanStepPayload(_Strict):
     and lockwire's reply as a read-only timeline, from the command record; the
     operator sees what the agent was told, and nothing in the app
     steers the agent), joined from ``PlanReport``'s own ``outcomes`` and
-    ``findings`` — ``plan.py`` already computes both; this only correlates
+    ``findings`` - ``plan.py`` already computes both; this only correlates
     what it returns (no second scorer). The join key is identity:
-    ``AssertionOutcome.path == Finding.quantity`` — every ``UNSCORED`` outcome
+    ``AssertionOutcome.path == Finding.quantity`` - every ``UNSCORED`` outcome
     ``validate_plan`` emits carries exactly one ``not_scored`` Finding at the
     same path, whose ``action`` names the missing fact.
     """
@@ -150,7 +151,7 @@ class PlanStepPayload(_Strict):
     path: str
     status: Literal["PASS", "FAIL", "UNSCORED", "ERROR"]
     #: Never empty for an UNSCORED step (a coverage gap is named, not
-    #: silent). None for a scored step — there is nothing missing to name.
+    #: silent). None for a scored step - there is nothing missing to name.
     not_scored_reason: str | None
     #: What the step touches, typed by the engine (served `/v1/run` plan only; [] on the CLI document).
     targets: list["Target"] = []
@@ -160,7 +161,7 @@ def plan_steps(outcomes: list[AssertionOutcome], findings: list[Finding]) -> lis
     """Correlate ``validate_plan``'s outcomes with its own findings by path.
 
     Reused by ``PlanPayload`` (the CLI/MCP/library document) rather than
-    reimplemented — one join, one place.
+    reimplemented - one join, one place.
     """
     reasons = {f.quantity: f.action for f in findings if f.severity == "not_scored"}
     steps = []

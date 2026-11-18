@@ -14,7 +14,7 @@ from lockwire.cli import app
 from lockwire.scene import SceneRefusal
 from lockwire.schema import load_contract
 from lockwire.serve import create_app
-from lockwire import start_operation
+from lockwire import edit, scene_urdf, schema, start_operation
 
 
 def test_start_does_not_replace_a_newly_appearing_lockfile(tmp_path: Path, monkeypatch):
@@ -89,7 +89,7 @@ def test_start_pins_the_meshes_so_the_design_page_finds_the_robot(tmp_path: Path
     fixtures = Path(__file__).parent / "fixtures"
     shutil.copy(fixtures / "anymal_d.urdf", tmp_path / "anymal_d.urdf")
     shutil.copytree(
-        fixtures / "e5_10_real_scenarios/official/anymal-d/meshes",
+        fixtures / "real_scenarios/official/anymal-d/meshes",
         tmp_path / "anymal_d_simple_description/meshes",
     )
     result = api.start(tmp_path / "anymal_d.urdf")
@@ -271,3 +271,177 @@ def test_the_cli_mass_check_still_names_the_login_as_witness(tmp_path: Path, mon
 
 def test_an_anonymous_mass_check_never_asks_for_the_login(tmp_path: Path, monkeypatch):
     assert "zz-login" not in _mass_lock(tmp_path, monkeypatch, anonymous=True)
+
+
+@pytest.mark.parametrize("how", ["no_link", "eperm"])
+def test_start_without_hard_links_still_never_replaces(tmp_path: Path, monkeypatch, how):
+    import errno
+    import os
+
+    if how == "no_link":
+        monkeypatch.delattr(os, "link")
+    else:
+        monkeypatch.setattr(os, "link", lambda *a: (_ for _ in ()).throw(OSError(errno.EPERM, "")))
+    source = tmp_path / "robot.urdf"
+    source.write_text('<robot name="robot"><link name="base"/></robot>')
+    api.start(source)
+    target = tmp_path / "lockwire.yaml"
+    before = target.read_bytes()
+    with pytest.raises(FileExistsError):
+        edit.link_new(source, target)
+    assert target.read_bytes() == before
+
+
+def _workspace(root: Path, mesh: str = "package://pkg_b/meshes/m.stl") -> Path:
+    for pkg in ("pkg_a", "pkg_b"):
+        (root / pkg).mkdir(parents=True)
+        (root / pkg / "package.xml").write_text(f"<package><name>{pkg}</name></package>")
+    (root / "pkg_b/meshes").mkdir()
+    (root / "pkg_b/meshes/m.stl").write_text(_STL)
+    (root / "pkg_a/robot.urdf").write_text(_ROS_URDF.format(a=mesh, b=mesh))
+    return root / "pkg_a/robot.urdf"
+
+
+def _check_text(lock: str) -> str:
+    return CliRunner().invoke(app, ["check", lock, "--all"]).output
+
+
+def test_a_sibling_package_mesh_is_recorded_checked_and_drift_is_caught(tmp_path: Path):
+    result = api.start(_workspace(tmp_path))
+    model = load_contract(Path(result["path"])).model
+    assert model.asset_root == "workspace"
+    assert [a.path for a in model.external_assets] == ["pkg_b/meshes/m.stl"]
+    assert "were not found" not in _check_text(result["path"])
+    (tmp_path / "pkg_b/meshes/m.stl").write_text(_STL.replace("vertex 1 0 0", "vertex 2 0 0"))
+    assert "pkg_b/meshes/m.stl changed since lock" in _check_text(result["path"])
+
+
+def test_a_single_package_lock_has_no_asset_root(tmp_path: Path):
+    urdf = _ros_package(tmp_path / "pkg", "../meshes/a.stl", "../meshes/b.stl")
+    assert "asset_root" not in Path(api.start(urdf)["path"]).read_text()
+
+
+@pytest.mark.parametrize("mesh", ["package://pkg_b/../../out/m.stl", "package://pkg_b/meshes/link.stl"])
+def test_a_mesh_leaving_the_sibling_folder_is_refused(tmp_path: Path, mesh: str):
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out/m.stl").write_text(_STL)
+    urdf = _workspace(tmp_path / "ws", mesh)
+    (tmp_path / "ws/pkg_b/meshes/link.stl").symlink_to(tmp_path / "out/m.stl")
+    result = api.start(urdf)
+    assert "not found inside" in result["note"]
+    assert load_contract(Path(result["path"])).model.external_assets == []
+
+
+def test_a_missing_sibling_package_is_named_in_the_hint(tmp_path: Path):
+    urdf = _workspace(tmp_path, "package://pkg_c/m.stl")
+    assert "Looked for a folder of package 'pkg_c' in" in api.start(urdf)["note"]
+
+
+def test_asset_root_round_trips(tmp_path: Path):
+    lock = Path(api.start(_workspace(tmp_path))["path"])
+    first = lock.read_bytes()
+    schema.save_contract(load_contract(lock), lock)
+    assert lock.read_bytes() == first
+
+
+def _pin(lock: str, *paths: str, base: Path | None = None, root: str | None = None) -> None:
+    import yaml
+
+    d = yaml.safe_load(Path(lock).read_text())
+    d["model"]["asset_root"] = root or d["model"].get("asset_root")
+    d["model"]["external_assets"] += [{"path": p, "sha256": hashlib.sha256((base / p).read_bytes()).hexdigest() if base else "0" * 64} for p in paths]
+    Path(lock).write_text(yaml.safe_dump(d))
+
+
+def _reads(monkeypatch) -> list[str]:
+    seen, real = [], Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda self: seen.append(self.name) or real(self))
+    return seen
+
+
+@pytest.mark.parametrize("asset", ["secrets.txt", "notpkg/.git/config"])
+def test_a_hand_edited_workspace_asset_outside_the_packages_is_refused_unread(tmp_path, monkeypatch, asset):
+    lock = api.start(_workspace(tmp_path))["path"]
+    (tmp_path / "notpkg/.git").mkdir(parents=True)
+    (tmp_path / asset).write_text("TOPSECRET")
+    _pin(lock, asset, base=tmp_path)
+    seen, out = _reads(monkeypatch), _check_text(lock)
+    assert f"mesh {asset} is outside the robot's package folders" in out
+    assert Path(asset).name not in seen and "TOPSECRET" not in out
+
+
+def test_a_link_leaving_the_package_is_refused_but_one_staying_inside_is_compared(tmp_path: Path):
+    lock = api.start(_workspace(tmp_path))["path"]
+    (tmp_path / "pkg_b/meshes/inside.stl").symlink_to(tmp_path / "pkg_b/meshes/m.stl")
+    (tmp_path / "pkg_b/meshes/out.stl").symlink_to(tmp_path / "pkg_a/robot.urdf")
+    _pin(lock, "pkg_b/meshes/inside.stl", "pkg_b/meshes/out.stl", base=tmp_path)
+    assert "mesh pkg_b/meshes/out.stl is a link that leaves the package folder" in _check_text(lock)
+    (tmp_path / "pkg_b/meshes/m.stl").write_text(_STL.replace("vertex 1 0 0", "vertex 2 0 0"))
+    assert "inside.stl changed since lock" in _check_text(lock)
+
+
+def test_a_package_root_link_to_a_file_outside_is_refused(tmp_path: Path):
+    lock = api.start(_ros_package(tmp_path / "pkg", "../meshes/a.stl", "../meshes/b.stl"))["path"]
+    (tmp_path / "pkg/meshes/evil.stl").symlink_to("/etc/hosts")
+    _pin(lock, "meshes/evil.stl", base=tmp_path / "pkg")
+    assert "mesh meshes/evil.stl is a link that leaves the package folder" in _check_text(lock)
+
+
+def test_a_folder_the_model_names_is_not_a_package_without_package_xml_or_model_config(tmp_path, monkeypatch):
+    urdf = _workspace(tmp_path)
+    (tmp_path / "notpkg").mkdir()
+    (tmp_path / "notpkg/data.bin").write_text("TOPSECRET")
+    urdf.write_text(_ROS_URDF.format(a="package://pkg_b/meshes/m.stl", b="package://notpkg/data.bin"))
+    lock = api.start(urdf)
+    assert "That folder needs a package.xml or model.config" in lock["note"]
+    _pin(lock["path"], "notpkg/data.bin", base=tmp_path, root="workspace")  # a hand-made lock lists it
+    seen = _reads(monkeypatch)
+    assert "notpkg/data.bin is outside the robot's package folders" in _check_text(lock["path"])
+    assert "data.bin" not in seen
+
+
+def test_a_model_config_folder_is_a_package_and_a_linked_package_folder_is_accepted(tmp_path: Path):
+    (tmp_path / "gz/meshes").mkdir(parents=True)
+    (tmp_path / "gz/meshes/m.stl").write_text(_STL)
+    (tmp_path / "gz/model.config").write_text("<model/>")
+    urdf = _workspace(tmp_path / "ws", "package://gz/meshes/m.stl")
+    shutil.copytree(tmp_path / "gz", tmp_path / "ws/gz")
+    result = api.start(urdf)
+    assert "note" not in result and "were not found" not in _check_text(result["path"])
+    shutil.rmtree(tmp_path / "ws/gz")
+    (tmp_path / "ws/gz").symlink_to(tmp_path / "gz")  # a link planted in the workspace already controls it
+    assert "outside the robot's" not in _check_text(result["path"])
+
+
+@pytest.mark.parametrize("bad", ["a\0b", "x" * 5000], ids=["nul", "long"])
+@pytest.mark.parametrize("ws", [True, False], ids=["ws", "pkg"])
+def test_an_unresolvable_asset_path_is_a_clean_refusal_in_check_and_scene(tmp_path, bad, ws):
+    lock = api.start(_workspace(tmp_path) if ws else _ros_package(tmp_path / "pkg", "../meshes/a.stl", "../meshes/b.stl"))["path"]
+    _pin(lock, ("pkg_b/meshes/" if ws else "meshes/") + bad)
+    run = CliRunner().invoke(app, ["check", lock, "--all"])
+    assert "cannot be resolved" in run.output and "bug in lockwire" not in run.output and run.exit_code == 1
+    with pytest.raises(SceneRefusal, match="cannot be resolved"):
+        api.load_scene(lock, None)
+
+
+def test_a_missing_package_or_model_mesh_prints_the_layout_once_per_name(tmp_path: Path):
+    pkg = tmp_path / "ws" / "arm_pkg"
+    (pkg / "urdf").mkdir(parents=True)
+    (pkg / "package.xml").write_text("<package><name>arm_pkg</name></package>")
+    urdf = pkg / "urdf" / "arm.urdf"
+    uris = ["package://hand/meshes/a.stl", "package://hand/meshes/b.stl", "model://box/m/c.dae"]
+    hint = scene_urdf.sibling_hint(urdf, uris)
+    ws = (tmp_path / "ws").resolve()
+    assert hint.count("package://hand/meshes/a.stl expects") == 1 and "hand/meshes/b.stl" not in hint
+    assert f"{ws}/hand/package.xml and {ws}/hand/meshes/a.stl" in hint
+    assert f"{ws}/box/model.config and {ws}/box/m/c.dae" in hint
+    (ws / "hand").mkdir()
+    (ws / "hand" / "package.xml").write_text("<package/>")
+    assert "hand" not in scene_urdf.sibling_hint(urdf, uris)  # resolves now: nothing to teach
+
+
+def test_the_arm_power_label_is_no_longer_than_the_servo_bench_one():
+    from lockwire.start_operation import example_label
+
+    arm, bench = example_label("arm-power"), example_label("servo-bench")
+    assert arm.startswith("arm-power (built to fail: ") and len(arm) <= len(bench)

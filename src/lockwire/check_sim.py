@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from lockwire.api import verdict_document
+from lockwire.checks import _mass_band
 from lockwire.cli_line import cli_line
 from lockwire.report import Finding, RecordReport, ScoredRecord
 from lockwire.schema import Contract
@@ -260,22 +261,36 @@ def check_sim(sim: Path, c: Contract, lock: Path) -> tuple[RecordReport, list[di
                 expected=expected,
                 source=str(sim),
                 action=action,
-                next_command=again,
+                # Re-running the same command does nothing for a row the files cannot score.
+                next_command=None if severity == "not_scored" else again,
                 next_tool="check_sim_config",
             )
         )
 
     def compare(
-        quantity: str, element: str, sim_v: float, lock_v: float, unit: str, pct: float
+        quantity: str,
+        element: str,
+        sim_v: float,
+        lock_v: float,
+        unit: str,
+        pct: float,
+        band: tuple[float, float, str] | None = None,
     ) -> None:
         keys.add(quantity)
-        ok = abs(sim_v - lock_v) <= abs(lock_v) * pct / 100 + 1e-12
+        ok = (
+            band[0] <= sim_v <= band[1]
+            if band
+            else abs(sim_v - lock_v) <= abs(lock_v) * pct / 100 + 1e-12
+        )
         said = f"sim file says {sim_v:.6g} {unit}".rstrip()
         has = f"lock says {lock_v:.6g} {unit}".rstrip()
         if ok:
             passed.append(
                 ScoredRecord(
-                    quantity=quantity, observed=said, expected=has, margin=f"within {pct:g} %"
+                    quantity=quantity,
+                    observed=said,
+                    expected=band[2] if band else has,
+                    margin="inside the band" if band else f"within {pct:g} %",
                 )
             )
         else:
@@ -283,8 +298,9 @@ def check_sim(sim: Path, c: Contract, lock: Path) -> tuple[RecordReport, list[di
                 "violation",
                 quantity,
                 f"{fmt} {element}: {said}",
-                has,
-                f"the sim file and the lock disagree by more than {pct:g} %; fix whichever is stale",
+                f"lock says {band[2]}" if band else has,
+                f"the sim file and the lock disagree by more than {band[2] if band else f'{pct:g} %'}; "
+                "fix whichever is stale",
             )
 
     model = c.model
@@ -306,7 +322,8 @@ def check_sim(sim: Path, c: Contract, lock: Path) -> tuple[RecordReport, list[di
                 "give the sim body an explicit <inertial mass=...> to compare it",
             )
             continue
-        compare(f"{base}/mass", el, body.mass, link.mass.base(), "kg", pct)
+        band = _mass_band(link.mass, link.mass_tolerance) if link.mass_tolerance else None
+        compare(f"{base}/mass", el, body.mass, link.mass.base(), "kg", pct, band)
         if link.com and body.com:
             q = f"{base}/com"
             keys.add(q)
@@ -364,7 +381,7 @@ def check_sim(sim: Path, c: Contract, lock: Path) -> tuple[RecordReport, list[di
                     f"{base}/{key}",
                     f"sim declares {key} {sim_v:g}, lock has no value",
                     "no locked value",
-                    f"lock a {key} value to compare it",
+                    f"{key} is not compared (the lockfile does not record it); nothing to do",
                 )
     for kind, names in (
         ("sim body", sim_only),

@@ -1,14 +1,14 @@
 /**
- * Runs the REAL, production `electron-vite build` output — `out/renderer/index.html`, the exact
- * file the shipped app loads — inside a hidden `BrowserWindow` (never a screenshot,
- * never a window on the owner's screen), injects a real `CheckPayload` (the X500 fixture, with
+ * Runs the REAL, production `electron-vite build` output: `out/renderer/index.html`, the exact
+ * file the shipped app loads: inside a hidden `BrowserWindow` (never a screenshot,
+ * never a window on the user's screen), injects a real `CheckPayload` (the X500 fixture, with
  * its real geometry) through `window.__lockwireLoadCheckPayload` (App.tsx), and reads back the
  * canvas's center pixel with `gl.readPixels`.
  *
- * The distinction this box exists for: every other hidden e2e in this file bundles a SEPARATE
- * renderer entry (`e2e-pixel-entry.ts`, `lens-e2e-entry.tsx`) that mounts `Canvas` directly —
+ * The distinction this check exists for: every other hidden e2e in this file bundles a SEPARATE
+ * renderer entry (`e2e-pixel-entry.ts`, `lens-e2e-entry.tsx`) that mounts `Canvas` directly:
  * proving the mount works in a test page. This script loads no bundle of its own; it opens the
- * app's own built `index.html`, so a pixel read here proves the mount works in the app the owner
+ * app's own built `index.html`, so a pixel read here proves the mount works in the app a person
  * opens, not in a harness standing in for it.
  */
 import { readFileSync } from "node:fs";
@@ -41,7 +41,7 @@ void app.whenReady().then(async () => {
     `window.__lockwireLoadCheckPayload(${JSON.stringify(payloadJson)})`,
   );
 
-  // E2-j2 rebase: App.tsx now defaults to the Check tab (e2-app-r2's OpenFace/CheckFace flow
+  // App.tsx defaults to the Check tab (the OpenFace/CheckFace flow
   // lives there), not Design -- DesignPanel, and its `__lockwireReadNonBackgroundPixel` hook,
   // only mount once the Design tab is selected. A click is now required where none was before.
   await win.webContents.executeJavaScript(

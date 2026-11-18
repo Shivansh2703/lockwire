@@ -1,5 +1,7 @@
 import hashlib
+import itertools
 import json
+import math
 import os
 import re
 import shlex
@@ -66,6 +68,7 @@ def test_explicit_upgrade_writes_new_v04_without_changing_legacy_bytes(tmp_path)
         )
 
         assert result.exit_code == 0, result.output
+        assert f"in schema 0.7; {source} was not changed" in plain(result.output).replace("\n", "")
         assert source.read_bytes() == original
         assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
         assert load_contract(source).schema_version == version
@@ -107,7 +110,6 @@ def test_explicit_upgrade_refuses_changed_source_and_occupied_targets(tmp_path):
 
 def test_explicit_upgrade_refuses_nonlegacy_and_unsupported_content(tmp_path):
     for version, extra, refusal in (
-        ("0.7", "", "requires an explicit legacy"),
         ("0.8", "", "REFUSED"),
         ("0.3", "structural: {}\n", "must not contain structural"),
         ("0.3", "actuator_cases: [{id: hidden}]\n", "actuator_cases"),
@@ -222,7 +224,7 @@ def test_check_and_report_reject_hostile_contract_paths_without_traceback(tmp_pa
 
     dangling_result = runner.invoke(app, ["check", str(dangling)])
     assert dangling_result.exit_code == 2
-    assert "no contract at" in plain(dangling_result.output)
+    assert "no lockfile at" in plain(dangling_result.output)
     assert "lockwire check robot.urdf" in plain(dangling_result.output)
     assert "Traceback" not in plain(dangling_result.output)
 
@@ -259,7 +261,7 @@ def test_hw_records_event_routes_owners_and_leaves_contract_untouched(tmp_path):
     assert first.output == second.output
     assert "recorded added FLIR, 42 g, nose mount" in plain(first.output)
     assert "budgets/bud.mass.devices" in plain(first.output)
-    assert "owner=shivansh" in plain(first.output)
+    assert "owner=avery" in plain(first.output)
     assert "model" in plain(first.output)
     assert "undetermined:" in plain(first.output)
     assert hashlib.sha256(contract_path.read_bytes()).hexdigest() == before
@@ -376,6 +378,56 @@ def test_report_scene_refusal_exits_2(tmp_path):
     assert "bad magic header" in plain(result.output)
 
 
+def _drone_lock(path: Path) -> Path:
+    from lockwire.start_operation import EXAMPLES
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(EXAMPLES / "drone" / "contract.yaml", path)
+    return path
+
+
+def test_report_default_page_says_replaced_and_keeps_a_file_it_did_not_write(tmp_path):
+    lock = _drone_lock(tmp_path / "robot.yaml")
+    first, again = (runner.invoke(app, ["report", str(lock)]) for _ in range(2))
+    assert first.exit_code == 0 and "wrote" in first.output, first.output
+    assert again.exit_code == 0 and "replaced" in again.output, again.output
+    page = tmp_path / "robot-report.html"
+    page.write_text("<html>my notes</html>")
+    refused = runner.invoke(app, ["report", str(lock)])
+    assert refused.exit_code == 2 and "pass --out" in plain(refused.output), refused.output
+    assert page.read_text() == "<html>my notes</html>"
+
+
+def test_report_of_an_absolute_lockfile_shows_no_folder_of_this_machine(tmp_path, monkeypatch):
+    lock = _drone_lock(tmp_path / "Zoë & co" / "robot.yaml")
+    out = tmp_path / "r.html"
+    for cwd, shown in ((tmp_path, "Zoë & co/robot.yaml"), (lock.parent, "robot.yaml")):
+        monkeypatch.chdir(cwd)
+        assert runner.invoke(app, ["report", str(lock), "--out", str(out)]).exit_code == 0
+        page = out.read_text()
+        assert tmp_path.name not in page, page
+        said = re.escape(shown.replace("&", "AND")).replace("AND", r"(?:&|\\u0026)")
+        assert re.search(rf"lockwire report '?{said}'? --out", page), page
+    elsewhere = tmp_path.parent / f"{tmp_path.name}-elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    plan = tmp_path / "plans" / "p.yaml"
+    plan.parent.mkdir()
+    plan.write_text("steps: []\n")
+    assert runner.invoke(app, ["report", str(lock), "--plan", str(plan), "--out", str(out)]).exit_code == 0
+    assert tmp_path.name not in out.read_text() and "Zo" not in out.read_text()
+    assert re.search(r"lockwire report '?robot.yaml'? --plan p.yaml --out", out.read_text())
+
+
+def test_dropping_the_lock_folder_leaves_urls_and_a_root_folder_alone(tmp_path, monkeypatch):
+    from lockwire.cli import _without_folders
+
+    monkeypatch.chdir(tmp_path)
+    page = "see https://x.org/docs/a.pdf and /docs/robot.yaml"
+    assert _without_folders(page, Path("/docs/robot.yaml")) == "see https://x.org/docs/a.pdf and robot.yaml"
+    assert _without_folders(page, Path("/robot.yaml")) == page
+
+
 def test_report_accepts_no_open_as_a_no_op(tmp_path):
     out = tmp_path / "report.html"
     result = runner.invoke(app, ["report", str(X500_CONTRACT), "--out", str(out), "--no-open"])
@@ -420,7 +472,7 @@ def test_scene_import_writes_change_file_and_shows_next_step(tmp_path):
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
         ],
@@ -449,7 +501,7 @@ def test_scene_import_write_applies_generated_changes(tmp_path):
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
             "--write",
@@ -483,7 +535,7 @@ def test_scene_import_write_refuses_missing_or_stale_revision_without_mutating_c
         "--witness",
         "human",
         "--source-person",
-        "Shivansh",
+        "Alex Rivera",
         "--out",
         str(out),
         "--write",
@@ -516,7 +568,7 @@ def test_scene_import_refuses_without_witness(tmp_path):
             "--contract",
             str(X500_CONTRACT),
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
         ],
@@ -539,7 +591,7 @@ def test_scene_import_refuses_witness_you(tmp_path):
             "--witness",
             "you",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
         ],
@@ -562,13 +614,13 @@ def test_scene_import_refuses_blank_witness(tmp_path):
             "--witness",
             "",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
         ],
     )
     assert result.exit_code == 2, result.output
-    assert "--witness must name a real person" in plain(result.output)
+    assert "--witness is missing" in plain(result.output)
     assert not out.exists()
 
 
@@ -607,7 +659,7 @@ def test_scene_import_scene_refusal_exits_2(tmp_path):
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
         ],
@@ -630,7 +682,7 @@ def test_scene_import_only_filters_to_named_device(tmp_path):
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--only",
             "dev.camera.oak-d-lite",
             "--out",
@@ -661,7 +713,7 @@ def test_scene_import_ran_line_reruns_to_an_identical_file(tmp_path):
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
             "--only",
@@ -739,7 +791,7 @@ def test_scene_import_reads_sdf_links_named_after_devices(tmp_path):
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
             "--only",
@@ -771,7 +823,7 @@ def test_scene_import_sdf_with_no_matching_links_explains_and_exits_0(tmp_path):
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             str(out),
         ],
@@ -781,7 +833,7 @@ def test_scene_import_sdf_with_no_matching_links_explains_and_exits_0(tmp_path):
     assert (
         "the model names base_link, rotor_0, rotor_1, rotor_2, rotor_3; "
         "the contract's devices are dev.barometer, dev.esc.busless, dev.gnss, "
-        "dev.imu, dev.radio.rfd900; no device is called that — name a device "
+        "dev.imu, dev.radio.rfd900; no device is called that: name a device "
         "after its link, or give the model extras.lockwire.id"
     ) in text
     from ruamel.yaml import YAML
@@ -1005,6 +1057,36 @@ def test_add_battery_cells_parallel_and_reserve_percent(tmp_path):
     assert (battery.cells_parallel, battery.reserve_pct) == (2, 10.0)
 
 
+_SPELLINGS = [
+    ("LiFePO4", "lifepo4"), ("LFP", "lifepo4"), ("Li-ion", "li-ion"), (" Liion ", "li-ion"),
+    ("Lithium-ion", "li-ion"), ("LiPo", "lipo"), ("Li-Po", "lipo"), ("Lithium polymer", "lipo"),
+    ("NiMH", "nimh"), ("Lead acid", "lead-acid"), ("SLA", "lead-acid"), ("Pb", "lead-acid"),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("typed", "code"), _SPELLINGS)
+def test_chemistry_spellings_record_the_canonical_code(tmp_path, typed, code):
+    lock, result = _add(tmp_path, "battery", "--capacity", "74 Wh", "--chemistry", typed)
+    assert result.exit_code == 0, result.output
+    assert load_contract(lock).topology.battery.chemistry == code
+    lock2 = tmp_path / "d.yaml"
+    lock2.write_bytes(X500_CONTRACT.read_bytes())
+    args = ["declare", str(lock2), "topology/battery/chemistry", typed, "--source", "s"]
+    assert runner.invoke(app, [*args, "--witness", "w1"]).exit_code == 0
+    assert load_contract(lock2).topology.battery.chemistry == code
+
+
+def test_add_battery_chemistry_is_the_declared_fact_or_refused_whole(tmp_path):
+    lock, result = _add(tmp_path, "battery", "--capacity", "74 Wh", "--chemistry", "lifepo4")
+    assert result.exit_code == 0, result.output
+    assert load_contract(lock).topology.battery.chemistry == "lifepo4"
+    assert "chemistry not declared" not in runner.invoke(app, ["check", str(lock)]).output
+    before = lock.read_bytes()
+    _, bad = _add(tmp_path, "battery", "--capacity", "74 Wh", "--chemistry", "bogus")
+    assert bad.exit_code == 2 and "must be 'li-ion'" in bad.output
+    assert lock.read_bytes() == before
+
+
 def test_add_wire_writes_length_in_metres_and_the_typed_fields(tmp_path):
     args = ["--awg", "16", "--installation", "enclosed", "--owner", "pwr", "--rail", "rail.pm02-5v"]
     lock, result = _add(tmp_path, "wire", *args, "--length", "50 cm", "--net-class", "power")
@@ -1128,7 +1210,7 @@ def test_gearbox_cli_writes_gearbox_template(tmp_path):
 def test_add_ran_line_round_trips_byte_identical(tmp_path):
     """The printed ``ran:`` line for ``add device`` carries every flag.
 
-    Independent second leg (PARITY-ANCHOR LAW): this replays the printed
+    Independent second leg (anchored, not two doors agreeing): this replays the printed
     line on a *fresh copy* of the same starting fixture and diffs the
     resulting bytes against the first run's output, rather than asserting
     substrings of the line against itself. If the line dropped a flag
@@ -1370,8 +1452,8 @@ def test_check_nothing_comparable_is_not_scored_exit_3():
 # The suite does not run PyInstaller (a build is ~40 s and needs the whole toolchain),
 # so these split in two: the `sys.frozen` refusals are exercised for real with the flag
 # faked, and the spec's claims are read off the frozen-binary spec as text. The one
-# thing neither can prove — that the built binary actually starts and answers — is the
-# box's manual accept line, run by hand and pasted into the report.
+# thing neither can prove — that the built binary actually starts and answers — is a
+# manual check: build the binary and run it by hand.
 
 
 def test_start_without_out_refuses_when_frozen(monkeypatch, tmp_path, testbot_urdf):
@@ -1480,7 +1562,7 @@ def test_the_edit_lane_still_blames_the_change_that_broke_the_contract(tmp_path)
     ``devices/dev.imu/envelopes`` removes its fitted-band inventory while the
     contract's ``fitted_band_allocations`` still allocates it — a
     root-level model-validator error (no single changed field to blame),
-    which is exactly the "contract invalid after N change(s)" fallback path.
+    which is exactly the "lockfile invalid after N change(s)" fallback path.
     """
     contract = tmp_path / "lockwire.yaml"
     shutil.copy(FIXTURES / "contract_clean.yaml", contract)
@@ -1625,7 +1707,11 @@ def test_each_pose_command_refuses_with_exit_2_and_writes_nothing(tmp_path):
         ],
     )
     assert result.exit_code == 2, result.output
-    assert "--unit is required" in plain(result.output).replace("\n", " "), result.output
+    assert "--unit is required for a rotation: give one of rad, deg." in plain(result.output)
+    assert "Angle unit: rad or deg. [required]" in plain(runner.invoke(app, ["rotate", "--help"]).output)
+    for verb, where in (("move", []), ("place", ["--on", "base"])):
+        argv = [verb, str(contract), "wrist", *where, "--offset", "0,0,1", "--source", "n", "--witness", "W"]
+        assert "give one of m, cm, mm" in plain(runner.invoke(app, argv).output), verb
 
     assert hashlib.sha256(contract.read_bytes()).hexdigest() == before
 
@@ -1651,6 +1737,14 @@ def test_start_example_then_check_is_no_go(tmp_path, monkeypatch):
     assert bad.exit_code == 1 and "servo-bench" in bad.output and "pi-servos" not in bad.output
 
 
+def test_no_lockfile_hint_runs_as_written(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    hint = plain(runner.invoke(app, ["check"]).output)
+    name = re.search(r"lockwire start --example(?: (\w[\w-]*))?'", hint)
+    assert name and name[1], hint  # a bare `--example` fails: the option needs a name
+    assert runner.invoke(app, ["start", "--example", name[1]]).exit_code == 0
+
+
 def test_fresh_start_summary_claims_no_comparison_and_stays_go(testbot_urdf, tmp_path):
     """A fresh start stays GO with notes; the scored line names the hash match apart from the
     one real comparison a bare URDF gives (gravity reach of the hip)."""
@@ -1662,6 +1756,44 @@ def test_fresh_start_summary_claims_no_comparison_and_stays_go(testbot_urdf, tmp
     line = next(x for x in strip_ansi(result.output).splitlines() if x.startswith("scored "))
     assert "scored 2: 1 add up" in line, line  # bites the hash match counted as "add up"
     assert "1 model check" in line, line
+
+
+def test_rule_violations_are_named_on_the_scored_line(tmp_path, monkeypatch):
+    """arm-power's brown-out and fuse are not failed comparisons, so "0 do not" sat beside a NO-GO."""
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["start", "--example", "arm-power"]).exit_code == 0
+    out = strip_ansi(runner.invoke(app, ["check", "lockwire.yaml", "--all"]).output)
+    line = next(x for x in out.splitlines() if x.startswith("scored "))
+    assert "0 do not" in line and line.endswith("· 2 other violation(s) · 1 other warning(s)"), line
+    assert "jetson on the 5.00 V rail, as declared: " in out  # not the stalled sag of the brown-out
+
+
+def test_a_datasheet_mass_comparison_is_scored_either_way():
+    """--mass 20.6 kg on a 0.63 kg arm printed "0 do not" beside its NO-GO: the nominal compare was never scored."""
+    so101 = str(FIXTURES / "so101" / "so101.urdf")
+    line = lambda mass: next(  # noqa: E731
+        x
+        for x in strip_ansi(runner.invoke(app, ["check", so101, "--mass", mass]).output).splitlines()
+        if x.startswith("scored ")
+    )
+    off, on = line("20.6 kg"), line("0.63 kg")
+    assert off.startswith("scored 9: 7 add up, 1 do not") and "other violation" not in off, off
+    assert on.startswith("scored 9: 8 add up, 0 do not"), on
+
+
+def test_scored_line_adds_up_with_a_failed_comparison_and_a_rule_violation(tmp_path, monkeypatch):
+    """arm-power at 6 V: the jetson's input range fails (a comparison) and the fuse breach stays (a rule)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LOCKWIRE_WITNESS_CONFIG", str(tmp_path / "w.cfg"))
+    assert runner.invoke(app, ["start", "--example", "arm-power"]).exit_code == 0
+    path, volts = "topology/rails/rail.5v/voltage", "6 V"
+    declared = runner.invoke(app, ["declare", "lockwire.yaml", path, volts, "--source", "s", "--witness", "T"])
+    assert declared.exit_code == 0, declared.output
+    out = strip_ansi(runner.invoke(app, ["check", "lockwire.yaml"]).output).splitlines()
+    line = next(x for x in out if x.startswith("scored "))
+    assert ", 1 do not," in line and line.endswith("· 1 other violation(s) · 1 other warning(s)"), line
+    assert not any(x.startswith("references:") for x in out)
+    assert any(x.startswith("NO-GO: 2 violation(s)") for x in out)  # 1 do not + 1 other + 0 broken
 
 
 def test_mesh_bytes_edit_never_claims_structure_unchanged(tmp_path):
@@ -1870,6 +2002,14 @@ def test_l97_help_texts_do_not_contradict_themselves():
     assert diff_help.count("HEAD") == 1, diff_help
 
 
+def test_help_carries_no_developer_notes():
+    """add --help keeps maintainer notes out; --locked-at (a test hook) is hidden."""
+    add_help = plain(runner.invoke(app, ["add", "--help"]).output)
+    for note in ("for now", "schema.py", "DeviceModel", "Rail.id"):
+        assert note not in add_help, note
+    assert "--locked-at" not in plain(runner.invoke(app, ["declare", "--help"]).output)
+
+
 def _writer_args(name: str, tmp_path: Path, target: str) -> list[str]:
     legacy = tmp_path / "legacy.yaml"
     legacy.write_bytes(b'schema_version: "0.3"\nrobot:\n  name: legacy\n')
@@ -1897,7 +2037,7 @@ def _writer_args(name: str, tmp_path: Path, target: str) -> list[str]:
             "--witness",
             "human",
             "--source-person",
-            "Shivansh",
+            "Alex Rivera",
             "--out",
             target,
         ],
@@ -2080,7 +2220,7 @@ def test_check_sdf_runs_the_limit_and_shape_checks():
     model = FIXTURES / "sdf_twin" / "model.sdf"
     result = runner.invoke(app, ["check", str(model), "--servo", "dynamixel.xl430-w250", "--all"])
     out = plain(result.output)
-    assert "model/joints/wheel_joint/limits/effort" in out and "13.3x" in out
+    assert "model/joints/wheel_joint/limits/effort" in out and "13.3 times that" in out
     assert "model/links/standoff/mass_vs_size" in out and "51x" in out
     assert "model/sanity" not in out and "velocity" not in out  # SDF omits velocity: unlimited
     from lockwire.scene_urdf import load_robot_scene  # collision-only links are drawn too
@@ -2135,7 +2275,7 @@ def test_check_lists_what_was_not_compared_with_the_next_command(
         app, ["check", str(contract), "--json", str(tmp_path / "o.json"), "--all"]
     )
     out = plain(result.output)
-    assert "Not compared yet (1):" in out and "lockwire start robot.urdf" in out
+    assert "Not scored (1):" in out and "lockwire start robot.urdf" in out
     gap = json.loads((tmp_path / "o.json").read_text())["not_compared"]
     assert gap == [
         {
@@ -2174,6 +2314,23 @@ def test_a_crash_is_refused_not_a_no_go(monkeypatch, capsys):
     assert "lockwire stopped: RuntimeError: kaboom" in capsys.readouterr().err
 
 
+def test_a_check_that_crashes_on_the_command_line_says_the_errors_own_words(monkeypatch, capsys):
+    import lockwire
+    from lockwire import checks
+
+    for error, words in [(NameError("name x is not defined"), "lockwire stopped: NameError: name x is not defined; this is a bug in lockwire, not a verdict"), (PermissionError(13, "Permission denied", "/r/x.urdf"), "cannot write to /r/x.urdf: it is read-only or not yours")]:  # fmt: skip
+
+        @checks.crash_is_a_bug
+        def boom(error=error):
+            raise error
+
+        monkeypatch.setattr("lockwire.cli.app", boom)
+        with pytest.raises(SystemExit) as stop:
+            lockwire.main()
+        assert stop.value.code == 2
+        assert words in capsys.readouterr().err
+
+
 def test_check_model_file_compares_a_recognised_robot_with_its_datasheet(tmp_path):
     waffle = FIXTURES / "turtlebot3" / "turtlebot3_waffle_pi.urdf"
     result = runner.invoke(app, ["check", str(waffle)])
@@ -2191,8 +2348,8 @@ def test_check_model_file_hints_name_the_typed_path_not_the_temp_lock(tmp_path, 
     monkeypatch.chdir(tmp_path)
     out = plain(runner.invoke(app, ["check", "turtlebot3_waffle_pi.urdf"]).output)
     # the first verdict: violations and counts; warnings wait behind --all, gaps never do
-    assert "VIOLATION datasheet/" in out and "Not compared yet (2):" in out
-    assert "model/meshes: 4 mesh files were not found;" in out  # nothing is locked yet
+    assert "VIOLATION datasheet/" in out and "Not scored (2):" in out
+    assert "model/meshes: 4 mesh files were missing or not inside the robot's package folder;" in out  # nothing locked yet: no "at lock"
     assert out.rstrip().endswith("drift: lockwire start turtlebot3_waffle_pi.urdf")  # no --out
     assert "model/links/placeholder_inertia: 3 link(s)" in out
     assert "mass_vs_size" not in out
@@ -2203,6 +2360,44 @@ def test_check_model_file_hints_name_the_typed_path_not_the_temp_lock(tmp_path, 
     assert "source: turtlebot3_waffle_pi.urdf" in out
     assert "--force" not in out and "run: lockwire check" not in out  # no lock; same 1.8 kg
     assert "1 model check (no lockfile yet)" in out and "/lockwire-" not in out
+
+
+def test_help_all_descriptions_fit_whole_at_80_columns():
+    lines = runner.invoke(app, ["help", "--all"]).output.splitlines()
+    assert [ln for ln in lines if len(ln) > 80 or ln.endswith("...")] == []
+
+
+def test_free_help_has_no_hard_breaks_cut_choice_lists_or_rst_backticks(monkeypatch):
+    import inspect
+
+    from lockwire.edit import _ADD_KINDS
+    from lockwire.plugins import PRO_COMMANDS
+
+    monkeypatch.setenv("COLUMNS", "80")
+    assert "`" not in runner.invoke(app, ["--help"]).output + runner.invoke(app, ["help", "--all"]).output
+    for name, command in typer.main.get_command(app).commands.items():
+        for sub in [[]] + [[s] for s in getattr(command, "commands", {})]:  # no Markdown in help
+            assert "`" not in runner.invoke(app, [name, *sub, "--help"]).output, (name, sub)
+        if name in PRO_COMMANDS or not command.help:
+            continue
+        rest = inspect.cleandoc(command.help).partition("\f")[0].split("\n\n")[1:]
+        assert [p for p in rest if "\n" in p and not p.startswith("\b")] == [], name
+        shown = runner.invoke(app, [name, "--help"]).output
+        assert "…" not in shown and "``" not in shown, (name, shown)
+    kinds = plain(runner.invoke(app, ["add", "--help"]).output)
+    assert all(re.search(rf"\b{kind}\b", kinds) for kind in _ADD_KINDS), kinds
+
+
+def test_pro_only_options_say_so_and_bench_hides_without_its_corpus(monkeypatch, tmp_path):
+    import lockwire.cli as cli
+
+    shown = plain(runner.invoke(app, ["check", "--help"]).output)
+    for option in ("--actuator-evidence", "--evidence-root", "--expected-revision"):
+        assert re.search(rf"{option}\s.*\(Lockwire Pro\)", shown), option
+    assert "(Lockwire Pro) plan.yaml" in plain(runner.invoke(app, ["report", "--help"]).output)
+    assert "bench " in runner.invoke(app, ["help", "--all"]).output
+    monkeypatch.setattr(cli, "DEFAULT_CORPUS_PATH", tmp_path / "none.yaml")
+    assert "bench " not in runner.invoke(app, ["help", "--all"]).output
 
 
 def test_free_help_lists_five_verbs_and_hidden_ones_still_run():
@@ -2245,7 +2440,7 @@ def test_cli_survives_a_cp1252_console_on_a_finding_with_a_delta():
     )
     env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, env=env)
-    assert b"UnicodeEncodeError" not in out.stderr and b"? 1)" in out.stdout, out.stderr
+    assert b"UnicodeEncodeError" not in out.stderr and b"expected 2 (1)" in out.stdout, out.stderr
 
 
 def test_help_all_without_pro_installed_lists_pro_names_and_the_waitlist():
@@ -2282,6 +2477,29 @@ def test_agent_setup_writes_once_and_appends_to_an_existing_agents_file(tmp_path
     ]  # the hook runs on model and lockfile files only
 
 
+def test_agent_setup_pins_the_hook_to_the_running_lockwire(tmp_path, monkeypatch):
+    import lockwire
+
+    monkeypatch.setattr(lockwire, "__version__", "9.8.7")  # not a literal: the version that runs
+    runner.invoke(app, ["agent-setup", str(tmp_path)])
+    repo = YAML().load(tmp_path / ".pre-commit-config.yaml")["repos"][0]
+    assert repo["rev"] == "v9.8.7"
+
+
+def test_agent_setup_names_an_old_hook_pin_and_leaves_the_file(tmp_path, monkeypatch):
+    import lockwire
+
+    monkeypatch.setattr(lockwire, "__version__", "0.5.3")
+    config = tmp_path / ".pre-commit-config.yaml"
+    runner.invoke(app, ["agent-setup", str(tmp_path)])  # no entry: written
+    assert "rev: v0.5.3" in config.read_text()
+    assert "kept .pre-commit-config.yaml\n" in runner.invoke(app, ["agent-setup", str(tmp_path)]).output
+    config.write_text(config.read_text().replace("rev: v0.5.3", "rev: v0.2.7"))
+    out = plain(runner.invoke(app, ["agent-setup", str(tmp_path)]).output)
+    assert "rev: v0.2.7 is older" in out and "change that line to rev: v0.5.3" in out, out
+    assert "rev: v0.2.7" in config.read_text()  # told, never rewritten
+
+
 def test_agent_setup_ci_writes_only_the_workflow(tmp_path, monkeypatch):
     for _ in range(2):
         result = runner.invoke(app, ["agent-setup", str(tmp_path), "--ci"])
@@ -2301,7 +2519,8 @@ def test_accept_records_a_known_gap_so_check_passes_and_still_shows_it(tmp_path,
     gap = "datasheet/turtlebot3-waffle-pi/mass_total"
     start = plain(runner.invoke(app, ["start", "turtlebot3_waffle_pi.urdf"]).output)
     assert f"run: lockwire accept {gap} lockwire.yaml --reason" in start
-    assert runner.invoke(app, ["check"]).exit_code == 1
+    before = runner.invoke(app, ["check"])
+    assert before.exit_code == 1 and "model file sum of link masses: 1.554 kg," in plain(before.output)
     args = ["accept", gap, "--reason", "sheet counts the battery", "--witness", "sam"]
     assert runner.invoke(app, args).exit_code == 0
     assert {p.name for p in tmp_path.iterdir() if not p.name.endswith(".lockwire-undo.json")} == {
@@ -2310,8 +2529,11 @@ def test_accept_records_a_known_gap_so_check_passes_and_still_shows_it(tmp_path,
     }  # the journal is the only extra
     result = runner.invoke(app, ["check"])
     assert result.exit_code == 0, result.output
-    assert f"accepted: {gap}: URDF sum of link masses: 1.554; accepted (sheet counts" in plain(
+    assert f"accepted: {gap}: model file sum of link masses: 1.554 kg; accepted (sheet counts" in plain(
         result.output
+    )  # the unit is printed; the accept row pins the stored text, which has none
+    assert "observed: 'URDF sum of link masses: 1.554'" in (tmp_path / "lockwire.yaml").read_text() or (
+        "observed: URDF sum of link masses: 1.554\n" in (tmp_path / "lockwire.yaml").read_text()
     )
 
 
@@ -2342,6 +2564,8 @@ def test_check_resolves_a_robot_name_through_robot_descriptions(
     assert unknown.exit_code == 2 and "no file or robot named ur5x; did you mean ur5e" in plain(
         unknown.output
     )
+    assert "lists datasheets, not models" in plain(runner.invoke(app, ["start", "zz9"]).output)
+    assert "Datasheet records, not models" in runner.invoke(app, ["catalog", "robots"]).output
     mjcf = runner.invoke(app, ["check", "spot"])
     assert mjcf.exit_code == 2 and "only an MJCF exists for spot" in plain(mjcf.output)
     out = plain(runner.invoke(app, ["check", "ur5e", "--all"]).output)
@@ -2358,11 +2582,40 @@ def test_check_resolves_a_robot_name_through_robot_descriptions(
     assert not copy.exists()
     copy.write_text(testbot_urdf.read_text().replace('<mass value="1.2"/>', '<mass value="9.9"/>'))
     drift = runner.invoke(app, ["check", "lockwire.yaml"])
-    assert drift.exit_code == 1 and "mass 9.9, expected locked mass 1.2" in plain(drift.output)
+    assert drift.exit_code == 1 and "mass 9.9 kg, expected locked mass 1.2 kg" in plain(drift.output)
     refused = runner.invoke(app, ["start", "ur5e", "--force", "--no-check"])
     assert refused.exit_code == 1 and "ur5e.urdf exists and differs" in plain(refused.output)
     (tmp_path / "ur5e").write_text("not: a contract\n")  # a real file of that name wins
     assert "testbot" not in plain(runner.invoke(app, ["check", "ur5e"]).output)
+
+
+def test_start_by_name_copies_the_cached_meshes_and_records_relative_paths(monkeypatch, tmp_path):
+    cache = tmp_path / "cache"
+    (cache / "ur_description" / "meshes").mkdir(parents=True)
+    (cache / "xacrodoc").mkdir()
+    mesh = cache / "ur_description" / "meshes" / "base.stl"
+    mesh.write_text("solid a\nendsolid a\n")
+    urdf = cache / "xacrodoc" / "ur5e.urdf"
+    urdf.write_text(
+        f'<robot name="ur"><link name="base"><visual><geometry><mesh filename="file://{mesh}"/>'
+        '</geometry></visual><inertial><mass value="1"/></inertial></link></robot>'
+    )
+    _fake_robot_descriptions(monkeypatch, urdf)
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    result = runner.invoke(app, ["start", "ur5e", "--no-check"])
+    assert result.exit_code == 0 and "not found" not in plain(result.output), result.output
+    assert "links from ur5e.urdf" in plain(result.output) and str(tmp_path) not in plain(result.output)
+    lock = (work / "lockwire.yaml").read_text()
+    assert str(tmp_path) not in lock and str(tmp_path) not in (work / "ur5e.urdf").read_text()
+    assert (work / "meshes" / "ur_description" / "meshes" / "base.stl").read_bytes() == mesh.read_bytes()
+    assert "uri: meshes/ur_description/meshes/base.stl" in lock
+    (work / "kept").mkdir()  # `check <name> --lock` keeps a lock too: same copy, no cache path
+    runner.invoke(app, ["check", "ur5e", "--lock", "kept/k.yaml"])
+    assert str(tmp_path) not in (work / "kept" / "k.yaml").read_text()
+    checked = plain(runner.invoke(app, ["check", "ur5e", "--all"]).output)
+    assert str(tmp_path) not in checked and "not inside the robot's package folder" not in checked
 
 
 def test_check_robot_name_without_the_extra_says_how_to_get_it(monkeypatch, tmp_path):
@@ -2370,7 +2623,7 @@ def test_check_robot_name_without_the_extra_says_how_to_get_it(monkeypatch, tmp_
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["check", "ur5e"])
     assert result.exit_code == 2
-    assert 'uvx --from "lockwire[robots]" lockwire check ur5e' in plain(result.output)
+    assert "pip install 'lockwire[robots]', then run lockwire start ur5e" in plain(result.output)
 
 
 def test_broken_private_parts_is_one_line_not_a_traceback(monkeypatch, tmp_path, capsys):
@@ -2395,7 +2648,7 @@ def test_broken_private_parts_is_one_line_not_a_traceback(monkeypatch, tmp_path,
     "old,new,said",
     [
         ("\nrobot:", "\nbogus_key: 1\nrobot:", "lock.yaml: bogus_key: unknown key"),
-        ("value: 1.0, unit: kg", "value: abc, unit: kg", ".mass.value: must be a number"),
+        ("value: 1.0, unit: kg", "value: abc, unit: kg", "/mass/value: must be a number"),
     ],
 )
 @pytest.mark.parametrize("command", [["check"], ["swap"]])
@@ -2470,7 +2723,7 @@ def test_check_refuses_model_only_flags_on_a_lockfile_and_json_errors_go_to_stde
     result = runner.invoke(app, ["check", str(lock), "--mass", "1 kg"])
     assert result.exit_code == 2 and "--mass works on a model file only" in plain(result.output)
     result = runner.invoke(app, ["check", str(tmp_path / "none.yaml"), "--json", "-"])
-    assert result.exit_code == 2 and result.stdout == "" and "no contract" in result.stderr
+    assert result.exit_code == 2 and result.stdout == "" and "no lockfile" in result.stderr
     result = runner.invoke(app, ["start", str(lock), "--out", str(tmp_path / "x.yaml")])
     assert result.exit_code == 1 and "is not a URDF" in plain(result.output)
 
@@ -2520,7 +2773,7 @@ def test_comma_decimal_names_the_file_as_typed(monkeypatch):
 def test_check_lock_on_existing_file_says_how_to_check(testbot_urdf, tmp_path):
     (lock := tmp_path / "m.yaml").write_text("x")
     r = runner.invoke(app, ["check", str(testbot_urdf), "--lock", str(lock)])
-    assert r.exit_code == 2 and "already exists; run `lockwire check" in plain(r.output)
+    assert r.exit_code == 2 and "already exists; run 'lockwire check" in plain(r.output)
 
 
 def test_check_payload_flag_loads_a_link_for_the_gravity_check(testbot_urdf):
@@ -2534,7 +2787,7 @@ def test_check_payload_flag_loads_a_link_for_the_gravity_check(testbot_urdf):
 def test_check_torque_flag_compares_a_joint_with_the_published_figure(testbot_urdf):
     args = ["check", str(testbot_urdf), "--all", "--source", "u", "--torque"]
     off = plain(runner.invoke(app, [*args, "hip=20 N*m"]).output)
-    assert "datasheet/hip/joint_torque" in off and "Δ -60.0%" in off
+    assert "datasheet/hip/joint_torque" in off and "off by -60.0%" in off
     assert "datasheet/hip" not in plain(runner.invoke(app, [*args, "hip=8 N*m"]).output)
     bad = runner.invoke(app, [*args, "knee=8 N*m"])
     assert bad.exit_code == 2 and "no joint named knee; the joints are: hip" in bad.output
@@ -2554,6 +2807,8 @@ def test_add_device_part_picks_numbers_from_catalog_and_the_check_catches_it(tmp
     assert runner.invoke(app, ["add", "device", lock, "--part", "nosuch"]).exit_code == 2
     added = runner.invoke(app, [*base, "--rail", "rail.controller-5v"])
     assert added.exit_code == 0 and "Next: lockwire check" in plain(added.output)
+    # no --witness on a current lockfile: no witness recorded, never a bare "w0" code
+    assert load_contract(Path(lock)).device("dev.rpi-pi5-1").provenance.witness is None
     checked = plain(runner.invoke(app, ["check", lock]).output)
     assert "observed 21.55 W" in checked and "dev.rpi-pi5-1" in checked
     arm = str(tmp_path / "a.yaml")
@@ -2646,14 +2901,14 @@ def test_export_default_out_sits_beside_lockfile(testbot_urdf, tmp_path):
 
 @pytest.mark.parametrize("fmt", ["urdf", "sdf"])
 def test_export_then_check_gives_the_lockfile_verdict(testbot_urdf, tmp_path, fmt):
-    # MJCF is left out: lane D records a known check-parity exception for check's MJCF path.
+    # MJCF is left out: check's MJCF path is a known check-parity exception.
     lock, _ = _export_setup(testbot_urdf, tmp_path)
     assert runner.invoke(app, ["export", str(lock), "--format", fmt]).exit_code == 0
     exported = runner.invoke(app, ["check", str(tmp_path / f"lockwire.{fmt}")])
     locked = runner.invoke(app, ["check", str(lock)])
     assert exported.exit_code == locked.exit_code
     verdict = lambda r: re.search(r"\b(NO-GO|GO)\b[^\n]*", plain(r.output)).group(0)  # noqa: E731
-    assert verdict(exported).startswith(verdict(locked).split(" — ")[0])
+    assert verdict(exported).startswith(verdict(locked).split(": ")[0])
 
 
 BASELINE_PAIR = FIXTURES / "baseline_pair"
@@ -2673,6 +2928,17 @@ def test_baseline_compare_prints_only_the_changed_check():
 def test_baseline_compare_direction_is_base_then_head():
     out = _baseline_compare("head.yaml", "base.yaml")
     assert "devices/dev.imu/drives_joint: NO-GO -> GO" in out
+
+
+def test_compare_to_says_go_with_notes_and_names_checks_the_base_lacks(tmp_path, monkeypatch):
+    for name in ("rover", "drone"):
+        (tmp_path / name).mkdir()
+        monkeypatch.chdir(tmp_path / name)
+        runner.invoke(app, ["start", "--example", name, "--no-check"])
+    head = tmp_path / "rover" / "lockwire.yaml"
+    out = plain(runner.invoke(app, ["check", str(head), "--compare-to", "lockwire.yaml"]).output)
+    assert "massless_frames: not scored in the base file; GO with notes here" in out, out
+    assert "GO-WITH-NOTES" not in out
 
 
 def test_baseline_compare_identical_lockfiles_print_no_change_lines():
@@ -2940,9 +3206,9 @@ def _esc_swap_names(field):
         monkeypatch.setattr(swap, "preview", named)
         return _esc_swap(tmp_path, monkeypatch, bad)
 
-    build.n = (
-        4 if field == "chosen" else 2
-    )  # the note, plus for chosen: table row, "With" line, preview-only line
+    # the note, plus for chosen: table row and preview-only line (testbot's hip has no joint
+    # above it, so the "With ..., the joints above:" header is not printed)
+    build.n = 3 if field == "chosen" else 2
     return build
 
 
@@ -3205,7 +3471,7 @@ def test_version_prints_the_package_version_and_exits_0():
 
 def test_check_help_lists_every_exit_code():
     text = " ".join(plain(runner.invoke(app, ["check", "--help"]).output).split())
-    for want in ("0 GO", "1 NO-GO", "2 contract could not be found", "3 NOT SCORED"):
+    for want in ("0 GO", "1 NO-GO", "2 the lockfile or model file could not be found", "3 NOT SCORED"):
         assert want in text
 
 
@@ -3428,7 +3694,7 @@ def test_strict_prints_the_word_that_matches_exit_3(testbot_urdf, tmp_path, monk
     loose = plain(runner.invoke(app, ["check", str(contract)]).output)
     assert "NOT SCORED" not in loose and "GO" in loose  # non-strict GO unchanged
     strict = runner.invoke(app, ["check", str(contract), "--strict"])
-    assert strict.exit_code == 3 and "NOT SCORED — under --strict" in plain(strict.output)
+    assert strict.exit_code == 3 and "NOT SCORED: under --strict" in plain(strict.output)
 
 
 def test_identical_not_scored_lines_collapse_to_one_with_a_count(tmp_path, monkeypatch):
@@ -3542,3 +3808,381 @@ def test_add_attach_without_a_frame_refuses_and_add_shape_wants_one_shape(tmp_pa
     assert result.exit_code == 2 and "no offset is guessed" in plain(result.output)
     shape = runner.invoke(app, ["add", "shape", str(path), *head, "--link", "arm"])
     assert shape.exit_code == 2 and "exactly one --shape" in plain(shape.output)
+
+
+def test_check_all_lists_the_unsolved_loop_poses_and_json_carries_them(tmp_path):
+    sdf = Path(__file__).parent / "fixtures" / "fivebar_wide.sdf"
+    plain_run = runner.invoke(app, ["check", str(sdf)])
+    full = runner.invoke(app, ["check", str(sdf), "--all"])
+    assert "not solved" not in plain(plain_run.output)
+    assert "not solved: near lock at a=+29, b=-86; a=+86, b=-29 (2 poses)" in plain(full.output)
+    assert "cannot be assembled at a=+57, b=-86; a=+57, b=-57;" in plain(full.output)
+    hot = tmp_path / "hot.sdf"
+    hot.write_text(sdf.read_text().replace("<effort>5<", "<effort>0.1<"))
+    runner.invoke(app, ["check", str(hot), "--json", str(tmp_path / "h.json")])
+    row = json.loads((tmp_path / "h.json").read_text())["findings"][0]
+    got = next(p for p in row["unsolved_poses"] if p["reason"] == "cannot be assembled")
+    assert got["angles_deg"] == pytest.approx({"a": 57.30, "b": -85.94}, abs=0.01)
+
+
+def test_loop_peak_is_refined_to_the_worst_pose_beside_the_lock(tmp_path):
+    """fivebar_lock.sdf: the worst holding torque sits just short of the lock, between coarse
+    points. Reference: the library's own solver on a 1 degree grid including the limits."""
+    from lockwire import statics
+    from lockwire.sdf import loop_cuts, parse_sdf
+
+    sdf = Path(__file__).parent / "fixtures" / "fivebar_lock.sdf"
+    lp = statics.loop_plan(parse_sdf(sdf), loop_cuts(sdf))
+    drv = lp.loops[0][0]
+
+    def peaks(*steps):
+        axes = [np.linspace(j.limits.lower, j.limits.upper, n) for j, n in zip(drv, steps)]
+        grid = np.array(np.meshgrid(*axes, indexing="ij")).reshape(2, -1).T
+        return np.nanmax(np.abs(statics.loop_torques(lp, lp.loops[0], grid)), axis=0)
+
+    ref = peaks(*(round(math.degrees(j.limits.upper - j.limits.lower)) + 1 for j in drv))
+    assert (peaks(7, 7) < 0.97 * ref).all()  # the old coarse number is too low
+    runner.invoke(app, ["check", str(sdf), "--json", str(tmp_path / "j.json")])
+    got = json.loads((tmp_path / "j.json").read_text())["forces"]["joint_torques"]
+    shown = plain(runner.invoke(app, ["check", str(sdf), "--all"]).output)
+    for r, want in zip(got, ref):
+        assert 0.95 * want < r["peak"] < 1.05 * want  # 1 degree grid steps miss the very edge
+        assert f"{r['joint']}: {r['peak']:.2f} N*m (closed loop" in shown
+    assert "found by refining the coarse grid" in shown and "of 49 coarse grid poses" in shown
+    assert {r["loop"]["refined"] for r in got} == {"yes"}
+
+
+def test_loop_refine_rounds_get_finer_for_three_joints_and_skip_four(monkeypatch):
+    from lockwire import checks, statics
+
+    calls = []
+
+    def fake(lp, loop, poses, explain=True):
+        calls.append(poses)
+        return np.abs(poses), [""] * len(poses)
+
+    monkeypatch.setattr(statics, "loop_solve", fake)
+    for nd in (3, 4):
+        calls.clear()
+        sides = [np.linspace(-1, 1, 7)] * nd
+        grid = np.array(list(itertools.product(*sides)))
+        *_, how = checks._loop_refine(None, None, sides, grid, np.abs(grid))
+        if nd == 4:
+            assert (how, calls) == ("no", [])  # too many joints: nothing re-gridded
+            continue
+        gaps = [np.diff(np.unique(c[:125, 0].round(9)))[0] for c in calls]
+        assert how == "yes" and len(gaps) == 3  # every round is finer than the one before
+        assert gaps[0] < 1 / 3 and gaps[1] < gaps[0] and gaps[2] < gaps[1]
+
+
+@pytest.mark.parametrize(
+    "how, text",
+    [
+        ("capped", "stopped at the pose cap (peak may be higher)"),
+        ("no", "on the coarse grid only (2 driven joints"),
+    ],
+)
+def test_loop_refine_cap_and_skip_are_said(tmp_path, monkeypatch, how, text):
+    from lockwire import checks
+
+    if how == "capped":
+        monkeypatch.setattr(checks, "_LOOP_REFINE_MAX", 30)
+    else:
+        monkeypatch.setattr(checks, "_loop_refine", lambda lp, loop, s, p, h: (p, h, "no"))
+    sdf = Path(__file__).parent / "fixtures" / "fivebar_wide.sdf"
+    runner.invoke(app, ["check", str(sdf), "--json", str(tmp_path / "j.json")])
+    got = json.loads((tmp_path / "j.json").read_text())["forces"]["joint_torques"]
+    assert {r["loop"]["refined"] for r in got} == {how}
+    assert text in plain(runner.invoke(app, ["check", str(sdf), "--all"]).output)
+
+
+def test_check_json_carries_joint_torques_with_loop_facts(tmp_path):
+    from lockwire import statics
+    from lockwire.sdf import loop_cuts, parse_sdf
+
+    def rows(src):
+        runner.invoke(app, ["check", str(src), "--json", str(tmp_path / "j.json")])
+        return json.loads((tmp_path / "j.json").read_text())["forces"]["joint_torques"]
+
+    here = Path(__file__).parent / "fixtures"
+    five = {r["joint"]: r for r in rows(here / "fivebar_wide.sdf")}
+    assert [round(five[j]["peak"], 2) for j in "ab"] == [3.35, 3.32]  # was 0.67, 1.03 coarse
+    assert five["a"]["unit"] == "N*m" and five["a"]["limit"] == 5 and five["a"]["passed"]
+    loop = five["a"]["loop"]
+    assert (loop["solved"], loop["total"], len(loop["unsolved_poses"])) == (43, 49, 6)
+    assert [p["reason"] for p in loop["unsolved_poses"]].count("near lock") == 2
+    lp = statics.loop_plan(
+        parse_sdf(here / "fivebar_wide.sdf"), loop_cuts(here / "fivebar_wide.sdf")
+    )
+    held = statics.loop_torques(lp, lp.loops[0], np.zeros((1, 2)))[0]
+    assert loop["at_file_pose"] == pytest.approx(abs(held[0])) and loop["lowest"] < 0.02
+    arm = {r["joint"]: r for r in rows(here / "servo_arm.urdf")}
+    assert arm["wrist"]["loop"] is None and arm["wrist"]["passed"]
+    assert "shoulder" in arm["wrist"]["pose_deg"]
+    bare = tmp_path / "bare.urdf"
+    bare.write_text(
+        '<robot name="b"><link name="l"><inertial><mass value="1"/></inertial></link></robot>'
+    )
+    assert rows(bare) == []
+    text = plain(runner.invoke(app, ["check", str(here / "fivebar_wide.sdf"), "--all"]).output)
+    assert "lowest 0.01 N*m; at the file's own pose 0.17 N*m" in text
+
+
+def test_help_all_lists_no_build_generators_and_report_writes_a_default_page(tmp_path, monkeypatch):
+    listed = {ln.split()[0] for ln in runner.invoke(app, ["help", "--all"]).output.splitlines() if ln.strip()}
+    assert not listed & {"api-schema", "api-types", "api-args-schema"} and "check" in listed
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["start", "--example", "drone", "--no-check"]).exit_code == 0
+    result = runner.invoke(app, ["report"])
+    assert result.exit_code == 0 and (tmp_path / "lockwire-report.html").is_file()
+
+
+def test_plan_file_errors_and_blank_lockfile_hint_are_plain(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    out = plain(runner.invoke(app, ["start", "--blank"]).output)
+    assert "--witness me" not in out and "'<your name>'" in out
+    (tmp_path / "plan.yaml").write_text("steps:\n  - joint_target: {joint: base}\n")
+    result = runner.invoke(app, ["plan", "lockwire.yaml", "plan.yaml"])
+    assert result.exit_code == 2 and "steps/0: needs a 'kind:' line" in plain(result.output)
+    assert "pydantic" not in result.output
+
+
+def test_scored_line_counts_every_accepted_line(tmp_path, monkeypatch):
+    for example, tail in (("arm", " · 1 other accepted"), ("humanoid", " · 6 other accepted")):
+        (tmp_path / example).mkdir()
+        monkeypatch.chdir(tmp_path / example)
+        runner.invoke(app, ["start", "--example", example, "--no-check"])
+        lines = strip_ansi(runner.invoke(app, ["check"]).output).splitlines()
+        scored = next(ln for ln in lines if ln.startswith("scored "))
+        assert scored.endswith(tail), scored
+        listed = sum(
+            int(m[1] or 1) for ln in lines if (m := re.match(r"accepted: (?:(\d+) checks )?", ln))
+        )
+        counted = [int(n) for n in re.findall(r"(\d+) (?:other )?accepted", scored)]
+        assert sum(counted) == listed, (scored, listed)
+        assert not [ln for ln in lines if ln.startswith("accepted") and ".," in ln], lines
+    assert sum(ln.startswith("accepted: 6 checks (first: ") for ln in lines) == 1  # humanoid
+
+
+def test_scored_line_sums_to_its_total_on_every_example_and_a_mismatch(tmp_path, monkeypatch):
+    from lockwire.start_operation import example_names
+
+    def total_and_parts(args):
+        line = next(ln for ln in strip_ansi(runner.invoke(app, args).output).splitlines() if ln.startswith("scored "))
+        n, parts = re.match(r"scored (\d+): ([^·]*)", line).groups()
+        return int(n), sum(map(int, re.findall(r"(\d+) ", parts))), line
+
+    def every_finding_named(args):
+        lines = strip_ansi(runner.invoke(app, args).output).splitlines()
+        line = next(ln for ln in lines if ln.startswith("scored "))
+        decision = next(ln for ln in lines if ln.startswith(("NO-GO", "GO")))
+        refs = " ".join(ln for ln in lines if re.match(r"references?: ", ln))
+        count = lambda pattern, text: sum(map(int, re.findall(pattern, text)))  # noqa: E731
+        warned = count(r"(\d+) (?:other )?warn", line)
+        broke = count(r"(\d+) (?:do not|other violation)", line) + count(r"(\d+) broken", refs)
+        assert (warned, broke) == (
+            count(r"(\d+) warning", decision),
+            count(r"(\d+) violation", decision),
+        ), (line, decision)
+
+    for name in example_names():
+        (tmp_path / name).mkdir()
+        monkeypatch.chdir(tmp_path / name)
+        runner.invoke(app, ["start", "--example", name, "--no-check"])
+        n, summed, line = total_and_parts(["check"])
+        assert n == summed, line
+        every_finding_named(["check"])
+    n, summed, line = total_and_parts(["check", str(SO101), "--mass", "20.6 kg", "--source", "test"])
+    assert n == summed and " 1 do not" in line, line
+    # a catalog robot whose warnings sit outside the scored comparisons (round 3: ur5e)
+    urdf = tmp_path / "bot.urdf"
+    urdf.write_text(
+        '<robot name="bot"><link name="base"/><link name="arm"><inertial><mass value="2"/>'
+        '<inertia ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="1"/></inertial></link>'
+        '<joint name="j" type="fixed"><parent link="base"/><child link="arm"/></joint></robot>'
+    )
+    _fake_robot_descriptions(monkeypatch, urdf)
+    (tmp_path / "cat").mkdir()
+    monkeypatch.chdir(tmp_path / "cat")
+    assert runner.invoke(app, ["start", "ur5e", "--no-check"]).exit_code == 0
+    assert "other warning" in strip_ansi(runner.invoke(app, ["check"]).output)
+    every_finding_named(["check"])
+
+
+def test_json_counts_account_for_every_listed_finding(tmp_path, monkeypatch):
+    for name in ("quadruped", "rover-param"):  # advice findings ride along uncounted (round 3)
+        (tmp_path / name).mkdir()
+        monkeypatch.chdir(tmp_path / name)
+        runner.invoke(app, ["start", "--example", name, "--no-check"])
+        doc = json.loads(runner.invoke(app, ["check", "--json", "-"]).stdout)
+        counts, findings = doc["counts"], doc["findings"]
+        assert counts["advice"] > 0 and sum(counts.values()) == len(findings), counts
+        judged = [f["severity"] for f in findings if not f["advice_unsourced"]]
+        assert counts["warning"] == judged.count("warning"), counts
+
+
+def test_error_lines_say_what_went_wrong_and_what_to_do(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    for command in ("report", "describe", "export --format bom", "check"):
+        out = runner.invoke(app, command.split())
+        assert out.exit_code == 2 and "no lockfile at lockwire.yaml: run" in plain(out.output), command
+    Path("bad.urdf").write_text("hello\n")
+    out = plain(runner.invoke(app, ["check", "bad.urdf"]).output)
+    assert "bad.urdf is not XML" in out, out
+    Path("new.yaml").write_text('schema_version: "9.9"\nrobot:\n  name: x\n')
+    assert "pip install -U lockwire" in plain(runner.invoke(app, ["check", "new.yaml"]).output)
+    runner.invoke(app, ["start", "--example", "drone", "--no-check"])
+    out = runner.invoke(app, ["upgrade", "lockwire.yaml", "--out", "n.yaml", "--expected-revision", "0"])
+    assert out.exit_code == 0 and "already current" in plain(out.output), out.output
+
+
+def test_round3_small_wording(tmp_path, monkeypatch):
+    from lockwire.report import Finding, github_summary
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LOCKWIRE_WITNESS_CONFIG", str(tmp_path / "none.toml"))
+    runner.invoke(app, ["start", "--example", "rover", "--no-check"])
+    out = plain(runner.invoke(app, ["check", "--all"]).output)
+    assert "1 massless frame (" in out and "normal" not in out, out
+    runner.invoke(app, ["start", str(FIXTURES / "testbot.urdf"), "--out", "t.yaml", "--no-check"])
+    assert oct(Path("t.yaml").stat().st_mode & 0o777) == oct(0o666 & ~_umask())  # as examples get
+    long = runner.invoke(
+        app, ["declare", "lockwire.yaml", "robot/name", "r", "--source", "s", "--witness", "A" * 90]
+    )
+    said = plain(long.output)
+    assert "80-character limit" in said and "entry 1" not in said, said
+    warned = Finding(severity="warning", quantity="a/b", observed="1", expected="2", action="x")
+    summary = github_summary([warned])
+    assert summary.startswith("## Lockwire: GO with notes") and " run |" not in summary, summary
+    mhs = plain(runner.invoke(app, ["export", "lockwire.yaml", "--format", "mhs", "--out", "x"]).output)
+    assert "lockwire export lockwire.yaml --format mhs > devices.json" in mhs and "LOCK " not in mhs
+
+
+def _umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["check-sim", "/dev/null"],
+        ["scene", "import", "/dev/null", "--witness", "Maya Chen", "--source-person", "Maya Chen"],
+        ["report", "--scene", "/dev/null"],
+    ],
+    ids=["check-sim", "scene-import", "report-scene"],
+)
+def test_a_device_given_as_a_model_or_sim_file_is_refused_not_read(args, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # /dev/null reads empty; a pipe or /dev/zero would hang
+    runner.invoke(app, ["start", "--example", "drone", "--no-check"])
+    out = runner.invoke(app, args)
+    assert out.exit_code == 2 and "is a pipe or a device" in plain(out.output), out.output
+
+
+def test_a_mesh_outside_the_package_folder_is_not_called_missing(tmp_path, monkeypatch):
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "m.stl").write_text("solid x\nendsolid x\n")
+    urdf = (FIXTURES / "testbot.urdf").read_text().replace(
+        '<link name="sensor_mount"/>',
+        '<link name="sensor_mount"><visual><geometry><mesh filename="../m.stl"/></geometry></visual></link>',
+    )
+    (tmp_path / "pkg" / "robot.urdf").write_text(urdf)
+    monkeypatch.chdir(tmp_path)
+    out = plain(runner.invoke(app, ["check", "pkg/robot.urdf", "--all"]).output)
+    assert "1 mesh file was missing or not inside the robot's package folder; its bytes" in out and "../m.stl exists, but outside the robot's package folder" in out, out
+
+
+def test_a_plan_step_missing_a_key_names_it_as_missing(tmp_path):
+    from lockwire.start_operation import EXAMPLES
+
+    plan = tmp_path / "p.yaml"
+    plan.write_text("steps:\n  - kind: rail_load\n    rail: r\n")
+    result = runner.invoke(app, ["plan", str(EXAMPLES / "drone" / "contract.yaml"), str(plan)])
+    assert result.exit_code == 2 and "steps/0/rail_load/draw is missing" in plain(result.output), result.output
+
+
+def test_check_all_on_arm_power_reads_plainly_and_prints_the_declare_command_once(tmp_path):
+    from lockwire.start_operation import EXAMPLES
+
+    lock = EXAMPLES / "arm-power" / "contract.yaml"
+    out = plain(runner.invoke(app, ["check", str(lock), "--all", "--json", str(tmp_path / "o.json")]).output)
+    assert out.count("lockwire declare ") == 1, out
+    raw = ("wire ampacity", "published ampacity", "(Δ", "free_air", "metadata only", "as thermal/ambient")
+    assert [w for w in raw if w in out] == [] and "28 AWG in free air" in out
+    observed = {f["observed"] for f in json.loads((tmp_path / "o.json").read_text())["findings"]}
+    assert "5.19 A computed draw on 28 AWG free_air (draw mode: nominal)" in observed  # accept pins this
+    ci = runner.invoke(app, ["check", str(lock), "--format", "github"]).output
+    assert "28 AWG in free air" in ci and "free_air" not in ci
+
+
+def test_an_edit_diff_names_the_file_as_typed_not_its_absolute_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LOCKWIRE_WITNESS_CONFIG", str(tmp_path / "none.toml"))
+    assert runner.invoke(app, ["start", "--example", "drone", "--out", "d.yaml"]).exit_code == 0
+    path = "devices/dev.telemetry-radio/power/draw"
+    out = runner.invoke(app, ["declare", "d.yaml", path, "5 W", "--source", "ds", "--witness", "Maya Chen"]).output
+    assert "--- d.yaml\n+++ d.yaml\n" in out and str(tmp_path) not in out
+
+
+def test_witness_help_does_not_offer_the_refused_word_you():
+    for cmd in ("start", "check"):
+        text = plain(runner.invoke(app, [cmd, "--help"]).output)
+        assert "default: you" not in text and "your login name" in text, cmd
+
+
+def test_what_if_needs_no_witness_because_it_writes_nothing(tmp_path):
+    """A what-if is a question, not a record: no --witness and no default is not a refusal."""
+    lock = tmp_path / "l.yaml"
+    assert runner.invoke(app, ["start", "--example", "arm-power", "--out", str(lock)]).exit_code == 0
+    before = lock.read_bytes()
+    args = ["what-if", str(lock), "--change", "topology/rails/rail.5v/voltage=5.1 V", "--source", "a test"]
+    result = runner.invoke(app, args)
+    assert result.exit_code in (0, 1) and "--witness is missing" not in result.output, result.output
+    assert lock.read_bytes() == before
+    assert "--witness is missing" in runner.invoke(app, [*args, "--witness", " "]).output
+
+
+def test_runtime_messages_print_no_backticks_and_collapsed_accepted_says_how_to_see_each(tmp_path, monkeypatch):
+    """Backticks are Markdown, not terminal words; a collapsed accepted line names --all."""
+    monkeypatch.chdir(tmp_path)
+    missing = plain(runner.invoke(app, ["check", "nope.yaml"]).output)
+    assert "no lockfile" in missing and "`" not in missing
+    assert "`" not in runner.invoke(app, ["add", "shape", "x.yaml"]).output
+    assert runner.invoke(app, ["start", "--example", "humanoid"]).exit_code == 0
+    short = plain(runner.invoke(app, ["check"]).output)
+    assert "6 checks (first: devices/dev.servo.left-hip-yaw/power/rail; --all lists each)" in short
+    every = strip_ansi(runner.invoke(app, ["check", "--all"]).output)
+    assert sum(line.startswith("accepted: ") for line in every.splitlines()) == 8
+
+
+def test_check_by_name_with_unresolved_meshes_names_no_temp_path_and_no_lock(monkeypatch, tmp_path):
+    """`check double_pendulum`: no lock is involved, so no "at lock" and no throwaway folder."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    urdf = cache / "ur5e.urdf"
+    urdf.write_text(
+        '<robot name="dp"><link name="base"><visual><geometry>'
+        '<mesh filename="package://example-robot-data/meshes/base.stl"/></geometry></visual>'
+        '<inertial><mass value="1"/></inertial></link></robot>'
+    )
+    _fake_robot_descriptions(monkeypatch, urdf)
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    out = plain(runner.invoke(app, ["check", "ur5e", "--all"]).output)
+    assert "the ur5e description as fetched does not hold them" in out, out
+    assert "at lock" not in out and "lockwire-" not in out and "/var/folders" not in out and "/tmp" not in out
+
+
+def test_missing_inputs_wrap_on_a_terminal_like_the_other_lines(tmp_path, monkeypatch):
+    from rich.console import Console
+
+    from lockwire import cli
+
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["start", "--example", "arm-power"]).exit_code == 0
+    monkeypatch.setattr(cli, "console", Console(width=60, force_terminal=True, color_system=None))
+    lines = strip_ansi(runner.invoke(app, ["check"]).output).splitlines()
+    start = lines.index("Missing inputs (what to add to get more from this check):")
+    assert all(len(line) <= 60 for line in lines[start:]), lines[start:]

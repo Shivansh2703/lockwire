@@ -142,7 +142,7 @@ if (paid) {
     throw new Error("packaged Plan cited finding proof missing");
   }
 }
-// E2.6: open ANYmal through its display-only same-stem URDF and the checked-in mesh package.
+// Open ANYmal through its display-only same-stem URDF and the checked-in mesh package.
 // The contract's selected model URDF remains separate, so display geometry does not bypass the
 // contract's external-asset identity checks.
 const anymalDir = join(fixtureDir, "anymal");
@@ -154,8 +154,8 @@ cpSync(join(repoRoot, "tests/fixtures/anymal/contract.urdf"), join(anymalDir, "c
 // contract) -- mirror that same layout here so `check`'s structure-hash comparison
 // finds the URDF instead of reporting drift as not-scored for the wrong reason.
 cpSync(join(repoRoot, "tests/fixtures/anymal_d.urdf"), join(fixtureDir, "anymal_d.urdf"));
-cpSync(join(repoRoot, "tests/fixtures/e5_10_real_scenarios/official/anymal-d"),
-  join(fixtureDir, "e5_10_real_scenarios/official/anymal-d"), { recursive: true });
+cpSync(join(repoRoot, "tests/fixtures/real_scenarios/official/anymal-d"),
+  join(fixtureDir, "real_scenarios/official/anymal-d"), { recursive: true });
 const anymalShaBefore = sha256(anymalContractPath);
 const anymalOpen = await runOpen({ openPath: anymalContractPath, ...workflow, screenshotBase: join(fixtureDir, "anymal.png") });
 if (!anymalOpen.headlineText.trim()) throw new Error("ANYmal packaged open returned no headline");
@@ -221,7 +221,7 @@ async function runFresh(name, sourceDir, urdfRel, expectText) {
   return session((launched) => driveFresh({ ...launched, urdfPath: join(dir, urdfRel), expectText }));
 }
 const freshQarm = await runFresh("qarm", join(repoRoot, "tests/fixtures/qarm"), "QARM.urdf", "joint effort limit from the datasheet");
-const freshAnymal = await runFresh("anymal", join(repoRoot, "tests/fixtures/e5_10_real_scenarios/official/anymal-d"), "urdf/anymal.urdf");
+const freshAnymal = await runFresh("anymal", join(repoRoot, "tests/fixtures/real_scenarios/official/anymal-d"), "urdf/anymal.urdf");
 if (freshQarm.visible !== false || freshAnymal.visible !== false) throw new Error("packaged app E2E window was visible");
 
 const resourceDir = process.platform === "linux"

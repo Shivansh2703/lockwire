@@ -1,8 +1,8 @@
 """One function that turns a command's parts into a shell-safe line.
 
 Every door that prints or returns a paste-able ``lockwire ...`` command
-composes its parts here — the CLI's own ``ran:`` lines, the ``gui``/``start``
-page footer's line, and ``scan.py``'s docker ``bash -lc`` line — so there is
+composes its parts here - the CLI's own ``ran:`` lines, the ``gui``/``start``
+page footer's line, and ``scan.py``'s docker ``bash -lc`` line - so there is
 exactly one place quoting can go wrong, and it uses ``shlex.quote`` (stdlib),
 not hand-rolled or Python (``repr``/``!r``) quoting.
 """
@@ -32,6 +32,11 @@ def program() -> list[str]:
     return ["uvx", "--from", "lockwire[robots]", "lockwire"] if robots else ["uvx", "lockwire"]
 
 
+def quote(part: object) -> str:
+    """Shell-quote one token: the one place lockwire calls ``shlex.quote``."""
+    return shlex.quote(str(part))
+
+
 def cli_line(*parts: object) -> str:
     """Shell-quote every part and join with spaces.
 
@@ -41,7 +46,7 @@ def cli_line(*parts: object) -> str:
     """
     if parts and parts[0] == "lockwire":
         parts = (*program(), *parts[1:])
-    return " ".join(shlex.quote(str(part)) for part in parts)
+    return " ".join(quote(part) for part in parts)
 
 
 def argv_from_context(ctx: "typer.Context", exclude: "set[str] | None" = None) -> list[str]:
@@ -49,14 +54,14 @@ def argv_from_context(ctx: "typer.Context", exclude: "set[str] | None" = None) -
 
     Walks the command's own parameters (``ctx.command.params``) and each
     one's source (``ctx.get_parameter_source``), including only what the
-    user actually passed on the command line — instead of a hand-written
+    user actually passed on the command line - instead of a hand-written
     flag list, which is exactly how ``add`` dropped its value flags,
     how ``scene import`` dropped ``--package-root``, and how ``declare``
     dropped ``--note``/``--locked-at``.
 
     Bools carry their own hazard and get their own handling: a true flag
     emits its option, a false one emits its ``--no-...`` form if it has one
-    and otherwise **nothing**. Both directions matter — a replayed
+    and otherwise **nothing**. Both directions matter - a replayed
     ``apply --dry-run`` line that lost the flag performs a real write, and a
     line that grew a ``--dry-run`` nobody typed describes a run that wrote
     nothing when the real one wrote.

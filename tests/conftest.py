@@ -73,8 +73,8 @@ def _isolate_sidecar_log_dir(tmp_path_factory):
     """serve.py's ``_log_dir()`` honours ``LOCKWIRE_LOG_DIR`` as a test-only escape
     hatch. Set it here, once, before any test — including the ones that Popen a
     real ``lockwire serve`` subprocess and so inherit this env var — otherwise the
-    suite writes into the developer's and CI's real ``~/Library/Logs`` (bounce,
-    measured writing into a real machine's log folder on every run)."""
+    suite writes into the developer's and CI's real ``~/Library/Logs`` (found in
+    review, measured writing into a real machine's log folder on every run)."""
     os.environ["LOCKWIRE_LOG_DIR"] = str(tmp_path_factory.mktemp("lockwire-logs"))
 
 
@@ -129,7 +129,7 @@ def empty_budget_contract(tmp_path: Path) -> Contract:
         "    kind: rail_power\n"
         "    rail: rail.5v\n"
         "    limit: {value: 15.6, unit: W}\n"
-        "    owner: shivansh\n"
+        "    owner: avery\n"
     )
     return load_contract(path)
 
@@ -152,7 +152,7 @@ def empty_endurance_budget_contract(tmp_path: Path) -> Contract:
         "  - id: bud.endurance.empty\n"
         "    kind: endurance\n"
         "    limit: {value: 15, unit: min}\n"
-        "    owner: shivansh\n"
+        "    owner: avery\n"
     )
     return load_contract(path)
 
@@ -188,7 +188,7 @@ def _limit_raised_yaml(mark: str, draw_w: float = 12) -> str:
         "devices:\n"
         "  - id: dev.jetson\n"
         "    model: mdl.compute.generic\n"
-        "    owner: shivansh\n"
+        "    owner: avery\n"
         "    power:\n"
         "      rail: rail.5v\n"
         f"      draw: {{value: {draw_w}, unit: W}}\n"
@@ -197,7 +197,7 @@ def _limit_raised_yaml(mark: str, draw_w: float = 12) -> str:
         "    kind: rail_power\n"
         "    rail: rail.5v\n"
         "    limit: {value: 20, unit: W}\n"
-        "    owner: shivansh\n"
+        "    owner: avery\n"
         "    provenance:\n"
         "      witness: human\n"
         "      source: test\n"

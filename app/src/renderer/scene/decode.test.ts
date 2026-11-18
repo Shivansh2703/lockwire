@@ -9,7 +9,7 @@ import { decodePackedIndices, decodePackedVectors, decodePartPositions } from ".
 // lockwire.scene_view._pack_vectors / _pack_indices (Python's own production packer) — see
 // the "_comment" field in the fixture itself. Decoding it and comparing to its "raw" arrays
 // anchors this test against Python's numbers, not a value this test computed with the same
-// formula (the box's decisive review item).
+// formula.
 // (Resolved in two steps, not `new URL(rel, import.meta.url)`: Vite statically rewrites that
 // exact pattern into a dev-server asset URL, which breaks plain file reads under vitest.)
 const here = path.dirname(fileURLToPath(import.meta.url));

@@ -8,17 +8,16 @@ import { commitSummary, type LogEntry } from "./historyPayload";
 const VERDICT: Record<string, Status> = { GO: "go", GO_WITH_NOTES: "warn", "NO-GO": "bad", REFUSED: "bad", NOT_SCORED: "muted" };
 
 // The same one sentence `vcs.NOT_A_REPO` gives every version-control-leg caller when there
-// is no repository (or no `git` on the PATH) to act on. `lockwire log` itself
-// does not exist yet at this base (e0-35 is unmerged/bounced) so there is no log-specific
-// CLI sentence to mirror one-for-one; this reuses the app's one established no-git sentence
-// rather than inventing a second (the app never invents a word).
+// is no repository (or no `git` on the PATH) to act on. `lockwire log` is a real command;
+// outside a repository it prints its own line ("log failed: not a git repository"), so this
+// reuses the app's one established no-git sentence rather than mirror that line.
 // Display only: "10 Sep" (the entry's own ISO date stays in the tooltip); unparseable text shows as is.
 const shortDate = (iso: string) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : `${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}`;
 };
 
-const NOT_A_REPO = "not a git repository — nothing committed";
+const NOT_A_REPO = "not a git repository: nothing committed";
 
 export interface HistoryDrawerProps {
   /** `false` outside a repository or with no `git` on the PATH -- entries is ignored. */

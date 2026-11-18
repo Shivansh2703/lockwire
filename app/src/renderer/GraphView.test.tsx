@@ -69,6 +69,17 @@ describe("graph view", () => {
     draw({ graph: g, cards: cs, selected: 1 });
     expect(at("link:p0")).toBe(kept);
   });
+  it("fits again when the space it can see changes (panels hidden, drawer opened), but not after the user has zoomed", () => {
+    const view = () => el.querySelector("svg > g")!.getAttribute("transform");
+    draw({ inset: { top: 70, right: 424, bottom: 70, left: 24 } }); // a side panel covers the right of the view
+    const beside = view();
+    draw({ inset: { top: 70, right: 24, bottom: 70, left: 24 } }); // "Hide panels": the whole view is free
+    expect(view()).not.toBe(beside);
+    act(() => { (el.querySelector('[aria-label="Zoom in"]') as HTMLElement).click(); });
+    const zoomed = view();
+    draw({ inset: { top: 70, right: 424, bottom: 70, left: 24 } });
+    expect(view()).toBe(zoomed);
+  });
   it("lights exactly the parts the chosen check involves, and follows the choice", () => {
     draw();
     expect(ids(".gv-node.is-lit")).toEqual([...INV[0]!].sort());
@@ -106,9 +117,9 @@ describe("graph view", () => {
     expect(onPick).toHaveBeenCalledTimes(2);
   });
 
-  it("a lit part the graph does not draw is named by kind and id, never as a raw dotted id", () => {
-    draw({ cards: [card("x", ["rail:rail.5v", "device:servo"])], selected: 0 });
-    expect(el.querySelector(".gv-uses")!.textContent).toBe("This check uses: rail rail.5v, Servo");
+  it("a lit part the graph does not draw is named by the engine's id, never as kind:id, the kind twice or a built name", () => {
+    draw({ cards: [card("x", ["rail:rail.5v", "device:servo", "bus:can0"])], selected: 0 });
+    expect(el.querySelector(".gv-uses")!.textContent).toBe("This check uses: rail.5v, Servo, can0");
   });
 
   it("the screen-reader line names exactly the involved parts", () => {

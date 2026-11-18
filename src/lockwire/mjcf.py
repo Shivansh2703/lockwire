@@ -256,6 +256,34 @@ def parse_mjcf(
     )
 
 
+def looped_joints(path: Path) -> list[str]:
+    """Joints a body-tree walk would score wrongly because an `<equality>` constraint (connect,
+    weld, joint) closes a loop or couples them: every joint of each top-level piece the constraint
+    touches, all pieces when it names something else (a site, a tendon). Empty when none."""
+    root = _read_root(path)
+    _splice_includes(root, path.resolve().parent)
+    if (eq := root.find("equality")) is None or not len(eq):
+        return []
+    model = parse_mjcf(path)
+    up = {j.child: j for j in model.joints}
+    owner = {j.name: j.child for j in model.joints}
+
+    def piece(link: str) -> str:
+        while link in up and up[link].parent != "world":
+            link = up[link].parent
+        return link
+
+    hit: set[str] = set()
+    for c in eq:
+        named = [c.get(a) for a in ("body1", "body2")]
+        named += [owner.get(c.get(a) or "") for a in ("joint1", "joint2") if c.get(a)]
+        named = [n for n in named if n]
+        if not named or any(n not in up for n in named):
+            return [j.name for j in model.joints if j.type != "fixed"]
+        hit |= {piece(n) for n in named}
+    return [j.name for j in model.joints if j.type != "fixed" and piece(j.child) in hit]
+
+
 def is_mjcf(path: Path) -> bool:
     """A `.xml`/`.mjcf` file whose root is `<mujoco>`; a `.xml` URDF stays on the URDF path."""
     try:

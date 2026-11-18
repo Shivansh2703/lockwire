@@ -4,10 +4,9 @@
 // caller's job to render, and absent (no workflow file yet, or the contract sits outside a
 // repository at all) means nothing too, never an error and never a thrown exception.
 //
-// Measured on this branch: `.github/workflows/lockwire.yml` does not exist in this repo --
-// the action that would carry the `version:` pin is a later milestone's box (PLAN_ISSUES
-// #7) -- so every real read today takes the "absent" path. No update is downloaded or
-// applied anywhere in this file, or anywhere in this app: E6's updater does not exist yet.
+// The workflow read is `.github/workflows/lockwire.yml`, the file `lockwire agent-setup --ci`
+// writes; a robot repo without it takes the "absent" path. No update is downloaded or
+// applied anywhere in this file, or anywhere in this app: there is no updater.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 

@@ -1,5 +1,5 @@
 /**
- * E2.3 — keyboard reachability of each face's primary control, plus DeclareFace's
+ * Keyboard reachability of each face's primary control, plus DeclareFace's
  * Escape-cancels-draft behaviour.
  *
  * jsdom does not synthesize a browser's own Enter/Space -> click translation for a
@@ -65,7 +65,7 @@ const DECLARE_FORM: DeclareFormPayload = {
   witness: { prefill: "Maya" },
 };
 
-describe("E2.3 -- each face's primary control is reachable and Enter-operable", () => {
+describe("each face's primary control is reachable and Enter-operable", () => {
   it("OpenFace: 'Open robot'", () => {
     const onOpenRobot = vi.fn();
     root = createRoot(container);
@@ -132,7 +132,7 @@ describe("E2.3 -- each face's primary control is reachable and Enter-operable", 
   });
 });
 
-describe("E2.3 -- Escape cancels DeclareFace's draft without writing", () => {
+describe("Escape cancels DeclareFace's draft without writing", () => {
   it("clears the in-progress source/witness edits and never calls onSubmit", () => {
     const onSubmit = vi.fn().mockResolvedValue({ written: true });
     root = createRoot(container);
@@ -156,7 +156,7 @@ describe("E2.3 -- Escape cancels DeclareFace's draft without writing", () => {
   });
 });
 
-describe("typed move (CAD-03)", () => {
+describe("typed move", () => {
   const press = (key: string, init: KeyboardEventInit = {}) => act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init })); });
   const typeKeys = (keys: string[]) => keys.forEach((k) => press(k));
   const payload = { robot: "after" } as unknown as CheckPayload;

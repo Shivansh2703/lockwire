@@ -1,4 +1,4 @@
-// Audit app-bugs scenarios (0.5.0). Each `it` asserts the correct behaviour; the box that fixes it is named on its describe.
+// Audit app-bugs scenarios (0.5.0). Each `it` asserts the correct behaviour.
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,7 +56,7 @@ describe("Design edits refresh the whole Check state", () => {
     await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true })); });
     expect(getContractPage).toHaveBeenCalledTimes(2); // one page read per refresh, not two
     goMode(container, "Check");
-    expect(container.querySelector(".check-headline")?.textContent).toContain("0 findings");
+    expect(container.querySelector(".check-headline")?.textContent).toContain("no findings");
     expect(word()).not.toBe("NO-GO"); // was the bug: a page-only merge never refreshed the verdict word
   });
 });
@@ -212,7 +212,7 @@ describe("an edit's reload after the robot changed", () => {
   });
 });
 
-describe("late history replies after a robot switch (APP-BUG5)", () => {
+describe("late history replies after a robot switch", () => {
   const HIST = (who: string) => [{ sha: "aaa", author: who, date: "2026-10-01", message: `${who} commit`, verdict: "GO", fact_diff: null }];
   const openAThenB = async (api: Record<string, unknown>) => {
     mount({ startFromUrdf: () => Promise.resolve(picked(doc("/a.yaml"))), getContractPage: ({ contract }: { contract: string }) => Promise.resolve({ ...PAGE, revision: contract }),
@@ -265,7 +265,7 @@ describe("late history replies after a robot switch (APP-BUG5)", () => {
   });
 });
 
-// AUD-SHELL: File > Close robot.
+// File > Close robot.
 describe("File > Close robot", () => {
   let close: (() => void) | undefined;
   const onCloseRobot = (cb: () => void) => { close = cb; return () => undefined; };

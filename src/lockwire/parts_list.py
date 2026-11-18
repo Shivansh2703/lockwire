@@ -22,6 +22,7 @@ _QTY = (
 )
 _NUMBER = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(kg|mg|g|mV|V|mW|kW|W|mA|A)\b")
 _GLUED = re.compile(r"\d+(?:\.\d+)?(?:kg|mg|g|mv|v|mw|kw|w|ma|a)")
+_UNIT = re.compile(r"(mah|ah|kv|mm|cm|kg|mg|g|mv|v|mw|kw|w|ma|a)\b", re.I)
 _STOP = {"the", "and", "for", "with", "placeholder", "generic", "module", "kit"}
 _TOLERANCE = 0.05  # a written number within 5% of the catalog's counts as agreeing
 
@@ -43,10 +44,35 @@ def _quantity(line: str) -> tuple[int, str]:
 
 
 def _keys(part: CatalogPart) -> list[str]:
-    """Part-number-like keys: the id's last segment and every digit-bearing name token."""
+    """Part-number-like keys: the id's last segment and every digit-bearing name token that
+    is not a measurement (a decimal like 3.00", or a number before its unit: 5000 mAh, 600 W)."""
     keys = [_compact(part.id.rsplit(".", 1)[-1])]
-    keys += [_compact(t) for t in part.name.split() if len(t) >= 4 and re.search(r"\d", t)]
+    words = part.name.split()
+    for word, after in zip(words, [*words[1:], ""]):
+        bare = re.fullmatch(r"\W*[\d.]+\W*", word)
+        if bare and ("." in word or _UNIT.match(after)):
+            continue
+        if len(word) >= 4 and re.search(r"\d", word):
+            keys.append(_compact(word))
     return [k for k in keys if len(k) >= 3]
+
+
+def _hit(key: str, flat: str) -> bool:
+    """``key`` is written in ``flat`` as a part number: a word-only key ("pro", "foot") is too
+    common to count unless long, and a number is never the front or back of a longer one
+    ("300" from a 3.00 in length is not in "3000"). Round 3: "mystery widget 3000" matched a
+    U-channel at 0.95."""
+    if not re.search(r"\d", key) and len(key) < 6:
+        return False
+    start = flat.find(key)
+    while start != -1:
+        end = start + len(key)
+        before = start and key[0].isdigit() and flat[start - 1].isdigit()
+        after = end < len(flat) and key[-1].isdigit() and flat[end].isdigit()
+        if not (before or after):
+            return True
+        start = flat.find(key, start + 1)
+    return False
 
 
 def _match(text: str, parts: list[CatalogPart]) -> tuple[CatalogPart, float] | None:
@@ -84,7 +110,7 @@ def _resolve(
         (len(k), p, k)
         for p in parts
         for k in _keys(p)
-        if k in flat or (len(flat) >= 6 and k.startswith(flat))
+        if _hit(k, flat) or (len(flat) >= 6 and k.startswith(flat))
     ]
     if hits:
         top = max(n for n, _, _ in hits)
@@ -203,7 +229,9 @@ def device_fields(part: CatalogPart, device_id: str) -> dict[str, Any]:
         "id": device_id,
         "model": f"mdl.{part.id.replace('.', '-')}",
         "family": part.family,
-        "name": part.name,
+        # a family this creates is named by its id alone: the catalog has no family label, and
+        # one model's name (round 3) or a name made up from the id would be wrong
+        "name": part.family,
         "physical_mass": f"{mass.value:g} {mass.unit}" if mass else None,
     }
 

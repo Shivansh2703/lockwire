@@ -1,22 +1,21 @@
 """Emit `app/src/shared/api.gen.ts` directly from the payload union.
 
-Plan v8 line 265, verbatim: *"There is no TypeScript generator in the list,
-deliberately: the mainstream generator's own documentation says a
-discriminated union like ours comes out in a shape TypeScript cannot narrow.
-The Python step that builds the union emits the TypeScript directly (about
-forty lines), and CI fails if the committed file is stale."*
+There is no TypeScript generator dependency, on purpose: the mainstream
+generator's own documentation says a discriminated union like ours comes out
+in a shape TypeScript cannot narrow. The Python step that builds the union
+emits the TypeScript directly, and CI fails if the committed file is stale.
 
 Measured 2026-09-08: the alternative (`api-schema`'s JSON Schema piped through
 the `openapi-typescript` npm package, per `packaging/generate-types.md`) does
-not run on this repo's toolchain today — `openapi-typescript@7.13.0` declares
+not run on this repo's toolchain today - `openapi-typescript@7.13.0` declares
 a peer on `typescript@^5.x` and crashes (`Cannot read properties of undefined
 (reading 'createKeywordTypeNode')`) against `app/package.json`'s already-pinned
-`typescript@7.0.2`. That is a second, independent reason (beyond v8 line 265)
+`typescript@7.0.2`. That is a second, independent reason
 this change adds no npm dependency.
 
 this walks `api_payload.ALL_MEMBERS` and each model's own
-`model_json_schema()` — the same schema `api_payload.export_openapi` already
-assembles for `lockwire api-schema` — rather than re-enumerating fields or
+`model_json_schema()` - the same schema `api_payload.export_openapi` already
+assembles for `lockwire api-schema` - rather than re-enumerating fields or
 commands by hand. One walk, reused.
 """
 
@@ -33,7 +32,7 @@ from lockwire.report import VERDICT_EXIT_CODES, verdict_word
 
 #: Every consumer must see this before touching the file by hand.
 SENTINEL = (
-    "// GENERATED — do not edit by hand.\n"
+    "// GENERATED: do not edit by hand.\n"
     "// `uv run lockwire api-types --out app/src/shared/api.gen.ts` regenerates this\n"
     "// file from `src/lockwire/api_payload.py`. CI regenerates and diffs on every run;\n"
     "// a stale committed file fails the build (packaging/generate-types.md).\n"
@@ -41,14 +40,14 @@ SENTINEL = (
 
 
 PLUGIN_SENTINEL = (
-    "// GENERATED — do not edit by hand.\n"
+    "// GENERATED: do not edit by hand.\n"
     "// Written next to `api.gen.ts` by the same `lockwire api-types` run, from the payload\n"
     "// members a plugin registers. A stale committed file fails the build.\n"
 )
 
 
 def _schemas(models: tuple[type, ...] = ALL_MEMBERS) -> dict[str, Any]:
-    """The same `{name: schema}` map `api_payload.export_openapi` builds — one
+    """The same `{name: schema}` map `api_payload.export_openapi` builds - one
     call per union member, `$defs` folded in beside it."""
     schemas: dict[str, Any] = {}
     for model in models:
@@ -86,7 +85,7 @@ def _ts_type(node: dict[str, Any]) -> str:
             if isinstance(values, dict)
             else "Record<string, unknown>"
         )
-    return "unknown"  # pragma: no cover — no union member emits an untyped leaf today
+    return "unknown"  # pragma: no cover - no union member emits an untyped leaf today
 
 
 def _interface(name: str, schema: dict[str, Any]) -> str:
@@ -107,7 +106,7 @@ def _declaration(name: str, schema: dict[str, Any]) -> str:
 
 
 def emit() -> str:
-    """The whole file, as text — every union member's interface plus the
+    """The whole file, as text - every union member's interface plus the
     discriminated `MachineDocument` alias TypeScript narrows on `artifact_type`."""
     schemas = _schemas()
     parts = [SENTINEL]

@@ -1,9 +1,11 @@
 """`lockwire agent-setup`: put the three agent rules, a pre-commit hook and a CI workflow in a repo."""
 
 import json
+import re
 import sys
 from pathlib import Path
 
+import lockwire
 from lockwire.cli_line import cli_line
 
 START, END = "<!-- lockwire:start -->", "<!-- lockwire:end -->"
@@ -28,7 +30,7 @@ def rules() -> str:
 
 
 PRE_COMMIT = r"""  - repo: https://github.com/Shivansh2703/lockwire
-    rev: v0.2.7
+    rev: v{version}
     hooks:
       - id: lockwire-check
         files: (?i)(\.(urdf|xacro|sdf)|(^|/)lockwire\.ya?ml)$
@@ -49,23 +51,26 @@ _GATE = (
     'p=$(cat); case $(printf %s "$p" | tr "[:upper:]" "[:lower:]") in'
     ' *.urdf\\"* | *.sdf\\"* | *.xacro\\"* | *lockwire.yaml\\"*) ;; *) exit 0 ;; esac;'
 )
-_CRASH = (
+# run CMD: use CMD only if `CMD --version` exits 0 (a stale launcher with no module behind it is
+# skipped); its hook-check decides, and a crash blocks the edit. Nothing runs: block with one line.
+_RUN = (
+    ' run() { "$@" --version >/dev/null 2>&1 </dev/null || return 0;'
+    ' printf %s "$p" | "$@" hook-check && exit 0;'
     ' [ $? = 2 ] || echo "lockwire hook-check crashed (see above); re-run lockwire agent-setup'
-    ' --claude" >&2; exit 2'
-)
-GUARD = (
-    _GATE
-    + ' [ -x "$0" ] || { echo "lockwire: hook interpreter is gone; re-run lockwire agent-setup'
     ' --claude" >&2; exit 2; };'
-    ' printf %s "$p" | "$0" -m lockwire hook-check && exit 0;' + _CRASH
 )
+_LAST = (
+    " run lockwire; run uvx --from lockwire lockwire;"
+    ' echo "lockwire could not be run, so this robot-model edit is blocked: install or repair it'
+    ' (uv tool install lockwire, then lockwire agent-setup --claude) and retry, or remove the'
+    ' PreToolUse entry with lockwire hook-check from .claude/settings.local.json"'
+    " >&2; exit 2"
+)
+# $0 is the Python that ran agent-setup: its own lockwire first, as long as it still runs.
+GUARD = _GATE + _RUN + ' [ -x "$0" ] && run "$0" -m lockwire;' + _LAST
 # An interpreter inside uv's cache (uvx) is gone after a cache clean or on a teammate's machine,
-# so name the command instead: `lockwire` on PATH, else `uvx lockwire`.
-GUARD_PORTABLE = (
-    _GATE + ' if command -v lockwire >/dev/null; then printf %s "$p" | lockwire hook-check;'
-    ' elif command -v uvx >/dev/null; then printf %s "$p" | uvx lockwire hook-check;'
-    ' else echo "lockwire: neither lockwire nor uvx is on PATH" >&2; exit 2; fi && exit 0;' + _CRASH
-)
+# so name the command instead: a `lockwire` on PATH that runs, else `uvx lockwire`.
+GUARD_PORTABLE = _GATE + _RUN + _LAST
 
 
 def agent_setup(root: Path, *, ci_only: bool = False) -> list[str]:
@@ -89,36 +94,99 @@ def agent_setup(root: Path, *, ci_only: bool = False) -> list[str]:
         put(name, rules(), append=True)
     # ponytail: appends after the last line, so a config whose `repos:` is not last needs a hand merge.
     if not ci_only:
-        put(".pre-commit-config.yaml", PRE_COMMIT, append=True, head="repos:\n")
+        # the hook pins the lockwire that wrote it: an older one refuses the lockfiles this one writes
+        entry = PRE_COMMIT.format(version=lockwire.__version__)
+        put(".pre-commit-config.yaml", entry, append=True, head="repos:\n")
+        if lines[-1] == "kept .pre-commit-config.yaml":
+            old = stale_pin((root / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+            if old:  # told, not rewritten: the file is the user's
+                lines[-1] = (
+                    f"kept .pre-commit-config.yaml, but its Lockwire pin rev: {old} is older than this "
+                    f"Lockwire and may not read its lockfiles; change that line to rev: v{lockwire.__version__}"
+                )
     put(".github/workflows/lockwire.yml", WORKFLOW)
     return lines
 
 
-def claude_hook(root: Path) -> str:
-    """Merge the PreToolUse edit hook into ``root/.claude/settings.json``; re-running adds nothing.
+def stale_pin(config: str) -> str | None:
+    """The rev of the Lockwire pre-commit entry when it is older than this Lockwire, else None."""
+    found = re.search(r"Shivansh2703/lockwire\s*\n\s*rev:\s*['\"]?([^\s'\"]+)", config)
+    if found is None:
+        return None
+    number = lambda v: tuple(int(x) for x in re.findall(r"\d+", v)[:3])  # noqa: E731
+    return found[1] if number(found[1]) < number(lockwire.__version__) else None
 
-    The command names this interpreter, not a bare ``lockwire`` on PATH: a stale or broken
-    install there exits 1, and Claude Code lets an edit through on any exit but 2. GUARD passes
-    other files untouched and turns a gone interpreter (a cleaned uvx cache) or a crash into 2.
-    """
-    uvx = any(
+
+def hook_is_portable() -> bool:
+    """True when this Python lives in uv's cache (uvx): the hook then names no machine path."""
+    return any(
         p.startswith(("archive-v", "environments-v", "builds-v"))
         for p in Path(sys.executable).parts
     )
-    command = (
-        cli_line("sh", "-c", GUARD_PORTABLE) if uvx else cli_line("sh", "-c", GUARD, sys.executable)
-    )
+
+
+def _is_ours(hook: dict) -> bool:
+    return "lockwire hook-check" in str(hook.get("command", ""))
+
+
+def _move_out_of_shared(root: Path) -> str | None:
+    """Drop the hook an older run wrote into the committed ``.claude/settings.json``.
+
+    Rewrites the file only when re-saving it leaves every other byte as it was (it was saved
+    in the same JSON layout); otherwise names the entry to delete by hand.
+    """
     path = root / ".claude" / "settings.json"
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8")
+    try:
+        settings = json.loads(text)
+        groups = settings["hooks"]["PreToolUse"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not any(_is_ours(h) for g in groups for h in g.get("hooks", [])):
+        return None
+    if json.dumps(settings, indent=2) + "\n" != text:
+        return (
+            "your .claude/settings.json still has an older Lockwire edit hook: delete its "
+            "PreToolUse entry whose command contains `lockwire hook-check`"
+        )
+    for group in groups:
+        group["hooks"] = [h for h in group.get("hooks", []) if not _is_ours(h)]
+    groups[:] = [g for g in groups if g.get("hooks")]
+    if not groups:
+        del settings["hooks"]["PreToolUse"]
+    if not settings["hooks"]:
+        del settings["hooks"]
+    path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return (
+        "moved the Lockwire edit hook out of .claude/settings.json into .claude/settings.local.json"
+    )
+
+
+def claude_hook(root: Path) -> list[str]:
+    """Merge the PreToolUse edit hook into ``root/.claude/settings.local.json``; re-running adds nothing.
+
+    The local file, not the committed ``settings.json``: the hook can name this machine's
+    Python. Claude Code merges hook lists from both files, so a hook an older run left in
+    ``settings.json`` is moved out. The command names this interpreter, not a bare ``lockwire``
+    on PATH: a stale or broken install there exits 1, and Claude Code lets an edit through on
+    any exit but 2. GUARD passes other files untouched and turns a gone interpreter (a cleaned
+    uvx cache) or a crash into 2.
+    """
+    command = (
+        cli_line("sh", "-c", GUARD_PORTABLE)
+        if hook_is_portable()
+        else cli_line("sh", "-c", GUARD, sys.executable)
+    )
+    moved = _move_out_of_shared(root)
+    lines = [moved] if moved else []
+    path = root / ".claude" / "settings.local.json"
     settings = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     groups = settings.setdefault("hooks", {}).setdefault("PreToolUse", [])
-    ours = [
-        h
-        for g in groups
-        for h in g.get("hooks", [])
-        if "lockwire hook-check" in str(h.get("command", ""))
-    ]
+    ours = [h for g in groups for h in g.get("hooks", []) if _is_ours(h)]
     if [h["command"] for h in ours] == [command]:
-        return "kept .claude/settings.json"
+        return [*lines, "kept .claude/settings.local.json"]
     for hook in ours:  # an older entry (bare `lockwire hook-check`) now runs the guard
         hook["command"] = command
     if not ours:
@@ -127,7 +195,8 @@ def claude_hook(root: Path) -> str:
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-    return (
-        f"wrote .claude/settings.json (edit hook: {command}; to remove it, delete the "
-        "PreToolUse entry whose command contains `lockwire hook-check`)"
-    )
+    return [
+        *lines,
+        f"wrote .claude/settings.local.json (edit hook: {command}; to remove it, delete the "
+        "PreToolUse entry whose command contains `lockwire hook-check`)",
+    ]

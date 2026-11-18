@@ -80,7 +80,7 @@ devices:
           locked_at: 2026-07-27
           note: "Rate and accel_z headroom for the bench-idle |g| demo plant; not fitted to a recording. The oneshot floor is declared on nominal-op only."
     depends: [src/estimation/ekf.cpp]
-    owner: shivansh
+    owner: avery
   - id: dev.barometer
     model: mdl.baro
     identity: {bus_ref: bus.i2c0, host: nav-computer, address: "0x77"}
@@ -109,7 +109,7 @@ devices:
           source: author-chosen engineering headroom
           locked_at: 2026-07-27
           note: "Rate headroom for bench-idle context; not fitted to a recording."
-    owner: shivansh
+    owner: avery
   - id: dev.gnss
     model: mdl.gnss
     identity: {bus_ref: bus.serial0, host: nav-computer, serial_number: GNSS-DEMO-1}
@@ -133,7 +133,7 @@ devices:
           source: author-chosen engineering headroom
           locked_at: 2026-07-27
           note: "GNSS rate band is author-chosen engineering headroom; not fitted to a recording."
-    owner: shivansh
+    owner: avery
   # Declared but never carried by the bag — stages 0/1 disclose it as declared and not seen (not scored).
   - id: dev.radio.absent
     model: mdl.radio.rfd900
@@ -143,7 +143,7 @@ devices:
       topic: /radio/status
       nominal_rate_hz: 10
       payload_bytes: 32
-    owner: shivansh
+    owner: avery
 topology:
   hosts:
     - id: nav-computer

@@ -5,8 +5,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-// The owner, on screenshots of the app: "Can't see the robot though." (E2-j2). Every piece of
-// the scene mount already existed on this branch -- Canvas.tsx, buildScene.ts, lenses.ts,
+// Screenshots of the app showed no robot ("Can't see the robot though."). Every piece of
+// the scene mount already existed -- Canvas.tsx, buildScene.ts, lenses.ts,
 // the lens tabs, the decoded wire format, the X500 fixture -- and none of it was reachable from
 // the app a person opens: `main.tsx` rendered a bare `<Frame>`, and the mount lived only under
 // its own test harness (lens-e2e-entry.tsx / e2e-pixel-entry.ts).
@@ -14,12 +14,12 @@ import { describe, expect, it } from "vitest";
 // This is the one hidden e2e in this file that does NOT bundle a parallel renderer entry. It
 // runs `electron-vite build` for real and opens the REAL `out/renderer/index.html` -- the exact
 // file the shipped app loads -- so a non-background pixel read here proves the Design tab draws
-// the robot in the app the owner opens, not in a stand-in page (see design-mount-check.ts).
+// the robot in the app a person opens, not in a stand-in page (see design-mount-check.ts).
 //
 // Fixture provenance: `src/renderer/scene/fixtures/x500-check-payload.json` is
 // `lockwire.serve._handle_check`'s own `payload` field (the real `/v1/run` reply for `check`,
 // scene+graph included) against `tests/fixtures/x500/contract.yaml` + `x500.glb` -- 24 real
-// parts, not a hand-built triangle. Reproduce from the worktree root:
+// parts, not a hand-built triangle. Reproduce from the repo root:
 //
 //   mkdir -p /tmp/x500fixture && cp tests/fixtures/x500/contract.yaml /tmp/x500fixture/robot.yaml \
 //     && cp tests/fixtures/x500/x500.glb /tmp/x500fixture/robot.glb

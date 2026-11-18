@@ -1,0 +1,767 @@
+{
+ "add": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "fields": {
+    "name": "reach",
+    "value": 0.3
+   },
+   "kind": "param",
+   "source": "datasheet",
+   "witness": "your name"
+  },
+  "command": "add",
+  "input": {
+   "fields": {
+    "name": "reach",
+    "value": 0.3
+   },
+   "kind": "param",
+   "source": "datasheet"
+  },
+  "reply": {
+   "cli_line": "lockwire add param ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "catalog-parts": {
+  "args": {
+   "limit": 2,
+   "query": "servo"
+  },
+  "command": "catalog-parts",
+  "input": {
+   "limit": 2,
+   "query": "servo"
+  },
+  "reply": {
+   "cli_line": "lockwire catalog parts servo",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "catalog-robots": {
+  "args": {},
+  "command": "catalog-robots",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire catalog robots",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "check": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "check",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire check ROBOT/arm/contract.yaml",
+   "exit_code": 1,
+   "payload": {
+    "exit_code": 1,
+    "verdict": "NO-GO"
+   },
+   "refusal": null,
+   "verdict": "NO-GO",
+   "version": "-"
+  }
+ },
+ "check-sim": {
+  "args": {
+   "contract": "ROBOT/so101/lockwire.yaml",
+   "sim": "ROBOT/so101/so101_drift.xml"
+  },
+  "command": "check-sim",
+  "input": {
+   "sim": "so101_drift.xml"
+  },
+  "reply": {
+   "cli_line": "lockwire check-sim ROBOT/so101/so101_drift.xml --lock ROBOT/so101/lockwire.yaml",
+   "exit_code": 1,
+   "payload": {
+    "exit_code": 1,
+    "verdict": "NO-GO"
+   },
+   "refusal": null,
+   "verdict": "NO-GO",
+   "version": "-"
+  }
+ },
+ "declare": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "path": "devices/dev.servo.shoulder/power/draw",
+   "source": "datasheet",
+   "value": "1 W",
+   "witness": "your name"
+  },
+  "command": "declare",
+  "input": {
+   "path": "devices/dev.servo.shoulder/power/draw",
+   "source": "datasheet",
+   "value": "1 W"
+  },
+  "reply": {
+   "cli_line": "lockwire declare ROBOT/arm/contract.yaml devices/dev.servo.shoulder/power/draw",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "declare-form": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "declare-form",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire declare-form ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "describe": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "describe",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire describe ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": "-",
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "describe-device": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "device_id": "dev.battery"
+  },
+  "command": "describe-device",
+  "input": {
+   "device_id": "dev.battery"
+  },
+  "reply": {
+   "cli_line": "lockwire describe ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "describe-system": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "describe-system",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire describe ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "diff": {
+  "args": {
+   "a": "HEAD",
+   "contract": "ROBOT/arm/contract.yaml",
+   "revisions_only": true
+  },
+  "command": "diff",
+  "input": {
+   "a": "HEAD"
+  },
+  "reply": {
+   "cli_line": "lockwire diff",
+   "exit_code": 2,
+   "payload": null,
+   "refusal": "not a git repository: nothing to compare against",
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "explain-finding": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "finding": "fuse"
+  },
+  "command": "explain-finding",
+  "input": {
+   "finding": "fuse"
+  },
+  "reply": {
+   "cli_line": "lockwire check ROBOT/arm/contract.yaml --all",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "log": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "log",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire log -- ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": [],
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "mount-shape": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "shape": {
+    "dimensions_mm": [
+     100,
+     80,
+     3
+    ],
+    "kind": "plate"
+   },
+   "source": "measured",
+   "target": "dev.jetson",
+   "witness": "your name"
+  },
+  "command": "mount-shape",
+  "input": {
+   "shape": {
+    "dimensions_mm": [
+     100,
+     80,
+     3
+    ],
+    "kind": "plate"
+   },
+   "source": "measured",
+   "target": "dev.jetson"
+  },
+  "reply": {
+   "cli_line": "lockwire mount-shape ROBOT/arm/contract.yaml dev.jetson",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "move": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "offset": [
+    0,
+    0,
+    10
+   ],
+   "source": "measured",
+   "target": "dev.jetson",
+   "unit": "mm",
+   "witness": "your name"
+  },
+  "command": "move",
+  "input": {
+   "offset": [
+    0,
+    0,
+    10
+   ],
+   "source": "measured",
+   "target": "dev.jetson",
+   "unit": "mm"
+  },
+  "reply": {
+   "cli_line": "lockwire move ROBOT/arm/contract.yaml dev.jetson",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "open-graph": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "page",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire check ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "page": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "section": "joints"
+  },
+  "command": "page",
+  "input": {
+   "section": "joints"
+  },
+  "reply": {
+   "cli_line": "lockwire check ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "parts-match": {
+  "args": {
+   "parts": "feetech.sts3215"
+  },
+  "command": "parts-match",
+  "input": {
+   "parts": "feetech.sts3215"
+  },
+  "reply": {
+   "cli_line": "lockwire from-parts '<parts.txt>'",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "place": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "offset": [
+    0,
+    0,
+    10
+   ],
+   "on": "upper-arm",
+   "source": "measured",
+   "target": "dev.esp32",
+   "unit": "mm",
+   "witness": "your name"
+  },
+  "command": "place",
+  "input": {
+   "offset": [
+    0,
+    0,
+    10
+   ],
+   "on": "upper-arm",
+   "source": "measured",
+   "target": "dev.esp32",
+   "unit": "mm"
+  },
+  "reply": {
+   "cli_line": "lockwire place ROBOT/arm/contract.yaml dev.esp32",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "plan": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "plan": "ROBOT/arm/contract.plan.yaml"
+  },
+  "command": "plan",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire plan ROBOT/arm/contract.yaml ROBOT/arm/contract.plan.yaml",
+   "exit_code": 0,
+   "payload": {
+    "exit_code": 0,
+    "verdict": "GO"
+   },
+   "refusal": null,
+   "verdict": "GO",
+   "version": "-"
+  }
+ },
+ "propose-part": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "fields": {
+    "family": "fam.compute",
+    "model": "mdl.jetson-nano",
+    "owner": "you"
+   },
+   "id": "dev.new-sensor",
+   "kind": "device",
+   "source": "sheet.pdf: stall_torque 0.52 N*m (p.2: \"Stall torque 0.52 N*m\")",
+   "witness": "your name"
+  },
+  "command": "add",
+  "input": {
+   "datasheet": "sheet.pdf",
+   "family": "fam.compute",
+   "id": "dev.new-sensor",
+   "model": "mdl.jetson-nano",
+   "numbers": [
+    {
+     "name": "stall_torque",
+     "page": 2,
+     "quote": "Stall torque 0.52 N*m",
+     "unit": "N*m",
+     "value": 0.52
+    }
+   ],
+   "owner": "you"
+  },
+  "reply": {
+   "cli_line": "lockwire add device ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "propose-power-tree": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "fields": {
+    "family": "fam.unclassified",
+    "model": "Gens ace 5000mAh 3S 60C short-size (XT60)",
+    "owner": "you"
+   },
+   "id": "pack.gensace.3s-5000-60c-short",
+   "kind": "device",
+   "source": "Lockwire parts library: pack.gensace.3s-5000-60c-short (cited in the catalog)",
+   "witness": "your name"
+  },
+  "command": "add",
+  "input": {
+   "owner": "you",
+   "trees": [
+    {
+     "name": "main",
+     "pack": {
+      "id": "pack.gensace.3s-5000-60c-short",
+      "name": "Gens ace 5000mAh 3S 60C short-size (XT60)"
+     },
+     "rails": []
+    }
+   ]
+  },
+  "reply": {
+   "cli_line": "lockwire add device ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "propose-robot": {
+  "args": {
+   "contract": "ROBOT/rover/contract.yaml"
+  },
+  "command": "check",
+  "input": {
+   "dimensions": [
+    {
+     "name": "chassis_length",
+     "value": 0.42
+    }
+   ],
+   "template": "rover-param"
+  },
+  "reply": {
+   "cli_line": "lockwire check ROBOT/rover/contract.yaml",
+   "exit_code": 0,
+   "payload": {
+    "exit_code": 0,
+    "verdict": "GO"
+   },
+   "refusal": null,
+   "verdict": "GO",
+   "version": "-"
+  }
+ },
+ "reparent": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "source": "measured",
+   "target": "dev.esp32",
+   "to": "upper-arm",
+   "witness": "your name"
+  },
+  "command": "reparent",
+  "input": {
+   "source": "measured",
+   "target": "dev.esp32",
+   "to": "upper-arm"
+  },
+  "reply": {
+   "cli_line": "lockwire reparent ROBOT/arm/contract.yaml dev.esp32",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "report": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "report",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire report ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": "-",
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "review": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "path": "devices/dev.servo.shoulder/power/draw",
+   "state": "approved",
+   "witness": "your name"
+  },
+  "command": "review",
+  "input": {
+   "path": "devices/dev.servo.shoulder/power/draw",
+   "state": "approved"
+  },
+  "reply": {
+   "cli_line": "lockwire review ROBOT/arm/contract.yaml devices/dev.servo.shoulder/power/draw approved",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "robot-graph": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "section": "robot_graph"
+  },
+  "command": "page",
+  "input": {},
+  "reply": {
+   "cli_line": "lockwire check ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "rotate": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "rpy": [
+    0,
+    0,
+    5
+   ],
+   "source": "measured",
+   "target": "forearm",
+   "unit": "deg",
+   "witness": "your name"
+  },
+  "command": "rotate",
+  "input": {
+   "rpy": [
+    0,
+    0,
+    5
+   ],
+   "source": "measured",
+   "target": "forearm",
+   "unit": "deg"
+  },
+  "reply": {
+   "cli_line": "lockwire rotate ROBOT/arm/contract.yaml forearm",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "select-part": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "page",
+  "input": {
+   "id": "joint:shoulder"
+  },
+  "reply": {
+   "cli_line": "lockwire check ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "show-only": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml"
+  },
+  "command": "page",
+  "input": {
+   "parts": [
+    "link:forearm"
+   ]
+  },
+  "reply": {
+   "cli_line": "lockwire check ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "suggest-fixes": {
+  "args": {
+   "contract": "ROBOT/arm/contract.yaml",
+   "finding": "fuse",
+   "limit": 1
+  },
+  "command": "suggest-fixes",
+  "input": {
+   "finding": "fuse",
+   "limit": 1
+  },
+  "reply": {
+   "cli_line": "lockwire check ROBOT/arm/contract.yaml",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "swap": {
+  "args": {
+   "contract": "ROBOT/bench/servo-bench.yaml",
+   "dry_run": true,
+   "expected_revision": "REV",
+   "joint": "wrist",
+   "part_id": "dynamixel.xl330-m288"
+  },
+  "command": "swap-apply",
+  "input": {
+   "joint": "wrist",
+   "part_id": "dynamixel.xl330-m288"
+  },
+  "reply": {
+   "cli_line": "lockwire swap ROBOT/bench/servo-bench.yaml wrist --use dynamixel.xl330-m288",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "swap-preview": {
+  "args": {
+   "contract": "ROBOT/bench/servo-bench.yaml",
+   "joint": "wrist"
+  },
+  "command": "swap-preview",
+  "input": {
+   "joint": "wrist"
+  },
+  "reply": {
+   "cli_line": "lockwire swap ROBOT/bench/servo-bench.yaml wrist",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ },
+ "what-if": {
+  "args": {
+   "change": {
+    "path": "devices/dev.servo.shoulder/power/draw",
+    "source": "datasheet",
+    "value": "1 W",
+    "witness": "your name"
+   },
+   "contract": "ROBOT/arm/contract.yaml",
+   "expected_revision": "REV"
+  },
+  "command": "what-if",
+  "input": {
+   "change": {
+    "path": "devices/dev.servo.shoulder/power/draw",
+    "source": "datasheet",
+    "value": "1 W"
+   }
+  },
+  "reply": {
+   "cli_line": "lockwire what-if ROBOT/arm/contract.yaml --change 'devices/dev.servo.shoulder/power/draw=1 W' --source datasheet --witness 'your name'",
+   "exit_code": 0,
+   "payload": {},
+   "refusal": null,
+   "verdict": null,
+   "version": "-"
+  }
+ }
+}

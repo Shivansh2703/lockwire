@@ -1,11 +1,11 @@
-"""The force numbers the Design panel renders — every one carrying its kind.
+"""The force numbers the Design panel renders - every one carrying its kind.
 
 The panel lives inside Design: no eighth mode and **no new CLI command**. These
 numbers ride in the documents ``lockwire check --json`` and ``lockwire
 describe`` already produce, so every figure on the panel has a CLI twin.
 
 Every number on screen is declared, measured, derived by a named check,
-catalog or projected — and says which. ``number`` is the single builder every
+catalog or projected - and says which. ``number`` is the single builder every
 figure here goes through, so a number with no kind cannot be constructed.
 
 Stage one: what cannot be answered reads NOT SCORED with the reason
@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 
 from lockwire.checks import _fixed_frame_transforms, _point_in_root
+from lockwire.edit import tolerance_text
 from lockwire.report import CGReport
 from lockwire.schema import Contract
 from lockwire.statics import STANDARD_G, Indeterminate, merge_inertia, support_reactions, weight_n
@@ -32,7 +33,7 @@ from lockwire.statics import STANDARD_G, Indeterminate, merge_inertia, support_r
 _KIND_BY_SOURCE = {
     "contract": "declared",  # written in the lockfile by a human
     "recording": "measured",  # read off a bag or a live sample
-    "catalog": "catalog",  # a part-catalog figure — never "measured"
+    "catalog": "catalog",  # a part-catalog figure - never "measured"
     "estimate": "projected",  # a projection, not an observation
 }
 
@@ -198,7 +199,7 @@ def _mount_rows(contract: Contract, report: CGReport | None) -> list[dict[str, A
     except Indeterminate as refusal:
         return refuse(str(refusal))
     kind = derived_by("statics.support_reactions")
-    # A reaction is built from report.total_mass_kg and report.cg_m — the same
+    # A reaction is built from report.total_mass_kg and report.cg_m - the same
     # numbers `mass_total` and `cg` carry, so the same limitation (e.g. a
     # device with no declared mass, silently excluded from the total rather
     # than positioned) travels onto every reaction too.
@@ -362,8 +363,8 @@ def force_document(contract: Contract, cg_reports: list[CGReport]) -> dict[str, 
             "kg",
             derived_by("compute_system_cg"),
             quantity=report.quantity,
-            complete=report.limitation is None,
-            limitation=report.limitation,
+            complete=report.mass_limitation is None,
+            limitation=report.mass_limitation,
         )
         centre = (
             number(
@@ -420,9 +421,9 @@ def force_document(contract: Contract, cg_reports: list[CGReport]) -> dict[str, 
 
 
 def _rendered(entry: dict[str, Any]) -> str:
-    """One figure as a reader sees it — the number and its kind, or why it is absent."""
+    """One figure as a reader sees it - the number and its kind, or why it is absent."""
     if entry["kind"] == "not_scored":
-        return f"NOT SCORED — {entry['not_scored_because']}"
+        return f"NOT SCORED: {entry['not_scored_because']}"
     value = entry["value"]
     text = (
         "(" + ", ".join(f"{component:.3f}" for component in value) + ")"
@@ -432,12 +433,28 @@ def _rendered(entry: dict[str, Any]) -> str:
     rendered = f"{text} {entry['unit']}".strip() + f" (kind: {entry['kind']})"
     limitation = entry.get("limitation")
     if limitation:
-        rendered += f" — INCOMPLETE: {limitation}"
+        rendered += f": INCOMPLETE: {limitation}"
     return rendered
 
 
-def render_markdown(document: dict[str, Any]) -> list[str]:
-    """The Markdown face of ``force_document`` — the payload's numbers, not a second set.
+def _band_words(contract: Contract | None, row_id: str) -> str:
+    """` (± 2 %)` for a link or device mass row whose mass carries a `mass_tolerance`, else ''."""
+    if contract is None:
+        return ""
+    parts = row_id.split("/")
+    owner = (
+        next((x for x in contract.model.links if x.name == parts[2]), None)
+        if parts[0] == "model" and contract.model
+        else next((d.physical for d in contract.devices if d.id == parts[1]), None)
+    )
+    tol = owner and owner.mass_tolerance
+    if not tol:
+        return ""
+    return f" ({tolerance_text(tol.model_dump(mode='json', exclude_none=True), owner.mass.unit)})"
+
+
+def render_markdown(document: dict[str, Any], contract: Contract | None = None) -> list[str]:
+    """The Markdown face of ``force_document`` - the payload's numbers, not a second set.
 
     ``describe`` renders through here so the reference file and the check
     document cannot print different figures (or a figure without its kind).
@@ -447,7 +464,7 @@ def render_markdown(document: dict[str, Any]) -> list[str]:
     lines.append(f"- centre of gravity: {_rendered(document['cg'])}")
     lines.append(f"- gravity: {_rendered(document['gravity'])}")
     for row in document["masses"]:
-        lines.append(f"- mass {row['id']}: {_rendered(row)}")
+        lines.append(f"- mass {row['id']}: {_rendered(row)}{_band_words(contract, row['id'])}")
     for row in document["mounts"]:
         moment = f", moment {row['moment_nm']:g} N*m" if row["kind"] != "not_scored" else ""
         lines.append(f"- reaction at mount {row['id']}: {_rendered(row)}{moment}")

@@ -88,7 +88,7 @@ def test_readme_quick_start_matches_reality():
     """The top-of-README commands must name a shipped example and the real Python floor."""
     text = README.read_text(encoding="utf-8")
     top = text.split("## Download the app")[0]
-    names = re.findall(r"lockwire start --example (\S+)", top)
+    names = re.findall(r"lockwire start --example ([\w-]+)", top)
     examples = ROOT / "src/lockwire/examples"
     assert names and all(
         (examples / f"{n}.yaml").exists() or (examples / n / "contract.yaml").exists()
@@ -109,5 +109,15 @@ def test_readme_leads_with_your_robot_then_lock_ci_agents():
     ]
     assert [text.index(s) for s in order] == sorted(text.index(s) for s in order)
     assert text.index(order[0]) < text.index("--example")
-    features = text.split("### Features")[1].split("\n\n")[1]
+    features = text.split("\n## Features\n\n")[1].split("\n\n")[0]
     assert features.count("- **") == 4  # check, lock, CI, agents; the rest lives in docs/guides
+
+
+def test_mcp_registry_name_is_the_same_in_every_place():
+    import json
+
+    name = json.loads((ROOT / "server.json").read_text())["name"]
+    assert f"<!-- mcp-name: {name} -->" in README.read_text()
+    runbook = ROOT / "docs/RELEASE-0.5.3.md"  # private: the public copy leaves it out
+    if runbook.exists():
+        assert set(re.findall(r"io\.github\.[\w-]+/lockwire", runbook.read_text())) == {name}

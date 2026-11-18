@@ -7,7 +7,7 @@ because that package must never import lockwire; a test compares the two files.
 Keep it dependency-free and Python 3.10 compatible.
 
 `name[2]` indexes an array. `name[key=value]` indexes it by position of `value`
-in the sibling array `key` — sensor_msgs/JointState keeps `position`,
+in the sibling array `key` - sensor_msgs/JointState keeps `position`,
 `velocity` and `effort` parallel to `name`, so `position[name=knee_joint]`
 survives a driver that reorders its joints. Nothing is ever defaulted: a joint
 that is absent, or an `effort` array the driver leaves empty, is an error.

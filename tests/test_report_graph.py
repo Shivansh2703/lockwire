@@ -1,6 +1,8 @@
 """The saved report carries the graph as a self-contained picture, and none without one."""
 
 import re
+
+from lockwire.copy import label_name
 from pathlib import Path
 
 from lockwire.relevance import robot_graph
@@ -30,7 +32,7 @@ def test_report_graph_places_a_part_right_of_what_feeds_it():
 
     joint = next(n["label"] for n in robot_graph(c)["nodes"] if n["kind"] == "joint")
     link = next(e["to"] for e in robot_graph(c)["edges"] if e["from"] == f"joint:{joint}")
-    assert x(joint) < x(link.split(":", 1)[1])
+    assert x(label_name(joint)) < x(label_name(link.split(":", 1)[1]))  # the graph shows names
 
 
 def test_report_writes_no_graph_section_without_a_graph(empty_budget_contract):

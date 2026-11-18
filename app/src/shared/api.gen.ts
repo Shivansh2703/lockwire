@@ -1,4 +1,4 @@
-// GENERATED — do not edit by hand.
+// GENERATED: do not edit by hand.
 // `uv run lockwire api-types --out app/src/shared/api.gen.ts` regenerates this
 // file from `src/lockwire/api_payload.py`. CI regenerates and diffs on every run;
 // a stale committed file fails the build (packaging/generate-types.md).
@@ -113,6 +113,7 @@ export interface Card {
   owner?: string | null;
   cluster_root?: string | null;
   involves?: (string)[];
+  next_command?: string | null;
 }
 
 export interface CardPin {
@@ -142,6 +143,7 @@ export interface CheckPayload {
   graph?: Graph | null;
   forces: ForceDocument;
   revision?: string | null;
+  missing_inputs?: MissingInputs | null;
 }
 
 export interface CollisionPairRow {
@@ -194,6 +196,7 @@ export interface Counts {
   violation: number;
   warning: number;
   not_scored: number;
+  advice?: number;
 }
 
 export interface DeclareFace {
@@ -317,6 +320,7 @@ export interface Finding {
   stage?: number | null;
   alternatives?: (Alternative)[];
   advice_unsourced?: boolean;
+  unsolved_poses?: (UnsolvedPose)[];
 }
 
 export interface FindingLabel {
@@ -341,6 +345,9 @@ export interface ForceDocument {
   mounts: (ForceFigure)[];
   mount_shapes: (ForceMountShape)[];
   not_scored: (ForceFigure)[];
+  joint_torques?: (JointTorqueRow)[];
+  standing?: (StandingRow)[];
+  stance?: StanceRecord | null;
 }
 
 export interface ForceFigure {
@@ -415,6 +422,17 @@ export interface JointHeadroom {
   ratio: number;
 }
 
+export interface JointTorqueRow {
+  joint: string;
+  peak: number;
+  unit: string;
+  limit: number;
+  headroom: number;
+  pose_deg: Record<string, number>;
+  passed: boolean;
+  loop?: LoopTorque | null;
+}
+
 export interface KitOption {
   id: string;
   name: string;
@@ -440,6 +458,16 @@ export interface LogEntry {
 }
 
 export type LogPayload = (LogEntry)[];
+
+export interface LoopTorque {
+  lowest: number;
+  lowest_pose_deg: Record<string, number>;
+  at_file_pose: number | null;
+  solved: number;
+  total: number;
+  refined: "yes" | "no" | "capped";
+  unsolved_poses: (UnsolvedPose)[];
+}
 
 export interface MaterialCompare {
   link: string;
@@ -475,6 +503,20 @@ export interface MeshGap {
   example: string;
 }
 
+export interface MissingInput {
+  key: string;
+  name: string;
+  covers: string;
+  unlocks: string;
+  how: string;
+  lines: (string)[];
+}
+
+export interface MissingInputs {
+  items: (MissingInput)[];
+  not_declared?: NotDeclared | null;
+}
+
 export interface MotionJoint {
   name: string;
   velocity: (number)[];
@@ -494,6 +536,12 @@ export interface NotCompared {
   quantity: string;
   reason: string;
   next_command: string | null;
+}
+
+export interface NotDeclared {
+  names: (string)[];
+  start: (string)[];
+  first: string | null;
 }
 
 export interface PackedIndices {
@@ -752,6 +800,7 @@ export interface RobotLink {
   name: string;
   position: (number)[];
   solids?: (LinkSolid)[];
+  com?: (number)[] | null;
   mass_note?: string | null;
 }
 
@@ -830,12 +879,54 @@ export interface ScoredRecord {
   expected_quantity?: Quantity | null;
   uncertainty?: Quantity | null;
   detail?: string | null;
+  unsolved_poses?: (UnsolvedPose)[];
 }
 
 export interface SetupGap {
   title: string;
   why: string;
   snippet: string;
+}
+
+export interface StanceCase {
+  case: string;
+  label: string;
+  feet: (string)[];
+  forces: (number)[] | null;
+  note: string;
+}
+
+export interface StanceFoot {
+  name: string;
+  link: string;
+  shape: string;
+  position_m: (number)[];
+  height_range_m: (number)[] | null;
+  fore_aft_travel_m: number | null;
+  swept: string;
+}
+
+export interface StanceRecord {
+  feet: (StanceFoot)[];
+  com_m: (number)[] | null;
+  weight_n: number | null;
+  cases: (StanceCase)[];
+  balance_margin_m: number | null;
+  reason: string | null;
+}
+
+export interface StandingRow {
+  joint: string;
+  case: string;
+  feet: (string)[];
+  leg: string;
+  foot_force_n: number;
+  at_file_nm: number | null;
+  peak_nm: number;
+  peak_pose_deg: Record<string, number>;
+  limit_nm: number;
+  share: number;
+  passed: boolean;
 }
 
 export interface StartPayload {
@@ -911,6 +1002,11 @@ export interface Target {
 export interface TipReadout {
   xyz: (number)[];
   per_unit: (number)[];
+}
+
+export interface UnsolvedPose {
+  reason: "cannot be assembled" | "near lock" | "reached only through a lock" | "pin limit";
+  angles_deg: Record<string, number>;
 }
 
 export interface WhatIfFact {

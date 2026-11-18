@@ -69,15 +69,15 @@ edges:
   - quantity: devices/dev.imu/physical/mass
     tolerance: {rel_pct: 5}
     code: [src/estimation/ekf.cpp]
-    owner: shivansh
+    owner: avery
   - quantity: model/joints/imu_mount/limits/effort
     tolerance: {rel_pct: 5}
     code: [src/control/mount.cpp]
-    owner: shivansh
+    owner: avery
 assumptions:
   - id: asm.mode.ground
     statement: "mode=ground iff weight-on-wheels AND airspeed < 5 m/s"
-    owner: shivansh
+    owner: avery
     last_reviewed: 2026-07-05
 families:
   - id: fam.imu.mems
@@ -149,13 +149,13 @@ devices:
         conditions:
           temp_c: {lo: 18, hi: 24, unit: C}
         provenance:
-          # B113: was witness:live / source:synthetic-bench-bag-001 /
+          # Was witness:live / source:synthetic-bench-bag-001 /
           # bag_sha256: sixty-four zeros — a nonexistent artifact. Restamped
           # as what it always was: hand-authored bench limits (no bag).
           witness: human
           source: author-chosen engineering headroom
           locked_at: 2026-07-28
-          note: "Hand-authored bench-idle temp band [18, 24] C from the M0 stub (785053c). Not fitted to a recording; no live bag exists for this envelope (B101). Formerly claimed witness:live against synthetic-bench-bag-001 with a zero hash — that bag never existed."
+          note: "Hand-authored bench-idle temp band [18, 24] C from an early placeholder. Not fitted to a recording; no live bag exists for this envelope. Formerly claimed witness:live against synthetic-bench-bag-001 with a zero hash — that bag never existed."
       - context: nominal-op
         n: 5999
         n_eff: 5999.0
@@ -231,7 +231,7 @@ devices:
           locked_at: 2026-08-03
           note: "Asserted operating region (2026-08-03): temperature [0, 40] C and altitude [0, 300] m replace fitted temp_c extrema [23.6635, 24.482] C that refused the independent healthy bags/clean_b capture for being 0.05 C cooler than the 30-second baseline—the exact pathology the fitted-tolerance rule exists to remove. These axes preserve the measured 45 C condition_envelope_exit NO-GO; removing them degrades that result to a warning. They are asserted engineering limits, carry no fitted_bands entries, and remain strict: a declaration means exactly what it says."
     depends: [src/estimation/ekf.cpp]
-    owner: shivansh
+    owner: avery
   # Present in every synthetic bag; no physical/power so record-check mass/CG stay stable.
   - id: dev.barometer
     model: mdl.baro.generic
@@ -256,7 +256,7 @@ devices:
           source: author-chosen engineering band around the driver's declared 50 Hz nominal
           locked_at: 2026-08-03
           note: "Asserted cadence band (2026-08-03). It restores strict cadence scoring after it was turned off for fitted bands. Measured reason: main refuses a 21.4 ms gap, while the fitted band let a 457.3 ms gap through. Its endpoints apply the IMU's -10%/+12.5% authored headroom to the declared 50 Hz nominal and were verified against four independent healthy draws with a measured envelope of [46.43, 54.02] Hz. The band is deliberately wider than any observed draw: an asserted engineering limit must not be a same-draw detector."
-    owner: shivansh
+    owner: avery
   - id: dev.gnss
     model: mdl.gnss.generic
     driver:
@@ -269,7 +269,7 @@ devices:
           source: author-chosen engineering headroom
           locked_at: 2026-07-27
           note: "Models expected publish-rate timing tolerance under bounded scheduling jitter for an 8 Hz GNSS; not a live recording and not fitted to silence a finding."
-    owner: shivansh
+    owner: avery
   - id: dev.radio.rfd900
     model: mdl.radio.rfd900
     identity: {bus_ref: bus.serial0, host: nav-computer, serial_number: RFD900X-1234}
@@ -283,10 +283,10 @@ devices:
     power:
       rail: rail.5v
       draw: {value: 2.0, unit: W}
-    owner: shivansh
+    owner: avery
   - id: dev.esc.busless
     model: mdl.esc.generic
-    owner: shivansh
+    owner: avery
 topology:
   hosts:
     - id: nav-computer
@@ -317,13 +317,13 @@ budgets:
     kind: rail_power
     rail: rail.5v
     limit: {value: 5, unit: W}
-    owner: shivansh
+    owner: avery
   - id: bud.mass.devices
     kind: mass_total
     sources: devices
     limit: {value: 0.5, unit: kg}
-    owner: shivansh
+    owner: avery
   - id: bud.endurance
     kind: endurance
     limit: {value: 30, unit: min}
-    owner: shivansh
+    owner: avery

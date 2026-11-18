@@ -68,10 +68,10 @@ def test_quadruped_names_are_human_and_example_plan_is_scored():
     folder = EXAMPLES / "quadruped"
     contract = load_contract(folder / "contract.yaml")
     assert {human_name(d.id) for d in contract.devices} >= {
-        "Motor Front Left Knee",
-        "Motor Hind Right Hip Abduction",
+        "motor front left knee",
+        "motor hind right hip abduction",
     }
-    assert human_name(contract.topology.rails[0].id) == "Bench Supply 24 V"
+    assert human_name(contract.topology.rails[0].id) == "bench supply 24 V"
     report = validate_plan(contract, load_plan(folder / "plan.yaml"))
     assert [o.status for o in report.outcomes] == ["PASS"]  # a jump fits the 30 A supply
 
@@ -109,8 +109,8 @@ def test_arm_starter_has_no_placeholder_mass_and_human_ids():
     assert all(k["mass"]["value"] > 0.001 for k in doc["model"]["links"] if "mass" in k)
     from lockwire.copy import human_name
 
-    assert human_name(doc["topology"]["rails"][0]["id"]) == "Supply 12 V"
-    assert human_name("dev.shoulder-pan-servo") == "Shoulder Pan Servo"
+    assert human_name(doc["topology"]["rails"][0]["id"]) == "supply 12 V"
+    assert human_name("dev.shoulder-pan-servo") == "shoulder pan servo"
 
 
 def test_arm_starter_every_number_has_a_source():
@@ -188,7 +188,7 @@ def test_drone_starter_names_scene_ids_and_plan(tmp_path):
     folder = EXAMPLES / "drone"
     contract = load_contract(folder / "contract.yaml")
     ids = [d.id for d in contract.devices] + [r.id for r in contract.topology.rails]
-    assert human_name("dev.esc.esc-1") == "ESC 1" and human_name("rail.supply-5v") == "Supply 5 V"
+    assert human_name("dev.esc.esc-1") == "ESC 1" and human_name("rail.supply-5v") == "supply 5 V"
     assert not [i for i in ids if re.search(r"\.m\d$|esc\d$|servo-motor|here3|rfd900", i)]
     assert set(ids) <= set(load_scene(folder / "scene.glb").nodes_with_ids)
     assert list(validate_plan(contract, load_plan(folder / "plan.yaml"))) == []  # both steps fit
@@ -215,7 +215,7 @@ def test_humanoid_reads_as_a_robot_with_plain_names():
         parts
     ) >= 40  # one part per drawn link, named as the link
     ids = [x["id"] for x in c["devices"] + c["topology"]["rails"] + c["budgets"]]
-    assert "Legs 12 V" == human_name("rail.legs-12v") and "Left Knee" in human_name(
+    assert "legs 12 V" == human_name("rail.legs-12v") and "left knee" in human_name(
         "dev.servo.left-knee"
     )
     assert not [i for i in ids if i.endswith(("-l", "-r", "-a", "-b")) or "motor-12v" in i]
@@ -505,7 +505,7 @@ def test_arm_power_as_shipped_is_no_go_with_the_three_named_findings(tmp_path):
     assert code == 1 and doc["counts"]["violation"] == 2 and doc["counts"]["warning"] == 2
     assert (
         found["topology/wires/w.servo-feed/ampacity"]["severity"] == "warning"
-    )  # AMP-THIN, sourced 28 AWG row
+    )  # thin wire: the sourced 28 AWG row
     assert {ARM_BROWNOUT, ARM_FUSE, ARM_PIN} <= set(found)
     assert found[ARM_BROWNOUT]["severity"] == found[ARM_FUSE]["severity"] == "violation"
     assert found[ARM_PIN]["severity"] == "warning"

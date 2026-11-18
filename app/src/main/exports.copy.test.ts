@@ -59,7 +59,7 @@ describe("Save a copy keeps the model reachable", { timeout: 90_000 }, () => {
     await saveCopy(own);
     expect(readFileSync(copy, "utf8")).toContain("source: ../orig/testbot.urdf");
     expect(verdict(copy)).toEqual(verdict(own));
-    expect(verdict(own)).toContain("violation,CAD file linked");
+    expect(verdict(own)).toContain("violation,Model file vs the lock");
   });
 
   it("a witnessed model keeps its witness and the original's format", async () => {

@@ -29,7 +29,7 @@ function appSourceFiles(): string[] {
     .map((e) => join(e.parentPath, e.name));
 }
 
-describe("client.ts is typed only off api.gen.ts (e2-b's charter, finished by e2-b2)", () => {
+describe("client.ts is typed only off api.gen.ts", () => {
   it("test_every_union_member_is_reachable_from_the_client_type", async () => {
     const seen: Array<[string, unknown]> = [];
     const dispatch: CommandDispatcher = async (command, args) => {
@@ -70,7 +70,7 @@ describe("client.ts is typed only off api.gen.ts (e2-b's charter, finished by e2
 
   it("test_the_generated_file_carries_its_do_not_edit_sentinel", () => {
     const generated = readFileSync(join(SHARED, "api.gen.ts"), "utf8");
-    expect(generated).toContain("// GENERATED — do not edit by hand.");
+    expect(generated).toContain("// GENERATED: do not edit by hand.");
   });
 
   it("test_no_hand_written_reply_interface_exists_in_the_app", () => {

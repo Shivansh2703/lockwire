@@ -65,7 +65,7 @@ def test_record_persists_event_and_leaves_contract_bytes_untouched(tmp_path):
     assert "budgets/bud.mass.devices" in _paths(routing)
     assert "model" in _paths(routing)
     mass = next(e for e in routing.touched if e.path == "budgets/bud.mass.devices")
-    assert mass.owner == "shivansh"
+    assert mass.owner == "avery"
     assert routing.undetermined  # bus/rail unbound on a device addition
 
 
@@ -97,7 +97,7 @@ def test_device_binding_routes_bus_rail_and_power_budgets(clean_contract):
     assert "budgets/bud.mass.devices" in paths
     assert "devices/dev.imu/physical/mass" in paths
     power = next(e for e in routing.touched if e.path == "budgets/bud.power.rail5v")
-    assert power.owner == "shivansh"
+    assert power.owner == "avery"
     assert routing.undetermined == []
 
 
@@ -161,6 +161,6 @@ def test_mutation_bite_mass_budget_routing_is_required(clean_contract):
     event = build_event("added FLIR, 42 g, nose mount", recorded_at=FIXED_AT)
     routing = route_event(clean_contract, event)
     assert any(
-        entry.path == "budgets/bud.mass.devices" and entry.owner == "shivansh"
+        entry.path == "budgets/bud.mass.devices" and entry.owner == "avery"
         for entry in routing.touched
     )

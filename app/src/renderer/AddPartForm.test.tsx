@@ -74,7 +74,7 @@ describe("AddPartForm catalog picker", () => {
     expect(container.textContent).not.toContain("No rail matches");
     pickPart("cat.mystery");
     expect(railValue()).toBe("");
-    expect(container.textContent).toContain("No rail matches this part's voltage — pick one");
+    expect(container.textContent).toContain("No rail matches this part's voltage. Pick one.");
   });
 });
 
@@ -313,7 +313,7 @@ describe("AddPartForm Structure tab (LIB-4)", () => {
   });
 });
 
-describe("AddPartForm attaches a component at a typed position (CAD-05)", () => {
+describe("AddPartForm attaches a component at a typed position", () => {
   const mk = (id: string, frames?: string[]) => ({ id, name: id, numbers: [{ key: "draw_max", value: 7, unit: "W", kind: "datasheet" as const, source: "s" }], fits: ["rail.5v"], ...(frames && { frames }) });
   const mount = (onAdd = vi.fn().mockResolvedValue({ written: true })) => {
     container = document.createElement("div");
@@ -388,7 +388,7 @@ describe("AddPartForm attaches a component at a typed position (CAD-05)", () => 
   });
 });
 
-describe("structureFields (CAD-05)", () => {
+describe("structureFields", () => {
   const base = { kind: "attach" as const, part: "dyn.ax-12a", name: "ax_12a", dimensions: {}, material: "", parent: "arm", xyz: [0.01, 0, 0] as [number, number, number], witness: "Maya" };
   it("passes the frame id to the engine, which applies the frame's orientation", () => {
     expect(structureFields({ ...base, frame: "horn" })).toMatchObject({ part: "dyn.ax-12a", frame_id: "horn", frame: { xyz: [0.01, 0, 0] }, parent: "arm" });
@@ -398,7 +398,7 @@ describe("structureFields (CAD-05)", () => {
   });
 });
 
-describe("attachAfterDevice (CAD-05)", () => {
+describe("attachAfterDevice", () => {
   const attach = { kind: "attach" as const, part: "dyn.ax-12a", name: "ax_12a", dimensions: {}, material: "", parent: "arm", xyz: [0, 0, 0] as [number, number, number], witness: "Maya" };
   const run = (written: boolean, railMade: boolean, undoOk = true) => {
     const write = vi.fn().mockResolvedValue({ written, refusal: written ? null : "No link arm" });

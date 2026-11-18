@@ -1,4 +1,4 @@
-"""`check --format csv|tsv` and the app's `findings-export` route (FIND-EXP)."""
+"""`check --format csv|tsv` and the app's `findings-export` route."""
 
 import csv
 import hashlib
@@ -15,7 +15,13 @@ from lockwire.serve import create_app
 X500 = Path(__file__).parent / "fixtures" / "x500" / "contract.yaml"
 COLUMNS = ["severity", "about", "observed", "expected", "units", "source", "action"]
 # sha256 of `check contract.yaml --json -` run from the x500 folder, taken BEFORE this change.
-JSON_PINNED = "54e5352158d7823c455842f22138908d0936c594ddfbec4ae4e51a8184370107"
+# Re-pinned 2026-11-16: six changes each added or reworded output on purpose (loop wording,
+# JSON loop output, CLI words, sweep load, mass description, what is missing); verdict and findings unchanged.
+# Re-pinned 2026-11-17: the stance check reworded forces.stance.reason (feet by link name); no other field moved.
+# Re-pinned 2026-11-17 (R3-CORE): counts gained "advice" (findings listed but never counted); no other byte moved.
+# Re-pinned 2026-11-18 (ALL-INTEGRATE): the data branch's x500 rewording (revision) and the engine's restored 0.5.1 observed text together.
+# Re-pinned 2026-11-18 (ALL-FINAL): stored text back to the plain words ("no model file in provenance").
+JSON_PINNED = "31347afa17efa7d9193502f685214a357405061e35bee8f91888b3ad9e3b1a22"
 
 
 def _table(delimiter, fmt):
@@ -60,3 +66,13 @@ def test_route_returns_the_same_rows_as_the_csv():
     assert got == table[2:]
     assert list(csv.reader(io.StringIO(payload["text"])))[2:] == table[2:]
     assert payload["rows"][0]["plain"].startswith("PM02 5 V power budget: observed 35.20 W")
+
+
+def test_csv_human_columns_use_the_text_words_not_raw_keys(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(app, ["start", "--example", "arm-power", "--no-check"])
+    out = CliRunner().invoke(app, ["check", "--all", "--format", "csv"]).stdout
+    raw = ("wire ampacity", "free_air", "Discharge temp c", "a device thermal ambient", "GO_WITH")
+    human = [c for row in list(csv.reader(io.StringIO(out)))[1:] for c in row[1:4]]
+    assert [w for w in raw if any(w in c for c in human)] == [], out
+    assert "28 AWG in free air" in out and "Pack temperature window" in out

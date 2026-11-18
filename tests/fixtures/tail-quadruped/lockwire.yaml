@@ -1,0 +1,465 @@
+schema_version: '0.7'
+robot:
+  name: q
+model:
+  source: quad.urdf
+  source_sha256: 577499bdf549fb1d050a8a4acc676b4fd091064d618e5d7dc679680bb1e98f6a
+  structure_hash: daf3d33b02d3f645bc68052292f2f643fbe1809e3f969136a7769f06ba04f7e2
+  external_assets: []
+  mesh_refs: []
+  links:
+    - name: base
+      mass:
+        value: 12.0
+        unit: kg
+      com:
+        - 0.0
+        - 0.0
+        - 0.0
+      frame: base
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: tail
+      mass:
+        value: 0.05
+        unit: kg
+      com:
+        - -0.05
+        - 0.0
+        - 0.0
+      frame: tail
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: thigh_fl
+      mass:
+        value: 0.2
+        unit: kg
+      com:
+        - 0.0
+        - 0.0
+        - -0.05
+      frame: thigh_fl
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: shin_fl
+      mass:
+        value: 0.1
+        unit: kg
+      com:
+        - 0.025
+        - 0.0
+        - -0.05
+      frame: shin_fl
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: thigh_fr
+      mass:
+        value: 0.2
+        unit: kg
+      com:
+        - 0.0
+        - 0.0
+        - -0.05
+      frame: thigh_fr
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: shin_fr
+      mass:
+        value: 0.1
+        unit: kg
+      com:
+        - 0.025
+        - 0.0
+        - -0.05
+      frame: shin_fr
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: thigh_rl
+      mass:
+        value: 0.2
+        unit: kg
+      com:
+        - 0.0
+        - 0.0
+        - -0.05
+      frame: thigh_rl
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: shin_rl
+      mass:
+        value: 0.1
+        unit: kg
+      com:
+        - 0.025
+        - 0.0
+        - -0.05
+      frame: shin_rl
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: thigh_rr
+      mass:
+        value: 0.2
+        unit: kg
+      com:
+        - 0.0
+        - 0.0
+        - -0.05
+      frame: thigh_rr
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+    - name: shin_rr
+      mass:
+        value: 0.1
+        unit: kg
+      com:
+        - 0.025
+        - 0.0
+        - -0.05
+      frame: shin_rr
+      inertia:
+        moments_kgm2:
+          - 0.001
+          - 0.001
+          - 0.001
+        axes:
+          -   - 1.0
+              - 0.0
+              - 0.0
+          -   - 0.0
+              - 1.0
+              - 0.0
+          -   - 0.0
+              - 0.0
+              - 1.0
+  joints:
+    - name: tail_joint
+      type: revolute
+      parent: base
+      child: tail
+      origin:
+        xyz:
+          - -0.14
+          - 0.0
+          - 0.0
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 2.0
+        velocity: 9.0
+    - name: hip_fl
+      type: revolute
+      parent: base
+      child: thigh_fl
+      origin:
+        xyz:
+          - 0.1
+          - 0.05
+          - 0.0
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 1.2
+        velocity: 9.0
+    - name: knee_fl
+      type: revolute
+      parent: thigh_fl
+      child: shin_fl
+      origin:
+        xyz:
+          - 0.0
+          - 0.0
+          - -0.1
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 50.0
+        velocity: 9.0
+    - name: hip_fr
+      type: revolute
+      parent: base
+      child: thigh_fr
+      origin:
+        xyz:
+          - 0.1
+          - -0.05
+          - 0.0
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 1.2
+        velocity: 9.0
+    - name: knee_fr
+      type: revolute
+      parent: thigh_fr
+      child: shin_fr
+      origin:
+        xyz:
+          - 0.0
+          - 0.0
+          - -0.1
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 50.0
+        velocity: 9.0
+    - name: hip_rl
+      type: revolute
+      parent: base
+      child: thigh_rl
+      origin:
+        xyz:
+          - -0.1
+          - 0.05
+          - 0.0
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 1.2
+        velocity: 9.0
+    - name: knee_rl
+      type: revolute
+      parent: thigh_rl
+      child: shin_rl
+      origin:
+        xyz:
+          - 0.0
+          - 0.0
+          - -0.1
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 50.0
+        velocity: 9.0
+    - name: hip_rr
+      type: revolute
+      parent: base
+      child: thigh_rr
+      origin:
+        xyz:
+          - -0.1
+          - -0.05
+          - 0.0
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 1.2
+        velocity: 9.0
+    - name: knee_rr
+      type: revolute
+      parent: thigh_rr
+      child: shin_rr
+      origin:
+        xyz:
+          - 0.0
+          - 0.0
+          - -0.1
+        rpy:
+          - 0.0
+          - 0.0
+          - 0.0
+      axis:
+        - 0.0
+        - 1.0
+        - 0.0
+      limits:
+        lower: -1.0
+        upper: 1.0
+        effort: 50.0
+        velocity: 9.0
+  zero_mass_links: []
+  provenance:
+    witness: w2
+    source: quad.urdf
+    locked_at: '2026-11-16'
+edges: []
+assumptions: []
+families: []
+device_models: []
+devices: []
+budgets: []
+gearboxes: []
+fitted_band_allocations: []
+actuator_cases: []
+servo:
+  tail_joint: dynamixel.ax-12a

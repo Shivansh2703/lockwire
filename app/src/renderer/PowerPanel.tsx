@@ -13,7 +13,6 @@ type Stress = NonNullable<PagePayload["power_stress"]>[number];
 type Pack = NonNullable<PagePayload["power_pack"]>;
 
 const n = (v: number, d = 1) => Number(v.toFixed(d)).toString();
-const volts = (v: number | null) => (v === null ? "unknown" : `${n(v)} V`);
 
 /** One stage: its voltage in and out, the current it carries, its efficiency and the heat it loses. */
 function StageCard({ s, shown, onShow, onDeclare }: { s: Stage; shown: boolean; onShow: () => void; onDeclare?: (path: string, value: string, source: string) => Promise<string | null> }) {
@@ -30,8 +29,8 @@ function StageCard({ s, shown, onShow, onDeclare }: { s: Stage; shown: boolean; 
     <div className="power-stage" tabIndex={0} aria-label={s.label} onMouseEnter={onShow} onFocus={onShow}
       style={{ flex: "0 0 168px", display: "flex", flexDirection: "column", gap: 4, padding: 10, border: `1px solid ${shown ? "var(--accent)" : "var(--line)"}`, borderRadius: "var(--radius-sm)", background: "var(--surface)", font: "400 13px var(--sans)" }}>
       <strong>{s.label}</strong>
-      <span>{volts(s.volts_in)} in, {volts(s.volts_out)} out</span>
-      <span>{s.amps_out === null ? "Current unknown" : `${n(s.amps_out, 2)} A out`}</span>
+      <span>{s.volts_in === null ? "Voltage in not declared" : `${n(s.volts_in)} V in`}, {s.volts_out === null ? "voltage out not declared" : `${n(s.volts_out)} V out`}</span>
+      <span>{s.amps_out === null ? "Current not declared" : `${n(s.amps_out, 2)} A out`}</span>
       <span>Efficiency {n(s.efficiency * 100)} %</span>
       <span style={{ font: "600 15px var(--sans)", color: s.watts_lost > 0 ? "var(--warn)" : "var(--ink)" }}>{n(s.watts_lost, 2)} W lost as heat</span>
       <span className="assistant-note">{n(s.watts_in, 2)} W in, {n(s.watts_out, 2)} W out</span>

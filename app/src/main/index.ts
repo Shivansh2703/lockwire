@@ -46,7 +46,7 @@ function createWindow(hidden: boolean, onRendererLoaded?: () => void): BrowserWi
     });
   }
   void win.loadURL(rendererUrl());
-  // e9-join: push every sidecar state change to this window (FailureBanner/CheckFace's
+  // Push every sidecar state change to this window (FailureBanner/CheckFace's
   // side of the same bridge that "sidecar:state"/"sidecar:restart" answer on request).
   const stopForwarding = forwardSidecarState(win);
   win.once("closed", () => { stopForwarding(); killTerminal(); });

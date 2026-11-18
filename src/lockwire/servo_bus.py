@@ -20,6 +20,7 @@ each, raw register values, vendor scaling 1/4 and 1/8 not applied). SCS gains ar
 
 import json
 import math
+import os
 import time
 from pathlib import Path
 
@@ -56,7 +57,14 @@ def _port_open(port: str, baud: int):
         import serial
     except ImportError as error:
         raise RuntimeError("servo recording needs pyserial: pip install 'lockwire[bus]'") from error
-    return serial.Serial(port, baud, timeout=0.05)
+    try:
+        return serial.Serial(port, baud, timeout=0.05)
+    except serial.SerialException as error:  # its text carries "[Errno 2]" and a repr
+        why = os.strerror(error.errno).lower() if error.errno else "it did not open"
+        raise RuntimeError(
+            f"could not open port {port} ({why}): check the adapter is plugged in, "
+            "the port name, and that no other program has it open"
+        ) from error
 
 
 def _txrx(ser, servo_id: int, instr: int, params: bytes = b"") -> bytes | None:

@@ -4,7 +4,7 @@ with it.
 
 **What the sweep proves.** Two things, both structural — commands come from
 `typer.main.get_command(app)` and tools from a running `build_server()`, never
-a hand-written name list (three boxes bounced tonight for exactly that):
+a hand-written name list (such a list goes stale):
 
 1. Every word the design *fixes* — the five verdict words and their exit codes, the reserved word `STOP` — appears, spelled exactly, on every
    surface that is supposed to carry it: every gated CLI command's `--help`
@@ -15,7 +15,7 @@ a hand-written name list (three boxes bounced tonight for exactly that):
    tool's name/description — scoped to those surfaces specifically, not a
    whole-text scan: "pass" and "fail" are ordinary English (a flag's help
    text says a value can "pass ... everywhere"; whole-text scanning them
-   drowns in exactly the false positives this file's brief warned against),
+   drowns in exactly the false positives this check is built to avoid),
    so a naive substring-anywhere ban is not the invariant this proves.
 
 **What it does not prove.** It does not prove no surface ever uses a banned
@@ -100,7 +100,7 @@ _FIXED_WORD_FOR_EXIT_CODE = {0: "GO", 1: "NO-GO", 3: "NOT SCORED"}
 
 def test_mcp_tool_surface_has_no_banned_synonym_or_stop():
     """Tool names and descriptions, off a running server (never a hardcoded
-    tool-name list — three boxes bounced tonight on exactly that). Mutation
+    tool-name list — such a list goes stale). Mutation
     bite: append "STOP" to one tool's docstring and this goes red."""
     tools = _mcp_tools()
     assert tools, "no MCP tools found — server introspection broke"
@@ -139,7 +139,7 @@ def test_mcp_check_contract_payload_verdict_is_an_exact_ruled_word(tmp_path):
         "    kind: rail_power\n"
         "    rail: rail.5v\n"
         "    limit: {value: 15.6, unit: W}\n"
-        "    owner: shivansh\n"
+        "    owner: avery\n"
     )
 
     async def run():
@@ -159,7 +159,7 @@ def test_mcp_check_contract_payload_verdict_is_an_exact_ruled_word(tmp_path):
 CLI_PATH = Path(__file__).resolve().parent.parent / "src" / "lockwire" / "cli.py"
 
 #: the hardcoded finding string `start` prints when a scene mesh cannot be
-#: resolved (cli.py, surface #5 of the six the TODO row names).
+#: resolved (cli.py).
 
 
 def _words_md_start_section() -> str:

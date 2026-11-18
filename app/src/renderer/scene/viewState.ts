@@ -10,7 +10,7 @@ import type { ScenePart } from "./buildScene";
 import type { CameraView } from "../shortcuts";
 import { getSelectedGroup, getSelectedPartId } from "./selectionStore";
 
-/** TEAM-02: an older revision laid over this one. Drawn only; the Pro diff fills it, nothing else writes it. */
+/** An older revision laid over this one. Drawn only; the Pro diff fills it, nothing else writes it. */
 export interface Comparison {
   /** The older revision's sha: which history row is showing. */
   sha: string;
@@ -23,7 +23,7 @@ export interface Comparison {
 export interface ViewState { hidden: string[]; only: string[]; seeThrough: boolean; wireframe: boolean; frames: boolean; com: boolean; ortho: boolean;
   /** POSE-1: each posed joint's value, radians or metres. For viewing only; never written anywhere. */
   pose: Record<string, number>;
-  /** TEAM-02: the version diff, or null. */
+  /** The version diff, or null. */
   compare: Comparison | null }
 export type ViewAction = "hide" | "only" | "seeThrough" | "wireframe" | "frames" | "ortho" | "showAll";
 
@@ -81,6 +81,6 @@ export function setJointPose(j: Pick<RobotJoint, "name" | "type" | "lower" | "up
   const { [j.name]: _drop, ...rest } = state.pose;
   set({ ...state, pose: v === 0 ? rest : { ...rest, [j.name]: v } });
 }
-/** TEAM-02: lay an older revision over this one (null clears it). */
+/** Lay an older revision over this one (null clears it). */
 export const setComparison = (compare: Comparison | null): void => set({ ...state, compare });
 export const zeroPose = (): void => set({ ...state, pose: {} });

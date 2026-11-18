@@ -35,7 +35,7 @@ device_models:
 devices:
   - id: dev.fore
     model: mdl.mass
-    owner: shivansh
+    owner: avery
     physical:
       mass: {value: 2.0, unit: kg}
       mount_frame: base
@@ -45,7 +45,7 @@ devices:
         - {value: 0.0, unit: m}
   - id: dev.aft
     model: mdl.mass
-    owner: shivansh
+    owner: avery
     physical:
       mass: {value: 6.0, unit: kg}
       mount_frame: base
@@ -58,4 +58,4 @@ budgets:
     kind: mass_total
     sources: devices
     limit: {value: 10, unit: kg}
-    owner: shivansh
+    owner: avery

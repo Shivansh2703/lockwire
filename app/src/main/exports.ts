@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import { BrowserWindow, dialog, shell } from "electron";
+import { BrowserWindow, dialog, session, shell } from "electron";
 
 import { pickSaveTarget } from "./dialogs";
 import { runSidecarCommand } from "./ipcKit";
@@ -34,6 +34,11 @@ async function fail(title: string, detail: string): Promise<void> {
   await dialog.showMessageBox({ type: "error", message: title, detail });
 }
 
+/** In memory (no "persist:"), never the default session. */
+export const PDF_PARTITION = "lockwire-report-pdf";
+/** The report's own inline script and style run; nothing else loads and nothing connects. */
+export const PDF_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'";
+
 /** The CLI's own HTML report, printed to PDF by a hidden window. Bytes only reach `out` once the PDF exists. */
 async function writeReportPdf(contract: string, out: string): Promise<void> {
   let tmp = "";
@@ -41,7 +46,13 @@ async function writeReportPdf(contract: string, out: string): Promise<void> {
   try {
     tmp = mkdtempSync(join(tmpdir(), "lockwire-pdf-"));
     const html = join(tmp, "report.html");
-    win = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    // Its own session: the app's session-wide CSP (security.ts, script-src 'self') blocks the report's inline
+    // script, which draws the findings, budgets and what adds up; printed under it, the PDF held only their titles.
+    const ses = session.fromPartition(PDF_PARTITION);
+    ses.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [PDF_CSP] } }));
+    ses.setPermissionRequestHandler((_w, _p, callback) => callback(false));
+    ses.setPermissionCheckHandler(() => false);
+    win = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, session: ses } });
     await promisify(execFile)(resolveSidecarCommand().command, ["report", contract, "--out", html], { env: scrubChildEnv(process.env), timeout: 60_000 });
     await win.loadFile(html);
     writeFileSync(out, await win.webContents.printToPDF({ printBackground: true }));

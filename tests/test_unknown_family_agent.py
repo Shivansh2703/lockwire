@@ -1,4 +1,4 @@
-"""The family the app's power-tree cards give a new model (agent.ts UNCLASSIFIED_FAMILY) must
+"""The family the app's power-tree cards give a new model (assistantDesign.ts UNCLASSIFIED_FAMILY) must
 not trip a keyword check: the servo-bus check reads model id plus family text."""
 
 from lockwire.checks import SERVO_BROADCAST_ID, check_servo_bus

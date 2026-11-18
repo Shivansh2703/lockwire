@@ -1,10 +1,10 @@
 /**
  * Runs the REAL `Canvas` + `DesignLens` mount inside a hidden Electron `BrowserWindow`, clicks a
- * real lens tab, and reads back the framebuffer with `gl.readPixels` — the only way to prove a
+ * real lens tab, and reads back the framebuffer with `gl.readPixels`: the only way to prove a
  * lens actually changed what is DRAWN rather than merely which state variable holds its id
- * (never a screenshot, never a window on the owner's screen). `lenses.e2e.test.ts`
+ * (never a screenshot, never a window on the user's screen). `lenses.e2e.test.ts`
  * bundles this file with esbuild for the renderer side, spawns the real electron binary,
- * and reads the JSON line this script writes to stdout — same idiom as
+ * and reads the JSON line this script writes to stdout: same idiom as
  * `e2e-pixel-check.ts`.
  */
 import { app, BrowserWindow } from "electron";

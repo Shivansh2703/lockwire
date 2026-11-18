@@ -154,8 +154,11 @@ describe("PlanFace", () => {
     for (const part of ["joint missing", "declared joint", "model/arm.urdf", "model owner", "declare joint", "use elbow joint"]) expect(text).toContain(part);
     expect(container.querySelector(".plan-finding [data-kind]")?.getAttribute("data-kind")).toBe("model");
     render({ ...PAYLOAD, findings: [{ ...FINDING, source: null, witness: null }] });
-    expect(container.querySelector(".plan-finding")?.textContent).toContain("source unknown");
-    expect(container.querySelector(".plan-finding")?.textContent).toContain("unknown");
+    expect(container.querySelector(".plan-finding")?.textContent).toContain("no source recorded");
+    expect(container.querySelector(".plan-finding")?.textContent).toContain("Checked byno name on record");
+    expect(container.querySelector(".plan-finding")?.textContent).not.toContain("Checked byunknown");
+    render({ ...PAYLOAD, findings: [{ ...FINDING, witness: "w0" }] });
+    expect(container.querySelector(".plan-finding")?.textContent).toContain("Checked bynone named (declared, not measured)");
   });
 
   it("jumps to the docs only through the quiet View citation button", () => {

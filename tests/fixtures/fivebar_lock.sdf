@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!-- Synthetic: a five-bar with hips far wider than its linkage can follow. Hips at x = +/-0.03,
+     cranks 0.05 long (3-4-5 from vertical), tips at x = +/-0.06, z = -0.04; closing bars 0.13
+     (right) and 0.10 (left) meeting at the apex (-0.02875, -0.04 - 0.09499177596). The loop closes
+     only while the tips are between 0.13 - 0.10 = 0.03 and 0.13 + 0.10 = 0.23 apart, so some
+     corners of the +/-1.5 rad hip grid cannot close (tests/test_checks.py works them out). -->
+<sdf version="1.7">
+  <model name="fivebar_lock">
+    <link name="base"/>
+    <link name="crank_r"><pose>0.03 0 0 0 0 0</pose></link>
+    <link name="crank_l"><pose>-0.03 0 0 0 0 0</pose></link>
+    <link name="lower_r"><pose>0.06 0 -0.04 0 0 0</pose></link>
+    <link name="lower_l"><pose>-0.06 0 -0.04 0 0 0</pose><inertial><pose>0.03125 0 -0.09499177596 0 0 0</pose><mass>1</mass></inertial></link>
+    <joint name="a" type="revolute">
+      <parent>base</parent><child>crank_r</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>0</lower><upper>0.8</upper><effort>5</effort><velocity>8</velocity></limit></axis>
+    </joint>
+    <joint name="b" type="revolute">
+      <parent>base</parent><child>crank_l</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-1.4</lower><upper>-0.9</upper><effort>5</effort><velocity>8</velocity></limit></axis>
+    </joint>
+    <joint name="elbow_r" type="revolute">
+      <parent>crank_r</parent><child>lower_r</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-3.1</lower><upper>3.1</upper><velocity>20</velocity></limit></axis>
+    </joint>
+    <joint name="elbow_l" type="revolute">
+      <parent>crank_l</parent><child>lower_l</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-3.1</lower><upper>3.1</upper><velocity>20</velocity></limit></axis>
+    </joint>
+    <joint name="closure" type="revolute">
+      <parent>lower_r</parent><child>lower_l</child>
+      <pose>0.03125 0 -0.09499177596 0 0 0</pose>
+      <axis><xyz>0 1 0</xyz></axis>
+    </joint>
+  </model>
+</sdf>

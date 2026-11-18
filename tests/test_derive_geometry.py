@@ -265,7 +265,7 @@ def test_describe_shows_the_marker_for_a_derived_mass_only_and_save_never_writes
     assert "derived from its shapes" not in describe_system(load_contract(path))
 
 
-# ---- PARAM-NEG: "-name" is minus the param
+# ---- negative params: "-name" is minus the param
 
 
 def _neg(tmp_path, monkeypatch, **kw):

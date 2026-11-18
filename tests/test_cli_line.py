@@ -23,6 +23,7 @@ import subprocess
 from pathlib import Path
 import typer.main
 from typer.testing import CliRunner
+from lockwire.agent_setup import GUARD
 from lockwire.cli import app
 from lockwire.cli_line import cli_line
 
@@ -72,7 +73,7 @@ def test_values_with_spaces_and_quotes_round_trip():
 
 
 def test_add_device_line_replays_byte_identical(tmp_path):
-    """The box's own accept line: the printed `ran:` line for `add device`,
+    """The accept line: the printed `ran:` line for `add device`,
     with the target path swapped, replays to a byte-identical file — proving
     every value flag (including one with a space) survives the round trip.
     """
@@ -139,7 +140,7 @@ def test_only_one_cli_line_builder_exists():
 # --------------------------------------------------------------------------
 # The rule, not one replayed command .
 #
-# Round 1 tested `add device` and `add rail` and passed 24/24 value flags —
+# The first test covered `add device` and `add rail` and passed 24/24 value flags —
 # and three commands that nobody wrote a replay test for dropped four flags
 # between them: `scene import` lost `--package-root`, `declare` lost `--note`
 # and `--locked-at`, `apply` lost `--dry-run`. A replay test proves the
@@ -366,6 +367,6 @@ def test_no_hint_in_checks_page_or_agent_rules_names_a_bare_lockwire():
         hits = [
             n.lineno for n in ast.walk(tree)
             if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs
-            and bare.search(n.value) and "re-run lockwire agent-setup" not in n.value  # GUARD
+            and bare.search(n.value) and n.value not in GUARD  # the hook's shell text
         ]  # fmt: skip
         assert not hits, f"{name} lines {hits}: build the hint with cli_line('lockwire', ...)"

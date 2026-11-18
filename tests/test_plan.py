@@ -311,7 +311,7 @@ def test_not_scored_reasons_name_the_real_cause(x500_contract):
         ]
     )
     reasons = [f.action for f in _not_scored(validate_plan(x500_contract, plan))]
-    assert reasons[0] == "This robot has no rail named Ghost"
+    assert reasons[0] == "This robot has no rail named ghost"
     assert reasons[1].endswith("has no power modes declared")
 
 
@@ -438,7 +438,7 @@ def test_set_power_mode_on_unknown_draw_rail_is_not_scored():
     """The SetPowerMode half of the same gap: pinning one device's mode on
     a rail that also carries an undeclared-draw device must be not_scored, not
     a scored peak. Bites dropping the unknown set from
-    `_rail_worst_w_with_device_pinned`, whose only caller is this branch."""
+    `_rail_worst_w_with_device_pinned`, whose only caller is `validate_plan`."""
     contract = Contract(
         robot=RobotInfo(name="rigtest"),
         devices=[
@@ -1347,3 +1347,12 @@ def test_validate_plan_surfaces_trapezoid_warning():
     contract = load_contract(EXAMPLES / "arm" / "contract.yaml").model_copy(update={"model": _arm_with_limits()})
     report = validate_plan(contract, _moves((0.0, 5), (3.0, 1.0)))
     assert any(f.quantity == "plan/segments/1/duration_s" for f in report)
+
+
+def test_joint_findings_carry_units_and_name_a_servo_map_entry(tmp_path: Path):
+    runner.invoke(app, ["start", "--example", "servo-bench", "--no-check", "--out", str(tmp_path / "l.yaml")])
+    plan = tmp_path / "plan.yaml"
+    plan.write_text("steps:\n  - kind: joint_target\n    joint: wrist\n    velocity: 99.0\n    effort: 0.1\n")
+    out = runner.invoke(app, ["plan", str(tmp_path / "l.yaml"), str(plan)]).output
+    assert "observed 99.0 rad/s, expected <= 3.0 rad/s" in " ".join(out.split())
+    assert "servo map names feetech.scs0009 for this joint" in " ".join(out.split())

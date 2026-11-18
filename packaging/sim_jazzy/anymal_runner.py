@@ -1,4 +1,4 @@
-"""Baked into the E5.10 sim-jazzy image at /opt/lockwire.
+"""Baked into the sim-jazzy image at /opt/lockwire.
 
 The ANYmal-only parts of the old run_e5_10.py scaffold (prepare_anymal,
 build_squat_trajectory_yaml), turned into a small CLI so run-admission.sh can

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs only inside the fixed E5.10 sim-jazzy image. Host isolation (--network
+# Runs only inside the fixed sim-jazzy image. Host isolation (--network
 # none, --read-only, --tmpfs /tmp /root) is owned by jobs.py's
 # build_motion_argv, not this script.
 set -euo pipefail
@@ -69,7 +69,7 @@ PY
 }
 trap finish EXIT
 
-fixtures=/opt/lockwire/e5_10_real_scenarios
+fixtures=/opt/lockwire/real_scenarios
 case "$scenario" in
   anymal_d_effort_squat|anymal_d_controller_disabled_negative|px4_x500_takeoff_hover_land) ;;
   *) echo "scenario must be anymal_d_effort_squat, anymal_d_controller_disabled_negative or px4_x500_takeoff_hover_land" >&2; exit 64;;

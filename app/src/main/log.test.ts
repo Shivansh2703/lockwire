@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // `new URL("./x", import.meta.url)` throws "URL must be of scheme file" under this
-// worktree's jsdom test environment -- reproduces even on the unmodified, already-merged
-// sidecar.test.ts, so it's an environment defect, not this box's. createRequire's own
+// repo's jsdom test environment -- reproduces even on the unmodified
+// sidecar.test.ts, so it's an environment defect, not this test's. createRequire's own
 // resolution is unaffected (proven by the already-passing electron-binary.test.ts), so
 // it's the workaround used below instead of touching sidecar.test.ts.
 const require = createRequire(import.meta.url);
@@ -37,7 +37,7 @@ function readLog(): string {
   return readFileSync(log.logFilePath(), "utf8");
 }
 
-describe("the main-process log (e2-h)", () => {
+describe("the main-process log", () => {
   it("test_the_log_dir_follows_user_data_dir_when_the_flag_is_given", () => {
     userDataFlag = true;
     try {

@@ -15,12 +15,12 @@ A check with nothing to compare says so under "Not compared yet" instead of pass
 - **`model_checks_skipped`**: One line, not silence, when the URDF-reading checks cannot run on this lock.
 - **`urdf_sanity`**: Structural mistakes a tolerant lock accepted: inverted or missing limits, non-unit axes, loops, mimic ranges past the follower's limits, mesh name clashes.
 - **`link_values`**: Link values no simulator accepts: a NaN or negative mass, a mass with no inertia, a mesh scale that is NaN, zero or not three numbers.
-- **`urdf_drift`**: Compare the contract's structure_hash against the on-disk URDF.
-- **`model_values`**: Locked link mass / COM / principal inertia vs the on-disk URDF or SDF.
+- **`urdf_drift`**: Compare the links and joints recorded in the lockfile with the model file on disk.
+- **`model_values`**: Locked link mass (inside its `mass_tolerance` band when it has one) / COM / principal inertia vs the on-disk URDF or SDF.
 - **`mesh_drift`**: Mesh file/scale per link, then recorded mesh bytes, vs the on-disk model.
-- **`zero_mass`**: Missing or non-positive link mass is derived from the canonical link records so a stale zero_mass_links cache cannot hide incomplete inertia.
+- **`zero_mass`**: A link with no mass, or a mass of zero or less, read from the link records themselves, so no link is left out of the inertia.
 - **`floating_mass`**: Warns about a link with weight that no joint ties to the robot's main body.
-- **`unusable_effort`**: a model joint effort <= 0 is unset, not a limit; warn on a fresh check.
+- **`unusable_effort`**: A model joint effort of 0 or less is unset, not a limit; warn on a fresh check.
 - **`inertia_valid`**: Principal moments must be non-negative and obey a <= b + c.
 - **`duplicate_inertial`**: A link carrying the same inertial as the link it is fixed to double-counts its mass.
 - **`mirror`**: Joints and links named as left/right twins must agree on effort, velocity, mass, inertia.
@@ -31,13 +31,13 @@ A check with nothing to compare says so under "Not compared yet" instead of pass
 - **`controller_limits`**: A ros2_control/MoveIt joint_limits.yaml wider than the URDF limits.
 - **`mechanisms`**: Does a joint declared to spin all the way round actually have the geometry to?
 - **`scene_placement`**: Compare a device's declared `mount_xyz` to where the scene actually put it.
-- **`control_joint_names`**: ros2_control and transmission blocks naming a joint the model lacks, or commanding a fixed or mimic joint.
+- **`control_joint_names`**: Control blocks (ros2_control, transmissions) that name a joint the model lacks, or command a fixed or mimic joint.
 - **`optical_frames`**: A camera's optical frame not rotated to z forward, x right, y down (REP-103).
 - **`frame_tree`**: Frames that do not form one tree: more or fewer than one root, a link called map or odom, a floating or planar joint below the root. (The parser already refuses a joint that names a missing link.)
 - **`mimic_targets`**: A mimic joint that follows a joint the model lacks, follows another mimic, or follows itself in a circle.
 - **`safety_limits`**: A joint's safety controller whose soft limits sit outside the joint's hard limits, or are left at their default of zero so the joint cannot move.
 - **`datasheet_limit`**: A revolute joint's limit span vs the travel its linked catalog servo's datasheet gives (catalog number `rotation_range`, an angle in deg or rad). No servo, no cited range, no both limits: nothing.
-- **`collision_visual`**: A link whose collision primitives' bounding box is far from its visual ones'. Only primitive shapes are read (`_link_primitives` leaves mesh links out); both needed.
+- **`collision_visual`**: A link whose collision primitives' bounding box is far from its visual ones'. Only primitive shapes (box, cylinder, sphere) are read, not meshes; a link needs both.
 - **`gazebo_references`**: A `<gazebo reference=...>` block naming a link or joint the model lacks (the simulator drops the block without a word), and two sensors sharing one name.
 - **`mesh_scale_agreement`**: One link using the same mesh file for its visual and its collision at two different scales, so what you see is not what collides.
 - **`inertia_sanity`**: Warns when a link's declared inertia is far from what its own shapes would give at its mass.
@@ -45,7 +45,7 @@ A check with nothing to compare says so under "Not compared yet" instead of pass
 
 ## Budgets
 
-- **`budgets`**: Budgets are derived entries: current value = sum over witnesses, here the contract's own device and model entries. Power follows the efficiency-aware rail tree so one child load constrains its converter, ancestors, and endurance.
+- **`budgets`**: Each budget is the sum of the lockfile's own device and model entries, compared with its limit. Power follows the rail tree, converter efficiency included, so one load counts against its converter, the rails above it, and endurance.
 - **`torque_budgets`**: A joint's modeled effort demand must not exceed the paired actuator's continuous geared output; peak torque is not a sustainable design budget.
 - **`servo_stall`**: Each revolute/continuous joint's effort limit vs the stall torque of the servo that drives it, named by `check --servo <id>` or the lockfile's `servo:` line.
 - **`gravity_reach`**: Static gravity torque at the worst pose must fit each joint's effort limit.
@@ -61,23 +61,24 @@ A check with nothing to compare says so under "Not compared yet" instead of pass
 - **`hold_torque`**: Warns when holding a plan pose against gravity needs more torque than the joint can give.
 - **`tip_over`**: NO-GO when the robot would tip over: its centre of mass sits outside the area its wheels or feet touch.
 - **`standing_load`**: Warns when a joint cannot carry the robot standing on its declared support contacts.
+- **`standing_sweep`**: Each joint's torque with the robot on its feet (collisions with the word foot in their name, else leg-end links named foot or toe), over every pose its leg can reach.
 
 ## Electrical
 
-- **`rail_topology`**: Rail ancestry must be acyclic and voltage cannot rise through an unmodeled converter. Otherwise rollups can hang or bless a wiring typo.
+- **`rail_topology`**: Rails must not feed each other in a loop, and voltage cannot rise through a converter the lockfile does not declare: either would hide a wiring mistake.
 - **`voltage_compatibility`**: Refuse a device supplied outside its model's declared input range.
-- **`ampacity`**: Published AWG ampacity vs computed rail current (two-source).
-- **`rail_current`**: Published rail current_limit vs computed draw (sibling to check_ampacity).
-- **`electrical_segments`**: Bound only explicitly sourced logic, one unbuffered I2C segment and CAN wiring.
+- **`ampacity`**: The current a wire carries, computed from its loads, against the published safe current for its gauge.
+- **`rail_current`**: A rail's published current_limit against its computed draw (wire limits are `ampacity`).
+- **`electrical_segments`**: Logic levels, I2C and CAN wiring against their sourced limits: logic-level margins, one unbuffered I2C segment, and a CAN segment's nodes and end terminations.
 - **`fuse_wire`**: A fuse rated above what its wire can carry cannot protect that wire (NO-GO).
 - **`rail_source_rules`**: Warns about a rail with no power source, servos powered from the flight controller, an LDO that runs too hot, and supplies with no shared ground.
 - **`wire_drop`**: A servo's wire drops its supply below the servo's catalog minimum input voltage at stall.
 - **`connector_heat`**: A catalog connector carrying more than its rated current per contact, with the I^2*R heat.
 - **`rail_operating_point`**: A rail's loaded voltage (its voltage minus the worst wire drop at nominal draw) below the rail's own declared voltage_range minimum.
 - **`servo_brownout`**: NO-GO: every servo on a rail at stall at once pulls a device it feeds below that device's declared minimum input.
-- **`bulk_capacitance`**: A servo rail whose declared Rail.capacitance_f is below 470 uF per servo (advice, unsourced).
-- **`reverse_polarity`**: A file that uses protection[] with a multi-cell pack feeding a rail and no reverse-polarity guard on that path gets one warning (advice only: no maker source read).
-- **`tvs_rating`**: A rail with a motor on it that is declared unable to absorb regen (accepts_regen false) needs a TVS naming it, whose standoff is not below the rail's highest voltage. Only a file that uses protection[] is read. Advice only: no maker source read, so no number here is sourced.
+- **`bulk_capacitance`**: A servo rail whose declared bulk capacitance is below 470 uF per servo (advice, unsourced).
+- **`reverse_polarity`**: A lockfile that declares protection parts, with a multi-cell pack feeding a rail and no reverse-polarity guard on that path, gets one warning (advice only: no maker source read).
+- **`tvs_rating`**: A rail with a motor on it that is declared unable to absorb regen (accepts_regen false) needs a TVS naming it, whose standoff is not below the rail's highest voltage. Only a lockfile that declares protection parts is read. Advice only: no maker source read, so no number here is sourced.
 
 ## Buses
 
@@ -90,14 +91,14 @@ A check with nothing to compare says so under "Not compared yet" instead of pass
 
 ## Evidence and records
 
-- **`device_owners`**: A device contract must name who is accountable for resolving its assertions.
+- **`device_owners`**: Every device must name the person or team accountable for it.
 - **`reference_integrity`**: Every cross-entry reference must resolve. A dangling ref is a violation: it means the contract describes a robot that doesn't exist in the records.
-- **`source_portability`**: a source is a file beside the contract, a URL or a cited title.
-- **`compared_from`**: Check a device mass copied from one concrete seeded catalog part.
-- **`datasheet_agreement`**: A recognised robot's URDF-derived numbers vs its vendor datasheet (catalog_robots.yaml).
+- **`source_portability`**: A source is a file beside the lockfile, a URL or a cited title.
+- **`compared_from`**: Check a device mass copied from a catalog part still matches that part.
+- **`datasheet_agreement`**: A recognised robot's numbers from its model against its maker's datasheet.
 - **`torque_claims`**: Each joint's URDF effort limit vs the published torque (N*m) the user typed.
-- **`edge_tolerance`**: Score an edge's declared tolerance against a live current reading.
-- **`envelopes_vs_hard_limits`**: A locked envelope outside its model's hard limits means the baseline was almost certainly captured on a sick sensor (spec: baseline-on-broken-sensor trap). Hard limits win; the envelope must be re-derived.
+- **`edge_tolerance`**: A dependency's declared tolerance against a fresh reading; the free check has no live reading, so it lists these as not compared (readings come from Lockwire Pro).
+- **`envelopes_vs_hard_limits`**: A signal envelope declared outside its device's hard limits (envelopes come from Lockwire Pro recordings): the hard limits win, and the envelope must be measured again.
 - **`driver_watchdog_marker`**: Actuators with no observed reset/watchdog marker: a disclosure, never a pass or fail.
 - **`cross_file_agreement`**: Warns when the same joint limit is written differently in two files the lock names.
 
@@ -119,9 +120,9 @@ A check with nothing to compare says so under "Not compared yet" instead of pass
 ## Recordings and actuator cases (Lockwire Pro)
 
 - **`condition_envelopes`**: Refuse to extrapolate beyond the conditions supported by healthy baselines.
-- **`actuator_case_conformance`**: Check one selected case. It is intentionally not a global record check.
-- **`actuator_case_simulation_validity`**: Compare only a bound prediction sidecar with held-out physical reference data.
+- **`actuator_case_conformance`**: One selected actuator case against its evidence; it runs only when you pick that case.
+- **`actuator_case_simulation_validity`**: A simulator's prediction for one actuator case against held-out physical measurements.
 
 ## Control loops
 
-- **`margin_findings`**: Advice findings on bandwidth vs loop rate, phase margin and effort; silent on gaps.
+- **`margin_findings`**: Advice, never a verdict: bandwidth vs loop rate, phase margin and effort, for each controller that declares those inputs.

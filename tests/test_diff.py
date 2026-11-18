@@ -9,6 +9,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from lockwire import api
@@ -95,7 +96,7 @@ def test_api_diff_matches_the_literal_expected_fact_change(tmp_path):
     Anchored on literal values a test author typed, not on anything either door
     computes: the CLI's own JSON output is not consulted here (that would be a
     parity test, and parity between two doors that share `factdiff.fact_diff`
-    proves only that they agree, not that either is right — PARITY-ANCHOR LAW).
+    proves only that they agree, not that either is right).
     A rename or corruption in `api.diff`'s own call site (e.g. its returned key
     names), or a break in the shared `fact_diff`/`FactDiff.as_json` it calls,
     both make one of these literal asserts fail.
@@ -135,6 +136,16 @@ def test_api_diff_discovers_the_contract_repo_from_an_unrelated_cwd(tmp_path, mo
 
     (change,) = payload["changes"]
     assert (change["old"], change["new"]) == (1.0, 8.0)
+
+
+def test_revisions_only_never_reads_a_file_named_as_a_side(tmp_path, monkeypatch):
+    repo = _repo(tmp_path, "1", "8")
+    monkeypatch.chdir(repo)
+    assert api.diff(repo / "lockwire.yaml", "lockwire.yaml")["changed"] is False  # off: a file, as today
+    monkeypatch.setattr(api, "load_contract", lambda p: pytest.fail(f"opened {p}"))
+    for a, b in (("lockwire.yaml", None), ("HEAD", "lockwire.yaml")):
+        with pytest.raises(ValueError, match="no such ref"):
+            api.diff(repo / "lockwire.yaml", a, b, revisions_only=True)
 
 
 def test_diff_exit_code_flag(tmp_path):
@@ -213,7 +224,7 @@ def test_diff_missing_contract_file(tmp_path):
     result = _run(repo)
 
     assert result.exit_code == 2, result.output
-    assert "no contract at" in plain(result.output)
+    assert "no lockfile at" in plain(result.output)
 
 
 def test_diff_ref_side_refuses_an_unsupported_schema_version(tmp_path):

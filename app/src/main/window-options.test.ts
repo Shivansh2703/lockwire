@@ -21,8 +21,8 @@ describe("windowOptions: the flag's two directions", () => {
   });
 });
 
-// e2-hh3: same shape as windowOptions above, for the e2e check harnesses
-// (hidpi-line-check.ts, e2e-pixel-check.ts) -- this replaces e2-hh's unrunnable bite, which
+// Same shape as windowOptions above, for the e2e check harnesses
+// (hidpi-line-check.ts, e2e-pixel-check.ts) -- this replaces an unrunnable check, which
 // could only be discharged by forcing `show` off and launching electron for real, which IS the
 // violation the flag exists to prevent. Asserted here on the pure options object instead,
 // both directions, no electron import, no window.

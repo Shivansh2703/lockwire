@@ -1,7 +1,7 @@
 /**
  * Pure scene-graph construction: one `THREE.Mesh` per decoded part, plus the camera, controls
- * and the resize handler that owns the resolution uniform e2-f needs for `Line2`/`LineMaterial`
- * (`three/examples/jsm/lines/LineMaterial` reads `resolution` in screen pixels). No React here —
+ * and the resize handler that owns the resolution uniform `Line2`/`LineMaterial`
+ * (`three/examples/jsm/lines/LineMaterial` reads `resolution` in screen pixels). No React here:
  * `Canvas.tsx` is the only consumer, so this stays testable under a stubbed renderer.
  *
  * Decoding is never reimplemented here: `decodePartPositions`/`decodePackedVectors`/
@@ -24,7 +24,7 @@ import {
 } from "./decode";
 
 export interface ScenePart {
-  /** The payload's own part id (`ScenePart.id` in `api_payload.py`, `str | None`) — carried onto
+  /** The payload's own part id (`ScenePart.id` in `api_payload.py`, `str | None`): carried onto
    * `mesh.userData.partId` unchanged so a pick resolves to the payload's identity, never a mesh
    * index or a name composed here (adjacent: identity comes from the payload). */
   id?: string | null;
@@ -49,7 +49,7 @@ export interface SceneContext {
   orthoCamera?: THREE.OrthographicCamera;
   controls: OrbitControls;
   renderer: THREE.WebGLRenderer;
-  /** Owned exclusively by `handleResize` below — in CSS pixels, matching `LineMaterial`'s
+  /** Owned exclusively by `handleResize` below: in CSS pixels, matching `LineMaterial`'s
    * expectation (three's own examples). Consumers read it; nobody else writes it. */
   resolution: THREE.Vector2;
   meshes: THREE.Mesh[];
@@ -304,7 +304,7 @@ function measurePaintedSilhouette(
 /** The one part material: matte with a little sheen, so a face reads as a solid surface under the key light and the shadows. */
 export const partMaterial = () => new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.62, metalness: 0.08 });
 
-/** One mesh for one decoded part (TEAM-02's ghost of an older revision is built through the same door). */
+/** One mesh for one decoded part (the ghost of an older revision is built through the same door). */
 export function partMesh(part: ScenePart): THREE.Mesh {
   const positions = decodePartPositions(part);
   const indices = decodePackedIndices(part.indices);
@@ -370,7 +370,7 @@ export function buildScene(
 
   const resolution = new THREE.Vector2(width, height);
 
-  // One mesh per decoded part (charter #4) — do not collapse, skip or merge parts here.
+  // One mesh per decoded part: do not collapse, skip or merge parts here.
   const meshes: THREE.Mesh[] = parts.map((part) => {
     const mesh = partMesh(part);
     scene.add(mesh);
@@ -501,7 +501,7 @@ export function handleResize(ctx: SceneContext, width: number, height: number): 
 }
 
 /** Re-applies the capped device pixel ratio (a window dragged to a different display changes
- * it) at the CSS size the renderer already has, without touching `resolution` — that uniform
+ * it) at the CSS size the renderer already has, without touching `resolution`: that uniform
  * stays in CSS pixels regardless of DPR (settled by execution, see scene-hidpi.e2e.test.ts). */
 export function updatePixelRatio(ctx: SceneContext, ratio: number): void {
   ctx.needsRender = true;
@@ -511,9 +511,9 @@ export function updatePixelRatio(ctx: SceneContext, ratio: number): void {
 }
 
 /**
- * e2-ss — resolve a pointer pick (NDC coordinates, each in [-1, 1]) against the mounted scene's
+ * Resolve a pointer pick (NDC coordinates, each in [-1, 1]) against the mounted scene's
  * real meshes via `THREE.Raycaster` (pure geometry math; needs no WebGL context, so this runs
- * headless). Returns the hit mesh's payload part id, or `null` when the pick hits nothing —
+ * headless). Returns the hit mesh's payload part id, or `null` when the pick hits nothing:
  * empty space is a real, distinct result, not an absence of one.
  */
 export function pickPart(ctx: SceneContext, ndcX: number, ndcY: number): string | null {
@@ -617,7 +617,7 @@ export function supportPolygonObject(poly: { z: number; points: number[][] }, co
   return group;
 }
 
-// ---------------------------------------------------------------- link primitives (CAD-02)
+// ---------------------------------------------------------------- link primitives
 
 /** One mesh per link solid. The engine resolves a named dimension to metres on every payload, so
  * call this on every payload: a size edited after load must redraw the link (see `syncPrimitives`). Cylinders run along the

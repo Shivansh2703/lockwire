@@ -39,7 +39,7 @@ _UNITS: dict[str, tuple[str, float]] = {
     "mm": ("length", 1e-3),
     "m^2": ("area", 1.0),
     "m^4": ("second_moment", 1.0),
-    # temperature (absolute compare only — never summed)
+    # temperature (absolute compare only - never summed)
     "C": ("temperature", 1.0),
     "degC": ("temperature", 1.0),  # bag spelling for the same Celsius scale
     # pressure -> hPa
@@ -77,7 +77,7 @@ _UNITS: dict[str, tuple[str, float]] = {
     "%": ("dimensionless", 0.01),
     # thermal resistance -> C/W (temperature C/degC stay on temperature)
     "C/W": ("thermal_resistance", 1.0),
-    # RF power level -> dBm (logarithmic; never share power with W/mW/kW —
+    # RF power level -> dBm (logarithmic; never share power with W/mW/kW -
     # scale-factor convert or sum of dBm and watts is arithmetic nonsense)
     "dBm": ("power_level", 1.0),
     # RF gain / ratio -> dB (log-space only; never convertible to a linear qty)

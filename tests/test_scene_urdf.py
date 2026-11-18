@@ -104,7 +104,7 @@ def test_primitives_on_two_links_joined_translate_correctly(tmp_path):
     eye_part = next(p for p in scene.parts if p.extras_id == "eye")
     # eye = wheel pose (yaw pi/2 rotation, from base_to_wheel's rpy) composed with the
     # wheel_to_eye offset (0.02, 0, 0.05): Rz(pi/2) turns (0.02, 0, 0.05) into
-    # (0, 0.02, 0.05). Skipping rpy in the composition (the brief's bite) would leave
+    # (0, 0.02, 0.05). Skipping rpy in the composition (the mutation bite) would leave
     # the offset unrotated and put eye at x=0.32, y=0.0 instead.
     assert eye_part.translation[0] == pytest.approx(0.3, abs=1e-6)
     assert eye_part.translation[1] == pytest.approx(0.02, abs=1e-6)
@@ -113,7 +113,7 @@ def test_primitives_on_two_links_joined_translate_correctly(tmp_path):
 
 
 def test_joint_origin_composition_uses_rpy(tmp_path):
-    """Bite check (brief): if the joint composition skipped rpy, this rotated-offset
+    """Bite check: if the joint composition skipped rpy, this rotated-offset
     translation would come out wrong."""
     urdf = _urdf(
         "<link name='base'>" + _box_visual() + "</link>"

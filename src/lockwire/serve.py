@@ -7,7 +7,7 @@ here carries a compatibility promise; a caller outside the app uses
 ``lockwire.api``, the CLI's ``--json``, or MCP.
 
 Two addresses, always: ``GET /v1/hello`` (are you alive, what can you do) and
-``POST /v1/run`` (everything else — one discriminated-union body naming the
+``POST /v1/run`` (everything else - one discriminated-union body naming the
 command). The free commands are ``start``, ``check``, ``page``, ``declare-form``,
 ``declare``, ``add``, ``review``, ``commit``, ``undo``, ``place``, ``move``,
 ``rotate``, ``reparent``, ``mount-shape``, ``describe``, ``what-if``, ``plan``,
@@ -19,7 +19,7 @@ Robot mode serves an allowlist of read commands; every other command is refused 
 **The sidecar computes nothing of its own.** Each handler calls the
 matching ``lockwire.api`` function and wraps the document it returns. ``report``
 and ``page``'s scene lookup is ``api.load_scene``; ``page`` has no CLI
-command (``api.page`` is not in ``FUNCTIONS`` — see its docstring), so it is not
+command (``api.page`` is not in ``FUNCTIONS`` - see its docstring), so it is not
 one of the CLI-named twins either; it wraps ``api.page``, which wraps
 ``page.build_payload``, unchanged.
 
@@ -49,11 +49,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from ruamel.yaml import YAMLError
 
 from lockwire import __version__, api, plugins, vcs
+from lockwire import fixes as _fixes
+from lockwire.checks import CheckCrashed, ModelFileRefusal, refuse_unreadable_model
 from lockwire.cli_line import cli_line as _build_cli_line
 from lockwire.confine import confine, without_values
 from lockwire.edit import Change, contract_revision
 from lockwire.plan import load_plan, validate_plan
-from lockwire.report_html import write_html_report
+from lockwire.report_html import render_html, write_html_report
 from lockwire.report_html import _graph as _graph_view
 from lockwire.scene import SceneRefusal
 from lockwire.scene_urdf import load_scene_any
@@ -112,13 +114,33 @@ def _refusal(cli_line: str, exit_code: int, message: str) -> RunReply:
 
 def _document_reply(cli_line: str, document: dict[str, Any]) -> RunReply:
     """Wrap a ``lockwire.api`` document. The verdict and the exit code are the
-    library's, read out of the document — the sidecar never decides either."""
+    library's, read out of the document - the sidecar never decides either."""
     return _ok(
         cli_line,
         exit_code=document["exit_code"],
         verdict=document["verdict"],
         payload=document,
     )
+
+
+def _named(error: Exception | str, *files: str) -> str:
+    """A refusal in the command line's plain words, each file by its name only: the app and a
+    recording must never show this computer's folders."""
+    if isinstance(error, OSError) and error.filename is not None:
+        from lockwire.cli import plain_os_error  # noqa: PLC0415 - the CLI's one wording
+
+        name = Path(str(error.filename)).name
+        error = plain_os_error(type(error)(error.errno, error.strerror, name))
+    text = str(error)
+    for file in files:
+        folders = {Path(file).absolute().parent}
+        try:
+            folders.add(Path(file).resolve().parent)  # /tmp and /private/tmp on a Mac
+        except (OSError, ValueError):  # a name no file can have: the folder as given is enough
+            pass
+        for folder in folders:
+            text = text.replace(f"{folder}{os.sep}", "")
+    return text
 
 
 def _no_contract(path: Path) -> str | None:
@@ -130,7 +152,7 @@ def _no_contract(path: Path) -> str | None:
 # ---------------------------------------------------------------------------
 # The command union. Each member's ``args`` fields mirror the matching typer
 # command's arguments/options (names, defaults) from cli.py; a flag that only
-# matters for a terminal session (``--open/--no-open``) is left off — the
+# matters for a terminal session (``--open/--no-open``) is left off - the
 # sidecar is headless and never opens a browser.
 
 
@@ -181,17 +203,18 @@ class ReportArgs(_StrictArgs):
     contract: str = "lockwire.yaml"
     scene: str | None = None
     package_root: list[str] = Field(default_factory=list)
-    out: str
+    out: str | None = None  # None: the report comes back in the reply and nothing is written
 
 
 class PageArgs(_StrictArgs):
-    """Same shape as ``GuiArgs`` minus ``out``: the page has nowhere to write to
-    here, it comes back in the reply's ``payload``."""
+    """Same shape as the page's own arguments minus out: the page has nowhere to write to
+    here, it comes back in the reply's payload."""
 
     contract: str = "lockwire.yaml"
     scene: str | None = None
     package_root: list[str] = Field(default_factory=list)
     plan: str | None = None
+    section: str | None = Field(None, description="One top-level section of the page (for example joints, budgets or cards): only that section comes back.")  # fmt: skip
 
 
 class LogArgs(_StrictArgs):
@@ -203,6 +226,7 @@ class DiffArgs(_StrictArgs):
     contract: str = "lockwire.yaml"
     a: str = "HEAD"
     b: str | None = None
+    revisions_only: bool = False  # true: a and b are git refs only, never a file on disk
 
 
 class ContractAtArgs(_StrictArgs):
@@ -224,7 +248,7 @@ class DeclareArgs(_StrictArgs):
 
 
 class BatchChangeArgs(_StrictArgs):
-    """One batch item. ``op`` picks the shape: declare (default), add, place, move."""
+    """One batch item. op picks the shape: declare (default), add, place, move."""
 
     op: Literal["declare", "add", "place", "move"] = "declare"
     source: str
@@ -476,6 +500,70 @@ class SwapPreviewCommand(BaseModel):
     args: SwapPreviewArgs
 
 
+class CatalogPartsArgs(_StrictArgs):
+    query: str | None = Field(None, description="Words the part id, name or family must all hold (any case).")
+    family: str | None = Field(None, description="Keep only parts whose family holds this text; stock shapes are left out.")
+    limit: int = Field(50, ge=1, le=200, description="The most rows to return.")
+
+
+class CatalogPartsCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["catalog-parts"] = "catalog-parts"
+    args: CatalogPartsArgs = Field(default_factory=CatalogPartsArgs)
+
+
+class CatalogRobotsArgs(_StrictArgs):
+    """No arguments: the catalog robots are the same for every contract."""
+
+
+class CatalogRobotsCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["catalog-robots"] = "catalog-robots"
+    args: CatalogRobotsArgs = Field(default_factory=CatalogRobotsArgs)
+
+
+class PartsMatchArgs(_StrictArgs):
+    parts: str = Field(description="The parts list as text, one part per line.")
+
+
+class PartsMatchCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["parts-match"] = "parts-match"
+    args: PartsMatchArgs
+
+
+class DescribeSystemArgs(_StrictArgs):
+    contract: str = Field(description="The lockfile to describe.")
+
+
+class DescribeSystemCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["describe-system"] = "describe-system"
+    args: DescribeSystemArgs
+
+
+class DescribeDeviceArgs(_StrictArgs):
+    contract: str = Field(description="The lockfile holding the device.")
+    device_id: str = Field(description="A device id from the lockfile.")
+
+
+class DescribeDeviceCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["describe-device"] = "describe-device"
+    args: DescribeDeviceArgs
+
+
+class CheckSimArgs(_StrictArgs):
+    contract: str = Field(description="The lockfile to compare with.")
+    sim: str = Field(description="The sim file: a MuJoCo .xml (MJCF) or .sdf path.")
+
+
+class CheckSimCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["check-sim"] = "check-sim"
+    args: CheckSimArgs
+
+
 class SwapApplyArgs(_StrictArgs):
     contract: str
     joint: str
@@ -613,17 +701,17 @@ _LOAD_ERRORS = (FileNotFoundError, KeyError, OSError, TypeError, ValueError, YAM
 
 #: The parsed-scene cache: keyed by ``(path, root-file digest)`` so a scene
 #: edited on disk is re-parsed and a re-request for the same file is not.
-#: Single-process, in-memory, unbounded — the sidecar serves one robot's
+#: Single-process, in-memory, unbounded - the sidecar serves one robot's
 #: contract tree per run, so the key space is small by construction.
 #: ponytail: no eviction; add an LRU cap if a session ever loads many scenes.
 _SCENE_CACHE: dict[tuple[str, str], Any] = {}
 
 
 def _cached_scene(contract_path: Path) -> tuple[Any, str | None]:
-    """Discover the scene beside ``contract_path`` (scene discovery — ``check`` takes no
+    """Discover the scene beside ``contract_path`` (scene discovery - ``check`` takes no
     ``--scene`` flag, `cli.py:454`) and load it, caching the parse by
     ``(path, root-file digest)``. Discovery and the actual parse (``load_scene_any``)
-    are the same calls ``api.load_scene`` makes — this wraps them with a
+    are the same calls ``api.load_scene`` makes - this wraps them with a
     cache in front, which ``api.load_scene`` cannot do itself since it never
     exposes the scene's path/stat to key on.
     """
@@ -685,6 +773,8 @@ def _handle_check(command: CheckCommand) -> RunReply:
             if scene is not None
             else {}
         )
+    except ModelFileRefusal as error:  # refused, not a load failure: exit 2 as at every door
+        return _refusal(cli_line, 2, str(error))
     except (*_LOAD_ERRORS, SceneRefusal) as error:
         return _refusal(cli_line, 1, _no_contract(Path(args.contract)) or str(error))
     if scene is not None:
@@ -703,7 +793,7 @@ def _handle_check(command: CheckCommand) -> RunReply:
                 decimate=False,
             )
         # The lens bar's words ride beside the scene they label, on the same
-        # condition as `scene` above — `_graph_view` is `report_html._graph`, the one
+        # condition as `scene` above - `_graph_view` is `report_html._graph`, the one
         # function the page payload already uses for this (`page.py`), not a second
         # computation of it.
         document["graph"] = _graph_view(loaded_contract)
@@ -748,6 +838,31 @@ def _handle_what_if(args: WhatIfArgs) -> RunReply:
     return _ok(cli_line, exit_code=0, verdict=None, payload=document)
 
 
+class ExplainFindingArgs(_StrictArgs):
+    contract: str = Field(description="The lockfile the finding belongs to.")
+    finding: str = Field(
+        description="A finding's quantity path from a check result, such as topology/wires/w.pack/fuse, or a check's name, such as fuse_wire."
+    )
+
+
+class ExplainFindingCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: Literal["explain-finding"] = "explain-finding"
+    args: ExplainFindingArgs
+
+
+def _handle_explain_finding(args: ExplainFindingArgs) -> RunReply:
+    """``explain.explain``: the check's own rule text and the finding as ``check`` reported it. Reads only."""
+    from lockwire.explain import explain  # noqa: PLC0415
+
+    cli_line = _build_cli_line("lockwire", "check", args.contract, "--all")
+    try:
+        payload = explain(args.contract, args.finding)
+    except _LOAD_ERRORS as error:
+        return _refusal(cli_line, 2, _no_contract(Path(args.contract)) or str(error))
+    return _ok(cli_line, exit_code=0, verdict=None, payload=payload)
+
+
 def _handle_swap_preview(args: SwapPreviewArgs) -> RunReply:
     """``swap.preview`` for one joint: the ranked candidates and the knock-on for ``part_id``
     (default: the top one). Reads only."""
@@ -755,7 +870,9 @@ def _handle_swap_preview(args: SwapPreviewArgs) -> RunReply:
 
     cli_line = _build_cli_line("lockwire", "swap", args.contract, args.joint)
     try:
-        pv = preview(load_contract(Path(args.contract)), args.joint, args.part_id)
+        pv = preview(
+            load_contract(Path(args.contract)), args.joint, args.part_id, contract_path=Path(args.contract)
+        )
     except _LOAD_ERRORS as error:
         return _refusal(cli_line, 2, _no_contract(Path(args.contract)) or str(error))
 
@@ -787,6 +904,80 @@ def _handle_swap_preview(args: SwapPreviewArgs) -> RunReply:
     return _ok(cli_line, exit_code=0, verdict=None, payload=payload)
 
 
+def _handle_catalog_parts(args: CatalogPartsArgs) -> RunReply:
+    from lockwire.catalog import listing  # noqa: PLC0415
+
+    rows = listing((args.query or "").lower().split(), args.family)
+    payload = {"parts": rows[: args.limit], "total": len(rows)}
+    return _ok(_build_cli_line("lockwire", "catalog", "parts", *(args.query or "").split()), exit_code=0, verdict=None, payload=payload)  # fmt: skip
+
+
+def _handle_catalog_robots(args: CatalogRobotsArgs) -> RunReply:
+    from lockwire.catalog import load_robots  # noqa: PLC0415
+
+    robots = [{"id": r.id, "name": r.name} for r in load_robots()]
+    return _ok(_build_cli_line("lockwire", "catalog", "robots"), exit_code=0, verdict=None, payload={"robots": robots})  # fmt: skip
+
+
+def _handle_parts_match(args: PartsMatchArgs) -> RunReply:
+    """``api.from_parts`` without ``out``: matches, misses and disagreeing numbers; writes nothing."""
+    cli_line = _build_cli_line("lockwire", "from-parts", "<parts.txt>")
+    try:
+        document = api.from_parts(args.parts)
+    except (OSError, ValueError, YAMLError) as error:
+        return _refusal(cli_line, 2, str(error))
+    return _ok(cli_line, exit_code=0, verdict=None, payload=document)
+
+
+def _handle_describe_system(args: DescribeSystemArgs) -> RunReply:
+    from lockwire.describe import describe_system  # noqa: PLC0415
+
+    cli_line = _build_cli_line("lockwire", "describe", args.contract)
+    try:
+        markdown = describe_system(load_contract(Path(args.contract)))
+    except _LOAD_ERRORS as error:
+        return _refusal(cli_line, 2, _no_contract(Path(args.contract)) or str(error))
+    return _ok(cli_line, exit_code=0, verdict=None, payload={"markdown": markdown})
+
+
+def _handle_describe_device(args: DescribeDeviceArgs) -> RunReply:
+    from lockwire.describe import describe_device  # noqa: PLC0415
+
+    cli_line = _build_cli_line("lockwire", "describe", args.contract)
+    try:
+        loaded = load_contract(Path(args.contract))
+    except _LOAD_ERRORS as error:
+        return _refusal(cli_line, 2, _no_contract(Path(args.contract)) or str(error))
+    device = next((d for d in loaded.devices if d.id == args.device_id), None)
+    if device is None:
+        return _refusal(cli_line, 2, f"no device {args.device_id!r} in {args.contract}")
+    return _ok(cli_line, exit_code=0, verdict=None, payload={"device_id": args.device_id, "markdown": describe_device(loaded, device)})  # fmt: skip
+
+
+def _handle_check_sim(args: CheckSimArgs) -> RunReply:
+    """``check_sim.sim_document``: the document `lockwire check-sim --json` and the MCP tool
+    return. Reads the two files and writes nothing; never runs a simulation.
+
+    This door's caller is a model, so unlike the CLI and the MCP tool it reads only inside the
+    lock's folder: the sim file and every model it includes must resolve there (``sdf.CONFINE``)."""
+    from lockwire import sdf  # noqa: PLC0415
+    from lockwire.check_sim import sim_document  # noqa: PLC0415
+
+    cli_line = _build_cli_line("lockwire", "check-sim", args.sim, "--lock", args.contract)
+    folder = Path(args.contract).parent.resolve()  # as the app's guard: where the lock's name is, not where a link leads
+    if not Path(args.sim).resolve().is_relative_to(folder):
+        return _refusal(cli_line, 2, sdf.OUTSIDE_FOLDER)
+    confined = sdf.CONFINE.set(folder)
+    try:
+        loaded = load_contract(Path(args.contract))
+        _report, document = sim_document(Path(args.sim), loaded, Path(args.contract))
+    except (*_LOAD_ERRORS, SyntaxError) as error:  # SyntaxError: XML that does not parse
+        return _refusal(cli_line, 2, _no_contract(Path(args.contract)) or str(error))
+    finally:
+        sdf.CONFINE.reset(confined)
+    return _document_reply(cli_line, document)
+
+
 def _handle_swap_apply(args: SwapApplyArgs) -> RunReply:
     """Write one swap (``swap.apply_swap``) against the exact bytes the app opened."""
     from lockwire.swap import apply_swap  # noqa: PLC0415
@@ -815,6 +1006,9 @@ def _label_findings(document: dict[str, Any], contract: str) -> None:
 def _handle_plan(args: PlanArgs) -> RunReply:
     cli_line = f"lockwire plan {args.contract} {args.plan}"
     try:
+        for file, what in ((args.contract, "contract"), (args.plan, "plan file")):
+            if not Path(file).exists():  # the CLI's check, with the file's name
+                return _refusal(cli_line, 2, f"{what} {_named(file, file)} not found; check the path")
         document = api.plan(args.contract, args.plan)
         _label_findings(document, args.contract)
         from lockwire import page as gui  # noqa: PLC0415
@@ -826,7 +1020,7 @@ def _handle_plan(args: PlanArgs) -> RunReply:
             if index and index[0].isdigit() and int(index[0]) < len(by_step):
                 step["targets"] = by_step[int(index[0])]
     except _LOAD_ERRORS as error:
-        return _refusal(cli_line, 2, str(error))
+        return _refusal(cli_line, 2, _named(error, args.contract, args.plan))
     return _document_reply(cli_line, document)
 
 
@@ -862,7 +1056,8 @@ def _handle_report(args: ReportArgs) -> RunReply:
         cli_line_parts += ["--scene", args.scene]
     for root in args.package_root:
         cli_line_parts += ["--package-root", root]
-    cli_line_parts += ["--out", args.out]
+    if args.out is not None:
+        cli_line_parts += ["--out", args.out]
     cli_line = " ".join(cli_line_parts)
     contract_path = Path(args.contract)
     if not contract_path.is_file():
@@ -872,9 +1067,15 @@ def _handle_report(args: ReportArgs) -> RunReply:
     except _LOAD_ERRORS as error:
         return _refusal(cli_line, 1, str(error))
     try:
+        refuse_unreadable_model(loaded, contract_path)  # the report shows a verdict: none without the model
+    except ModelFileRefusal as error:
+        return _refusal(cli_line, 2, str(error))
+    try:
         api.load_scene(contract_path, args.scene, args.package_root)
     except SceneRefusal as error:
         return _refusal(cli_line, 2, str(error))
+    if args.out is None:
+        return _ok(cli_line, exit_code=0, verdict=None, payload=render_html(loaded, contract_path))
     try:  # inside the contract's folder, never over a lockfile
         out_path = confine(args.out, contract_path, contract_path.resolve().parent)
     except ValueError as error:
@@ -902,6 +1103,10 @@ def page_reply(
         loaded = load_contract(contract_path)
     except _LOAD_ERRORS as error:
         return _refusal(cli_line, 1, str(error))
+    try:
+        refuse_unreadable_model(loaded, contract_path)  # the page shows a verdict: none without the model
+    except ModelFileRefusal as error:
+        return _refusal(cli_line, 2, str(error))
     run = None
     if run_of is not None:
         try:
@@ -931,8 +1136,12 @@ def page_reply(
         cli_line=cli_line,
     )
     # No `exit_code`/`verdict` in the document itself (`PagePayload` carries
-    # neither, seam 1 in api_payload.py) — the page's own convention: 0 whenever
+    # neither, seam 1 in api_payload.py) - the page's own convention: 0 whenever
     # the page was computed, never a decision gate.
+    if args.section is not None:
+        if args.section not in document:
+            return _refusal(cli_line, 2, f"no page section {args.section!r}; sections: {', '.join(document)}")
+        document = {args.section: document[args.section]}
     return _ok(cli_line, exit_code=0, verdict=None, payload=document)
 
 
@@ -971,7 +1180,7 @@ def _handle_diff(args: DiffArgs) -> RunReply:
         cli_line,
         exit_code=0,
         verdict=None,
-        payload=api.diff(args.contract, args.a, args.b),
+        payload=api.diff(args.contract, args.a, args.b, args.revisions_only),
     )
 
 
@@ -1390,6 +1599,7 @@ _FREE_COMMANDS = {
     "starters": plugins.ServeCommand(_handle_starters, StartersArgs, StartersCommand),
     "check": plugins.ServeCommand(_handle_check, CheckArgs, CheckCommand),
     "what-if": plugins.ServeCommand(_handle_what_if, WhatIfArgs, WhatIfCommand),
+    "explain-finding": plugins.ServeCommand(_handle_explain_finding, ExplainFindingArgs, ExplainFindingCommand),
     "plan": plugins.ServeCommand(_handle_plan, PlanArgs, PlanCommand),
     "describe": plugins.ServeCommand(_handle_describe, DescribeArgs, DescribeCommand),
     "declare-form": plugins.ServeCommand(_handle_declare_form, DeclareFormArgs, DeclareFormCommand),
@@ -1419,6 +1629,13 @@ _FREE_COMMANDS = {
     "reparent": plugins.ServeCommand(_handle_reparent, ReparentArgs, ReparentCommand),
     "mount-shape": plugins.ServeCommand(_handle_mount_shape, MountShapeArgs, MountShapeCommand),
     "swap-preview": plugins.ServeCommand(_handle_swap_preview, SwapPreviewArgs, SwapPreviewCommand),
+    "suggest-fixes": plugins.ServeCommand(_fixes.handle, _fixes.SuggestFixesArgs, _fixes.SuggestFixesCommand),
+    "catalog-parts": plugins.ServeCommand(_handle_catalog_parts, CatalogPartsArgs, CatalogPartsCommand),
+    "catalog-robots": plugins.ServeCommand(_handle_catalog_robots, CatalogRobotsArgs, CatalogRobotsCommand),
+    "parts-match": plugins.ServeCommand(_handle_parts_match, PartsMatchArgs, PartsMatchCommand),
+    "describe-system": plugins.ServeCommand(_handle_describe_system, DescribeSystemArgs, DescribeSystemCommand),
+    "describe-device": plugins.ServeCommand(_handle_describe_device, DescribeDeviceArgs, DescribeDeviceCommand),
+    "check-sim": plugins.ServeCommand(_handle_check_sim, CheckSimArgs, CheckSimCommand),
     "swap-apply": plugins.ServeCommand(_handle_swap_apply, SwapApplyArgs, SwapApplyCommand),
 }
 
@@ -1426,6 +1643,13 @@ _FREE_COMMANDS = {
 def commands() -> dict[str, plugins.ServeCommand]:
     """The commands this sidecar serves: the free ones, then whatever a plugin registered."""
     return {**_FREE_COMMANDS, **plugins.SERVE_COMMANDS}
+
+
+def export_args_schemas(path: Path | str) -> None:
+    """Write every free command's real request-argument schema (what ``/v1/hello`` lists as
+    ``args_schema``) as one JSON file: the app's Assistant tests its tools against it."""
+    schemas = {n: c.args.model_json_schema() for n, c in sorted(_FREE_COMMANDS.items())}
+    Path(path).write_text(json.dumps(schemas, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def request_type(table: dict[str, plugins.ServeCommand] | None = None) -> Any:
@@ -1478,6 +1702,9 @@ def dispatch(body: Any, state: Any = None) -> RunReply:
             return plugins.SERVE_COMMANDS[body.command].handler(body, state)
         handler = _FREE_COMMANDS[body.command].handler
         return handler(body) if isinstance(body, CheckCommand) else handler(body.args)
+    except CheckCrashed as error:  # a check, plan or report threw: a bug, never a verdict
+        _ACCESS_LOG.error("crash in %s", body.command, exc_info=True)  # detail stays in the log
+        return _refusal(f"lockwire {body.command}", 2, f"lockwire stopped: {error.args[0]}; this is a bug in lockwire, not a verdict")  # fmt: skip
     except Exception as error:  # noqa: BLE001 - never a traceback over the wire
         return _refusal(f"lockwire {body.command}", 2, str(error))
 
@@ -1494,7 +1721,7 @@ def dispatch(body: Any, state: Any = None) -> RunReply:
 # is ever parsed (`test_token_checked_before_body_is_parsed`).
 #
 # There is deliberately **no CORS middleware**: a browser page must not be able
-# to reach this sidecar at all. The Host check below is the other half of that —
+# to reach this sidecar at all. The Host check below is the other half of that -
 # without it a page on any site can point a name it owns at 127.0.0.1 (DNS
 # rebinding) and the same-origin rules would let it through.
 
@@ -1520,7 +1747,7 @@ def _host_is_loopback(host_header: str | None) -> bool:
 
 
 def _token_ok(offered: str | None, expected: str) -> bool:
-    """Constant time, always — a length or prefix leak is a token oracle."""
+    """Constant time, always - a length or prefix leak is a token oracle."""
     if offered is None:
         return False
     return hmac.compare_digest(offered.encode("utf-8"), expected.encode("utf-8"))
@@ -1550,7 +1777,7 @@ def create_app(
 
     @app.middleware("http")
     async def guard(request: Request, call_next):  # noqa: ANN001, ANN202 - starlette's shape
-        # Method, path and status only — never headers, so the token (carried
+        # Method, path and status only - never headers, so the token (carried
         # only in the X-Lockwire-Token header) never reaches the log,
         # on any of the three exits below.
         if not _host_is_loopback(request.headers.get("host")):
@@ -1612,20 +1839,20 @@ def _watch_stdin(server: uvicorn.Server) -> None:
 
 
 def _log_dir() -> Path:
-    """The platform's real log location — never the cwd (a packaged app's
+    """The platform's real log location - never the cwd (a packaged app's
     working directory is wherever it happened to be launched from) and never a
     location the release checklist's uninstall promise ("only the log folder"
     survives, per the release checklist) would have to special-case.
 
-    macOS (the only shipping platform today): ``~/Library/Logs/Lockwire`` —
+    macOS (the only shipping platform today): ``~/Library/Logs/Lockwire`` -
     the OS's own per-app log convention, shown by Console.app and untouched by an
     app bundle's own uninstall (dragging the .app to Trash). Linux/Windows follow
     each platform's equivalent convention so the same code holds if packaging ships them;
     no third-party dependency (stdlib + environment variables only).
 
     ``LOCKWIRE_LOG_DIR`` overrides everything above. The test suite sets it via an
-    autouse fixture (``tests/conftest.py``) so no test run — including the
-    subprocess-launched ``lockwire serve`` cases — ever writes into a developer's
+    autouse fixture (``tests/conftest.py``) so no test run - including the
+    subprocess-launched ``lockwire serve`` cases - ever writes into a developer's
     real ``~/Library/Logs``.
     """
     override = os.environ.get("LOCKWIRE_LOG_DIR")
@@ -1647,12 +1874,12 @@ def _log_dir() -> Path:
 
 
 def _configure_sidecar_logging(log_dir: Path) -> Path:
-    """Rotating file, stdlib only (``logging.handlers.RotatingFileHandler`` — no
+    """Rotating file, stdlib only (``logging.handlers.RotatingFileHandler`` - no
     dependency, no hand-rolled rotator): a size bound and a small number of kept
     files, oldest discarded, so a long-running sidecar cannot fill a disk and a
     user who reports "it stopped working" has real files to send.
 
-    Formats only level/time/logger/message — request logging (the ``guard``
+    Formats only level/time/logger/message - request logging (the ``guard``
     middleware above) passes method, path and status, never headers, so the
     per-launch token never reaches this file.
     """
@@ -1684,7 +1911,7 @@ def run_server(
     keeps a server that does not vanish the moment stdin is not a live pipe.
     """
     if host not in _LOOPBACK_HOSTS:
-        print(f"lockwire serve refuses to bind {host!r} — loopback only", file=sys.stderr)
+        print(f"lockwire serve refuses to bind {host!r}: loopback only", file=sys.stderr)
         return 2
 
     policy = None

@@ -64,7 +64,7 @@ def read_slicer_grams(path: Path) -> float:
     except SlicerRefusal:
         raise
     except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError, ValueError) as e:
-        raise SlicerRefusal(f"{path}: not a readable slicer file ({type(e).__name__}).") from None
+        raise SlicerRefusal(f"{path}: not a readable slicer file ({e or 'unreadable'}).") from None
     if grams <= 0:
         raise SlicerRefusal(f"{path}: the slicer file states no filament weight.")
     return grams

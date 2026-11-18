@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CompareWithDatasheet, MeasureCompareDeclare, type MeasureCompareObservation } from "./MeasureCompareDeclare";
+import { RobotFile } from "./shown";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -11,7 +12,7 @@ const OBSERVATION: MeasureCompareObservation = {
   path: "devices/dev.x500/physical/mount_offset",
   value: [0.1, 0.2, 0.3],
   source: "check_scene_placement",
-  witness: "Shivansh",
+  witness: "Alex Rivera",
 };
 const DOC = { contractPath: "/tmp/robot/lockwire.yaml", expectedRevision: "a".repeat(64) };
 
@@ -40,10 +41,20 @@ describe("MeasureCompareDeclare", () => {
     expect(compareContractWhatIf).toHaveBeenCalledWith({
       contract: "/tmp/robot/lockwire.yaml",
       expected_revision: "a".repeat(64),
-      change: { path: OBSERVATION.path, value: "0.1,0.2,0.3", source: "check_scene_placement", witness: "Shivansh" },
+      change: { path: OBSERVATION.path, value: "0.1,0.2,0.3", source: "check_scene_placement", witness: "Alex Rivera" },
     });
     expect([...container.querySelectorAll(".kit-pill")].map((p) => p.textContent)).toEqual(["NO-GO", "GO"]);
     expect(container.querySelector(".kit-disclosure")?.textContent).toContain("capacity changes");
+  });
+
+  it("the diff preview shows no machine path", async () => {
+    const C = "/Users/someone/robots/arm-power/contract.yaml";
+    const diff = `--- ${C}\n+++ ${C} (proposed)\n-  mass: 0.2\n+  mass: 1`;
+    window.lockwire = { compareContractWhatIf: vi.fn(async () => ({ current: { verdict: "GO", scored: 1, findings: [] }, proposed: { verdict: "GO", scored: 1, findings: [] }, diff })) } as unknown as typeof window.lockwire;
+    act(() => root.render(<RobotFile.Provider value={C}><MeasureCompareDeclare observation={OBSERVATION} contractPath={C} expectedRevision={DOC.expectedRevision} /></RobotFile.Provider>));
+    await act(async () => compareButton().click());
+    expect(container.querySelector(".finding-raw")?.textContent).toContain("--- contract.yaml");
+    expect(container.innerHTML).not.toContain("/Users/");
   });
 
   it("will not compare a proposal without source and witness", () => {

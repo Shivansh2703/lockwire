@@ -1,7 +1,7 @@
 """Stdlib STL and OBJ mesh readers (`lockwire.scene_urdf`'s `<mesh>` door).
 
 Both readers flatten every triangle corner into its own vertex (no index
-sharing) — the simplest thing that is still correct, and it sidesteps OBJ's
+sharing) - the simplest thing that is still correct, and it sidesteps OBJ's
 independent position/normal index streams without a join table.  Not a
 memory-optimal representation for huge meshes; the largest mesh surveyed was
 ~326k triangles (~1M floats), well inside what this project ships pages
@@ -72,13 +72,13 @@ def _read_stl_ascii(
         text = raw.decode("ascii")
     except UnicodeDecodeError as exc:
         raise MeshRefusal(
-            f"{path}: not a recognizable STL — not binary (size mismatch) and not "
+            f"{path}: not a recognizable STL: not binary (size mismatch) and not "
             f"ASCII (non-ASCII bytes). Re-export as binary or ASCII STL."
         ) from exc
     stripped = text.strip()
     if not stripped.lower().startswith("solid"):
         raise MeshRefusal(
-            f"{path}: not a recognizable STL — no binary header match and no leading "
+            f"{path}: not a recognizable STL: no binary header match and no leading "
             "'solid' line. Re-export as binary or ASCII STL."
         )
     positions: list[float] = []

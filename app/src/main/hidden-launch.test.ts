@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // The ONE test in this suite that launches the real electron binary -- every other test mocks
-// "electron" (never a window on the owner's screen). This is safe by construction: the
+// "electron" (never a window on the user's screen). This is safe by construction: the
 // window is built with `show: false` (windowOptions(true)), so nothing paints regardless of what
-// this check finds -- that asymmetry is the whole point of box e2-i2 (TODO.md: "a launch that
+// this check finds -- that asymmetry is the whole point ("a launch that
 // shows nothing is hidden-window-safe by construction"). Never remove the `show: false` half of this
 // picture to "simplify" -- see window-options.ts and hidden-launch-check.ts.
 describe("a real launch under the e2e flag shows nothing", () => {

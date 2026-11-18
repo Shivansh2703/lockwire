@@ -1,12 +1,14 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 
-import type { Figure as ApiFigure, RequirementRow, RobotGraph } from "../shared/api.gen";
+import type { AddsUpRow, Figure as ApiFigure, RequirementRow, RobotGraph } from "../shared/api.gen";
 import type { Card, CheckFacePayload } from "./checkFacePayload";
 import { FindingList, ModeBlocks, VERDICT, WHOLE, capChips, chipJump, linkTo, liveChips, modeHeads, targetChips, type Chip, type FindingItem } from "./FindingList";
 import { insteadJump, type Jump, type OnJump } from "./jump";
 import { graphLabels, partNames } from "./partNames";
 import { Button, CommandLine, Disclosure, Figure, FindingDetail, FindingRow, Panel, StatusPill } from "./kit";
 import { MASS_NOMINAL, massLine } from "./MeasureCompareDeclare";
+import { witnessWords } from "../shared/witness";
+import { useShown } from "./shown";
 import { SwapPanel } from "./SwapPanel";
 
 // Check: the verdict, one row per finding, the selected one open inline. Every
@@ -59,24 +61,43 @@ export function CheckPanel({
   const [part, setPart] = useState("");
   const [verdictStatus, verdictLabel] = VERDICT[payload.verdict] ?? ["muted", payload.verdict];
   const owners = [...new Set(payload.findings.map((f) => f.owner).filter((o): o is string => Boolean(o)))];
-  // "Frames without mass" is normal on a fresh robot: a quiet note under the rows, not a problem.
+  // "Frames without mass" is normal on a fresh robot: a row like any warning (the count line counts it), never opened first.
   const isNote = (i: number) => payload.cards[i]!.quantity === MASSLESS;
-  const noteCard = payload.cards.find((_, i) => isNote(i));
-  const groups = groupCards(payload.cards).filter((g) => !isNote(g.members[0]!));
-  const problem = (g: Group) => ["violation", "warning"].includes(payload.cards[g.members[0]!]!.severity);
+  const groups = groupCards(payload.cards);
+  const problem = (g: Group) => ["violation", "warning"].includes(payload.cards[g.members[0]!]!.severity) && !isNote(g.members[0]!);
   const firstProblem = groups.find(problem)?.members[0];
-  const { problems, quiet } = countWords(groups, payload.cards);
+  // As on the command line: advice with no source yet, and a check `lockwire check` never runs (the 3D view's
+  // placement), are drawn but not counted. Each such row says so, and the count line names the advice.
+  const finding = (c: Card) => payload.findings.find((f) => f.quantity === c.quantity);
+  const outside = (c: Card) => c.severity === "warning" && finding(c)?.advice_unsourced ? "Advice, not yet sourced" : c.quantity && !finding(c) ? OUTSIDE : undefined;
+  const isAdvice = (c: Card) => outside(c)?.startsWith("Advice") ?? false;
+  // What a row is, in the count line's words: an advice card is advice, not a warning.
+  const kind = (c: Card) => (isAdvice(c) ? "advice" : c.severity);
+  const advice = groups.filter((g) => isAdvice(payload.cards[g.members[0]!]!)).length;
+  const { problems, quiet } = countWords(payload, advice);
   // The parts the engine says findings involve (Card.involves), named by a target's label when one matches.
   const nameOf = partNames([...payload.cards.flatMap((c) => c.targets.map((t) => [t.id, t.label] as const)), ...graphLabels(graph)]);
   const parts = [...new Set(groups.flatMap((g) => g.members.flatMap((i) => payload.cards[i]!.involves ?? [])))].map((id) => ({ id, name: nameOf(id) }));
-  const keep = (g: Group) => (!sev || payload.cards[g.members[0]!]!.severity === sev) && (!part || g.members.some((i) => payload.cards[i]!.involves?.includes(part)));
+  const keep = (g: Group) => (!sev || kind(payload.cards[g.members[0]!]!) === sev) && (!part || g.members.some((i) => payload.cards[i]!.involves?.includes(part)));
   const shown = groups.filter(keep).length;
+  // The list title counts what the count line counts, over the rows the filters keep.
+  const notScored = groups.filter(keep).flatMap((g) => g.members.map((i) => payload.cards[i]!)).filter((c) => c.severity === "not_scored" && !outside(c)).reduce((n, c) => n + c.count, 0);
+  // Passed joint torques (the page payload's own rows): only under "Passed torques", never in the default view.
+  const torques = torqueRows(payload.adds_up);
+  const [passedSel, setPassedSel] = useState<number | null>(null);
   const accepted = payload.accepted ?? [];
   const count = [...problems, quiet, accepted.length ? `${accepted.length} accepted` : "", saved].filter(Boolean)
     .flatMap((c, i) => [...(i ? [" · "] : []), <Fragment key={i}>{c}</Fragment>]);
   // Check lands on the first problem, already open: nothing to tap to see what is wrong (mockup 2B).
   useEffect(() => { if (selected === null && firstProblem !== undefined) onSelect(firstProblem); }, [payload.cards]);
   const onSwap = contract && expectedRevision && onSwapped ? setSwapJoint : undefined;
+  const items = groups.flatMap((g, gi) => {
+    if (!keep(g)) return [];
+    const out = outside(payload.cards[g.members[0]!]!);
+    const item = groupItem(payload.cards, g, selected, onSelect, onJump, payload.cli_line, onSwap, finding(payload.cards[g.members[0]!]!)?.next_command);
+    const tip = out?.startsWith("Advice");
+    return [{ ...item, note: tip ? out : undefined, advice: tip, className: tip ? "finding-card severity-advice" : item.className, placement: out === OUTSIDE, noWord: out === OUTSIDE, index: gi }];
+  });
   if (swapJoint && contract && expectedRevision && onSwapped) {
     return <SwapPanel contract={contract} revision={expectedRevision} joint={swapJoint} onClose={() => setSwapJoint(null)} onApplied={(lines) => { setSwapJoint(null); onSwapped(lines); }} />;
   }
@@ -112,11 +133,11 @@ export function CheckPanel({
         </div>
       )}
       {firstProblem !== undefined && <h3 className="check-section">Findings</h3>}
-      {groups.length > 1 && (
+      {(groups.length > 1 || torques.length > 0) && (
         <div className="check-filter">
           <label><span className="kit-sr">Show</span>
             <select value={sev} onChange={(e) => setSev(e.target.value)}>
-              <option value="">All</option><option value="violation">NO-GO only</option><option value="warning">Warnings</option><option value="not_scored">Not scored</option>
+              <option value="">All</option><option value="violation">Violations</option><option value="warning">Warnings</option>{advice > 0 && <option value="advice">Advice</option>}<option value="not_scored">Not scored</option>{torques.length > 0 && <option value="passed">Passed torques</option>}
             </select>
           </label>
           {parts.length > 0 && (
@@ -127,17 +148,18 @@ export function CheckPanel({
               </select>
             </label>
           )}
-          {(sev || part) && <><span className="check-filter-count">Showing {shown} of {groups.length}</span><Button variant="quiet" onClick={() => { setSev(""); setPart(""); }}>Clear</Button></>}
+          {(sev || part) && <><span className="check-filter-count">{sev === "passed" ? `${torques.length} passed` : `Showing ${shown} of ${groups.length}`}</span><Button variant="quiet" onClick={() => { setSev(""); setPart(""); }}>Clear</Button></>}
         </div>
       )}
-      <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={groups.flatMap((g, gi) => (keep(g) ? [{ ...groupItem(payload.cards, g, selected, onSelect, onJump, payload.cli_line, onSwap), index: gi }] : []))} quietSummary={(n) => `Not scored (${n})`} />
+      {sev === "passed" ? <FindingList selected={passedSel} onSelect={setPassedSel} items={torques.map(passedItem)} /> : <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={items.filter((it) => !it.placement)} quietSummary={() => `Not scored (${notScored})`} />}
+      {/* The placement row is not a finding of `lockwire check`: its own heading, no count that reads as checks. */}
+      {sev !== "passed" && items.some((it) => it.placement) && <FindingList selected={groupOf(groups, selected)} onSelect={(g) => onSelect(g === null ? null : groups[g]!.members[0]!)} items={items.filter((it) => it.placement)} quietSummary={() => OUTSIDE} />}
       {accepted.length > 0 && (
         // Accepted on record: muted, never red, never hidden.
         <Disclosure summary={`Accepted (${accepted.length})`}>
-          {accepted.map((a, i) => <p key={i} className="check-note">{a.title}: {a.reason}. Signed by {a.witness}, {a.date}</p>)}
+          {accepted.map((a, i) => <p key={i} className="check-note">{a.title}: {a.reason.replace(/\.$/, "")}. Witness: {witnessWords(a.witness)}, {a.date}</p>)}
         </Disclosure>
       )}
-      {noteCard && <p className="check-note">{noteWords(noteCard)}</p>}
       {(payload.requirements ?? []).length > 0 && <Requirements rows={payload.requirements!} />}
       {more}
     </Panel>
@@ -161,6 +183,7 @@ export function servoStall(card: Card): { joint: string; edit: string } | null {
 /** Swap opens the panel; "Set limit" only shows the edit to make in the model file (the app never writes it). */
 function ServoActions({ joint, edit, onSwap }: { joint: string; edit: string; onSwap?: (joint: string) => void }) {
   const [shown, setShown] = useState(false);
+  const here = useShown(); // the edit as shown; Copy copies it as the engine wrote it
   return (
     <div className="check-servo">
       <div className="check-verdict-actions">
@@ -169,7 +192,7 @@ function ServoActions({ joint, edit, onSwap }: { joint: string; edit: string; on
       </div>
       {shown && (
         <p className="check-edit">
-          <code>{edit}</code>
+          <code>{here(edit)}</code>
           <Button variant="quiet" onClick={() => void navigator.clipboard?.writeText(edit)}>Copy</Button>
         </p>
       )}
@@ -181,10 +204,12 @@ const NO_NUMBERS = /^Numbers not shown/;
 
 function Detail({ card, onJump, cli, bare, onSwap }: { card: Card; onJump?: OnJump; cli?: string | null; bare?: boolean; onSwap?: (joint: string) => void }) {
   const servo = servoStall(card);
+  // Display only: servoStall, barOf and Copy read the engine's own text; the screen never prints this machine's path.
+  const shown = useShown();
   // The "i" opens the exact finding, where the note is written out.
   const [exact, setExact] = useState(false);
   // "Numbers not shown" is filler: say it only when nothing else is there to read.
-  const note = card.figure_note && (!NO_NUMBERS.test(card.figure_note) || (!card.observed && !card.expected && !card.body)) ? card.figure_note : null;
+  const note = card.figure_note && (!NO_NUMBERS.test(card.figure_note) || (!card.observed && !card.expected && !card.body)) ? shown(card.figure_note) : null;
   const info = note ? <button type="button" className="finding-info" aria-label={note!} title={note!} onClick={() => setExact(true)}>i</button> : null;
   // A number or the fix leads to the quantity's Declare row (else the card's parts light).
   const own: Jump = { path: card.quantity, targets: card.targets };
@@ -197,22 +222,22 @@ function Detail({ card, onJump, cli, bare, onSwap }: { card: Card; onJump?: OnJu
     card.expected && { label: "Expected", value: <>{to(at, fig(card.expected))}{card.observed ? null : info}</> },
   ].flatMap((r) => (r ? [r] : []));
   const instead = [
-    ...card.instead.map((a, i) => ({ label: i === 0 ? "Instead" : "", value: to(`Show ${a.text}`, <span className="finding-alt" title={a.text}>{a.text}</span>, insteadJump(a)) })),
+    ...card.instead.map((a, i) => ({ label: i === 0 ? "Instead" : "", value: to(`Show ${a.text}`, <span className="finding-alt" title={shown(a.text)}>{shown(a.text)}</span>, insteadJump(a)) })),
   ];
-  const fix = { label: "Fix", value: to(at, <span className="finding-fix">{card.fix}</span>) };
+  const fix = { label: "Fix", value: to(at, <span className="finding-fix">{shown(card.fix)}</span>) };
   // A found fault with no drawn figures states its measured and needed values in the open: no tap.
   const showBody = !!card.body && !card.observed && !card.expected && card.severity !== "not_scored";
   const body = (
     <div className="check-detail">
       <LimitBar card={card} />
       <FindingDetail rows={head ? [fix, ...instead] : [...figures, ...instead, fix]} />
-      {showBody && <p className="finding-body">{card.body}</p>}
+      {showBody && <p className="finding-body">{shown(card.body!)}</p>}
       {servo && <ServoActions joint={servo.joint} edit={servo.edit} onSwap={onSwap} />}
       <Disclosure summary="Show the exact finding" open={exact || undefined}>
         {head && <FindingDetail rows={figures} />}
-        {!card.observed && !card.expected && card.body && !showBody && <p className="finding-body">{card.body}</p>}
+        {!card.observed && !card.expected && card.body && !showBody && <p className="finding-body">{shown(card.body)}</p>}
         {note && <p className="finding-note">{note}</p>}
-        <Disclosure summary="Raw output"><pre className="finding-raw">{card.raw}</pre></Disclosure>
+        <Disclosure summary="Raw output"><pre className="finding-raw">{shown(card.raw)}</pre></Disclosure>
         {cli && <CommandLine command={cli} />}
       </Disclosure>
     </div>
@@ -237,14 +262,40 @@ export function barOf(card: Pick<Card, "observed" | "expected"> & { raw?: string
   return { ratio, good, fill, words: words.trim(), over: floor ? "short by " : "over by ", pct: Math.round(floor ? (1 - 1 / ratio) * 100 : (ratio - 1) * 100) };
 }
 
-function LimitBar({ card }: { card: Card }) {
+/** The passed torque comparisons in the page payload, each the engine's `--all` line word for word. */
+export const torqueRows = (rows: AddsUpRow[] = []) => rows.filter((r) => /^model\/joints\/.+\/(?:limits\/effort|standing\/[^/\n]+)\n/.test(r.raw));
+
+/** A joint's passed torque against its effort limit in the engine's numbers ("0.81 N*m of 1.50 N*m, 0.69 N*m headroom"); null without one. */
+export function jointTorque(rows: AddsUpRow[] | undefined, joint: string): string | null {
+  const head = `model/joints/${joint}/limits/effort\n`;
+  // The torque-needed row (its limit is the joint's), not the limit-against-the-servo's-stall row on the same path.
+  const m = (rows ?? []).map((x) => x.raw.startsWith(head) && /^ {2}observed: (.+)\n {2}expected: <= (.+) joint effort limit\n {2}margin: (.+)$/.exec(x.raw.slice(head.length))).find(Boolean);
+  return m ? `${m[1]} of ${m[2]}, ${m[3]}` : null;
+}
+
+/** A passed torque in the failing torque row's shape: the row, its bar against the limit, the exact finding. */
+function passedItem(r: AddsUpRow, i: number): FindingItem {
+  const read = (word: string) => { const m = new RegExp(`${word}:\\s+(?:<=\\s*)?(\\d+(?:\\.\\d+)?)\\s+(\\S+)`).exec(r.raw); return m ? { value: Number(m[1]), unit: m[2]! } : null; };
+  return {
+    key: `passed-${i}`, severity: "go", title: r.name, className: "finding-card severity-passed", index: i,
+    detail: (
+      <div className="check-detail">
+        <LimitBar card={{ observed: read("observed"), expected: read("expected") } as Pick<Card, "observed" | "expected">} words={r.margin} />
+        <Disclosure summary="Show the exact finding"><pre className="finding-raw">{r.raw}</pre></Disclosure>
+      </div>
+    ),
+  };
+}
+
+/** `words` replaces the bar's own words (a passed row says its margin as the engine wrote it). */
+function LimitBar({ card, words }: { card: Pick<Card, "observed" | "expected"> & { raw?: string }; words?: string }) {
   const b = barOf(card);
   if (!b) return null;
   const over = b.ratio > 1;
   const bg = `linear-gradient(to right, var(--go) ${b.good * 100}%, var(--bad) 0 ${b.fill * 100}%, var(--line) 0)`;
   return (
     <div className="check-limit" data-ratio={b.ratio.toFixed(3)}>
-      <p className={`check-limit-words${over ? " is-over" : ""}`}>{b.words}{over ? `, ${b.over}${b.pct}%` : ""}</p>
+      <p className={`check-limit-words${over ? " is-over" : ""}`}>{words ?? b.words}{over ? `, ${b.over}${b.pct}%` : ""}</p>
       <i className={`conn-bar${over ? " is-over" : ""}`} style={{ background: bg, height: 6, display: "block" }} aria-hidden="true" />
     </div>
   );
@@ -267,10 +318,12 @@ function Requirements({ rows }: { rows: RequirementRow[] }) {
 }
 
 const MASSLESS = "model/links/massless_frames";
+/** A row `lockwire check` never makes (the 3D view's placement check): its own list, under this heading. */
+const OUTSIDE = "Not part of the check";
 /** A count, never the link ids: the engine's raw line names them ("observed  2 massless frames (...): a, b"). */
 const noteWords = (c: Card) => {
   const n = /observed\s+(\d+) massless/.exec(c.raw)?.[1];
-  return `${n ?? "Some"} ${n === "1" ? "frame" : "frames"} without mass — normal for sensor and mount frames`;
+  return `${n ?? "Some"} ${n === "1" ? "frame" : "frames"} without mass, normal for sensor and mount frames`;
 };
 
 // Repeated findings (same check, same wording) are one row: "Drives joint x12". Grouping keys are
@@ -297,23 +350,26 @@ const groupCards = (cards: Card[]): Group[] => {
   return out;
 };
 
-/** Plain words, one rule: a red count for faults, an amber count for warnings, then the rest ("1 fault · 1 warning · 5 not scored"). */
-const countWords = (groups: Group[], cards: Card[]) => {
-  const n = (sev: string) => groups.filter((g) => cards[g.members[0]!]!.severity === sev).length;
-  const [faults, warnings] = [n("violation"), n("warning")];
-  const quiet = groups.length - faults - warnings;
-  const fault = faults ? <span className="check-count-fault">{faults} {faults === 1 ? "fault" : "faults"}</span> : null;
+/** Plain words, one rule: a red count for violations, an amber count for warnings, then the rest ("1 violation · 1 warning · 5 not scored"), the words of `lockwire check`.
+ * The numbers are the engine's own (`lockwire check`'s counts), never a count of the rows drawn: rows fold repeats together. */
+const countWords = ({ violations, warnings, unchecked }: { violations: number; warnings: number; unchecked: number }, advice: number) => {
+  const fault = violations ? <span className="check-count-violation">{violations} {violations === 1 ? "violation" : "violations"}</span> : null;
   const warn = warnings ? <span className="check-count-warn">{warnings} {warnings === 1 ? "warning" : "warnings"}</span> : null;
-  return { problems: fault || warn ? [fault, warn] : ["0 findings"], quiet: quiet ? `${quiet} not scored` : "" };
+  // "no findings" (the command line's words) only when no row is a violation, a warning or advice: never beside one.
+  const problems = [fault, warn, advice ? `${advice} advice` : null].filter(Boolean);
+  return { problems: problems.length ? problems : ["no findings"], quiet: unchecked ? `${unchecked} not scored` : "" };
 };
 
 const groupOf = (groups: Group[], selected: number | null) =>
   selected === null ? null : groups.findIndex((g) => g.members.includes(selected));
 
-function groupItem(cards: Card[], g: Group, selected: number | null, onSelect: (index: number | null) => void, onJump?: OnJump, cli?: string | null, onSwap?: (joint: string) => void): FindingItem {
+function groupItem(cards: Card[], g: Group, selected: number | null, onSelect: (index: number | null) => void, onJump?: OnJump, cli?: string | null, onSwap?: (joint: string) => void, next?: string | null): FindingItem {
   const first = cards[g.members[0]!]!;
   const item = groupRow(cards, g, selected, onSelect, onJump, cli, onSwap);
-  // A not-compared row offers its next step: Declare it (part rows too).
+  // A not-compared row offers the next step its finding names: a command other than declare
+  // (re-lock from the model: `lockwire start <urdf>`) is shown as that command, never as Declare it.
+  if (first.severity === "not_scored" && next && !/^lockwire declare\b/.test(next)) return { ...item, action: <CommandLine command={next} /> };
+  // Otherwise its next step is Declare it (part rows too).
   const declare: Jump = { path: first.quantity, targets: first.targets, declare: true };
   // The datasheet-mass result reads as the comparison it is, and offers Declare it (mockup 3B).
   const mass = first.quantity === MASS_NOMINAL ? massLine(first) : null;
@@ -327,7 +383,7 @@ function groupRow(cards: Card[], g: Group, selected: number | null, onSelect: (i
   const severity = first.severity === "violation" ? "bad" : first.severity === "warning" ? "warn" : "muted";
   const className = `finding-card severity-${first.severity}`;
   if (g.members.length === 1) {
-    return { key: `${first.shape}-${g.members[0]!}`, severity, title: headOf(first) ? noMode(first.title) : first.title, chips: liveChips(first.whole && severity !== "muted" ? WHOLE : capChips(targetChips(first.targets)), onJump), onChip, className, shape: first.shape, detail: <Detail card={first} onJump={onJump} cli={cli} onSwap={onSwap} /> };
+    return { key: `${first.shape}-${g.members[0]!}`, severity, title: first.quantity === MASSLESS ? noteWords(first) : headOf(first) ? noMode(first.title) : first.title, chips: liveChips(first.whole && severity !== "muted" ? WHOLE : capChips(targetChips(first.targets)), onJump), onChip, className, shape: first.shape, detail: <Detail card={first} onJump={onJump} cli={cli} onSwap={onSwap} /> };
   }
   const heads = modeHeads(g.members.map((i) => ({ observed: cards[i]!.raw, observed_quantity: cards[i]!.observed, expected_quantity: cards[i]!.expected })), g.members.map((i) => cards[i]!.targets.find((t) => t.kind === "rail")?.label));
   const targets = g.members.flatMap((i) => cards[i]!.targets).filter((t, n, all) => all.findIndex((u) => u.id === t.id && u.kind === t.kind) === n);

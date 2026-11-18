@@ -44,7 +44,7 @@ def _declare_door(contract: Path, source: str) -> None:
                 path="devices/dev.gnss.here3-plus/physical/mass",
                 value="51.8 g",
                 source=source,
-                witness="Shivansh",
+                witness="Alex Rivera",
             )
         ],
     )
@@ -54,9 +54,9 @@ def _add_door(contract: Path, source: str) -> None:
     add_entry(
         contract,
         "rail",
-        {"id": "rail.new", "capacity": "10 W", "owner": "shivansh"},
+        {"id": "rail.new", "capacity": "10 W", "owner": "avery"},
         source=source,
-        witness="Shivansh",
+        witness="Alex Rivera",
     )
 
 
@@ -72,14 +72,14 @@ def _collection_append_door(contract: Path, source: str) -> None:
                         "id": "fam.new",
                         "name": "new family",
                         "provenance": {
-                            "witness": "Shivansh",
+                            "witness": "Alex Rivera",
                             "source": source,
                             "locked_at": "2026-09-08",
                         },
                     }
                 ],
                 source="datasheet.pdf",
-                witness="Shivansh",
+                witness="Alex Rivera",
             )
         ],
     )
@@ -92,7 +92,7 @@ def _scene_import_door(contract: Path, source: str) -> None:
                 "path": "devices/dev.gnss.here3-plus/physical/mount_position_m",
                 "value": [0.0, 0.0, 0.0],
                 "source": source,
-                "witness": "Shivansh",
+                "witness": "Alex Rivera",
             },
         ),
         contract.parent / "changes.yaml",
@@ -109,7 +109,7 @@ def _value_side_door(contract: Path, source: str) -> None:
                 path="devices/dev.gnss.here3-plus/provenance/source",
                 value=source,
                 source="datasheet.pdf",
-                witness="Shivansh",
+                witness="Alex Rivera",
             )
         ],
     )
@@ -143,15 +143,15 @@ def test_every_write_door_accepts_a_relative_source(door, tmp_path: Path) -> Non
 # ------------------------------------------------------------------ 2. the refusal is named
 
 
-def test_the_refusal_names_the_path_the_allowed_forms_and_the_ruling(tmp_path: Path) -> None:
+def test_the_refusal_names_the_path_the_allowed_forms_and_why(tmp_path: Path) -> None:
     with pytest.raises(EditRefusal) as refusal:
         _declare_door(_copy(tmp_path), ABSOLUTE)
     message = str(refusal.value)
     assert ABSOLUTE in message
-    assert "relative to the contract" in message
+    assert "relative to the lockfile" in message
     assert "URL" in message
     assert "title" in message
-    assert "cannot travel with the contract" in message
+    assert "cannot travel with the lockfile" in message
 
 
 def test_an_empty_source_keeps_its_own_refusal(tmp_path: Path) -> None:
@@ -159,7 +159,7 @@ def test_an_empty_source_keeps_its_own_refusal(tmp_path: Path) -> None:
     with pytest.raises(EditRefusal) as refusal:
         _declare_door(_copy(tmp_path), "   ")
     assert "--source is required" in str(refusal.value)
-    assert "cannot travel with the contract" not in str(refusal.value)
+    assert "cannot travel with the lockfile" not in str(refusal.value)
 
 
 @pytest.mark.parametrize(
@@ -354,3 +354,9 @@ def test_only_gitref_shells_out_to_git() -> None:
             continue
         offenders.extend(_find_git_shellouts(path))
     assert not offenders, offenders
+
+
+def test_a_source_path_with_a_space_resolves_when_the_file_is_there(tmp_path: Path) -> None:
+    (tmp_path / "a b").mkdir()
+    (tmp_path / "a b" / "m.sdf").touch()
+    assert resolve_source(tmp_path / "l.yaml", "a b/m.sdf")

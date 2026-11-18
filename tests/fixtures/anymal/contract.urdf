@@ -9,7 +9,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/base.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/base.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -70,7 +70,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/top_shell.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/top_shell.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -88,7 +88,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/bottom_shell.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/bottom_shell.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -273,7 +273,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/face_shell.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/face_shell.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -291,7 +291,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/face_shell.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/face_shell.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -309,7 +309,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/battery.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/battery.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -327,7 +327,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/docking_socket.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/docking_socket.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -430,13 +430,13 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/lidar.dae"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/lidar.dae"/>
       </geometry>
     </visual>
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/lidar_guard.dae"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/lidar_guard.dae"/>
       </geometry>
     </visual>
     <collision>
@@ -460,7 +460,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -493,7 +493,7 @@
     <visual>
       <origin rpy="0.0 0 0.0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/hip.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/hip.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -518,7 +518,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -562,7 +562,7 @@
     <visual>
       <origin rpy="0 0 0.0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/thigh.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/thigh.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -598,7 +598,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -637,7 +637,7 @@
     <visual>
       <origin rpy="0 0 0.0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/shank_l.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/shank_l.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -667,7 +667,7 @@
     <visual>
       <origin rpy="0 0 0.0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/foot.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/foot.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -697,7 +697,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -730,7 +730,7 @@
     <visual>
       <origin rpy="-3.141592653589793 0 0.0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/hip.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/hip.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -755,7 +755,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -799,7 +799,7 @@
     <visual>
       <origin rpy="0 0 -3.141592653589793" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/thigh.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/thigh.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -835,7 +835,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -874,7 +874,7 @@
     <visual>
       <origin rpy="0 0 0.0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/shank_r.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/shank_r.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -904,7 +904,7 @@
     <visual>
       <origin rpy="0 0 -3.141592653589793" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/foot.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/foot.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -934,7 +934,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -967,7 +967,7 @@
     <visual>
       <origin rpy="-3.141592653589793 0 -3.141592653589793" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/hip.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/hip.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -992,7 +992,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -1036,7 +1036,7 @@
     <visual>
       <origin rpy="0 0 0.0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/thigh.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/thigh.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -1072,7 +1072,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -1111,7 +1111,7 @@
     <visual>
       <origin rpy="0 0 -3.141592653589793" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/shank_r.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/shank_r.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -1141,7 +1141,7 @@
     <visual>
       <origin rpy="0 0 0.0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/foot.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/foot.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -1171,7 +1171,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -1204,7 +1204,7 @@
     <visual>
       <origin rpy="0.0 0 -3.141592653589793" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/hip.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/hip.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <inertial>
@@ -1229,7 +1229,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -1273,7 +1273,7 @@
     <visual>
       <origin rpy="0 0 -3.141592653589793" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/thigh.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/thigh.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -1309,7 +1309,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/drive.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
     <collision>
@@ -1348,7 +1348,7 @@
     <visual>
       <origin rpy="0 0 -3.141592653589793" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/shank_l.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/shank_l.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -1378,7 +1378,7 @@
     <visual>
       <origin rpy="0 0 -3.141592653589793" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/foot.dae" scale="1.0 1.0 1.0"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/foot.dae" scale="1.0 1.0 1.0"/>
       </geometry>
     </visual>
         <collision>
@@ -1410,7 +1410,7 @@
 <!--    <visual>-->
 <!--      <origin rpy="0 0 0" xyz="0 0 0"/>-->
 <!--      <geometry>-->
-<!--        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/hatch.dae" scale="1.0 1.0 1.0"/>-->
+<!--        <mesh filename="../real_scenarios/official/anymal-d/meshes/hatch.dae" scale="1.0 1.0 1.0"/>-->
 <!--      </geometry>-->
 <!--    </visual>-->
 <!--    <inertial>-->
@@ -1430,7 +1430,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/mount.dae" scale="1 1 1"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/mount.dae" scale="1 1 1"/>
       </geometry>
     </visual>
     <inertial>
@@ -1457,7 +1457,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/pan.dae" scale="1 1 1"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/pan.dae" scale="1 1 1"/>
       </geometry>
     </visual>
     <inertial>
@@ -1484,7 +1484,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="../e5_10_real_scenarios/official/anymal-d/meshes/tilt.dae" scale="1 1 1"/>
+        <mesh filename="../real_scenarios/official/anymal-d/meshes/tilt.dae" scale="1 1 1"/>
       </geometry>
     </visual>
     <inertial>

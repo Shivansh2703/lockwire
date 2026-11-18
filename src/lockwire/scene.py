@@ -1,7 +1,7 @@
 """Stdlib glTF 2.0 reader for the scene door (a subset; ids in the extras join key).
 
 Accepts `.glb` (binary container) and `.gltf` with either a relative sidecar `.bin` or a
-`data:` base64 URI buffer. No third-party glTF library (no tool-specific dependency) —
+`data:` base64 URI buffer. No third-party glTF library (no tool-specific dependency) -
 `json`, `struct`, `base64`, `math`, `pathlib`, `dataclasses` only.
 
 Refusal posture mirrors `urdf.py`'s DOCTYPE/xacro refusals: refuse on raw bytes/structure
@@ -67,7 +67,7 @@ class Scene:
 def _read_glb(raw: bytes, path: Path) -> tuple[dict, bytes | None]:
     if len(raw) < 12 or raw[0:4] != b"glTF":
         raise SceneRefusal(
-            f"{path}: not a valid GLB — bad magic header (expected b'glTF'). "
+            f"{path}: not a valid GLB: bad magic header (expected b'glTF'). "
             "Re-export as glTF 2.0 binary (.glb)."
         )
     magic, version, length = struct.unpack_from("<4sII", raw, 0)
@@ -77,7 +77,7 @@ def _read_glb(raw: bytes, path: Path) -> tuple[dict, bytes | None]:
         )
     if length > len(raw):
         raise SceneRefusal(
-            f"{path}: truncated GLB — header declares {length} bytes but the file has "
+            f"{path}: truncated GLB: header declares {length} bytes but the file has "
             f"{len(raw)}. Re-export the file."
         )
     offset = 12
@@ -88,7 +88,7 @@ def _read_glb(raw: bytes, path: Path) -> tuple[dict, bytes | None]:
         chunk_start = offset + 8
         chunk_end = chunk_start + chunk_len
         if chunk_end > length:
-            raise SceneRefusal(f"{path}: truncated GLB — a chunk overruns the declared length.")
+            raise SceneRefusal(f"{path}: truncated GLB: a chunk overruns the declared length.")
         chunk_data = raw[chunk_start:chunk_end]
         if chunk_type == 0x4E4F534A:  # 'JSON'
             if len(chunk_data) > _MAX_JSON_BYTES:
@@ -173,7 +173,7 @@ def _accessor_data(doc: dict, index: int, buffers: list[bytes], path: Path) -> l
         )
     if acc.get("normalized"):
         raise SceneRefusal(
-            f"{path}: accessor {index} sets `normalized`, which is not supported. "
+            f"{path}: accessor {index} sets 'normalized', which is not supported. "
             "Re-export with un-normalized accessors."
         )
     component_type = acc["componentType"]
@@ -348,7 +348,7 @@ def _check_duplicate_ids(ids_seen: dict[str, list[int]], doc: dict, path: Path) 
                 if a == b or is_ancestor(a, b) or is_ancestor(b, a):
                     continue
                 raise SceneRefusal(
-                    f"{path}: two parts in the scene both claim `{lw_id}`; give each part one id."
+                    f"{path}: two parts in the scene both claim '{lw_id}'; give each part one id."
                 )
 
 
@@ -444,6 +444,9 @@ def load_scene(path: Path) -> Scene:
                 )
             raw_pos = _accessor_data(doc, attrs["POSITION"], buffers, path)
             n_verts = len(raw_pos) // 3
+            if n_verts == 0:  # nothing to draw; kept, it left the bounds infinite and the app refused the robot
+                skipped.append(node.get("name", ""))
+                continue
             world_positions: list[float] = []
             for i in range(n_verts):
                 local_pt = (raw_pos[3 * i], raw_pos[3 * i + 1], raw_pos[3 * i + 2])

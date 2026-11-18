@@ -1,22 +1,22 @@
 /**
- * `Canvas.tsx` — the scene mount. Plain `three` only (charter #1): a `PerspectiveCamera` +
- * `OrbitControls` from three's own examples (#2), a `ResizeObserver` that owns the resolution
- * uniform (#3, see `buildScene.handleResize`), one `Mesh` per decoded part built from e2-e's
- * decoder (#4). `translation` is never applied to positions (#5) — `buildScene`/`decode.ts`
+ * `Canvas.tsx`: the scene mount. Plain `three` only: a `PerspectiveCamera` +
+ * `OrbitControls` from three's own examples, a `ResizeObserver` that owns the resolution
+ * uniform (see `buildScene.handleResize`), one `Mesh` per decoded part built from the
+ * mesh decoder. `translation` is never applied to positions: `buildScene`/`decode.ts`
  * never read it.
  *
- * The lens mount (E2-f3): `parts[i]` and `ctx.meshes[i]` share an index (buildScene.ts's
+ * The lens mount: `parts[i]` and `ctx.meshes[i]` share an index (buildScene.ts's
  * `.map`), so which mesh is coloured for the active lens is exactly `partsForLens(parts, lens)`
- * (`./lenses`) — the payload's own `ScenePart.lenses`, nothing composed here. No lens word is
+ * (`./lenses`): the payload's own `ScenePart.lenses`, nothing composed here. No lens word is
  * read or written in this file.
  *
- * `useScene()` is the small context every downstream box (e2-f, e2-j2, e4-d) consumes — see its
+ * `useScene()` is the small context every downstream component consumes: see its
  * shape at the bottom of this file's exports: `SceneContext` from `./buildScene`.
  *
- * e2-ss: a `pointerdown` on the canvas raycasts against the real mounted meshes
- * (`buildScene.pickPart`) and writes the hit part's payload id — or `null` on a miss — to the
+ * A `pointerdown` on the canvas raycasts against the real mounted meshes
+ * (`buildScene.pickPart`) and writes the hit part's payload id, or `null` on a miss, to the
  * shared selection store (`./selectionStore`). Nothing else: no highlight, no detail panel, no
- * camera-fly-to; those are other boxes.
+ * camera fly-to in this file.
  */
 import type { Vector3 } from "three";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -46,7 +46,7 @@ import { partsForLens, type LensId, type LensedPart } from "./lenses";
 
 const SceneReactContext = createContext<SceneContext | null>(null);
 
-/** Throws outside a mounted `<Canvas>` — there is no scene to read before it exists. */
+/** Throws outside a mounted `<Canvas>`: there is no scene to read before it exists. */
 export function useScene(): SceneContext {
   const ctx = useContext(SceneReactContext);
   if (!ctx) throw new Error("useScene() must be called within <Canvas>");
@@ -129,6 +129,9 @@ export function Canvas({
     let raf = 0;
     // Render on demand: orbiting ('change'), or anything that sets needsRender, draws one frame.
     sceneCtx.controls.addEventListener("change", () => { sceneCtx.needsRender = true; });
+    // A restored WebGL context (the GPU process restarted) starts empty: draw the robot again, or the view stays blank until touched.
+    const redraw = () => { sceneCtx.needsRender = true; };
+    canvas.addEventListener("webglcontextrestored", redraw);
     const wasd = attachWasd(sceneCtx);
     const unwheel = attachWheel(sceneCtx);
     let last = performance.now();
@@ -153,7 +156,7 @@ export function Canvas({
     observer.observe(container);
 
     // devicePixelRatio changes (a window dragged between displays) fire no resize event, so a
-    // media query pinned to the CURRENT ratio is the only signal — it re-subscribes itself at
+    // media query pinned to the CURRENT ratio is the only signal: it re-subscribes itself at
     // the new ratio each time it fires, since it stops matching once the ratio it names is gone.
     let mql: MediaQueryList | undefined;
     const watchRatio = () => {
@@ -167,7 +170,7 @@ export function Canvas({
     }
     watchRatio();
 
-    // e2-ss: pointer pick -> raycast against the real mounted scene -> the shared selection
+    // Pointer pick -> raycast against the real mounted scene -> the shared selection
     // store. A pick that hits nothing writes `null` explicitly (see selectionStore.ts) rather
     // than leaving whatever was selected before.
     const handlePick = (event: PointerEvent) => {
@@ -217,6 +220,7 @@ export function Canvas({
       themeObserver.disconnect();
       observer.disconnect();
       mql?.removeEventListener("change", onRatioChange);
+      canvas.removeEventListener("webglcontextrestored", redraw);
       canvas.removeEventListener("pointerdown", handlePick);
       canvas.removeEventListener("dragover", allow);
       canvas.removeEventListener("drop", handleDrop);
@@ -239,7 +243,7 @@ export function Canvas({
     refit(ctx);
   }, [ctx, insetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Lens membership only — never rebuilds geometry. `partsForLens` is the one join (payload
+  // Lens membership only: never rebuilds geometry. `partsForLens` is the one join (payload
   // `ScenePart.lenses`); members keep their colours, the rest are greyed under a view (hidden
   // only under "All"), see `applyLens`. This file composes no lens word or rule of its own.
   useEffect(() => {

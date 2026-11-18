@@ -97,11 +97,13 @@ describe("kit", () => {
     ]));
   });
 
-  it("CommandLine shortens an absolute path in the middle and keeps the full command in the tip", () => {
+  // With no robot open the path is outside any robot folder: its folders are elided and it stays visibly absolute (`/…/name`).
+  // Inside the open robot's folder it reads as the bare file name: `shown.test.tsx`.
+  it("CommandLine shows an absolute path without its folders, in the text and the tip (Copy keeps the full command)", () => {
     expect(shortCommand("lockwire check /Users/a/b/qarm/lockwire.yaml --x")).toBe("lockwire check …/qarm/lockwire.yaml --x");
     const el = mount(<CommandLine command="lockwire check /Users/a/b/qarm/lockwire.yaml" />);
-    expect(el.querySelector(".kit-cli-text")!.textContent).toBe("lockwire check …/qarm/lockwire.yaml");
-    expect(el.querySelector(".kit-cli")!.getAttribute("title")).toBe("lockwire check /Users/a/b/qarm/lockwire.yaml");
+    expect(el.querySelector(".kit-cli-text")!.textContent).toBe("lockwire check /…/lockwire.yaml");
+    expect(el.querySelector(".kit-cli")!.getAttribute("title")).toBe("lockwire check /…/lockwire.yaml");
   });
 
   it("PillTabs can be disabled (no robot open)", () => {
@@ -132,7 +134,7 @@ describe("kit", () => {
   });
 });
 
-// D14b: a row note with no chips fell into the auto first column, pushing the title away from its tick.
+// A row note with no chips fell into the auto first column, pushing the title away from its tick.
 describe("finding row layout", () => {
   it("puts the note in the title column", () => {
     const css = readFileSync("src/renderer/theme.css", "utf8");

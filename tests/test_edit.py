@@ -772,9 +772,9 @@ def test_resolve_witness_explicit_empty_string_is_refused_not_defaulted(monkeypa
     config = tmp_path / "config.toml"
     config.write_text('witness = "Priya"\n', encoding="utf-8")
     monkeypatch.setenv("LOCKWIRE_WITNESS_CONFIG", str(config))
-    with pytest.raises(EditRefusal, match=r"--witness must name a real person, not ''"):
+    with pytest.raises(EditRefusal, match=r"--witness is missing"):
         resolve_witness("")
-    with pytest.raises(EditRefusal, match=r"--witness must name a real person, not '  '"):
+    with pytest.raises(EditRefusal, match=r"--witness is missing"):
         resolve_witness("  ")
     # omission (None) is unaffected by this refusal and still gets the default.
     assert resolve_witness(None) == "Priya (default)"
@@ -886,7 +886,7 @@ def test_declare_cli_refuses_explicit_empty_witness_even_with_config_default(mon
         ],
     )
     assert result.exit_code == 2, result.output
-    assert "--witness must name a real person, not ''" in result.output
+    assert "--witness is missing" in " ".join(result.output.split())
     assert _sha(contract_path) == before
 
 
@@ -1422,7 +1422,7 @@ def test_one_submit_writes_one_witness_line(tmp_path):
     """`add device` with a new --family and --model creates all
     three records in one write, and the file carries the witness's name
     exactly once — the family and model provenance created *because of* this
-    device point at it instead of repeating the witness (parity-anchor law:
+    device point at it instead of repeating the witness (anchored, not parity:
     the expected values below are literal, not derived from a second run).
     """
     contract_path = _copy(tmp_path)
@@ -1521,7 +1521,7 @@ def test_a_failed_third_record_leaves_the_file_byte_identical(tmp_path):
 def test_an_absolute_source_path_is_refused(tmp_path):
     contract_path = _copy(tmp_path)
     before = _sha(contract_path)
-    with pytest.raises(EditRefusal, match="cannot travel with the contract"):
+    with pytest.raises(EditRefusal, match="cannot travel with the lockfile"):
         add_entry(
             contract_path,
             "device",
@@ -1653,14 +1653,14 @@ def test_apply_accepts_scene_import_list_plus_unit_entry(tmp_path):
             path="devices/dev.companion.jetson-orin-nano/physical/mount_xyz",
             value=[0.0, 0.096, 0.13],
             unit="m",
-            source="x500.glb node dev.companion.jetson-orin-nano; confirmed by shivansh",
+            source="x500.glb node dev.companion.jetson-orin-nano; confirmed by avery",
             witness="human",
-            note="position read from the model on 2026-09-06 and confirmed by shivansh",
+            note="position read from the model on 2026-09-06 and confirmed by avery",
         ),
         Change(
             path="devices/dev.companion.jetson-orin-nano/physical/mount_frame",
             value="x500_frame",
-            source="x500.glb node dev.companion.jetson-orin-nano; confirmed by shivansh",
+            source="x500.glb node dev.companion.jetson-orin-nano; confirmed by avery",
             witness="human",
         ),
     ]
@@ -1678,7 +1678,7 @@ def test_apply_accepts_scene_import_list_plus_unit_entry(tmp_path):
 
 
 # ---------------------------------------------------------------- byte diff confinement
-# Review bounce: a plain `YAML()` round-trip keeps ruamel's defaults (no
+# A plain `YAML()` round-trip keeps ruamel's defaults (no
 # preserve_quotes, 2-space sequence indent, 80-col rewrap) — every write
 # reformatted the whole file even though comments survived. edit.py now owns
 # its own writer settings; these tests pin the confined-diff guarantee down.
@@ -1872,7 +1872,7 @@ def test_add_family_confines_diff_on_init_written_file(tmp_path, testbot_urdf):
 
 
 def test_add_family_confines_diff_on_init_anymal_d(tmp_path):
-    """The real case a review bounce caught: comparing a reconstructed
+    """The real case: comparing a reconstructed
     float's PARSED VALUE to the original (a first pass of this fix) misses
     ULP drift, since a drifted string still parses back to the same float64
     — only comparing TEXT catches it. `anymal_d.urdf` init's to a contract
@@ -2041,7 +2041,7 @@ def test_add_battery_creates_block_with_comment_provenance(tmp_path):
     text = contract_path.read_text(encoding="utf-8")
     assert "SPECS.md PDF p7" in text
     assert "human" in text
-    assert "Li-ion" in text
+    assert contract.topology.battery.chemistry == "li-ion"
 
 
 def test_declare_topology_battery_capacity_records_comment_provenance(tmp_path):
@@ -2075,8 +2075,8 @@ def test_declare_topology_battery_capacity_records_comment_provenance(tmp_path):
 
 def test_declare_model_link_mass_records_comment_provenance(tmp_path):
     """Bite: `Link` (schema.py:270) has no `provenance` field either,
-    and the schema forbids extras -- same situation the battery was
-    already ruled on. Before this fix, `declare model/links/x500_frame/mass`
+    and the schema forbids extras -- same situation as the battery,
+    already handled. Before this fix, `declare model/links/x500_frame/mass`
     hit `EditRefusal: cannot stamp provenance at model/links` (measured on this
     exact row); it now records a comment stamp the same way `add battery` and
     `declare topology/battery/capacity` do.
@@ -2226,7 +2226,7 @@ _MARK_CONTRACT = (
     "devices:\n"
     "  - id: dev.jetson\n"
     "    model: mdl.compute.generic\n"
-    "    owner: shivansh\n"
+    "    owner: avery\n"
     "    power:\n"
     "      rail: rail.5v\n"
     "      draw: {{value: {draw}, unit: W}}\n"
@@ -2235,7 +2235,7 @@ _MARK_CONTRACT = (
     "    kind: rail_power\n"
     "    rail: rail.5v\n"
     "    limit: {{value: {limit}, unit: W}}\n"
-    "    owner: shivansh\n"
+    "    owner: avery\n"
     "    provenance:\n"
     "      witness: human\n"
     "      source: datasheet\n"
@@ -2354,7 +2354,7 @@ def test_every_pose_edit_stamps_its_own_witness(tmp_path):
     The name says *every*, so the test exercises all three and the bite mutates
     the SHARED path (`edit._stamp_provenance`), not one operation's call to it.
 
-    Anchored leg (PARITY-ANCHOR law): the assertion is against
+    Anchored leg: the assertion is against
     `armtree_pose_edits.expected.yaml`, bytes nothing under test computes.
     Comparing the library door to the CLI door would compare two identical
     wrongs — a stamper that silently stopped stamping would keep them agreeing.
@@ -2544,6 +2544,9 @@ def test_a_rotation_without_a_unit_is_refused(tmp_path):
             locked_at=POSE_DATE,
         )
     assert "--unit is required" in str(error.value), error.value
+    with pytest.raises(EditRefusal) as error:
+        rotate(contract, "wrist", (0, 0, 1), unit="grad", source="n", witness="W")
+    assert "is not accepted for a rotation; give one of rad, deg" in str(error.value)
 
     # And the unit is USED, not merely demanded: 90 deg is not 90 rad.
     rotate(
@@ -3063,6 +3066,33 @@ def _two_links(tmp_path, axis=(0.0, 0.0, 1.0)):
     joint = {"name": "elbow", "type": "revolute", "parent": "base", "child": "arm", "axis": axis}
     add_entry(path, "joint", joint, source="sketch", witness="w1")
     return path
+
+
+def test_multi_line_note_on_a_first_key_stamp_keeps_the_yaml_valid(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    add_entry(path, "link", {"name": "base", "mass": "1 kg"}, source="x", witness="w1", note="one\ntwo")
+    assert load_contract(path).model.links[0].name == "base"
+    assert "source x; one two" in path.read_text(encoding="utf-8")
+
+
+def test_source_with_a_line_break_is_refused_and_an_old_one_still_loads(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    with pytest.raises(EditRefusal, match="--source must be one line"):
+        add_entry(path, "link", {"name": "b", "mass": "1 kg"}, source="x\n2026-01-01: y", witness="w1")
+    assert path.read_text(encoding="utf-8") == _BLANK
+    add_entry(path, "link", {"name": "b", "mass": "1 kg"}, source="x", witness="w1")
+    path.write_text(path.read_text(encoding="utf-8").replace("source: x", 'source: "x\\ny"'), encoding="utf-8")
+    assert load_contract(path).model.provenance.source == "x\ny"
+
+
+def test_too_long_witness_is_shown_cut_in_the_refusal(tmp_path):
+    path = tmp_path / "lockwire.yaml"
+    path.write_text(_BLANK, encoding="utf-8")
+    with pytest.raises(EditRefusal) as refused:
+        add_entry(path, "link", {"name": "b", "mass": "1 kg"}, source="x", witness="Maya Chen " * 12)
+    assert str(refused.value).endswith("not 'Maya Chen Maya Chen Maya Chen Maya Chen...'")
 
 
 def test_two_link_tree_from_blank_is_read_by_check_with_no_drift(tmp_path, monkeypatch):
@@ -3608,3 +3638,79 @@ def test_a_named_edit_keeps_the_witness_and_an_anonymous_one_replaces_it_with_th
     apply_changes(path, [Change(mass, "310 g", "b.pdf", None)])
     prov = load_contract(path).device("dev.gripper").provenance
     assert (prov.witness, prov.source) == (None, "b.pdf")
+
+
+def test_only_mount_shape_is_read_as_structured_text():
+    """The app (`FILE_REFS` in app/src/main/assistant.ts) refuses file references only where the
+    engine reads a declare value as structure. If this fails, the engine now parses text for another
+    field: update `FILE_REFS` in `app/src/main/assistant.ts` (and `asStructure` there), then this list."""
+    from pydantic import BaseModel
+
+    names = {
+        n
+        for m in vars(edit.schema).values()
+        if isinstance(m, type) and issubclass(m, BaseModel)
+        for n in m.model_fields
+    }
+    parsed = [
+        n
+        for n in sorted((names | {"mount_shape"}) - set(edit._VECTOR_FIELDS))
+        for raw in ('{"mesh_path": "x"}', "[1, 2]", "a: {b: 1}")
+        if not isinstance(_try_parse(n, raw), str)
+    ]
+    assert set(parsed) == {"mount_shape"}, (
+        f"engine now parses text for {sorted(set(parsed))}: update FILE_REFS in app/src/main/assistant.ts"
+    )
+
+
+def _try_parse(name: str, raw: str):
+    try:
+        return edit._parse_value(raw, field_name=name)
+    except EditRefusal:
+        return raw  # refused is not parsed: only a returned non-string counts
+
+
+@pytest.mark.parametrize("bad", ["Eve\n2026-01-01: x declared, witness Root", "Root <script>", "A" * 81])
+def test_api_declare_refuses_a_witness_that_could_forge_a_stamp(tmp_path, bad):
+    """The server's write door: a multi-line, angle-bracket or overlong name never lands."""
+    contract_path = _copy(tmp_path)
+    before = _sha(contract_path)
+    with pytest.raises(EditRefusal, match="must name a real person"):
+        api.declare(contract_path, "topology/rails/rail.pm02-5v/capacity", "18 W", source="t", witness=bad)
+    assert _sha(contract_path) == before
+
+
+def test_blank_witness_says_what_to_type_and_a_first_key_comment_stays_on_its_line(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("LOCKWIRE_WITNESS_CONFIG", str(tmp_path / "none.toml"))
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["start", "--blank"])
+    out = runner.invoke(app, ["declare", "lockwire.yaml", "robot/name", "x", "--source", "y"]).output
+    assert "--witness is missing: give the name" in " ".join(out.split()) and "''" not in out
+    args = ["--name", "base", "--shape", "box 0.1 0.1 0.1", "--material", "Aluminium 6061-T6"]
+    runner.invoke(app, ["add", "link", "lockwire.yaml", *args, "--source", "x", "--witness", "Maya Chen"])
+    text = (tmp_path / "lockwire.yaml").read_text()
+    assert "- name: base  # " in text and "-\n" not in text
+
+
+def test_an_unmatched_validation_error_names_its_lockfile_path_not_a_dotted_index():
+    from lockwire.edit import _correlate_failure
+
+    class Error:
+        def errors(self):
+            return [{"type": "missing", "loc": ("devices", 0, "power", "rail"), "msg": "Field required"}]
+
+    doc = {"devices": [{"id": "dev.cam", "power": {}}]}
+    out = _correlate_failure(doc, [Change("robot/name", "x", "s", "Maya Chen")], Error())
+    assert out.endswith("devices/dev.cam/power/rail is missing"), out
+
+
+def test_a_matched_validation_error_for_a_missing_key_says_it_is_missing():
+    from lockwire.edit import _correlate_failure
+
+    class Error:
+        def errors(self):
+            return [{"type": "missing", "loc": ("devices", 0, "power", "rail"), "msg": "Field required"}]
+
+    doc = {"devices": [{"id": "dev.cam", "power": {}}]}
+    out = _correlate_failure(doc, [Change("devices/dev.cam/power", "x", "s", "Maya Chen")], Error())
+    assert out == "entry 1: devices/dev.cam/power/rail is missing", out

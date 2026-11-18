@@ -23,8 +23,8 @@ import {
   type ContractUndoRequest,
   type ContractWriteRequest,
 } from "../shared/ipc-contract";
-import { handleAgentStart, handleAgentStop, handlePowerDesign } from "./agent";
-import { handleApply, handleCancel, handleSend, handleSettingsGet, handleSettingsSet } from "./assistant";
+import { handleApply, handleCancel, handleSend, handleSettingsGet, handleSettingsSet, handleShowFinding } from "./assistant";
+import { withShown } from "./assistantShow";
 import { checkPayloadToFace } from "./checkPayload";
 import { pickNewRobotLocation, pickRobot } from "./dialogs";
 import { savePicture } from "./exports";
@@ -442,7 +442,7 @@ async function handleRobotCommand(args: unknown) {
   throw new Error("robot:command: not supported");
 }
 
-// e9-join: the renderer is sandboxed (contextIsolation + no nodeIntegration, window-options.ts)
+// The renderer is sandboxed (contextIsolation + no nodeIntegration, window-options.ts)
 // and cannot import "./sidecar" itself -- that direct import is what made `npm run build`
 // resolve main-process code with browser externals and fail. These two handlers are the whole
 // fix: the renderer's only legal path to the sidecar's state is through this same dispatch gate
@@ -451,7 +451,7 @@ async function handleSidecarState(_args: unknown): Promise<SidecarState> {
   return getSidecarState();
 }
 
-// e9-rate (review flag on e9-join): sidecar:restart is state-changing and reachable from the
+// Rate limit: sidecar:restart is state-changing and reachable from the
 // renderer, so it needs a rate limit enforced HERE, in the main process -- a limit the renderer
 // enforced on itself would not be a limit, since the renderer is the untrusted side. The knob is
 // this one named constant (same pattern as sidecar.ts's STARTUP_TIMEOUT_MS): a slow machine that
@@ -491,7 +491,7 @@ export type FileOpenResult =
  * the half `lockwire.api.check` emits -- see that file for the known gap). A
  * cancelled dialog never reaches the sidecar.
  *
- * `checkPayload` (E2-j2 rebase) is the SAME sidecar reply `checkPayloadToFace` narrows --
+ * `checkPayload` is the SAME sidecar reply `checkPayloadToFace` narrows --
  * carried through unabridged, scene/graph included, so the Design tab has one source for the
  * same open rather than a second round trip or the test-only `window.__lockwireLoadCheckPayload`
  * door. */
@@ -777,16 +777,14 @@ const HANDLERS = {
   "sidecar:restart": handleSidecarRestart,
   "assistant:settings-get": handleSettingsGet,
   "assistant:settings-set": handleSettingsSet,
-  "assistant:send": handleSend,
+  "assistant:send": withShown(handleSend),
   "assistant:apply": handleApply,
   "assistant:cancel": handleCancel,
+  "assistant:show-finding": handleShowFinding,
   "terminal:start": handleTerminalStart,
   "terminal:write": handleTerminalWrite,
   "terminal:resize": handleTerminalResize,
   "terminal:kill": handleTerminalKill,
-  "agent:start": handleAgentStart,
-  "agent:power-design": handlePowerDesign,
-  "agent:stop": handleAgentStop,
 } satisfies Record<CommandClass, (args: unknown) => Promise<unknown>>;
 
 // Exhaustiveness check: every name in the shared list must be a key of HANDLERS (and vice versa,

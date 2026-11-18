@@ -21,14 +21,14 @@ devices:
     model: mdl.imu
     driver:
       nominal_rate_hz: 200
-    owner: shivansh
+    owner: avery
   - id: dev.barometer
     model: mdl.barometer
     driver:
       nominal_rate_hz: 50
-    owner: shivansh
+    owner: avery
   - id: dev.gnss
     model: mdl.gnss
     driver:
       nominal_rate_hz: 8
-    owner: shivansh
+    owner: avery

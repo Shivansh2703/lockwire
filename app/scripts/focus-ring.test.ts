@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-// The "blue highlight spills out of its box" defect (owner 2026-11-12 and 2026-11-14) came from focus
+// The "blue highlight spills out of its box" defect came from focus
 // rings drawn OUTSIDE their control: anything that scrolls, or has rounded corners, cuts such a ring
 // off. This holds every focus rule in every stylesheet to one shape: the ring is inside the control.
 // The measured twin, on the real app, is scripts/focus-audit.mjs.

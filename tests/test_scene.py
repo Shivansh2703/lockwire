@@ -221,6 +221,23 @@ def test_glb_parse_basic(tmp_path: Path):
     assert scene.nodes_with_ids == {"dev.motor.m1": "Cube"}
 
 
+def test_a_primitive_with_no_vertices_is_skipped_and_the_bounds_stay_numbers(tmp_path: Path):
+    # 3D-SOAK: an empty mesh left the bounds at +-inf (null in JSON) and the app refused to open the robot.
+    doc = {
+        "asset": {"version": "2.0"},
+        "scenes": [{"nodes": [0]}],
+        "scene": 0,
+        "nodes": [{"name": "empty", "mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+        "accessors": [{"componentType": 5126, "count": 0, "type": "VEC3", "min": [0, 0, 0], "max": [0, 0, 0]}],
+    }
+    p = tmp_path / "scene.glb"
+    _write_glb(p, doc, b"")
+    scene = load_scene(p)
+    assert scene.parts == () and scene.skipped == ("empty",)
+    assert scene.bounds == ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+
+
 def test_gltf_data_uri(tmp_path: Path):
     p = tmp_path / "scene.gltf"
     _write_gltf_databuri(p, extras={"lockwire": {"id": "dev.motor.m1"}})

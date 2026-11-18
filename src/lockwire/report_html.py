@@ -2,16 +2,30 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
+import os
 import re
+from urllib.parse import unquote
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from lockwire import __version__, gitref, plugins
-from lockwire.checks import power_rollup, run_record_checks, unknown_draw_message
+from lockwire.cli_line import quote
+from lockwire.copy import label_name
+from lockwire.edit import witness_words
+from lockwire.missing import missing_inputs
+from lockwire.checks import (
+    _model_on_disk,
+    _urdf_path_candidate,
+    power_rollup,
+    run_record_checks,
+    unknown_draw_message,
+)
 from lockwire.report import (
     CGReport,
     Finding,
@@ -22,26 +36,36 @@ from lockwire.report import (
     _cluster_members,
     _cluster_root_finding,
     _presentation_groups,
+    delta_words,
     limit_raised_mark,
+    plain_text,
+    render,
+    counts_text,
     verdict,
+    verdict_text,
 )
 from lockwire.schema import Contract
 from lockwire.units import convert
 
 
 def _redact_witness(value: str | None) -> str | None:
-    """A device owner or a declare/lock witness — a person's or supplier's
+    """A device owner or a declare/lock witness - a person's or supplier's
     name. Dropped outright, not shortened: there is no partial form of a name
     that stays useful and stops identifying someone (--redact-paths)."""
     return None if value else value
 
 
 def _redact_path(value: str | None) -> str | None:
-    """Shorten an absolute filesystem path to its basename; anything else (a
-    URL, a prose citation, a relative path) is returned unchanged
+    """Shorten an absolute filesystem path, or a relative one that climbs out of its folder
+    (`../x/y`), to its basename; anything else (a URL, a prose citation, a path below the
+    lock's folder) is returned unchanged
     (--redact-paths)."""
-    if value and Path(value).is_absolute():
-        return Path(value).name
+    if value and (
+        Path(value).is_absolute()
+        or PureWindowsPath(value).is_absolute()
+        or value.startswith(("../", "..\\"))  # leaves its folder: names the parents
+    ):
+        return _last_part(value)
     return value
 
 
@@ -49,15 +73,15 @@ def _redact_path(value: str | None) -> str | None:
 # catch the fields their author thought of; a five-minute adversarial pass
 # found two more (cli_line, and the free-text observed/expected/action
 # fields) sitting one hop away. Rather than grow that allowlist field by
-# field forever, this sweeps every string in the ASSEMBLED payload dict —
-# the single point where the report becomes JSON — for an embedded absolute
+# field forever, this sweeps every string in the ASSEMBLED payload dict -
+# the single point where the report becomes JSON - for an embedded absolute
 # path, so a field added to the payload later is covered by construction
 # instead of by someone remembering to redact it. A whole-string match (the
 # per-field helpers above) can't do this: a "source" field IS a path, but
 # "observed"/"action" are prose with a path embedded in a sentence.
 # POSIX absolute (/...), Windows drive-letter (C:\...), and UNC (\\server\...)
 # forms. The POSIX-only pattern passed on a Mac and leaked a
-# username through an unmatched `C:\Users\alice\...` — the same lesson
+# username through an unmatched `C:\Users\alice\...` - the same lesson
 # this code illustrates (a matcher only covers the shapes its author pictured)
 # recurring on its own author. Checked by feeding each shape through this
 # function, not by inspection (an inspected-only ceiling claimed
@@ -66,16 +90,176 @@ def _redact_path(value: str | None) -> str | None:
 # Windows path with no drive letter (`\Users\alice\...`), and a path with
 # mixed `/`/`\` separators (e.g. `C:/Users\alice\...`, copy-pasted from a
 # mixed-shell log). A `\\?\` extended-length prefix IS redacted, but only
-# INCIDENTALLY — the broad UNC alternative (`\\\\...`) happens to swallow it
+# INCIDENTALLY - the broad UNC alternative (`\\\\...`) happens to swallow it
 # whole and `PureWindowsPath` still resolves its basename; nothing here
 # targets that shape deliberately, so a future narrowing of the UNC pattern
 # (to be less broad, say) could silently drop this coverage and no test
 # would notice.
-_ABS_PATH_IN_TEXT_RE = re.compile(r"/[^\s\"'<>]+" r"|[A-Za-z]:\\[^\s\"'<>]+" r"|\\\\[^\s\"'<>]+")
+_ABS_PATH_IN_TEXT_RE = re.compile(
+    r"(?<!\w)/[^\s\"'<>]+" r"|[A-Za-z]:\\[^\s\"'<>]+" r"|\\\\[^\s\"'<>]+"
+)
 _ABS_PATH_TRAILING_PUNCTUATION = ".,;:!?)]}"
 
 
+def _last_part(path: str) -> str:
+    return re.split(r"[\\/]", path.rstrip("/\\"))[-1]
+
+
+# Layer 1 of --redact-paths: the paths the tool KNOWS, replaced as whole literal strings. A
+# regex cannot tell where a path with a space ends inside prose, so it cannot be the only
+# layer. Set by `_redaction_scope` for the duration of one report or page; empty otherwise.
+_KNOWN_PATHS: ContextVar[tuple[tuple[re.Pattern[str], str, bool], ...]] = ContextVar(
+    "_KNOWN_PATHS", default=()
+)
+_TAIL = (
+    r"(?P<tail>(?:[/\\][^\s\"'<>]*)?)"  # an unknown remainder below a known folder, up to a space
+)
+_UP_PATH_RE = re.compile(
+    r"(?<![\w.])(?:\.\.[/\\])+[^\s\"'<>]*[^\s\"'<>.,;:!?)\]}]"
+)  # leaves the folder: ../../x
+
+
+def _literal_forms(path: str) -> set[str]:
+    """One path as it can be written: as given, resolved, with ~ and with either separator."""
+    home = os.path.expanduser("~")
+    forms = set()
+    for form in (path, os.path.abspath(path), os.path.realpath(path)):
+        forms |= {form, form.replace("/", "\\"), form.replace("\\", "/")}
+    for form in list(forms):
+        if form.startswith(home + os.sep):
+            forms.add("~" + form[len(home) :])
+    return forms
+
+
+def _known_literals(
+    paths: list[str], folders: list[str]
+) -> tuple[tuple[re.Pattern[str], str, bool], ...]:
+    """(pattern, replacement, is_quoted) for every written form, longest first. A file is
+    replaced by its file name, a folder by nothing readable ("(folder)"); the shell-quoted and
+    backslash-escaped spellings of a path with spaces are covered like the plain one."""
+    found: dict[str, tuple[str, bool]] = {}
+    for is_folder, group in ((True, folders), (False, paths)):
+        for path in group:
+            for form in _literal_forms(path):
+                if (
+                    len(form) < 3
+                    or form.strip("./\\") == ""
+                    or re.fullmatch(r"[A-Za-z]:[/\\]?", form)
+                ):
+                    continue
+                name = "(folder)" if is_folder else _last_part(form)
+                found[form] = (name, False)
+                found[re.sub(r"([^\w@%+=:,./~-])", r"\\\1", form)] = (name, False)
+                found[quote(form)] = (name if is_folder else quote(name), True)
+    return tuple(
+        (re.compile(re.escape(form) + ("(?P<tail>)" if quoted else _TAIL)), name, quoted)
+        for form, (name, quoted) in sorted(found.items(), key=lambda item: -len(item[0]))
+    )
+
+
+def _strings(value: Any) -> Any:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+def _redaction_scope(fn: Any) -> Any:
+    """Wrap a report or page builder: under redact_paths, every path the document is made from
+    (the lock, the model, the cwd, home, the scene, the plan, any path the contract records) is
+    known to `_redact_paths_in_text` while it runs."""
+
+    @functools.wraps(fn)
+    def run(contract: Contract, *args: Any, **kwargs: Any) -> Any:
+        if not kwargs.get("redact_paths"):
+            return fn(contract, *args, **kwargs)
+        lock = kwargs.get("contract_path", args[0] if args else None)
+        given = [kwargs.get(k) for k in ("plan_path", "scene_source")] + list(
+            kwargs.get("extra_paths") or ()
+        )
+        files = [str(x) for x in [lock, *given] if x]
+        folders = [os.getcwd(), os.path.expanduser("~")] + [os.path.dirname(f) for f in files]
+        for text in _strings(contract.model_dump(mode="json")):
+            if (
+                "\n" not in text
+                and len(text) < 1024
+                and (
+                    PureWindowsPath(text).is_absolute()
+                    or text.startswith(("/", "~/", "../", "..\\"))
+                )
+            ):
+                files.append(os.path.expanduser(text))  # the model, a recorded source
+                if lock and text.startswith(("../", "..\\")):
+                    files.append(os.path.join(os.path.dirname(os.path.abspath(lock)), text))
+        named = contract.model and _urdf_path_candidate(contract.model)
+        if lock and named:  # where the model file is (or was) on disk
+            files.append(str(_model_on_disk(Path(lock), named) or ""))
+        folders += [os.path.dirname(f) for f in files]
+        files = [f for f in files if f]
+        folders += [os.path.dirname(os.path.realpath(f)) for f in files]
+        token = _KNOWN_PATHS.set(_known_literals(files, folders))
+        try:
+            return fn(contract, *args, **kwargs)
+        finally:
+            _KNOWN_PATHS.reset(token)
+
+    return run
+
+
+# Layer 3, fail closed: a path with a space in it can't be bounded by a pattern, so from the
+# first place a path STARTS everything up to the LAST separator in the text is cut. A start
+# is `/`, `//`, `\`, `~/`, `../`, `C:\`/`C:/` after the text start or ANY character that is not
+# a word character or `.` (quotes of any kind, dashes, full-width forms; never between word
+# characters: `rad/s`, `3/4`, `a/limits/effort`).
+_PATH_START_RE = re.compile(
+    r"(?:(?<![\w.])(?:/{1,2}(?=[^\s/])|\\(?=[^\s])|~[/\\]|[A-Za-z]:[/\\])"
+    r"|(?<![\w.])\.\.[/\\])"
+)
+# A home root with no usable start in front of it: `Users/x`, `a@b.c/home/x`, `~jane/x`,
+# `D:\Users\x`. Cut to the last separator; with none after it, the rest becomes `<path>`.
+_HOME_MARKER_RE = re.compile(
+    r"(?:[^\s@]*@[^\s/\\]*)?(?:[A-Za-z]:[/\\]Users[/\\]|/(?:Users|home)/"
+    r"|(?<!\w)(?:Users|home)/|(?<![\w.])~[A-Za-z_][\w.-]*[/\\])"
+)
+_WEB_ADDRESS_RE = re.compile(r"(?<![\w+.-])(?!file:)[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'<>)\]}]+", re.I)
+
+
+def _cut_to_last_separator(value: str) -> str:
+    start, home = _PATH_START_RE.search(value), _HOME_MARKER_RE.search(value)
+    last = max(value.rfind("/"), value.rfind("\\"))
+    first = min((m.start() for m in (start, home) if m), default=-1)
+    if home and last < home.end():  # nothing after the home folder marker: no way to tell where it ends
+        return value[:first] + "<path>"
+    if first >= 0 and last > first:
+        return value[:first] + value[last + 1 :]
+    return value
+
+
 def _redact_paths_in_text(value: str) -> str:
+    """Web addresses are set aside whole (a `file://` one is a local path and is not); then
+    layer 1 (known paths), layer 3 (cut to the last separator, while a spaced path is still
+    whole) and layer 2 (the regexes) run; then the addresses come back."""
+    addresses: list[str] = []
+
+    def _park(match: re.Match[str]) -> str:
+        addresses.append(match.group(0))
+        return f"\x00{len(addresses) - 1}\x00"
+
+    value = _WEB_ADDRESS_RE.sub(_park, re.sub(r"(?i)\bfile:/{2,3}", "/", value))
+    for _ in range(3):  # a web-encoded path (`%2FUsers%2FJane%20Doe`, maybe encoded twice) is still a path
+        decoded = unquote(value)
+        if decoded == value or not re.search(r"%(?:25)*(?:2f|5c)", value, re.I):
+            break
+        value = decoded
+    for pattern, name, quoted in _KNOWN_PATHS.get():
+        value = pattern.sub(lambda m: _known_replacement(m, name, quoted), value)
+    value = _cut_to_last_separator(value)
+    value = _UP_PATH_RE.sub(lambda m: _last_part(m.group(0)), value)
+
     def _sub(match: re.Match[str]) -> str:
         token = match.group(0)
         trailing = ""
@@ -88,7 +272,7 @@ def _redact_paths_in_text(value: str) -> str:
             # Windows drive-letter or UNC form. `Path` on this (POSIX) host
             # never treats `\` as a separator, so a plain `Path(token).name`
             # would return the whole token unshortened, silently failing to
-            # redact — use `PureWindowsPath` explicitly regardless of host OS.
+            # redact - use `PureWindowsPath` explicitly regardless of host OS.
             wpath = PureWindowsPath(token)
             if not wpath.is_absolute():
                 return match.group(0)
@@ -98,21 +282,31 @@ def _redact_paths_in_text(value: str) -> str:
             return match.group(0)
         return path.name + trailing
 
-    return _ABS_PATH_IN_TEXT_RE.sub(_sub, value)
+    value = _ABS_PATH_IN_TEXT_RE.sub(_sub, value)
+    return re.sub(r"\x00(\d+)\x00", lambda m: addresses[int(m[1])], value)
+
+
+def _known_replacement(match: re.Match[str], name: str, quoted: bool) -> str:
+    """A known file becomes its file name, a known folder "(folder)"; an unknown remainder
+    below either keeps only its last part, as the regex layer does."""
+    tail = match["tail"].rstrip(_ABS_PATH_TRAILING_PUNCTUATION)
+    if quoted or not tail.strip("/\\"):
+        return name
+    return _last_part(tail) + match["tail"][len(tail) :]
 
 
 def _redact_paths_in_payload(value: Any) -> Any:
     """Recurse through the payload's dicts/lists and scrub every string.
 
     Applied once, at the end of :func:`_payload`, so it covers the whole
-    document — not the fields ``--redact-paths`` currently names.
+    document - not the fields ``--redact-paths`` currently names.
 
     Ceiling: this over-redacts. Any string that merely *looks*
     like an absolute path is rewritten, including a deliberately-named id
     such as ``/foo/bar`` that carries no personal information at all. That
-    trade is accepted on purpose — a --redact-paths report is handed to
+    trade is accepted on purpose - a --redact-paths report is handed to
     someone outside, and a stray shortened id is a cosmetic cost while a
-    surviving real path is a leak — but if a real id shape starts colliding
+    surviving real path is a leak - but if a real id shape starts colliding
     with this in practice, the fix is to scope the sweep back to known
     path-shaped fields (or a stricter path regex) rather than widen the
     allowlist forever.
@@ -158,7 +352,7 @@ def _budget_rows(
         ) = power_rollup(contract, budget.draw_mode)
         if budget.kind == "rail_power":
             value, unit = rail_totals.get(budget.rail or "", 0.0), "W"
-            # A rail with zero contributing witnesses was never measured — 0 W is
+            # A rail with zero contributing witnesses was never measured - 0 W is
             # a vacuous "pass", not a healthy reading.
             if not rail_witnesses.get(budget.rail or "", set()):
                 value = None
@@ -188,14 +382,14 @@ def _budget_rows(
             battery = contract.topology.battery if contract.topology is not None else None
             value = battery.capacity.base() / battery_w * 60.0 if battery and battery_w else None
             # Zero declared draw with a battery present is unmeasured, not a
-            # missing-battery violation — same vacuous-pass shape as the empty
+            # missing-battery violation - same vacuous-pass shape as the empty
             # rail budget above. A missing battery
             # is its own violation and stays a "breach" row, not this note.
             if battery is not None and not battery_w:
                 note = "no draw declared"
             if battery is not None and battery_unknown:
                 # an unknown consumer reaching the battery makes endurance
-                # unsafe to compute — never sum it as 0 W.
+                # unsafe to compute - never sum it as 0 W.
                 value = None
                 device_id = sorted(battery_unknown)[0]
                 note = unknown_draw_message(device_id, contract.device(device_id).power.rail)
@@ -220,15 +414,15 @@ def _budget_rows(
                 # constraint. The same three fields the findings already
                 # carry, read off the same `budget.provenance` the checks read.
                 "source": budget.provenance.source if budget.provenance is not None else None,
-                "witness": budget.provenance.witness if budget.provenance is not None else None,
+                "witness": witness_words(budget.provenance.witness) if budget.provenance is not None else None,
                 "locked_at": (
                     budget.provenance.locked_at.isoformat()
                     if budget.provenance is not None and budget.provenance.locked_at is not None
                     else None
                 ),
                 # the standing mark when this limit was raised to clear a
-                # violation. Rendered, never scored — no verdict or exit code moves.
-                # rendered regardless of `state` — the mark must survive a
+                # violation. Rendered, never scored - no verdict or exit code moves.
+                # rendered regardless of `state` - the mark must survive a
                 # later re-breach (see report.limit_raised_mark's docstring).
                 "limit_raised": limit_raised_mark(budget.provenance),
             }
@@ -251,7 +445,7 @@ def _cg_row(report: CGReport) -> dict[str, Any]:
         "result": result,
         "frame": report.frame or "unresolved root frame",
         "sources": report.sources,
-        # Coverage against the DECLARED total, not against the model itself — the
+        # Coverage against the DECLARED total, not against the model itself - the
         # same signal the terminal prints. See report._cg_coverage.
         "mass": _cg_coverage(report),
         "limitation": report.limitation,
@@ -342,7 +536,7 @@ def _graph(contract: Contract) -> dict[str, dict[str, Any]]:
         sub = (
             f"{rail.voltage.base():g} V · cap {rail.capacity.base():.2f} W"
             if rail.voltage is not None
-            else f"voltage unknown · cap {rail.capacity.base():.2f} W"
+            else f"voltage not declared · cap {rail.capacity.base():.2f} W"
         )
         if rail.voltage_range is not None:
             sub += f" · range {rail.voltage_range.min.base():g}-{rail.voltage_range.max.base():g} V"
@@ -471,6 +665,9 @@ def _finding_rows(findings: list[Finding], *, redact_paths: bool = False) -> lis
             )
             row["cluster_members"] = members
             row["member_findings"] = [finding.model_dump(mode="json") for finding in group]
+        row["witness"] = witness_words(row["witness"])
+        for member in row.get("member_findings", []):
+            member["witness"] = witness_words(member["witness"])
         if redact_paths:
             row["source"] = _redact_path(row["source"])
             row["owner"] = _redact_witness(row["owner"])
@@ -483,15 +680,37 @@ def _finding_rows(findings: list[Finding], *, redact_paths: bool = False) -> lis
     return rendered_findings
 
 
-#: Plain-word verdict badges this page has always shown: NO-GO and NOT SCORED
-#: are distinguished, GO/GO-with-notes render identically here.
-_HTML_VERDICT_TEXT = {
-    "REFUSED": "NO-GO",
-    "NO_GO": "NO-GO",
-    "GO_WITH_NOTES": "GO",
-    "NOT_SCORED": "NOT SCORED",
-    "GO": "GO",
-}
+def _said(row: dict[str, Any]) -> dict[str, Any]:
+    """A page row with field words said plainly, as `check` prints them (page text only)."""
+    for key in ("observed", "expected"):
+        if row.get(key):
+            row[key] = plain_text(row[key])
+    if row.get("delta"):
+        row["delta"] = delta_words(row["delta"])
+    for member in row.get("member_findings", []):
+        _said(member)
+    return row
+
+
+def _verdict_text(decision: Any) -> str:
+    """The badge words `lockwire check` prints: the leading words of its summary line."""
+    return verdict_text(decision.summary)
+
+
+def _cli_summary(report: RecordReport) -> list[str]:
+    """The two lines `lockwire check` ends with (the "scored N" line when it prints one, then
+    the verdict line), taken from `check`'s own printer so the page's header can never count
+    differently from the terminal."""
+    import io
+
+    from rich.console import Console
+    from rich.text import Text
+
+    out = Console(file=io.StringIO(), record=True, width=10_000, color_system=None)
+    render(report, out)
+    lines = out.export_text().splitlines()
+    scored = [line for line in lines if line.startswith("scored ")][:1]
+    return scored + [Text.from_markup(verdict(report).summary).plain.strip()]
 
 
 def _payload(
@@ -514,22 +733,17 @@ def _payload(
     payload = {
         "robot": contract.robot.name,
         "contract_id": contract.robot.id or "contract",
-        "verdict": _HTML_VERDICT_TEXT[decision.code],
+        "verdict": _verdict_text(decision),
         "violations": decision.violations,
         "warnings": decision.warnings,
-        # the page's summary line was a pair (to fix · notes), which
-        # leaves "not checked" — the count that makes a pass conditional —
-        # invisible. Three named parts, counted off the same `decision` the
-        # verdict itself comes from; the verdict word is untouched.
-        "headline": {
-            "adds_up": len(report.scored_records),
-            "does_not_add_up": decision.violations,
-            "not_checked": decision.not_scored,
-        },
+        # the page's header: check's own "scored N" and verdict lines, so the page can never
+        # count differently from the terminal (round 3: rover-param said "0 add up" beside
+        # check's "1 scored"); the "N not scored" part keeps a conditional pass visible
+        "cli_summary": _cli_summary(report),
         "outline": outline,
         "budgets": _budget_rows(contract, findings, redact_paths=redact_paths),
-        "findings": _finding_rows(findings, redact_paths=redact_paths),
-        "adds_up": [record.model_dump(mode="json") for record in report.scored_records],
+        "findings": [_said(row) for row in _finding_rows(findings, redact_paths=redact_paths)],
+        "adds_up": [_said(record.model_dump(mode="json")) for record in report.scored_records],
         "information": [_cg_row(item) for item in report.information],
         "graph": _graph(contract),
         # The exact command line the page was made with, so a reader can tell
@@ -538,7 +752,7 @@ def _payload(
         "requirements": requirements or [],
     }
     if redact_paths:
-        # boundary sweep — catches cli_line and the free-text
+        # boundary sweep - catches cli_line and the free-text
         # observed/expected/action fields the per-field calls above miss.
         # See _redact_paths_in_payload.
         payload = _redact_paths_in_payload(payload)
@@ -757,10 +971,12 @@ def _graph_section(contract: Contract) -> str:
         )
     for n in g["nodes"]:
         x, y = pos[n["id"]]
-        text = n["label"] if len(n["label"]) <= 21 else n["label"][:20] + "\u2026"
+        # the app's naming (never a raw id), whole: a long name is squeezed to fit, never cut
+        text = label_name(n["label"]) if n["kind"] != "connector" else n["label"]
+        fit = f' textLength="{_GW - 20}" lengthAdjust="spacingAndGlyphs"' if len(text) > 21 else ""
         out.append(
             f'<g class="gnode g-{n["kind"]}"><rect x="{x}" y="{y}" width="{_GW}" height="{_GH}" rx="7"/>'
-            f'<text x="{x + 10}" y="{y + _GH // 2 + 4}">{escape(text)}</text></g>'
+            f'<text x="{x + 10}" y="{y + _GH // 2 + 4}"{fit}>{escape(text)}</text></g>'
         )
     out.append("</svg>")
     return (
@@ -772,7 +988,7 @@ def _graph_section(contract: Contract) -> str:
 
 def _report_identity(contract: Contract) -> str:
     """The report's own identity: which commit produced this document,
-    or — outside a repository — a content hash of the contract, and the
+    or - outside a repository - a content hash of the contract, and the
     document says which. `render_html`/`render_preflight_html` are documented
     byte-stable, so this stays a pure function of the contract and the
     repository's current state, never the wall clock.
@@ -807,7 +1023,7 @@ def _safe_json(value: Any) -> str:
 def _now_utc() -> str:
     """The instant "now", in the footer's format. A seam, not a cache: a
     long-lived caller (`lockwire serve`, which dispatches `report`/`gui`
-    per-request for the process's whole life — `serve.py`) must get a fresh
+    per-request for the process's whole life - `serve.py`) must get a fresh
     stamp on every document, not the process's start time (caching it at
     import would make every document under `serve` lie about when it was
     generated). Tests pin it with `monkeypatch.setattr` instead of
@@ -823,11 +1039,11 @@ def document_identity(contract_path: Path | None) -> str:
     full commit sha plus ``git describe`` (through :mod:`lockwire.gitref`, the
     one door); outside a repo, or with ``git`` unavailable, a labelled
     sha256 content hash of the contract file so the reader never has to guess
-    which kind of identity they are looking at. Display-only — no contract
+    which kind of identity they are looking at. Display-only - no contract
     field, no ``schema.py`` change.
 
     The "generated" stamp is captured once per call, so a document
-    rendered now says now — under a long-lived process (`lockwire serve`) two
+    rendered now says now - under a long-lived process (`lockwire serve`) two
     documents rendered a second apart carry different stamps, as they must.
     """
     path_label = str(contract_path) if contract_path is not None else "(no contract path)"
@@ -851,6 +1067,45 @@ def _repo_or_hash_identity(contract_path: Path | None) -> str:
     return "hash unavailable"
 
 
+def _print_head(
+    contract: Contract,
+    report: RecordReport,
+    contract_path: Path | None,
+    identity: str,
+    payload: dict[str, Any],
+) -> str:
+    """The paper report's first block, shown only in print: robot, lockfile name (never its
+    folder), `check`'s verdict word, counts of the rows this page prints, when and by which
+    version, and what the check could not use. Server-rendered so a printed page needs no script.
+
+    The counts come from the page's own rows, not `check`'s default line, which leaves out
+    warnings it only shows with --all: the paper is the full view and must agree with itself."""
+    word = _verdict_text(verdict(report))
+    lock = contract_path.name if contract_path is not None else "(no lockfile)"
+    stamp = identity.split(" \u00b7 ", 1)[-1]  # the identity line minus its path
+    counts = f"On this page: {counts_text(report)}; {len(payload['adds_up'])} add up"
+    given = (str(contract_path), False) if contract_path is not None else None
+    items = (missing_inputs(report, contract, given) or {}).get("items", [])
+    missing = "".join(
+        f"<li>{escape(i['name'])} ({escape(i['covers'])}): then Lockwire can check "
+        f"{escape(i['unlocks'])}.</li>"
+        for i in items
+    )
+    missing_block = (
+        f"<h2>Missing inputs: what to add</h2><ul>{missing}</ul>"
+        f"<p>Run lockwire check on {escape(lock)} for the command that adds each.</p>"
+        if missing
+        else ""
+    )
+    return (
+        f'<section class="printhead"><h1>{escape(contract.robot.name)}</h1>'
+        f"<p>Lockfile: {escape(lock)} \u00b7 {escape(stamp)}</p>"
+        f'<p class="pverdict">{escape(word)}</p>'
+        f'<p class="pcounts">{counts}</p>{missing_block}</section>'
+    )
+
+
+@_redaction_scope
 def render_html(
     contract: Contract,
     contract_path: Path | None = None,
@@ -858,6 +1113,7 @@ def render_html(
     redact_paths: bool = False,
     cli_line: str | None = None,
     plan: Any = None,
+    extra_paths: tuple[Path, ...] = (),
 ) -> str:
     """Return a byte-stable report document for ``contract``. A ``plan`` adds the Pro
     requirements panel (empty in the free report)."""
@@ -866,15 +1122,24 @@ def render_html(
     rows = plugins.pick("requirement_rows", lambda plan, findings, scored_records: [])(
         plan, list(report), list(report.scored_records)
     )
-    data = _safe_json(
-        _payload(contract, report, redact_paths=redact_paths, cli_line=cli_line, requirements=rows)
+    payload = _payload(
+        contract, report, redact_paths=redact_paths, cli_line=cli_line, requirements=rows
     )
+    data = _safe_json(payload)
+    identity = document_identity(contract_path)
+    if redact_paths:
+        identity = _redact_paths_in_text(identity)
+    has_power = bool(_graph(contract)["power"]["nodes"])
+    power_tab = '<button data-lens="power" aria-pressed="true">Power</button>' if has_power else ""
     return (
         _DOCUMENT.replace("__LOCKWIRE_DATA__", data)
         .replace("__GRAPH_LAYOUT_JS__", GRAPH_LAYOUT_JS)
-        .replace("__DOCUMENT_IDENTITY__", escape(document_identity(contract_path)))
+        .replace("__DOCUMENT_IDENTITY__", escape(identity))
         .replace("__IDENTITY__", escape(_report_identity(contract)))
+        .replace("__TAB_COUNT__", "3" if has_power else "2")
+        .replace("__POWER_TAB__", power_tab)
         .replace("__WIRING__", _wiring_section(contract) + _graph_section(contract))
+        .replace("__PRINT_HEAD__", _print_head(contract, report, contract_path, identity, payload))
     )
 
 
@@ -886,11 +1151,17 @@ def write_html_report(
     redact_paths: bool = False,
     cli_line: str | None = None,
     plan: Any = None,
+    extra_paths: tuple[Path, ...] = (),
 ) -> None:
     """Write a self-contained report, replacing ``out`` if it exists."""
     out.write_text(
         render_html(
-            contract, contract_path, redact_paths=redact_paths, cli_line=cli_line, plan=plan
+            contract,
+            contract_path,
+            redact_paths=redact_paths,
+            cli_line=cli_line,
+            plan=plan,
+            extra_paths=extra_paths,
         ),
         encoding="utf-8",
     )
@@ -914,20 +1185,22 @@ _DOCUMENT = """<!doctype html>
 .budget{overflow-x:auto}
 .budget .meta{grid-column:2/4;color:var(--muted);overflow-wrap:anywhere}
 .footer{padding:9px 12px;border-top:1px solid var(--line);color:var(--muted);font:11px var(--mono);overflow-wrap:anywhere}
+.printhead{display:none}
 .provenance-bar{padding:6px 16px;color:var(--muted);font:10px var(--mono);border-top:1px solid var(--line)}
 .wiring{padding:14px 16px;border-top:1px solid var(--line)}.wiring h2{font:600 14px var(--sans);margin:0 0 6px}.wnote{color:var(--muted);margin:0 0 8px}.wdiagram{overflow-x:auto}#wiringsvg{width:100%;height:auto;font:12px var(--sans)}#wiringsvg .wdev rect{fill:var(--node);stroke:var(--edge)}#wiringsvg text{fill:var(--ink)}#wiringsvg .wname{font-weight:600}#wiringsvg .wconn{fill:var(--muted);font-size:11px}#wiringsvg .wire{stroke:var(--accent);stroke-width:1.5}#wiringsvg .wire.rail{stroke:var(--warn);stroke-width:2.5}#wiringsvg .wpin{cursor:pointer}#wiringsvg .wpin circle{fill:var(--edge)}#wiringsvg .dim{opacity:.18}#wiringsvg .wpin.on text{font-weight:700}#wiringsvg .wpin.on circle{fill:var(--accent)}.harness{width:100%;border-collapse:collapse;margin-top:6px}.harness th{text-align:left;color:var(--muted);font-weight:600}.harness th,.harness td{padding:3px 10px 3px 0;border-top:1px solid var(--line)}.harness tr.dim{opacity:.35}
 .rgraph{padding:14px 16px;border-top:1px solid var(--line)}.rgraph h2{font:600 14px var(--sans);margin:0 0 6px}#graphsvg{width:100%;height:auto;font:12px var(--sans)}#graphsvg .gnode rect{fill:var(--node);stroke:var(--edge)}#graphsvg .gnode text{fill:var(--ink)}#graphsvg .gedge{stroke:var(--muted);stroke-width:1.5}#graphsvg .g-power{stroke:var(--warn);stroke-width:2.2}#graphsvg .g-signal{stroke:var(--accent);stroke-dasharray:5 4}#graphsvg .g-drives{stroke:var(--accent);stroke-dasharray:2 3}#graphsvg .g-mounts{stroke-dasharray:8 3}#graphsvg .g-depends{stroke-dasharray:1 4}
-@media print{:root,:root[data-theme]{color-scheme:light;--bg:#fff;--surface:#fff;--ink:#000;--muted:#444;--line:#999;--accent:#1d4ed8;--warn:#b45309;--node:#fff;--edge:#555}.top,.tabs,.theme,.shell,.footer{display:none}.wiring{border:0}.wnote{display:none}.wbreak{break-before:page}.harness tr{break-inside:avoid}#wiringsvg .dim,.harness tr.dim{opacity:1}.top{position:static}.budget,.plan,.tree,.stage,.side{overflow:visible}svg{height:auto;max-height:none}.provenance-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface)}}
+@media print{:root,:root[data-theme]{color-scheme:light;--bg:#fff;--surface:#fff;--ink:#000;--muted:#444;--line:#999;--accent:#1d4ed8;--warn:#b45309;--node:#fff;--edge:#555}.top,.tabs,.theme,.tree,.stage,.footer,.identity,.finding .hint{display:none}.printhead{display:block;padding:0 4px 12px}.printhead h1{margin:0 0 4px;font-size:20px}.printhead h2{margin:12px 0 4px;font-size:13px}.printhead p{margin:2px 0}.printhead ul{margin:0;padding-left:18px}.pverdict{font:700 16px var(--mono)}.shell{display:block}.side{display:flex;flex-direction:column;max-height:none;padding:0}.side .panel:has(#findings){order:-1}.panel{overflow:visible}.panelhead{break-after:avoid}.finding{display:block;break-inside:avoid}.budget,.info,.printhead li{break-inside:avoid}.wiring{border:0;break-before:page}.wnote{display:none}.wbreak{break-before:page}.harness tr{break-inside:avoid}#wiringsvg .dim,.harness tr.dim{opacity:1}.top{position:static}.budget,.plan,.tree,.stage,.side{overflow:visible}svg{height:auto;max-height:none}.provenance-bar{position:fixed;bottom:0;left:0;right:0;background:var(--surface)}}
 </style>
 </head>
 <body>
 <div class="app">
+ __PRINT_HEAD__
  <header class="top"><div class="brand"><b>lockwire</b><span id="subtitle"></span></div><span class="badge">REPORT</span><span id="status" class="status"></span><button id="theme" class="theme" aria-label="Toggle color theme">◐</button></header>
  <div class="shell">
   <aside class="tree"><div class="head"><span>Contract</span><span id="treeCount"></span></div><ul id="outline"></ul></aside>
   <main class="stage">
    <div class="plan" id="plan"></div>
-   <div class="tabs" role="tablist" aria-label="Contract lens"><button data-lens="mechanical">Mechanical</button><button data-lens="power" aria-pressed="true">Power</button><button data-lens="data">Data</button></div>
+   <div class="tabs" style="grid-template-columns:repeat(__TAB_COUNT__,1fr)" role="tablist" aria-label="Contract lens"><button data-lens="mechanical">Mechanical</button>__POWER_TAB__<button data-lens="data">Data</button></div>
    <section class="graphbox"><div class="caption"><b id="lensTitle">Power</b><span id="lensDesc">battery → rails → devices · watts</span></div><svg id="graph" role="img" aria-label="Robot contract graph"></svg></section>
   </main>
   <aside class="side">
@@ -935,7 +1208,7 @@ _DOCUMENT = """<!doctype html>
    <section class="panel"><div class="panelhead"><b>Findings</b><span id="findingCount"></span></div><div id="findings"></div></section>
    <section class="panel" id="reqpanel" hidden><div class="panelhead"><b>Requirements</b><span id="reqCount"></span></div><div id="requirements"></div></section>
    <section class="panel"><div class="panelhead"><b>What adds up</b><span id="addsUpCount"></span></div><div id="addsup"></div></section>
-   <section class="panel"><div class="panelhead"><b>Derived information</b><span>honest lane</span></div><div id="information"></div></section>
+   <section class="panel"><div class="panelhead"><b>Derived information</b><span>changes no verdict</span></div><div id="information"></div></section>
   </aside>
  </div>
  __WIRING__
@@ -948,25 +1221,25 @@ _DOCUMENT = """<!doctype html>
 const DATA=__LOCKWIRE_DATA__;
 const NS="http://www.w3.org/2000/svg";
 const $=id=>document.getElementById(id);
-let lens="power",active=null;
+let lens=DATA.graph.power.nodes.length?"power":"mechanical",active=null;
 function text(tag,value,cls){const e=document.createElement(tag);if(cls)e.className=cls;e.textContent=value;return e}
 function implicated(f){const values=[f.quantity,f.dependent||"",...(f.cluster_members||[])].join(" ");const hits=new Set();Object.values(DATA.graph).forEach(g=>g.nodes.forEach(n=>{if(values.includes(n.id)||f.quantity.split("/").includes(n.id))hits.add(n.id)}));DATA.budgets.forEach(b=>{if(f.quantity.includes(b.id)&&b.kind==="rail_power"){const match=DATA.graph.power.nodes.find(n=>n.id.includes(b.id.split(".").slice(-1)[0]));if(match)hits.add(match.id)}});return hits}
 function findingMark(s){return s==="violation"?"✗ ":s==="warning"?"~ ":"○ "}
 function findingCls(s){return s==="violation"?"bad":s==="warning"?"warn":"note"}
 function renderOutline(){const ul=$("outline");ul.replaceChildren();DATA.outline.forEach(row=>{const bad=DATA.findings.some(f=>f.severity==="violation"&&implicated(f).has(row.id));const li=document.createElement("li");if(bad)li.className="bad";li.append(text("span",bad?"!":"+", "mark"),text("span",row.id),text("span",row.type));ul.append(li)});$("treeCount").textContent=DATA.outline.length+" entries"}
-function renderPlan(){const box=$("plan");box.replaceChildren();box.append(text("b","lockwire plan · "+DATA.headline.adds_up+" add up · "+DATA.headline.does_not_add_up+" do not add up · "+DATA.headline.not_checked+" not checked"));if(!DATA.findings.length)box.append(text("div","✓ records agree · no findings","ok"));DATA.findings.forEach(f=>box.append(text("div",findingMark(f.severity)+f.quantity+"  "+f.observed+"  /  "+f.expected,findingCls(f.severity))))}
+function renderPlan(){const box=$("plan");box.replaceChildren();DATA.cli_summary.forEach((line,i)=>box.append(text(i?"div":"b",(i?"":"lockwire check · ")+line,i?(DATA.findings.length?"":"ok"):"")));DATA.findings.forEach(f=>box.append(text("div",findingMark(f.severity)+f.quantity+"  "+f.observed+"  /  "+f.expected,findingCls(f.severity))))}
 function barOf(f){const rd=t=>{const m=/^(?:<=\\s*)?(\\d+(?:\\.\\d+)?)\\s+([^\\s,;]+)/.exec(t||"");return m?{value:Number(m[1]),unit:m[2]}:null};const o=f.observed_quantity||rd(f.observed),e=f.expected_quantity||rd(f.expected);if(!o||!e||o.unit!==e.unit||!(e.value>0)||!(o.value>=0))return null;const fl=/^>=/.test(f.expected||"");if(fl&&!(o.value>0))return null;const r=fl?e.value/o.value:o.value/e.value,c=Math.min(r,2),good=r>1?1/c:r,fill=r>1?1:r,n=v=>String(+v.toPrecision(3));const box=document.createElement("div");box.className="rbar"+(r>1?" over":"");box.dataset.ratio=r.toFixed(3);box.append(text("p",n(o.value)+" "+o.unit+(fl?" available against "+n(e.value)+" "+e.unit+" needed":" against a limit of "+n(e.value)+" "+e.unit)+(r>1?(fl?", short by "+Math.round((1-1/r)*100):", over by "+Math.round((r-1)*100))+"%":""),"meta"));const bar=document.createElement("div");bar.className="rtrack";bar.setAttribute("aria-hidden","true");bar.style.background="linear-gradient(to right,var(--pass) "+good*100+"%,var(--bad) 0 "+fill*100+"%,var(--track) 0)";box.append(bar);return box}
 function fmt(v){return v===null?"not computable":Number(v).toFixed(2)}
 function renderBudgets(){const root=$("budgets");root.replaceChildren();let pass=0,notScored=0;DATA.budgets.forEach(b=>{if(b.state==="pass")pass++;if(b.state==="not_scored")notScored++;const row=document.createElement("div");row.className="budget "+b.state;const ratio=b.value===null?0:(b.direction==="max"?b.value/b.limit:b.limit/b.value);const sign=b.state==="breach"?"!":b.state==="not_scored"?"·":"✓";row.append(text("span",sign,"sign"),text("b",b.id),text("span",b.note||(fmt(b.value)+" / "+fmt(b.limit)+" "+b.unit)));const bar=document.createElement("div");bar.className="bar";const fill=document.createElement("div");fill.className="fill";fill.style.width=Math.min(100,Math.max(0,ratio*100))+"%";bar.append(fill);row.append(bar);if(b.limit_raised)row.append(text("span",b.limit_raised,"raised"));const prov=[["witness",b.witness],["source",b.source],["locked_at",b.locked_at]].filter(([,v])=>v).map(([k,v])=>k+": "+v).join(" · ");row.append(text("span",prov||"limit has no provenance","meta"));root.append(row)});if(!DATA.budgets.length)root.append(text("div","No budgets declared.","empty"));const scoredTotal=DATA.budgets.length-notScored;$("budgetCount").textContent=pass+" / "+scoredTotal+" pass"+(notScored?" · "+notScored+" not scored":"")}
-function renderFindings(){const root=$("findings");root.replaceChildren();$("findingCount").textContent=DATA.findings.length;if(!DATA.findings.length){const e=text("div","","empty");e.append(text("b","✓ GO — records agree"),text("span","No findings."));root.append(e);return}DATA.findings.forEach((f,i)=>{const b=document.createElement("button");b.type="button";b.className="finding "+f.severity;b.setAttribute("aria-pressed",String(active===i));const clustered=f.cluster_root&&f.cluster_members&&f.cluster_members.length>1;b.append(text("h3",findingMark(f.severity)+(clustered?f.cluster_root+" subsystem: "+f.cluster_members.length+" members affected — "+f.cluster_members.join(", "):f.quantity)));if(clustered)f.member_findings.forEach(m=>b.append(text("p",m.quantity+": observed "+m.observed+", expected "+m.expected,"meta")));else{b.append(text("p","observed "+f.observed+", expected "+f.expected+(f.delta?" (Δ "+f.delta+")":"")));const rb=barOf(f);if(rb)b.append(rb)}[["dependent",f.dependent],["owner",f.owner],["source",f.source],["witness",f.witness],["locked_at",f.locked_at],["action",f.action]].forEach(([k,v])=>{if(v)b.append(text("p",k+": "+v,"meta"))});b.append(text("p",active===i?"Highlighting · tap again to clear":"Tap to highlight on graph","hint"));b.onclick=()=>{active=active===i?null:i;renderFindings();renderGraph()};root.append(b)})}
+function renderFindings(){const root=$("findings");root.replaceChildren();$("findingCount").textContent=DATA.findings.length;if(!DATA.findings.length){const e=text("div","","empty");e.append(text("b","✓ GO: records agree"),text("span","No findings."));root.append(e);return}DATA.findings.forEach((f,i)=>{const b=document.createElement("button");b.type="button";b.className="finding "+f.severity;b.setAttribute("aria-pressed",String(active===i));const clustered=f.cluster_root&&f.cluster_members&&f.cluster_members.length>1;b.append(text("h3",findingMark(f.severity)+(clustered?f.cluster_root+" subsystem: "+f.cluster_members.length+" members affected: "+f.cluster_members.join(", "):f.quantity)));if(clustered)f.member_findings.forEach(m=>b.append(text("p",m.quantity+": observed "+m.observed+", expected "+m.expected,"meta")));else{b.append(text("p","observed "+f.observed+", expected "+f.expected+(f.delta?" ("+f.delta+")":"")));const rb=barOf(f);if(rb)b.append(rb)}[["dependent",f.dependent],["owner",f.owner],["source",f.source],["witness",f.witness],["locked on",f.locked_at],["action",f.action]].forEach(([k,v])=>{if(v)b.append(text("p",k+": "+v,"meta"))});b.append(text("p",active===i?"Highlighting · tap again to clear":"Tap to highlight on graph","hint"));b.onclick=()=>{active=active===i?null:i;renderFindings();renderGraph()};root.append(b)})}
 function renderReqs(){const rows=DATA.requirements||[];if(!rows.length)return;$("reqpanel").hidden=false;$("reqCount").textContent=rows.length;const root=$("requirements");rows.forEach(r=>{const row=text("div","","info");row.append(text("b",r.text),text("div",({proven:"Proven",unproven:"Unproven: no check proves it yet",failing:"Failing"})[r.status]+" ("+r.check+")"));row.title=r.why;root.append(row)})}
-function renderAddsUp(){const root=$("addsup");root.replaceChildren();$("addsUpCount").textContent=DATA.adds_up.length;if(!DATA.adds_up.length){root.append(text("div","Nothing scored yet.","empty"));return}DATA.adds_up.forEach(r=>{const row=text("div","","info");row.append(text("b",r.quantity),text("div","observed "+r.observed+", expected "+r.expected),text("div","margin: "+r.margin));root.append(row)})}
-function renderInfo(){const root=$("information");root.replaceChildren();if(!DATA.information.length){root.append(text("div","No derived information.","empty"));return}DATA.information.forEach(i=>{const row=text("div","","info");row.append(text("b",i.quantity+" — "+i.result),text("div","frame: "+i.frame+" · sources: "+i.sources),text("div",i.mass));if(i.limitation)row.append(text("div","limitation: "+i.limitation));root.append(row)})}
+function renderAddsUp(){const root=$("addsup");root.replaceChildren();$("addsUpCount").textContent=DATA.adds_up.length;if(!DATA.adds_up.length){root.append(text("div","No two records compared yet.","empty"));return}DATA.adds_up.forEach(r=>{const row=text("div","","info");row.append(text("b",r.quantity),text("div","observed "+r.observed+", expected "+r.expected),text("div","margin: "+r.margin));root.append(row)})}
+function renderInfo(){const root=$("information");root.replaceChildren();if(!DATA.information.length){root.append(text("div","No derived information.","empty"));return}DATA.information.forEach(i=>{const row=text("div","","info");row.append(text("b",i.quantity+": "+i.result),text("div","frame: "+i.frame+" · sources: "+i.sources),text("div",i.mass));if(i.limitation)row.append(text("div","limitation: "+i.limitation));root.append(row)})}
 __GRAPH_LAYOUT_JS__
 function svgEl(tag,attrs){const e=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));return e}
 function renderGraph(){const source=DATA.graph[lens],svg=$("graph"),box=svg.getBoundingClientRect();const W=Math.max(560,box.width||900),H=Math.max(320,box.height||460);const graph=layout({nodes:source.nodes.map(n=>({...n})),edges:source.edges},W,H);svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.replaceChildren();const hit=active===null?null:implicated(DATA.findings[active]);graph.edges.forEach(e=>{const a=graph.byId[e.from],b=graph.byId[e.to];if(!a||!b)return;const yes=hit&&(hit.has(a.id)||hit.has(b.id));const path=svgEl("path",{d:edgePath(a,b,graph.nodes),class:"edge"+(yes?" hit":"")+(hit&&!yes?" dim":"")});svg.append(path)});graph.nodes.forEach(n=>{const yes=hit&&hit.has(n.id);const g=svgEl("g",{class:"node "+(yes?"hit ":"")+(hit&&!yes?"dim ":"")+(DATA.findings.some(f=>f.severity==="violation"&&implicated(f).has(n.id))?"breach":"")});g.append(svgEl("rect",{x:n.x-n.w/2,y:n.y-n.h/2,width:n.w,height:n.h,rx:4}));const label=svgEl("text",{x:n.x,y:n.y-2,"text-anchor":"middle"});label.textContent=n.label;g.append(label);const sub=svgEl("text",{x:n.x,y:n.y+13,"text-anchor":"middle",class:"sub"});sub.textContent=n.sub;g.append(sub);svg.append(g)})}
 function setLens(value){lens=value;document.querySelectorAll("[data-lens]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.lens===lens)));const meta={mechanical:["Mechanical","links · joints · mounts"],power:["Power","battery → rails → devices · watts"],data:["Data","hosts · buses · devices"]}[lens];$("lensTitle").textContent=meta[0];$("lensDesc").textContent=meta[1];renderGraph()}
-$("subtitle").textContent=DATA.contract_id+" · "+DATA.robot;$("cliline").textContent=DATA.cli_line||"(no CLI line recorded)";$("status").textContent=DATA.verdict;if(DATA.verdict==="NO-GO")$("status").classList.add("bad");else if(DATA.verdict==="NOT SCORED")$("status").classList.add("warn");document.querySelectorAll("[data-lens]").forEach(b=>b.onclick=()=>setLens(b.dataset.lens));$("theme").onclick=()=>{const r=document.documentElement,c=r.getAttribute("data-theme");r.setAttribute("data-theme",c==="dark"?"light":c==="light"?"dark":matchMedia("(prefers-color-scheme: dark)").matches?"light":"dark")};renderOutline();renderPlan();renderBudgets();renderFindings();renderReqs();renderAddsUp();renderInfo();setLens("power");
+$("subtitle").textContent=DATA.contract_id+" · "+DATA.robot;$("cliline").textContent=DATA.cli_line||"(no CLI line recorded)";$("status").textContent=DATA.verdict;if(DATA.verdict==="NO-GO"||DATA.verdict==="REFUSED")$("status").classList.add("bad");else if(DATA.verdict==="NOT SCORED")$("status").classList.add("warn");document.querySelectorAll("[data-lens]").forEach(b=>b.onclick=()=>setLens(b.dataset.lens));$("theme").onclick=()=>{const r=document.documentElement,c=r.getAttribute("data-theme");r.setAttribute("data-theme",c==="dark"?"light":c==="light"?"dark":matchMedia("(prefers-color-scheme: dark)").matches?"light":"dark")};renderOutline();renderPlan();renderBudgets();renderFindings();renderReqs();renderAddsUp();renderInfo();setLens(lens);
 })();
 </script>
 <script>

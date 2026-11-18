@@ -57,7 +57,7 @@ devices:
           witness: live
           source: fixture-authored, imu_driver publishes at 5 Hz
           locked_at: 2026-09-09
-    owner: shivansh
+    owner: avery
 topology:
   hosts:
     - id: host.local

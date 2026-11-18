@@ -36,7 +36,7 @@ function firstCrossing(m: MotionPreview, q: Quantity): string {
 }
 
 /** The move as three charts against time, each joint's limit drawn in; a scrub bar marks "now" on all three.
- * ponytail: this scrub does not pose the 3D robot; Design's Pose sliders do (POSE-1). */
+ * ponytail: this scrub does not pose the 3D robot; Design's Pose sliders do. */
 function MotionCharts({ motion }: { motion: MotionPreview }) {
   useUnits();
   const end = motion.time_s[motion.time_s.length - 1]!;

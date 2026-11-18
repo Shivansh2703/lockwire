@@ -1,4 +1,4 @@
-// CAD-14: which parts overlap or sit too close. Hand-written for the primitives the format has (box,
+// Which parts overlap or sit too close. Hand-written for the primitives the format has (box,
 // sphere, cylinder), in metres, with no new dependency. Boxes and spheres are exact in overlap/no
 // overlap (box vs box by the separating axis theorem, 15 axes). A cylinder is checked as its bounding
 // box, so any pair with a cylinder is marked approximate. Meshes are not checked.
@@ -156,7 +156,7 @@ export function findInterference(page: PagePayload, clearance = 0.005): Interfer
   };
 }
 
-// CAD-15: sweep each limited joint through its range and report where its moving parts hit something.
+// Sweep each limited joint through its range and report where its moving parts hit something.
 export interface SweepResult {
   /** The joint's child link, as the app names it. */
   joint: string;

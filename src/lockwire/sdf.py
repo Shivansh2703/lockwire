@@ -9,12 +9,12 @@ scene renderer agree on what a pose means.
 Pose conversion (the one trap this module exists to handle):
 
 SDF gives every `<link>` a `<pose>` that is model-relative (this build does not
-walk `relative_to` chains — same assumption `scene_urdf._scene_from_sdf` makes).
+walk `relative_to` chains - same assumption `scene_urdf._scene_from_sdf` makes).
 A `<joint>`'s own `<pose>` is relative to the CHILD link frame unless a
 `relative_to` attribute says otherwise (SDF spec v1.9,
 http://sdformat.org/spec?ver=1.9&elem=joint, `pose` element description).
 URDF's `<joint><origin>`, by contrast, *is* the parent-frame pose of the child
-link frame — it's how URDF places the child at all.
+link frame - it's how URDF places the child at all.
 
 So to store a joint origin here that means what URDF's `<origin>` means, this
 composes: joint_frame_in_model = child_link_pose ∘ joint.pose (child-relative
@@ -22,8 +22,13 @@ offset), then converts to the parent's frame:
 
     origin_in_parent = inverse(parent_link_pose) ∘ joint_frame_in_model
 
+A record's link frame IS its joint frame, so a link whose only parent joint carries a `<pose>`
+is re-framed to that joint frame (`_frame_shifts`): its CoM, inertia axes and shape poses are
+re-expressed there, and joints below it measure from it. `relative_to` may name a link or
+`__model__`. Looped links are never re-framed (their kept joint has no pose; see `loop_cuts`).
+
 When (as in nearly every real SDF, including PX4 Vector's) the joint carries no
-`<pose>` of its own, this reduces to `inverse(parent) ∘ child` — the child's
+`<pose>` of its own, this reduces to `inverse(parent) ∘ child` - the child's
 pose expressed in the parent's frame, which is exactly the URDF-equivalence a
 mixed-format drift check needs.
 """
@@ -31,8 +36,11 @@ mixed-format drift check needs.
 import datetime as dt
 import hashlib
 import xml.etree.ElementTree as ET
+from contextvars import ContextVar
 from math import asin, atan2, cos
 from pathlib import Path
+
+import numpy as np
 
 from lockwire.schema import (
     Joint,
@@ -108,7 +116,58 @@ def _link_poses(model_el: ET.Element) -> dict[str, _Pose]:
     return poses
 
 
-def _parse_link(link_el: ET.Element) -> tuple[Link, bool]:
+def _joint_frame(joint_el: ET.Element, link_poses: dict[str, _Pose]) -> _Pose:
+    """The joint frame in the model frame: its `<pose>` taken in the child link's frame, or in
+    the link named by `relative_to` (`__model__` is the model frame)."""
+    pose_el = joint_el.find("pose")
+    base = joint_el.findtext("child") or "?"
+    if pose_el is not None and pose_el.get("relative_to"):
+        base = pose_el.get("relative_to") or base
+    if base == "__model__":
+        base_pose = _IDENTITY_POSE
+    elif base in link_poses:
+        base_pose = link_poses[base]
+    else:
+        raise ValueError(
+            f"joint '{joint_el.get('name', '?')}': <pose relative_to='{base}'> is not a link"
+        )
+    return _compose(base_pose, *_sdf_pose(pose_el))
+
+
+def _frame_shifts(model_el: ET.Element, link_poses: dict[str, _Pose]) -> dict[str, _Pose]:
+    """Per link, its URDF-style frame (the joint frame above it) in the SDF link's own frame.
+
+    A record puts a link's frame at its joint, which for SDF is only the link's own frame when the
+    joint has no `<pose>`. Only a link with exactly one parent joint that carries a `<pose>` is
+    shifted; a looped link's kept joint has none (`loop_cuts`), so loops are never shifted."""
+    into: dict[str, list[ET.Element]] = {}
+    for el in model_el.findall("joint"):
+        into.setdefault(el.findtext("child") or "?", []).append(el)
+    return {
+        c: _pose_mul(
+            _pose_inverse(link_poses.get(c, _IDENTITY_POSE)), _joint_frame(e[0], link_poses)
+        )
+        for c, e in into.items()
+        if len(e) == 1 and e[0].find("pose") is not None
+    }
+
+
+def posed_joint_links(path: Path) -> frozenset[str]:
+    """Links re-framed by their parent joint's own `<pose>` (the ones Lockwire before 0.5.2 misplaced)."""
+    model_el = read_sdf_root(path)[1]
+    return frozenset(_frame_shifts(model_el, _link_poses(model_el)))
+
+
+def _to_shifted(shift: _Pose | None, xyz: tuple[float, float, float]) -> tuple[float, float, float]:
+    """A point given in the SDF link frame, in the shifted frame."""
+    if shift is None:
+        return xyz
+    return tuple(
+        round(v, 12) + 0.0 for v in _pose_mul(_pose_inverse(shift), (_IDENTITY_POSE[0], xyz))[1]
+    )  # type: ignore[return-value]  # no 1e-17 noise in a lock
+
+
+def _parse_link(link_el: ET.Element, shift: _Pose | None = None) -> tuple[Link, bool]:
     """Returns (link, is_zero_mass). Mirrors `urdf._parse_link`."""
     name = link_el.get("name", "?")
     inertial = link_el.find("inertial")
@@ -121,6 +180,7 @@ def _parse_link(link_el: ET.Element) -> tuple[Link, bool]:
         return Link(name=name), True
 
     xyz, _rpy = _sdf_pose(inertial.find("pose"))
+    xyz = _to_shifted(shift, xyz)
 
     inertia_el = inertial.find("inertia")
     inertia: PrincipalInertia | None = None
@@ -131,6 +191,12 @@ def _parse_link(link_el: ET.Element) -> tuple[Link, bool]:
                 for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
             )
         )
+        if shift is not None:  # rows are axes in the link frame: v' = R^T v
+            r = np.array(shift[0])
+            inertia = PrincipalInertia(
+                moments_kgm2=inertia.moments_kgm2,
+                axes=tuple(tuple(float(x) for x in row @ r) for row in np.array(inertia.axes)),  # type: ignore[arg-type]
+            )
 
     link = Link(
         name=name, mass=Quantity(value=mass_val, unit="kg"), com=xyz, frame=name, inertia=inertia
@@ -138,17 +204,19 @@ def _parse_link(link_el: ET.Element) -> tuple[Link, bool]:
     return link, False
 
 
-def _parse_joints(model_el: ET.Element, link_poses: dict[str, _Pose]) -> list[Joint]:
+def _parse_joints(
+    model_el: ET.Element, link_poses: dict[str, _Pose], shifts: dict[str, _Pose]
+) -> list[Joint]:
     joints: list[Joint] = []
     for joint_el in model_el.findall("joint"):
         name = joint_el.get("name", "?")
         parent = joint_el.findtext("parent") or "?"
         child = joint_el.findtext("child") or "?"
 
-        j_xyz, j_rpy = _sdf_pose(joint_el.find("pose"))
-        child_pose = link_poses.get(child, _IDENTITY_POSE)
-        joint_frame_in_model = _compose(child_pose, j_xyz, j_rpy)
+        joint_frame_in_model = _joint_frame(joint_el, link_poses)
         parent_pose = link_poses.get(parent, _IDENTITY_POSE)
+        if parent in shifts:
+            parent_pose = _pose_mul(parent_pose, shifts[parent])
         origin_in_parent = _pose_mul(_pose_inverse(parent_pose), joint_frame_in_model)
         r_origin, t_origin = origin_in_parent
         origin = JointOrigin(xyz=t_origin, rpy=_matrix_to_rpy(r_origin))  # type: ignore[arg-type]
@@ -187,6 +255,16 @@ def _parse_joints(model_el: ET.Element, link_poses: dict[str, _Pose]) -> list[Jo
     return joints
 
 
+# Set by the served `check-sim` alone (its caller is the app's assistant, a model): the resolved folder every
+# file read for a sim must sit inside. The CLI and the MCP tool never set it: a person's own run follows an
+# include wherever it leads, as before.
+CONFINE: ContextVar[Path | None] = ContextVar("sdf_confine", default=None)
+OUTSIDE_FOLDER = (
+    "The sim file, or a model it includes, was not found inside the robot's folder, so it was not read. "
+    "Put it in the robot's folder and run this again."
+)
+
+
 def _model_element(root: ET.Element, path: Path) -> ET.Element:
     if root.tag != "sdf":
         raise ValueError(f"{path}: root element is <{root.tag}>, expected <sdf>")
@@ -206,6 +284,10 @@ def _flatten_includes(model_el: ET.Element, model_dir: Path, seen: tuple[Path, .
         uri = (inc.findtext("uri") or "").strip()
         name = uri.removeprefix("model://")
         sub_path = model_dir.parent / name / "model.sdf"
+        folder = CONFINE.get()
+        # Containment first: nothing outside is looked at, and the Gazebo path variables are never asked.
+        if folder is not None and not (sub_path.resolve().is_relative_to(folder) and sub_path.is_file()):
+            raise ValueError(OUTSIDE_FOLDER)  # one answer, whether the target is outside or absent
         if uri.startswith("model://") and not sub_path.is_file():
             sub_path = env_package_file(name, "model.sdf") or sub_path
         if not uri.startswith("model://") or not sub_path.is_file():
@@ -271,10 +353,16 @@ def loop_cuts(path: Path) -> dict[str, tuple[float, float, float]]:
     for link, els in into.items():
         off = [e for e in els if _sdf_pose(e.find("pose")) != here]
         if len(els) > 1 and len(off) != len(els) - 1:
-            raise ValueError(f"closed chain: link '{link}' needs one parent joint with no <pose>")
+            raise ValueError(
+                f"closed chain: several joints end at link '{link}', so it closes a loop; exactly one "
+                "of them must sit at the link's own origin (no <pose>) and the others carry the pin "
+                "position in <pose>; fix the joint poses in the SDF"
+            )
         if len(els) == 1 and off:
             raise ValueError(
-                f"closed chain: joint '{off[0].get('name', '?')}' has a <pose> off its child link"
+                f"closed chain: joint '{off[0].get('name', '?')}' has a <pose> away from its child "
+                "link; in a model with a loop Lockwire places each link at the joint above it, so only "
+                "a loop-closing joint may have one; remove it and move the link instead"
             )
         cuts.update({e.get("name", "?"): _sdf_pose(e.find("pose"))[0] for e in off if len(els) > 1})
     return cuts
@@ -311,8 +399,10 @@ def urdf_view(path: Path) -> ET.Element:
     """
     _root, model_el = read_sdf_root(path)
     robot = ET.Element("robot", name=model_el.get("name", "?"))
+    shifts = _frame_shifts(model_el, _link_poses(model_el))
     for link in model_el.findall("link"):
         out = ET.SubElement(robot, "link", name=link.get("name", "?"))
+        shift = shifts.get(link.get("name", "?"))
         if (mass := link.findtext("inertial/mass")) is not None:
             inertial = ET.SubElement(out, "inertial")
             ET.SubElement(inertial, "mass", value=mass)
@@ -330,8 +420,13 @@ def urdf_view(path: Path) -> ET.Element:
                 geometry = _urdf_geometry(el.find("geometry"))
                 if geometry is None:
                     continue
-                part = ET.SubElement(out, kind)
+                part = ET.SubElement(out, kind, {"name": el.get("name")} if el.get("name") else {})
                 xyz, rpy = _sdf_pose(el.find("pose"))
+                if shift is not None:
+                    r_part, xyz = _pose_mul(
+                        _pose_inverse(shift), _compose(_IDENTITY_POSE, xyz, rpy)
+                    )
+                    rpy = _matrix_to_rpy(r_part)
                 ET.SubElement(
                     part, "origin", xyz=" ".join(map(str, xyz)), rpy=" ".join(map(str, rpy))
                 )
@@ -359,16 +454,17 @@ def _parse(path: Path) -> tuple[ET.Element, list[Link], list[str], list[Joint]]:
     if not link_els:
         raise ValueError(f"{path}: no <link> elements found")
 
+    link_poses = _link_poses(model_el)
+    shifts = _frame_shifts(model_el, link_poses)
     links: list[Link] = []
     zero_mass: list[str] = []
     for link_el in link_els:
-        link, is_zero = _parse_link(link_el)
+        link, is_zero = _parse_link(link_el, shifts.get(link_el.get("name", "?")))
         links.append(link)
         if is_zero:
             zero_mass.append(link.name)
 
-    link_poses = _link_poses(model_el)
-    joints = _parse_joints(model_el, link_poses)
+    joints = _parse_joints(model_el, link_poses, shifts)
     return root, links, sorted(zero_mass), joints
 
 

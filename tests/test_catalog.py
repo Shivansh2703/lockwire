@@ -23,7 +23,7 @@ def test_load_catalog_reads_the_seeded_file():
 def test_every_seeded_number_has_a_kind_and_a_source():
     """The whole claim: no number on any seeded part is missing its badge.
 
-    This is the box's central promise — a seed catalog of unlabelled numbers is worse than an
+    This is the catalog's central promise — a seed catalog of unlabelled numbers is worse than an
     empty one — so the mutation bite below breaks it at the schema level (the shared validator),
     not by editing one part's data, to prove the *whole* claim, not one instance of it.
     """
@@ -37,7 +37,7 @@ def test_every_seeded_number_has_a_kind_and_a_source():
 
 def test_assumed_numbers_say_so_in_their_own_source_text():
     """A placeholder number's source string must itself say it is a placeholder — not just its
-    kind field — so the flag survives a reader who only looks at the source string (the brief's
+    kind field — so the flag survives a reader who only looks at the source string (the rule:
     'in the data, not in a comment you hope someone reads'). The warning must be contiguous,
     starting with "ASSUMED for seeding" and ending with "replace before use."—not a bookend
     around a reason."""
@@ -344,11 +344,34 @@ def _example_families() -> set[str]:
 
 
 def test_catalog_family_labels_match_the_shipped_examples():
+    # an example may use any of the catalog's own labels for a kind (three battery families),
+    # never a label of its own beside them
     example = _example_families()
-    for fam in {p.family for p in load_catalog().parts}:
+    catalog = {p.family for p in load_catalog().parts}
+    for fam in catalog:
         kind = fam.split(".")[1]
         labels = {e for e in example if e.split(".")[1] == kind}
-        assert not labels or fam in labels, fam
+        assert not labels or fam in labels or labels <= catalog, fam
+
+
+def test_arm_power_files_its_pack_under_the_catalog_rows_battery_family():
+    from lockwire.schema import load_contract
+
+    root = Path(catalog_module.__file__).parent / "examples" / "arm-power" / "contract.yaml"
+    model = next(m for m in load_contract(root).device_models if m.id == "mdl.pack")
+    row = next(p for p in load_catalog().parts if p.id == "pack.gensace.3s-2200-35c-bashing")
+    assert model.family == row.family == "fam.battery.pack.lipo"
+
+
+def test_the_esp32_board_arm_power_uses_is_a_cited_catalog_part():
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    out = CliRunner().invoke(app, ["catalog", "parts", "esp32"]).output
+    assert "espressif.esp32-devkitc" in out and "cited" in out
+    volts = _numbers("espressif.esp32-devkitc")["nominal_voltage"]
+    assert (volts.value, volts.kind) == (5, "datasheet") and "espressif.com" in volts.source
 
 
 def _numbers(pid: str):

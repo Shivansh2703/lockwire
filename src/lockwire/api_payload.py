@@ -1,4 +1,4 @@
-"""The payload **union** — one typed member per document lockwire's doors emit.
+"""The payload **union** - one typed member per document lockwire's doors emit.
 
 A union is the easiest place in a codebase to grow a second implementation, so
 the rule here is absolute: **every member describes a dict an
@@ -12,9 +12,9 @@ re-walks a contract, or re-derives a verdict. The producers, measured
 | `PlanPayload` | `api.plan` -> the same `api.verdict_document`, `PLAN_ARTIFACT_TYPE` | `lockwire-plan-report` |
 | `DescribePayload` | `api.describe` -> `describe.describe_all` behind `report_json.envelope` | `lockwire-describe` |
 | `EditPayload` | `api.declare` -> `edit.apply_changes` behind `report_json.envelope` | `lockwire-edit-result` |
-| `PagePayload` | `gui.build_payload` | *(none — see the seams)* |
-| `DiffPayload` | `api.diff` -> `factdiff.FactDiff.as_json` | *(none — see the seams)* |
-| `LogPayload` | `api.log` -> git-backed history rows | *(none — see the seams)* |
+| `PagePayload` | `gui.build_payload` | *(none - see the seams)* |
+| `DiffPayload` | `api.diff` -> `factdiff.FactDiff.as_json` | *(none - see the seams)* |
+| `LogPayload` | `api.log` -> git-backed history rows | *(none - see the seams)* |
 
 `CheckPayload` and `PlanPayload` are one shape, because they are one function:
 they share `_VerdictDocument` and differ only in the `artifact_type` literal
@@ -29,10 +29,10 @@ The findings and outcomes inside a member are **not re-modelled**: they are
 day a producer grows a key this file does not know about,
 `model_validate(...)` fails here rather than the app, the sidecar or the
 generated TypeScript silently reading whatever happens to be there. It has
-already earned its keep once — `gui.build_payload` grew `health_words` after
+already earned its keep once - `gui.build_payload` grew `health_words` after
 the first version of this file was written, and the test went red.
 
-Number kinds — every number carries its kind
+Number kinds - every number carries its kind
 --------------------------------------------
 The rule, verbatim: *"Every number on screen is declared, measured, or derived by
 a named check; a catalog or projected figure is shown only with its own visual
@@ -41,14 +41,14 @@ measured one."*
 
 `NUMBER_KINDS` below is that table: one row per numeric field reachable from
 any union member, keyed `Model.field`. It is a **declaration**, not a second
-computation — a numeric field's kind is a property of which producer filled it
+computation - a numeric field's kind is a property of which producer filled it
 in, and this file is where the union says so.
 `test_every_number_in_the_union_carries_its_kind` walks every member, finds
 every numeric field, and fails on any the table does not cover; `export_openapi`
 ships the table inside the schema document so the app and the TypeScript
 emitter render the mark rather than re-deriving it.
 
-Open seams — named, not silently picked (this file is a freeze point)
+Open seams - named, not silently picked (this file is a freeze point)
 ---------------------------------------------------------------------
 1. **The page member has no discriminator.** `gui.build_payload` predates
    `report_json.envelope` and emits no `artifact_type`, so
@@ -66,7 +66,7 @@ Open seams — named, not silently picked (this file is a freeze point)
    documents; when they route through `api`, they join the union.
 4. **`catalog` has no producer today; `projected` does, and it is marked.**
    Measured: `uv run python -c "from lockwire import api; ..."` against
-   `tests/fixtures/x500/contract.yaml` — `api.check` returns two
+   `tests/fixtures/x500/contract.yaml` - `api.check` returns two
    `kind='projected'` alternatives (`advice.build_rail_alternatives`, reached
    through `checks.check_budgets`), both carrying `mark='projected'`.
    `advice.Alternative` is self-kinded (`SELF_KINDED`, in tests/payload_sweep.py), so this file's
@@ -79,8 +79,8 @@ Open seams — named, not silently picked (this file is a freeze point)
    source names the command that measured it.** A measurement claim with no
    command behind it is the same defect class as a test that asserts a
    document against itself.
-5. **O33 — the accessibility strings are NOT in this union.** Plan v8 line 1259
-   records no default for whether screen-reader words live in the payload, and
+5. **The accessibility strings are NOT in this union.** Nothing settles yet
+   whether screen-reader words live in the payload, and
    inventing their shape at the freeze point is worse than leaving the seam
    open. `EXTENSION_POINTS` names the empty slot; nothing is modelled.
 6. **No `STOP` vocabulary.** The verdict words here are exactly
@@ -90,7 +90,7 @@ Open seams — named, not silently picked (this file is a freeze point)
 7. **`cli_line` is optional on every machine member** because
    `mcp_server._with_cli_line` adds it to `api`'s document in place. Without
    that field `extra="forbid"` would reject the MCP door's own output, which is
-   the same document — so the union covers both doors, and
+   the same document - so the union covers both doors, and
    `test_mcp_documents_validate_as_the_same_union_members` holds it.
 8. **`diff` has no envelope either.** `api.diff` returns
    `FactDiff.as_json()` straight, with no `artifact_type`, so `DiffPayload` is
@@ -103,9 +103,9 @@ Open seams — named, not silently picked (this file is a freeze point)
 10. **Not every preformatted number could become a `Figure`.** Measured:
    `scripts/pytest_slot.sh uv run pytest -q tests/test_api_payload.py -k
    test_no_door_emits_a_preformatted_number_outside_the_named_exemptions`
-   (2026-09-08, `1 passed`) — the figures this door owns and holds typed
+   (2026-09-08, `1 passed`) - the figures this door owns and holds typed
    data for are typed (`SceneLabel`, `DesignFacePart.draw`). The rest are
-   assembled with words inside `checks.py`, `report.py` and `report_html.py` —
+   assembled with words inside `checks.py`, `report.py` and `report_html.py` -
    typing them means rewriting a producer, which is the re-implementation this
    module forbids here. Each is named in `STRING_FIGURE_EXEMPTIONS` with its reason
    rather than left silent, and the exemption list is pinned both ways.
@@ -119,7 +119,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from lockwire import plugins
+from lockwire import __version__, plugins
 from lockwire.advice import Alternative
 from lockwire.plan import AssertionOutcome
 from lockwire.plan_payload import (
@@ -131,7 +131,7 @@ from lockwire.plan_payload import (
     _Strict,
     _VerdictDocument,
 )
-from lockwire.report import ScoredRecord
+from lockwire.report import ScoredRecord, UnsolvedPose
 from lockwire.report_json import (
     CHECK_ARTIFACT_TYPE,
     PLAN_ARTIFACT_TYPE,
@@ -170,7 +170,7 @@ def _build_kind_declaration(kind: NumberKind, by: str, mark: str | None = None) 
 
     This declares that a numeric field has a kind from the allowed vocabulary
     (declared, measured, derived, catalog, projected) and that marked kinds carry
-    their required word. It does NOT validate that the kind is true of the value —
+    their required word. It does NOT validate that the kind is true of the value -
     the table is keyed on field name and cannot see which producer filled it.
     When multiple producers write the same field, this table asserts only the
     first producer's kind; resolving which producer is correct requires runtime
@@ -188,20 +188,20 @@ def _build_kind_declaration(kind: NumberKind, by: str, mark: str | None = None) 
 
 
 class Figure(_Strict):
-    """**One number on screen, typed** — the shape every figure a door renders
+    """**One number on screen, typed** - the shape every figure a door renders
     as a number takes, so the number kind is a property of the value rather than of a
     lookup table someone forgot to extend.
 
     ``NUMBER_KINDS`` (below) covers numeric-*typed* fields. It cannot cover a
     number a producer has already formatted into a ``str``: measured on the
-    x500 fixture, ``SceneLabel.figure`` read ``"35.20 W vs <= 15.60 W"`` — two
+    x500 fixture, ``SceneLabel.figure`` read ``"35.20 W vs <= 15.60 W"`` - two
     numbers on screen, the exact words, carrying no kind, with nothing to
     notice. *A number stopped being a number, for that guard, the moment
     someone formatted it.* **The number kind is a claim about
     numbers on screen, so a preformatted string figure defeats it.**
 
     A ``Figure`` carries its own kind, so a field typed as one needs no
-    ``NUMBER_KINDS`` row — ``numeric_fields()`` skips it deliberately.
+    ``NUMBER_KINDS`` row - ``numeric_fields()`` skips it deliberately.
     **The renderer formats it** (``value:.2f`` + unit, ``report.format_magnitude``'s
     one rule, one line of JS in ``gui``/``scene_js``); no producer here emits a
     preformatted numeric string, and
@@ -212,7 +212,7 @@ class Figure(_Strict):
     value: float
     unit: str
     kind: NumberKind
-    #: The producer that filled it in — ``derived``'s "named check" in the number-kind rule.
+    #: The producer that filled it in - ``derived``'s "named check" in the number-kind rule.
     by: str
     #: the word for a ``catalog``/``projected`` figure. Required for those.
     mark: str | None = None
@@ -228,7 +228,7 @@ class Figure(_Strict):
 #: enumerates them from the models, so this table cannot quietly fall behind.
 #:
 #: Foreign models (``report.Finding``, ``plan.AssertionOutcome``,
-#: ``schema.Quantity``) get their rows here too — their fields live in
+#: ``schema.Quantity``) get their rows here too - their fields live in
 #: ``report.py``/``plan.py``/``schema.py``, which this change may not touch
 #: (``schema.py`` is frozen), so the union declares their kinds rather
 #: than annotating them at the source. When those modules carry kinds
@@ -240,6 +240,7 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "Counts.violation": _build_kind_declaration("derived", "report.verdict"),
     "Counts.warning": _build_kind_declaration("derived", "report.verdict"),
     "Counts.not_scored": _build_kind_declaration("derived", "report.verdict"),
+    "Counts.advice": _build_kind_declaration("derived", "api.verdict_document"),
     "MeshGap.missing": _build_kind_declaration("derived", "start_operation._find_meshes"),
     "MeshGap.total": _build_kind_declaration("derived", "start_operation._find_meshes"),
     # --- Part Swap (the app's swap-preview): catalog servo figures, gravity loads and ratios
@@ -268,6 +269,29 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "MotionJoint.torque_limit": _build_kind_declaration("declared", "schema.Contract"),
     # --- one finding's numbers
     "Finding.stage": _build_kind_declaration("declared", "schema.Contract (contract section 3.2)"),
+    "JointTorqueRow.peak": _build_kind_declaration("derived", "checks.check_gravity_reach"),
+    "JointTorqueRow.limit": _build_kind_declaration("declared", "schema.Contract"),
+    "JointTorqueRow.headroom": _build_kind_declaration("derived", "checks.check_gravity_reach"),
+    "JointTorqueRow.pose_deg": _build_kind_declaration("derived", "checks.check_gravity_reach"),
+    "StandingRow.foot_force_n": _build_kind_declaration("derived", "standing.split_forces"),
+    "StandingRow.at_file_nm": _build_kind_declaration("derived", "checks.check_standing_sweep"),
+    "StandingRow.peak_nm": _build_kind_declaration("derived", "checks.check_standing_sweep"),
+    "StandingRow.peak_pose_deg": _build_kind_declaration("derived", "checks.check_standing_sweep"),
+    "StandingRow.limit_nm": _build_kind_declaration("declared", "schema.Contract"),
+    "StandingRow.share": _build_kind_declaration("derived", "checks.check_standing_sweep"),
+    "StanceCase.forces": _build_kind_declaration("derived", "standing.split_forces"),
+    "StanceFoot.position_m": _build_kind_declaration("derived", "standing.lowest_point"),
+    "StanceFoot.height_range_m": _build_kind_declaration("derived", "standing.analyse"),
+    "StanceFoot.fore_aft_travel_m": _build_kind_declaration("derived", "standing.analyse"),
+    "StanceRecord.com_m": _build_kind_declaration("derived", "standing.analyse"),
+    "StanceRecord.weight_n": _build_kind_declaration("derived", "standing.analyse"),
+    "StanceRecord.balance_margin_m": _build_kind_declaration("derived", "standing.load_cases"),
+    "LoopTorque.lowest": _build_kind_declaration("derived", "checks._loop_worst"),
+    "LoopTorque.lowest_pose_deg": _build_kind_declaration("derived", "checks._loop_worst"),
+    "LoopTorque.at_file_pose": _build_kind_declaration("derived", "checks._loop_worst"),
+    "LoopTorque.solved": _build_kind_declaration("derived", "checks._loop_worst"),
+    "LoopTorque.total": _build_kind_declaration("derived", "checks._loop_worst"),
+    "UnsolvedPose.angles_deg": _build_kind_declaration("derived", "checks._loop_worst"),
     "Quantity.value": _build_kind_declaration("declared", "schema.Contract"),
     "MaterialOption.density_kg_m3": _build_kind_declaration(
         "catalog", "catalog.materials", mark="catalog"
@@ -326,6 +350,7 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "SupportPolygon.z": _build_kind_declaration("derived", "page._support_polygon"),
     "SupportPolygon.points": _build_kind_declaration("derived", "page._support_polygon"),
     "RobotLink.position": _build_kind_declaration("derived", "gui._robot_model"),
+    "RobotLink.com": _build_kind_declaration("derived", "page._robot_model"),
     "LinkSolid.size": _build_kind_declaration("declared", "schema.Shape"),
     "LinkSolid.radius": _build_kind_declaration("declared", "schema.Shape"),
     "LinkSolid.length": _build_kind_declaration("declared", "schema.Shape"),
@@ -362,10 +387,10 @@ NUMBER_KINDS: dict[str, dict[str, str]] = {
     "ScenePart.triangles_original": _build_kind_declaration("measured", "scene.load_scene"),
     "ScenePart.triangles_shown": _build_kind_declaration("measured", "scene.load_scene"),
     # --- the declare form: every row is, by definition, a fact the
-    # contract itself would hold — the own example row.
+    # contract itself would hold - the own example row.
     "DeclareRow.value": _build_kind_declaration("declared", "schema.Contract"),
     # `Provenance.conditions` reaches the union for the first time through
-    # `DeclareRow.provenance` — an env channel reading recorded at lock time,
+    # `DeclareRow.provenance` - an env channel reading recorded at lock time,
     # not typed anywhere until now.
     "Provenance.conditions": _build_kind_declaration(
         "measured", "schema.Provenance (env channel at lock time)"
@@ -436,6 +461,76 @@ class ForceMountShape(_Strict):
     mesh_path: str | None
 
 
+class LoopTorque(_Strict):
+    """A solved closed loop's side of one ``JointTorqueRow`` (checks._loop_worst)."""
+
+    lowest: float  # lowest holding torque over the solved grid poses
+    lowest_pose_deg: dict[str, float]
+    at_file_pose: float | None  # at the model file's own angles; None when that pose is not solved
+    solved: int
+    total: int
+    refined: Literal["yes", "no", "capped"]  # peak found by refining the coarse grid, not, or cut at the cap
+    unsolved_poses: list[UnsolvedPose]
+
+
+class JointTorqueRow(_Strict):
+    """One scored joint's holding torque, passing or not (checks.check_gravity_reach)."""
+
+    joint: str
+    peak: float  # worst holding torque, in ``unit`` (N*m, or N for a prismatic joint)
+    unit: str
+    limit: float  # the joint effort limit it was compared with
+    headroom: float  # limit - peak; negative means the joint cannot hold the pose
+    pose_deg: dict[str, float]  # joint name -> degrees at the peak
+    passed: bool
+    loop: LoopTorque | None = None  # only for a joint of a solved closed loop
+
+
+class StandingRow(_Strict):
+    """One joint's torque in one standing load case (checks.check_standing_sweep)."""
+
+    joint: str
+    case: str  # all_feet, diag_fl_hr, diag_fr_hl or one_leg
+    feet: list[str]  # the feet the case puts the weight on
+    leg: str  # the foot of this joint's leg
+    foot_force_n: float  # vertical force under that foot in this case
+    at_file_nm: float | None  # at the model file's own pose; None when that pose is not solved
+    peak_nm: float  # the largest over the leg's swept poses, and the file's own
+    peak_pose_deg: dict[str, float]  # the leg's joints, degrees, at the peak
+    limit_nm: float
+    share: float  # peak / limit
+    passed: bool
+
+
+class StanceCase(_Strict):
+    case: str
+    label: str
+    feet: list[str]
+    forces: list[float] | None  # N under each foot, in ``feet`` order; None when it tips
+    note: str
+
+
+class StanceFoot(_Strict):
+    name: str
+    link: str
+    shape: str
+    position_m: list[float]  # the contact point at the file's pose, root frame
+    height_range_m: list[float] | None  # lowest and highest over the sweep
+    fore_aft_travel_m: float | None
+    swept: str  # how the leg was swept
+
+
+class StanceRecord(_Strict):
+    """The robot's stance at the model file's pose: feet, centre of mass, forces per case."""
+
+    feet: list[StanceFoot]
+    com_m: list[float] | None
+    weight_n: float | None
+    cases: list[StanceCase]
+    balance_margin_m: float | None  # centre of mass to the nearest support-polygon edge, all feet
+    reason: str | None  # why there is no stance (no collision named foot, say)
+
+
 class ForceDocument(_Strict):
     """The force lane carried by the check document."""
 
@@ -447,12 +542,39 @@ class ForceDocument(_Strict):
     mounts: list[ForceFigure]
     mount_shapes: list[ForceMountShape]
     not_scored: list[ForceFigure]
+    joint_torques: list[JointTorqueRow] = []  # optional so older payloads still read
+    standing: list[StandingRow] = []
+    stance: StanceRecord | None = None
+
+
+class MissingInput(_Strict):
+    """One absent input (``missing.missing_inputs``): what, what it covers, what it lets Lockwire check, how to add it."""
+
+    key: str
+    name: str
+    covers: str  # the robot's own terms: "3 links: base, arm and tip", "the battery", "bus can0"
+    unlocks: str  # what Lockwire can then check, no counts promised
+    how: str  # a complete command, or the file edit, or a plain "no command adds it yet"
+    lines: list[str]  # the units the check named, at most 12
+
+
+class NotDeclared(_Strict):
+    """What the robot declares none of, and the commands that start a battery and a rail."""
+
+    names: list[str]
+    start: list[str]  # [add battery, add rail], placeholders in angle brackets
+    first: str | None  # a bare model file needs `lockwire start <file>` first
+
+
+class MissingInputs(_Strict):
+    items: list[MissingInput]  # fixed order of usefulness
+    not_declared: NotDeclared | None = None
 
 
 class CheckPayload(_VerdictDocument):
     """``api.check`` / ``lockwire check --json``.
 
-    ``scene`` is a sidecar-only addition (not a CLI field — scene discovery keeps
+    ``scene`` is a sidecar-only addition (not a CLI field - scene discovery keeps
     ``lockwire check`` scene-free by design, ``cli.py:454``): present only on
     the ``/v1/run`` reply, and only when a scene sits beside the contract.
     ``None`` when there is no scene to offer; ``SceneUnchanged`` when the
@@ -467,7 +589,7 @@ class CheckPayload(_VerdictDocument):
     condition: the app's Design tab needs the lens bar's words
     (``GraphLens.label``/``.caption``) next to the scene it labels, and
     ``report_html._graph`` already computes exactly this dict for the page
-    payload (``gui.py:1019``) — this is the same call, not a second one.
+    payload (``gui.py:1019``) - this is the same call, not a second one.
     ``None`` when there is no contract to derive it from (a refusal never
     reaches this far) or no scene sits beside the contract, matching
     ``scene``'s own condition so the two never disagree about whether a
@@ -480,10 +602,12 @@ class CheckPayload(_VerdictDocument):
     graph: Graph | None = None
     forces: ForceDocument
     revision: str | None = None
+    #: What a bare file lacks; absent when nothing is missing. The app and site read this.
+    missing_inputs: MissingInputs | None = None
 
 
 class DescribePayload(_Document):
-    """``api.describe`` — filename -> Markdown. The member that carries prose,
+    """``api.describe`` - filename -> Markdown. The member that carries prose,
     not the page dict: ``files`` is ``describe.describe_all``'s output."""
 
     artifact_type: Literal["lockwire-describe"]
@@ -492,12 +616,12 @@ class DescribePayload(_Document):
 
 
 class EditPayload(_Document):
-    """``api.declare`` — the write door's document. This is the member that
+    """``api.declare`` - the write door's document. This is the member that
     carries a diff; ``written`` is False under ``--dry-run``.
 
     ``contract_sha`` is ``None`` with ``contract_sha_error`` set (same
     shape as the fix on ``api.add``) when the write landed but the
-    post-write disk re-read that names its sha then faulted — ``written``
+    post-write disk re-read that names its sha then faulted - ``written``
     still reports what the writer did, never the re-read's outcome."""
 
     artifact_type: Literal["lockwire-edit-result"]
@@ -589,6 +713,9 @@ class RobotLink(_Strict):
     name: str
     position: list[float]  # link origin, metres, robot frame
     solids: list[LinkSolid] = []  # collision primitives, else visual ones
+    #: the link's centre of mass (its inertial origin), metres, robot frame; none when the file gives none.
+    #: Lets a link with no drawable shape (missing mesh files) show a bone past its joint.
+    com: list[float] | None = None
     #: set when the link's mass was worked out from its shapes ("derived") or says why it
     #: could not be (the line `lockwire describe` prints); none when the mass is declared.
     mass_note: str | None = None
@@ -666,6 +793,9 @@ class Card(_Strict):
     cluster_root: str | None = None
     #: the `robot_graph` node ids this card is about (the relevance `involved` list); empty when nothing is known.
     involves: list[str] = []
+    #: The first finding's own next step as the command line prints it (``lockwire start <urdf>``
+    #: for a model file not re-checked): a row whose step is not a declare offers this, not Declare it.
+    next_command: str | None = None
 
 
 class AddsUpRow(_Strict):
@@ -674,7 +804,7 @@ class AddsUpRow(_Strict):
     margin: str
     raw: str
     # The standing mark when this pass is a budget cleared by
-    # raising its limit — the only card a raised-then-passing budget reaches.
+    # raising its limit - the only card a raised-then-passing budget reaches.
     mark: str | None
 
 
@@ -699,7 +829,7 @@ class BudgetRow(_Strict):
     witness: str | None
     locked_at: str | None
     # The standing mark when this limit was raised to clear a
-    # violation. Rendered, never scored — no verdict or exit code moves.
+    # violation. Rendered, never scored - no verdict or exit code moves.
     limit_raised: str | None
 
 
@@ -760,7 +890,7 @@ class GraphEdge(_Strict):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
-#: The full lens namespace — every place a lens is drawn, colored or
+#: The full lens namespace - every place a lens is drawn, colored or
 #: joined against a scene part uses this set. the words that go with
 #: each member (``GraphLens.label``/``.caption``) are the payload's, never
 #: composed in the app/GUI JS.
@@ -770,7 +900,7 @@ LensId = Literal["off", "mechanical", "power", "data", "health"]
 class GraphLens(_Strict):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
-    #: Button text ("Power") — payload-owned so the face never derives it
+    #: Button text ("Power") - payload-owned so the face never derives it
     #: from the key.
     label: str
     #: The one-line hint under the lens bar ("What feeds what, and how many
@@ -787,7 +917,7 @@ class Graph(_Strict):
 
 
 # --------------------------------------------------------------------------- scene
-# scene.py/scene_view.py pack positions/normals/indices as base64 dicts — modelled
+# scene.py/scene_view.py pack positions/normals/indices as base64 dicts - modelled
 # as they are, not decoded.
 
 
@@ -822,7 +952,7 @@ class ScenePart(_Strict):
     indices: PackedIndices
     color: list[float]
     translation: list[float]
-    #: Every lens this part belongs to — computed from the
+    #: Every lens this part belongs to - computed from the
     #: contract join (`scene_view.part_lenses`), never guessed by the face.
     #: `off` and `health` are whole-scene overlays so every part carries
     #: them; `mechanical`/`power`/`data` are earned by the part's contract
@@ -839,7 +969,7 @@ class ScenePart(_Strict):
 class SceneLabel(_Strict):
     """The pinned label the 3D scene draws on a faulty part.
 
-    ``figure: str`` until 2026-09-08 — ``"35.20 W vs <= 15.60 W"``, the very
+    ``figure: str`` until 2026-09-08 - ``"35.20 W vs <= 15.60 W"``, the very
     string that showed a formatted number defeats ``NUMBER_KINDS``. Now the two
     numbers are typed and the callout in ``scene_js`` formats them.
     Numeric findings carry typed magnitudes. Structural findings can carry
@@ -851,7 +981,7 @@ class SceneLabel(_Strict):
     severity: str
     title: str
     observed: Figure | None
-    #: How ``expected`` bounds ``observed`` — ``"<="``, ``">="``, or ``""``.
+    #: How ``expected`` bounds ``observed`` - ``"<="``, ``">="``, or ``""``.
     #: A comparator is a symbol, not a number, so it stays a string.
     comparator: str
     expected: Figure | None
@@ -862,7 +992,7 @@ class ScenePayload(_Strict):
     asset_sha256: str | None = None
     expected_asset_sha256: str | None = None
     source: str
-    #: sha256 of the source geometry (``scene_view.scene_hash``) — same scene,
+    #: sha256 of the source geometry (``scene_view.scene_hash``) - same scene,
     #: same hash, regardless of display decimation. What a caller's next
     #: ``scene.have`` is compared against.
     hash: str
@@ -882,7 +1012,7 @@ class ScenePayload(_Strict):
 
 
 class SceneUnchanged(_Strict):
-    """The sidecar's reply when a caller's ``scene.have`` already matches —
+    """The sidecar's reply when a caller's ``scene.have`` already matches -
     ships no geometry. ``unchanged`` is always ``True``; the shape
     exists so ``{"unchanged": true}`` is a typed member, not a bare dict."""
 
@@ -899,7 +1029,7 @@ class DesignFacePart(_Strict):
     id: str
     rail: str
     #: ``"0.40 W"`` until 2026-09-08; a declared draw is a number on screen, so
-    #: it is typed. ``None`` when the device declares no power at all — the
+    #: it is typed. ``None`` when the device declares no power at all - the
     #: renderer draws the em dash it used to be handed.
     draw: Figure | None
 
@@ -919,7 +1049,7 @@ class PlanFace(_Strict):
     title: str
     cli: str
     # `gui._plan_face` emits `{"path", "status"}` per outcome, which is
-    # `plan.AssertionOutcome` field for field — the same model the plan
+    # `plan.AssertionOutcome` field for field - the same model the plan
     # document uses, not a second copy of it.
     outcomes: list[AssertionOutcome] | None
 
@@ -933,13 +1063,13 @@ class ReferenceFaceDevice(_Strict):
 
 
 class ReferenceDrawer(_Strict):
-    """One of the Reference face's four drawers — a thing the
+    """One of the Reference face's four drawers - a thing the
     CLI already produces (``describe``/``report``/``baseline``/``scan``),
     named with its content, its provenance and the exact CLI line that
     reproduces it in a terminal. Nothing here is computed twice: ``content``
     is always a producer's own output (``describe_all`` for the describe
     drawer; a fixed description for the other three, which need inputs the
-    page does not have — a recording, this machine)."""
+    page does not have - a recording, this machine)."""
 
     title: str
     content: str
@@ -952,7 +1082,7 @@ class ReferenceFace(_Strict):
     devices: list[ReferenceFaceDevice]
     drawers: list[ReferenceDrawer]
     #: The rail roll-up rendered as a power tree (source ->
-    #: converter -> rail -> loads), plain pre-formatted text — not a number-kind
+    #: converter -> rail -> loads), plain pre-formatted text - not a number-kind
     #: number, the same treatment `ReferenceDrawer.cli_line` above gets.
     #: `None` when the contract has no rails to draw (`describe.render_power_tree`
     #: returns `[]`).
@@ -973,11 +1103,11 @@ class DeclareRow(_Strict):
     """One quantity ``lockwire declare`` could write, present or not.
 
     Walked from ``schema.Contract``'s own models (nothing here re-derives
-    a value or invents a path) — ``path`` is the exact ``/``-separated string
+    a value or invents a path) - ``path`` is the exact ``/``-separated string
     ``declare``'s own ``path`` argument takes. ``kind`` is always ``"declared"``:
     every one of these is, by definition, a fact the contract itself would
     hold (the own example row is ``Quantity.value`` -> ``declared``). Scoped
-    to ``schema.Quantity``-typed fields only — a bare unitless number
+    to ``schema.Quantity``-typed fields only - a bare unitless number
     (``efficiency``, ``gear_ratio``) is not a "quantity" in the sense and is
     out of this change's charter.
 
@@ -1003,7 +1133,7 @@ class DeclareRow(_Strict):
 
 class DeclareWitnessBox(_Strict):
     """The declare form's witness field, pre-filled exactly as a submit with no
-    ``--witness`` would resolve it (``edit.resolve_witness``) — a config
+    ``--witness`` would resolve it (``edit.resolve_witness``) - a config
     default arrives already marked ``"(default)"``; no default is `""`, which
     still refuses on submit exactly like the CLI (O8's refusal side)."""
 
@@ -1062,7 +1192,7 @@ class AddPartPayload(_Strict):
 
 
 class DeclareFormPayload(_Strict):
-    """``gui.build_declare_form`` — every declarable quantity plus the witness
+    """``gui.build_declare_form`` - every declarable quantity plus the witness
     box. Unenveloped like the page (seam 1): this form's face render is
     the app's own, not this door's, so there is no ``artifact_type`` to
     discriminate on yet."""
@@ -1347,7 +1477,7 @@ class RobotGraph(_Strict):
 
 
 class PagePayload(_Strict):
-    """``gui.build_payload``'s dict, field for field — the union's largest
+    """``gui.build_payload``'s dict, field for field - the union's largest
     member, and the only one with no envelope (seam 1 in the module docstring).
     """
 
@@ -1407,20 +1537,20 @@ class PagePayload(_Strict):
     command_modes: dict[str, str]
     faces: Faces
     cli_line: str | None
-    #: `report_html.document_identity` — contract path, commit/hash,
+    #: `report_html.document_identity` - contract path, commit/hash,
     #: lockwire version, generated timestamp, the same footer `report` renders.
     document_identity: str
 
 
 # ---------------------------------------------------------------------- diff
 # `api.diff` (merged after this file's first version) returns
-# `factdiff.FactDiff.as_json()` — a document with no `report_json.envelope`, so
+# `factdiff.FactDiff.as_json()` - a document with no `report_json.envelope`, so
 # like the page it is keyed by name rather than discriminated. Seam 8 below.
 
 
 class FieldChangeRow(_Strict):
     path: str
-    #: A declared value of whatever type the contract field holds — a float, a
+    #: A declared value of whatever type the contract field holds - a float, a
     #: string, a list. `None` when the field was not declared on that side.
     old: Any
     new: Any
@@ -1440,7 +1570,7 @@ class FindingRefRow(_Strict):
 
 
 class DiffPayload(_Strict):
-    """`api.diff` / `lockwire diff --json` — what changed in the facts."""
+    """`api.diff` / `lockwire diff --json` - what changed in the facts."""
 
     changed: bool
     changes: list[FieldChangeRow]
@@ -1493,7 +1623,7 @@ MEMBERS: dict[str, type[_Document]] = {
     EDIT_ARTIFACT_TYPE: EditPayload,
 }
 
-#: Every member, enveloped and un-enveloped, in one tuple — what the sweep and
+#: Every member, enveloped and un-enveloped, in one tuple - what the sweep and
 #: the export walk.
 ALL_MEMBERS: tuple[type[BaseModel], ...] = (
     *MEMBERS.values(),
@@ -1523,7 +1653,7 @@ def openapi_document(
         schemas[model.__name__] = schema
     return {
         "openapi": "3.1.0",
-        "info": {"title": "lockwire", "version": "0.1.0"},
+        "info": {"title": "lockwire", "version": __version__},
         "paths": {},
         "components": {"schemas": schemas},
         "x-lockwire-members": {kind: model.__name__ for kind, model in members.items()},
@@ -1539,7 +1669,7 @@ def _write_document(path: Path | str, document: dict[str, Any]) -> None:
 def export_openapi(path: Path | str) -> None:
     """Write the whole union as one OpenAPI-shaped schema document.
 
-    Not a served OpenAPI document — there are no paths here; it is the schema
+    Not a served OpenAPI document - there are no paths here; it is the schema
     map ``openapi-typescript`` reads (``packaging/generate-types.md``) to emit
     ``app/src/shared/api.gen.ts``. Every member is named, so a member
     added without a discriminator entry cannot silently generate a missing TS

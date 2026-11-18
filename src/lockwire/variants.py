@@ -25,6 +25,8 @@ def variant_contracts(contract: Contract) -> list[tuple[str, Contract]]:
             param["value"] = variant.params.get(param["name"], param["value"])
         try:
             out.append((variant.name, Contract.model_validate(data)))
+            if contract.model is not None:  # the copy reads the model file beside the same lock
+                object.__setattr__(out[-1][1].model, "_lockfile", contract.model._lockfile)
         except ValueError as error:
             msg = (
                 error.errors()[0]["msg"].removeprefix("Value error, ")

@@ -8,7 +8,7 @@ power, torque) in `lockwire.yaml`, and checks every change against it.
 ## Before you edit a model file
 
 Run `lockwire check lockwire.yaml` (or `lockwire check <model.urdf>` if there is no
-lockfile yet). Read the verdict: GO, NO-GO, REFUSED or NOT SCORED.
+lockfile yet). Read the verdict: GO, GO with notes, NO-GO, REFUSED or NOT SCORED.
 
 The edit hook checks your Write/Edit too. If it blocks you, it prints what broke and
 the command that would re-lock. Do not run that command yourself: undo the edit, or

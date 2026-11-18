@@ -22,7 +22,7 @@ export function witnessEnv(env, userDataDir) {
 /** Launch the app hidden. `executablePath` = packaged binary; or pass `args: ["."], cwd` for a built tree. */
 export async function launchApp({ executablePath, args = [], cwd, env = {} }) {
   const readyFile = join(mkdtempSync(join(tmpdir(), "lockwire-e2e-")), "ready");
-  // Always isolate from the owner's real userData/logs unless the caller passed its own dir.
+  // Always isolate from the developer's real userData/logs unless the caller passed its own dir.
   let userDataDir = args.find((a) => a.startsWith("--user-data-dir="))?.slice("--user-data-dir=".length);
   if (!userDataDir) {
     userDataDir = mkdtempSync(join(tmpdir(), "lockwire-e2e-ud-"));
@@ -269,7 +269,7 @@ export async function driveOpen({ app, page, openPath, planPath, planStepPath, r
           return setTimeout(poll, 50);
         }
         // Rows show plain labels; the raw path is the step row's title and the open finding's Path.
-        // A step a finding already names has no step row of its own (R5-2): the finding row carries its
+        // A step a finding already names has no step row of its own: the finding row carries its
         // result word ("Fails" = FAIL) and, once opened, its Path and numbers.
         const findings = Array.from(document.querySelectorAll('.plan-finding')).map((finding) => ({
           title: finding.querySelector('.kit-finding-title')?.textContent?.trim() ?? '',

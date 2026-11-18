@@ -2,7 +2,7 @@ name: release
 
 # Public repo only. On a full vX.Y.Z tag: build the Mac zip on a free macOS runner and the Linux
 # AppImage, upload both as workflow artifacts, then open a DRAFT release. Nothing here publishes:
-# he reviews the draft and presses publish himself.
+# a maintainer reviews the draft and publishes it by hand.
 
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           ditto -c -k --norsrc --keepParent app/dist/mac-arm64/Lockwire.app "Lockwire-${VERSION}-mac-arm64.zip"
           scripts/verify_mac_zip.sh "Lockwire-${VERSION}-mac-arm64.zip"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lockwire-mac-arm64-zip
           path: Lockwire-*-mac-arm64.zip
@@ -78,7 +78,7 @@ jobs:
         run: npm ci --engine-strict
       - working-directory: app
         run: npm run package -- --linux --x64
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lockwire-linux-x64-appimage
           path: app/dist/*.AppImage
@@ -95,7 +95,7 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      # --draft is the whole point: this creates an unpublished release for him to review.
+      # --draft is the whole point: this creates an unpublished release for a maintainer to review.
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |

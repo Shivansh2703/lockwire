@@ -77,7 +77,7 @@ describe("Packaged build (identity)", () => {
     expect(report).toMatch(/flags=0x(?:2|20002)\(adhoc(?:,linker-signed)?\)/);
   });
 
-  // Rule 30: a guard whose failing condition nobody has observed is a guard
+  // A guard whose failing condition nobody has observed is a guard
   // nobody has tested. Prove `hasDeveloperIdentitySignature` actually
   // discriminates by pointing it at a genuinely developer-signed app already
   // installed on this machine. Skips (rather than fails) when none of the

@@ -30,14 +30,12 @@ const TRUSTED_EVENT = { senderFrame: { url: "http://localhost:5173/" } } as IpcM
 
 // The whole free IPC surface, spelled out: a class added to the free list must be added here too.
 const FREE_CLASSES = [
-  "agent:power-design",
-  "agent:start",
-  "agent:stop",
   "assistant:apply",
   "assistant:cancel",
   "assistant:send",
   "assistant:settings-get",
   "assistant:settings-set",
+  "assistant:show-finding",
   "contract:declare-form",
   "contract:diff",
   "contract:edit",
@@ -79,8 +77,10 @@ describe("the free IPC surface (no pro/ folder)", () => {
     }
   });
 
-  it("agent:power-design is the free power-design handler, not another class's", async () => {
-    await expect(dispatch(TRUSTED_EVENT, "agent:power-design", { contract: "c", revision: "r", spec: " " })).rejects.toThrow("agent:power-design: invalid arguments");
+  it("the old Agent tab's channels are gone: each is an unknown command", async () => {
+    for (const name of ["agent:start", "agent:power-design", "agent:stop", "agent:review", "agent:part-search", "agent:brownout", "agent:pack-fit"]) {
+      await expect(dispatch(TRUSTED_EVENT, name, {})).rejects.toThrow(`permission denied: unknown command "${name}"`);
+    }
   });
 
   it("a read-only settings folder returns one plain line", async () => {

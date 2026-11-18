@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// e2-bd2: replaces the `package` script's shell chain so the sidecar staging step and
+// Replaces the `package` script's shell chain so the sidecar staging step and
 // the electron-builder invocation both read `resolveTargetArch()` (stage-sidecar.mjs)
 // for which arch they are packaging -- ONE source instead of two expressions that only
 // agreed by coincidence (stage-sidecar.mjs read the build host's `process.arch`;

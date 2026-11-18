@@ -13,7 +13,7 @@ device_models:
 devices:
   - id: dev.stub
     model: mdl.stub
-    owner: shivansh
+    owner: avery
 model:
   source: owneronly.urdf
   source_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

@@ -2,8 +2,7 @@ import type { CheckFacePayload } from "./checkFacePayload";
 
 // Measured 2026-09-08: `uv run python -c "from lockwire import api, gui; ..."` against
 // `tests/fixtures/x500/contract.yaml` (there is no `tests/fixtures/x500/lockwire.yaml` --
-// only `contract.yaml` and `contract_corrected.yaml` exist in that directory; the box
-// brief's accept-line path does not exist on disk). `verdict`/`counts` are
+// only `contract.yaml` and `contract_corrected.yaml` exist in that directory). `verdict`/`counts` are
 // `lockwire.api.check`'s; `headline`/`qualifier`/`cards`/
 // `cli_line` are the page builder's, run against the same contract. This is
 // real, measured output, not invented data.
@@ -133,7 +132,7 @@ export const X500_CHECK_PAYLOAD: CheckFacePayload = {
     {
       severity: "violation",
       tag: "Stop",
-      title: "Pm02 5 V rail overloaded",
+      title: "PM02 5 V rail overloaded",
       body:
         "It can give 15.60 W, and what's plugged into it wants 35.20 W. On it: camera.oak-d-lite, " +
         "companion.jetson-orin-nano and radio.rfd900x. Power this on and everything on that rail browns out together.",
@@ -170,7 +169,7 @@ export const X500_CHECK_PAYLOAD: CheckFacePayload = {
     {
       severity: "violation",
       tag: "Stop",
-      title: "Pm02 5 V rail overloaded in the 7W mode",
+      title: "PM02 5 V rail overloaded in the 7W mode",
       body:
         "It can give 15.60 W, and what's plugged into it wants 17.20 W in the 7W mode. On it: camera.oak-d-lite, " +
         "companion.jetson-orin-nano and radio.rfd900x. Power this on and everything on that rail browns out together.",

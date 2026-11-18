@@ -65,6 +65,12 @@ describe("PowerPanel", () => {
     expect(container.textContent).toContain("no loss is counted here");
   });
 
+  it("a stage with no input voltage says so in words, never \"not declared in\"", () => {
+    mount(pageOf(stage({ fed_by: null, volts_in: null, efficiency: 1, watts_lost: 0 })));
+    expect(container.textContent).toContain("Voltage in not declared, 5 V out");
+    expect(container.textContent).not.toContain("not declared in");
+  });
+
   it("is hidden until the robot has rails", () => {
     const power = (p: PagePayload) => visiblePanels(p).some((x) => x.id === "power");
     expect(power(pageOf())).toBe(false);

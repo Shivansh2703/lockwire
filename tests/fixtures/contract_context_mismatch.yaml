@@ -17,7 +17,7 @@ device_models:
 devices:
   - id: dev.imu
     model: mdl.imu.bmi088
-    owner: shivansh
+    owner: avery
     depends: [src/estimation/ekf.cpp]
     envelopes:
       - context: bench-idle
@@ -27,4 +27,4 @@ devices:
           witness: human
           source: author-chosen engineering headroom
           locked_at: 2026-07-28
-          note: "Hand-authored bench temp band for the D31 mismatch demo. Not fitted to a recording — the point of this fixture is that no condition baselines cover the recording's nominal-op context."
+          note: "Hand-authored bench temp band for the operating-context mismatch demo. Not fitted to a recording — the point of this fixture is that no condition baselines cover the recording's nominal-op context."

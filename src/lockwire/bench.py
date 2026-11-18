@@ -2,22 +2,22 @@
 
 Two measurements, never merged into one number (detection and forwarding):
 
-1. **Detection** — for each generated out-of-bound plan, does the *existing*
-   evaluator (`plan.validate_plan`, reused — this module never
+1. **Detection** - for each generated out-of-bound plan, does the *existing*
+   evaluator (`plan.validate_plan`, reused - this module never
    re-walks a plan) flag it? Categorized as ``detected`` / ``missed`` (a
    violating case not flagged; "leaked" is a detection
    metric only, and a correctly-forwarded violation is a detection, not a
    leak) / ``false_alarm`` (a compliant case wrongly flagged) /
    ``unscorable_correct`` / ``unscorable_mismatch``.
-2. **Forwarding** — every case reaches the simulated driver byte-identical,
+2. **Forwarding** - every case reaches the simulated driver byte-identical,
    in order, exactly once, *regardless of verdict* (lockwire forwards
    the command unchanged, never originates one, never alters one, never
-   withholds one — lockwire has no gate to leak past; scoring forwarding on
+   withholds one - lockwire has no gate to leak past; scoring forwarding on
    the verdict would build the wrong reading).
 
 Self-proving: a corpus that scores well against an evaluator with
 the checks deleted is measuring itself, not the product. `run_bench` takes
-the evaluator as a parameter for exactly this reason — see
+the evaluator as a parameter for exactly this reason - see
 `tests/test_bench.py::test_checks_deleted_detection_rate_collapses`.
 
 Ceiling, published in `format_report` itself, not only here: this corpus
@@ -51,7 +51,7 @@ class BenchCase:
 
 def load_corpus(path: Path) -> list[BenchCase]:
     """Load the corpus YAML (id/category/step per case). Same guarded loader
-    as `plan.load_plan` and `schema.load_contract` — a corpus file is trusted
+    as `plan.load_plan` and `schema.load_contract` - a corpus file is trusted
     exactly as much as any other checked-in lockfile-shaped document."""
     with open(path, encoding="utf-8") as f:
         data = _load_yaml_guarded(_yaml(), f)
@@ -156,18 +156,18 @@ def run_bench(
 
 
 def format_report(result: BenchResult, corpus_path: Path) -> str:
-    """The published detection rate, plain words — what the corpus is, how
+    """The published detection rate, plain words - what the corpus is, how
     many cases, what a catch counts as, and the self-scoring ceiling, all in
     the output itself (not only in a docstring)."""
     rate = result.detection_rate
     rate_str = "n/a (no violating cases in the corpus)" if rate is None else f"{rate:.0%}"
     return "\n".join(
         [
-            f"corpus: {corpus_path} — {result.corpus_size} hand-authored cases",
+            f"corpus: {corpus_path}: {result.corpus_size} hand-authored cases",
             f"detection rate: {rate_str} "
             f"({result.detected}/{result.violating_total} violating cases flagged NO-GO; "
-            'a "catch" = the existing plan evaluator scores the case NO_GO)',
-            f"missed (leaked — a violating case the evaluator did not flag): {result.missed}",
+            'a "catch" = the existing plan evaluator scores the case NO-GO)',
+            f"missed (leaked: a violating case the evaluator did not flag): {result.missed}",
             f"false alarms (a compliant case wrongly flagged NO-GO): {result.false_alarms}",
             f"unscorable cases correctly NOT SCORED: {result.unscorable_correct}"
             + (

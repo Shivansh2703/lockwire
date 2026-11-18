@@ -3,12 +3,12 @@
 Renders each declared device into the converging device-manifest shape five independent
 third-party designs settled on (``device_id``, ``capabilities[]``, ``safety_limits[]`` with
 ``min``/``max``): what it measures, what it adjusts, what it refuses. ``min``/``max`` are
-aliased straight from ``Band.lo``/``Band.hi`` — nothing here is invented, predicted or guessed.
+aliased straight from ``Band.lo``/``Band.hi`` - nothing here is invented, predicted or guessed.
 Read-only, derived from the contract, never the truth.
 
 Import of a third-party manifest into a contract is refused elsewhere (``lockwire import``): the inbound direction is refused until
 an open standard is published, because import is where lock-in happens. This module
-builds the outward direction only — no reader for the inbound shape lives here.
+builds the outward direction only - no reader for the inbound shape lives here.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from lockwire.describe import _role
 from lockwire.schema import Contract, DeviceInstance, Provenance
 
 # ponytail: the schema's witness enum (`Provenance.witness`, schema.py:191) is
-# "w0..w6 | live | human" — no literal "fixture"/"sim" value exists yet. "human"
+# "w0..w6 | live | human" - no literal "fixture"/"sim" value exists yet. "human"
 # (author-asserted, not measured off real hardware or a bag) is the closest proxy for
 # "this number is a stand-in, not a real measurement". Revisit if a real witness value
 # for fixture/sim data lands.
@@ -39,7 +39,7 @@ def _safety_limits(instance: DeviceInstance, model) -> list[dict[str, object]]:
 
     A datasheet rating (``model.hard_limits``) never reads the same as a fitted band
     (statistically evidenced, ``envelope.fitted_bands``) or an inferred one (observed,
-    no fit evidence) — collapsing the three into one field is a loss this module refuses.
+    no fit evidence) - collapsing the three into one field is a loss this module refuses.
     """
     limits: list[dict[str, object]] = []
     if model is not None and model.hard_limits:

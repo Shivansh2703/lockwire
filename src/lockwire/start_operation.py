@@ -13,9 +13,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-from lockwire.edit import _contract_lock, contract_revision, relative_source
+from lockwire.edit import _contract_lock, contract_revision, link_new, relative_source
 from lockwire.scene import SceneRefusal
-from lockwire.scene_urdf import _resolve_mesh_path, mesh_root
+from lockwire.scene_urdf import _resolve_mesh_path, mesh_root, sibling_hint, sibling_package
 from lockwire.schema import (
     ArtifactRef,
     Contract,
@@ -32,22 +32,34 @@ from lockwire.urdf import _refuse_doctype_entity, parse_urdf, read_model_bytes
 
 def _find_meshes(
     root: ET.Element, source: Path, target: Path
-) -> tuple[list[ArtifactRef], str, dict[str, int | str] | None]:
-    """The model's mesh files as sha256-pinned refs inside the robot's package folder.
+) -> tuple[list[ArtifactRef], str, dict[str, int | str] | None, bool]:
+    """The model's mesh files as sha256-pinned refs inside the robot's package folder, or (the
+    last item True) beside it in sibling packages of the same workspace, paths then relative to
+    the workspace folder.
 
     All-or-nothing: the scene loader refuses a mesh it cannot verify, so a partial list
     would break the whole scene. Anything missing or outside the package comes back as a note.
     """
     uris = sorted({u for m in root.iter("mesh") if (u := m.get("filename") or m.findtext("uri"))})
-    folder, found, problems = mesh_root(source, target.parent), {}, []
+    folder, found, problems, sibling = mesh_root(source, target.parent), {}, [], False
     for uri in uris:
+        pkg = uri.removeprefix("package://").partition("/")[0]
+        home = sibling_package(source, pkg) if uri.startswith("package://") else None
         try:
-            path = _resolve_mesh_path(
-                uri, source.parent, source, (source.parent, folder, *source.parents[1:3])
-            ).resolve()
-            found[path.relative_to(folder).as_posix()] = path
+            if home is not None:  # beside this package; must stay inside that one folder
+                path = (home / uri.partition("://")[2].partition("/")[2]).resolve()
+                if not (path.is_file() and path.is_relative_to(home)):
+                    raise ValueError(uri)
+            else:
+                path = _resolve_mesh_path(
+                    uri, source.parent, source, (source.parent, folder, *source.parents[1:3])
+                ).resolve()
+                path.relative_to(folder)
+            found[path], sibling = uri, sibling or home is not None
         except (SceneRefusal, ValueError):
             problems.append(uri)
+    base = folder.parent if sibling else folder
+    found = {p.relative_to(base).as_posix(): p for p in found}
     if problems:
         gap = {"missing": len(problems), "total": len(uris), "example": problems[0]}
         return (
@@ -55,14 +67,16 @@ def _find_meshes(
             (
                 f"{len(problems)} of {len(uris)} mesh files not found inside the robot's package folder "
                 f"(e.g. {problems[0]}); the 3D model is not recorded."
+                + sibling_hint(source, problems)
             ),
             gap,
+            False,
         )
     refs = [
         ArtifactRef(path=rel, sha256=hashlib.sha256(p.read_bytes()).hexdigest())
         for rel, p in sorted(found.items())
     ]
-    return refs, "", None
+    return refs, "", None, sibling
 
 
 def start_contract(
@@ -115,11 +129,14 @@ def start_contract(
             raise
         notes += warned
         spelling = relative_source(target, source)
-        meshes, note, gap = ([], "", None) if webots else _find_meshes(xml, source, target)
+        meshes, note, gap, sibling = (
+            ([], "", None, False) if webots else _find_meshes(xml, source, target)
+        )
         note = "\n".join([*notes, note] if note else notes)
         model = model.model_copy(
             update={
                 "external_assets": meshes,
+                **({"asset_root": "workspace"} if sibling else {}),
                 "xacro_args": xacro_args or None,
                 "source": spelling,
                 "provenance": model.provenance.model_copy(update={"source": spelling}),
@@ -141,9 +158,10 @@ def start_contract(
                 shutil.copymode(target, temporary)
                 os.replace(temporary, target)
             else:
+                _plain_mode(Path(temporary))
                 # Installing a new file must never replace a writer racing this start.
                 try:
-                    os.link(temporary, target)
+                    link_new(temporary, target)
                 except FileExistsError as exc:
                     raise ValueError(
                         "lockfile appeared during start; open it before overwriting"
@@ -260,18 +278,22 @@ def robot_by_name(name: str) -> Path:
         from tqdm import tqdm  # robot_descriptions' clone progress bar
     except ImportError:
         raise LookupError(
-            f"no file named {name}; to check a robot by name: "
-            f'uvx --from "lockwire[robots]" lockwire check {name}'
+            f"no file named {name}; to fetch a robot by name, install the robots extra: "
+            f"pip install 'lockwire[robots]', then run lockwire start {name}"
         ) from None
     key = name.lower().replace("-", "_").removesuffix("_description")
     found = DESCRIPTIONS.get(f"{key}_description")
     if found is None or not found.has_urdf:
         if found is not None or f"{key}_mj_description" in DESCRIPTIONS:
-            raise LookupError(f"only an MJCF exists for {name}; try `lockwire check-sim` on it")
+            raise LookupError(f"only an MJCF exists for {name}; try 'lockwire check-sim' on it")
         names = sorted({k.removesuffix("_description").removesuffix("_mj") for k in DESCRIPTIONS})
         close = difflib.get_close_matches(key, names, n=3)
-        hint = f"; did you mean {', '.join(close)}?" if close else ""
-        raise LookupError(f"no file or robot named {name}{hint}")
+        hint = f"; did you mean {', '.join(close)}?" if close else "."
+        raise LookupError(
+            f"no file or robot named {name}{hint} Robot names are robot_descriptions ids "
+            "with a URDF (for example ur5e, go2, panda); 'lockwire catalog robots' lists "
+            "datasheets, not models"
+        )
     print(f"fetching {name} from robot_descriptions (first time only)…", file=sys.stderr)
     tqdm.monitor_interval = 0  # its monitor daemon thread segfaulted CPython 3.12 at exit
     try:
@@ -282,15 +304,40 @@ def robot_by_name(name: str) -> Path:
         raise LookupError(f"could not fetch {name}: {error}") from error
 
 
+def _cached_mesh(uri: str, model: Path) -> Path | None:
+    """The file a fetched model's mesh reference points at, or None when it names no local file."""
+    try:
+        if uri.startswith("file://"):
+            path = Path(uri.removeprefix("file://"))
+        elif Path(uri).is_absolute():
+            path = Path(uri)
+        else:
+            path = _resolve_mesh_path(uri, model.parent, model, (model.parent, *model.parents[:3]))
+    except SceneRefusal:
+        return None
+    return path.resolve() if path.is_file() else None
+
+
 def copy_beside(model: Path, folder: Path, name: str) -> Path:
     """The fetched URDF copied into the user's folder as `<name>.urdf`, so the lockfile
-    points at a file they own and edit, not the cache. Refuses to replace different bytes."""
-    copy = folder / f"{name}.urdf"
-    data = model.read_bytes()
-    if copy.exists() and copy.read_bytes() != data:
-        raise ValueError(
-            f"{copy} exists and differs from the fetched {name}; move it or pass a path"
-        )
+    points at a file they own and edit, not the cache. Its mesh files are copied under
+    `meshes/` (keeping their path below the common cache folder, so two robots do not clash)
+    and referenced by relative path: no home folder or user name reaches the lockfile.
+    Refuses to replace different bytes."""
+    copy, text = folder / f"{name}.urdf", model.read_text(encoding="utf-8")
+    attr = re.compile(r"""(filename\s*=\s*)(["'])(.*?)\2""")
+    files = {u: p for u in {m[3] for m in attr.finditer(text)} if (p := _cached_mesh(u, model))}
+    base = Path(os.path.commonpath([model.resolve().parent, *files.values()]))
+    rel = {u: (Path("meshes") / p.relative_to(base)).as_posix() for u, p in files.items()}
+    data = attr.sub(lambda m: m[1] + m[2] + rel.get(m[3], m[3]) + m[2], text).encode()
+    for target, body in [(copy, lambda: data), *((folder / rel[u], files[u].read_bytes) for u in files)]:
+        if target.exists() and target.read_bytes() != body():
+            raise ValueError(
+                f"{target} exists and differs from the fetched {name}; move it or pass a path"
+            )
+    for u, path in files.items():
+        (folder / rel[u]).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, folder / rel[u])
     copy.write_bytes(data)
     return copy
 
@@ -322,6 +369,7 @@ def typed_paths(findings, lock: Path, model: Path, shown: str | None = None) -> 
 
     rel = relative_source(lock, model)
     beside = "lockwire.yaml" if shown else str(model.parent / "lockwire.yaml")
+    named = shown is not None  # a robot name: its files sit in a throwaway folder no one typed
     shown = shown or str(model)
     swaps = [  # longest first: the resolved spelling ends with `rel`
         (str(lock.resolve().parent / rel), shown),
@@ -330,7 +378,13 @@ def typed_paths(findings, lock: Path, model: Path, shown: str | None = None) -> 
         (rel, shown),
     ]
     for finding in findings:
-        finding.observed = finding.observed.replace(" not found at lock", " not found")
+        finding.observed = finding.observed.replace(" package folder at lock", " package folder")
+        if named and finding.quantity == "model/meshes":  # its hint would name the temp folder
+            finding.action = (
+                f"nothing to do: the {shown} description as fetched does not hold them, and a check "
+                "by name compares the model's numbers, not its mesh files"
+            )
+            finding.expected = "the mesh files the description names"
         if " --force" in (finding.next_command or ""):
             finding.next_command = None
         for field, quote in (("source", str), ("action", str), ("next_command", shlex.quote)):
@@ -343,7 +397,7 @@ def typed_paths(findings, lock: Path, model: Path, shown: str | None = None) -> 
         if finding.action and not Path(beside).exists():  # swap needs a lockfile; start makes one
             finding.action = re.sub(
                 r"find a stronger servo: lockwire swap .*$",
-                f"find a stronger servo: lock the model first with `lockwire {cli_line('start', shown)}`",
+                f"find a stronger servo: lock the model first with 'lockwire {cli_line('start', shown)}'",
                 finding.action,
             )
 
@@ -415,13 +469,16 @@ EXAMPLES = Path(__file__).parent / "examples"
 ALIASES = {"x500": "drone", "pi-servos": "servo-bench"}
 
 
-# The one failing demo is never named without saying it fails on purpose.
+# A failing demo is never named without saying it fails on purpose.
 SERVO_BENCH = "servo-bench (built to fail: a 5 V rail overloaded and a wrist servo too weak, on purpose, so you can see what a catch looks like)"
 
 
+ARM_POWER = "arm-power (built to fail: a fuse too big, a sagging rail, a boot-pin servo, on purpose, so you can see what a catch looks like)"
+
+
 def example_label(name: str) -> str:
-    """An example's name as shown to people: servo-bench carries its built-to-fail label."""
-    return SERVO_BENCH if ALIASES.get(name, name) == "servo-bench" else name
+    """An example's name as shown to people: the two failing demos carry their built-to-fail label."""
+    return {"servo-bench": SERVO_BENCH, "arm-power": ARM_POWER}.get(ALIASES.get(name, name), name)
 
 
 def example_names() -> list[str]:
@@ -493,6 +550,13 @@ def starters() -> list[dict[str, str]]:
     return found
 
 
+def _plain_mode(path: Path) -> None:
+    """A new lockfile gets the folder's usual mode (0644 under the common umask), not mkstemp's 0600."""
+    mask = os.umask(0)
+    os.umask(mask)
+    path.chmod(0o666 & ~mask)
+
+
 def start_blank(out: Path | str) -> dict[str, str | bool]:
     """Write a contract holding only the robot's name; an existing file is kept, never overwritten."""
     target = Path(out).resolve()
@@ -500,4 +564,5 @@ def start_blank(out: Path | str) -> dict[str, str | bool]:
         return {"path": str(target), "revision": contract_revision(target), "written": False}
     target.parent.mkdir(parents=True, exist_ok=True)
     save_contract(Contract(robot=RobotInfo(name="New robot")), target)
+    _plain_mode(target)
     return {"path": str(target), "revision": contract_revision(target), "written": True}

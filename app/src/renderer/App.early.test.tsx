@@ -9,9 +9,9 @@ import { X500_CHECK_PAYLOAD } from "./checkFace.fixture";
 import type { CheckFacePayload } from "./checkFacePayload";
 import { setSelectedPartId } from "./scene/selectionStore";
 
-const canvas = vi.hoisted(() => ({ parts: [] as unknown[] }));
+const canvas = vi.hoisted(() => ({ parts: [] as unknown[], key: "" }));
 vi.mock("./scene/Canvas", () => ({
-  Canvas: ({ children, parts }: { children?: React.ReactNode; parts?: unknown[] }) => { canvas.parts = parts ?? []; return <div data-testid="scene-canvas">{children}</div>; },
+  Canvas: ({ children, parts, sceneKey }: { children?: React.ReactNode; parts?: unknown[]; sceneKey?: string }) => { canvas.parts = parts ?? []; canvas.key = sceneKey ?? ""; return <div data-testid="scene-canvas">{children}</div>; },
   useScene: () => ({ meshes: [] }),
 }));
 
@@ -24,8 +24,9 @@ const GO: CheckFacePayload = { ...X500_CHECK_PAYLOAD, verdict: "GO", robot: "Rob
 const doc = (path: string, payload = GO) => ({ opened: true, path, payload, checkPayload: { ...payload, scene: PAGE_WITH_SCENE.scene } });
 const word = () => container.querySelector(".check-verdict-word")?.textContent;
 
+const menu: { cb?: (r: unknown) => void } = {};
 function mount(open: () => unknown, page: (c: string) => Promise<PagePayload>, openLockfile = vi.fn()) {
-  Object.assign(window, { lockwire: { startFromUrdf: () => Promise.resolve(open()).then(picked), openLockfile, getContractPage: ({ contract }: { contract: string }) => page(contract), getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]) } });
+  Object.assign(window, { lockwire: { startFromUrdf: () => Promise.resolve(open()).then(picked), openLockfile, getContractPage: ({ contract }: { contract: string }) => page(contract), getDeclareForm: vi.fn().mockResolvedValue(DECLARE_FORM), getHistory: vi.fn().mockResolvedValue([]), onOpenedFromMenu: (cb: (r: unknown) => void) => { menu.cb = cb; return () => undefined; } } });
   root = createRoot(container);
   act(() => root.render(<App />));
   return act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Open robot")!.click());
@@ -56,6 +57,28 @@ describe("opening a robot shows the 3D view before the findings", () => {
     expect(reopen).toHaveBeenCalled();
     expect(word()).toBe("Checking…");
     expect(container.querySelector(".finding-card")).toBeNull();
+  });
+  it("switching to a robot whose check reply carries no scene shows Checking, never the start screen", async () => {
+    const pageB = deferred<PagePayload>();
+    const B = { ...doc("/b.yaml", { ...X500_CHECK_PAYLOAD, verdict: "NO-GO", robot: "Robot B" }), checkPayload: { ...X500_CHECK_PAYLOAD, scene: undefined } };
+    await mount(() => doc("/a.yaml"), (c) => c === "/a.yaml" ? Promise.resolve({ ...PAGE, revision: "r" }) : pageB.promise, vi.fn().mockResolvedValue(B));
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Re-check")!.click());
+    expect(container.querySelector(".open-face")).toBeNull();
+    expect(word()).toBe("Checking…");
+    const pending = canvas.key; // the view mounted before the page has no skeleton yet: it must rebuild when the page lands
+    await act(async () => pageB.resolve({ ...PAGE, revision: "r2" }));
+    expect(canvas.key).not.toBe(pending);
+  });
+  it("a switch overtaken by a file the engine refuses shows the refusal, not Checking forever", async () => {
+    const pageB = deferred<PagePayload>();
+    const B = { ...doc("/b.yaml", { ...X500_CHECK_PAYLOAD, verdict: "NO-GO", robot: "Robot B" }), checkPayload: { ...X500_CHECK_PAYLOAD, scene: undefined } };
+    await mount(() => doc("/a.yaml"), (c) => c === "/a.yaml" ? Promise.resolve({ ...PAGE, revision: "r" }) : pageB.promise, vi.fn().mockResolvedValue(B));
+    await act(async () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Re-check")!.click());
+    expect(word()).toBe("Checking…");
+    await act(async () => menu.cb!({ result: { started: false, opened: { opened: true, path: "/c.yaml", error: "not a robot model" } } }));
+    await act(async () => pageB.resolve({ ...PAGE, revision: "r2" }));
+    expect(word()).not.toBe("Checking…");
+    expect(container.textContent).toContain("not a robot model");
   });
   it("robot A's check reply landing after robot B was opened never draws over B", async () => {
     const slowA = deferred<ReturnType<typeof doc>>();

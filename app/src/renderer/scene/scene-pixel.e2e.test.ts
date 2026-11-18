@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 
-// The hidden e2e: a REAL electron launch, never a screenshot, nothing on the owner's screen
+// The hidden e2e: a REAL electron launch, never a screenshot, nothing on the user's screen
 //. Every other test in this repo mocks "electron" or three's renderer; this is the
-// one exception, same shape as e2-i2's `hidden-launch.test.ts` — the checked's own `show: false`,
+// one exception, same shape as `hidden-launch.test.ts` — the checked's own `show: false`,
 // always hidden, makes it
 // hidden-window-safe by construction, so the window never paints regardless of what this check finds.
 // Reading back a non-background PIXEL (not asserting a component mounted) proves the mesh graph

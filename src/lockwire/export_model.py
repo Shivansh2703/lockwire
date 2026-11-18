@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from lockwire import plugins
-from lockwire.scene_urdf import _IDENTITY_POSE, _compose
+from lockwire.scene_urdf import _IDENTITY_POSE, _compose, mesh_root
 from lockwire.schema import Joint, Link, ModelRecord
 from lockwire.mesh_simple import read_stl
 from lockwire.sdf import _matrix_to_rpy
@@ -120,6 +120,34 @@ def _inertial(link: Link, parent: ET.Element, sdf: bool = False) -> None:
             ET.SubElement(el, "inertia", {k: repr(float(x)) for k, x in zip(names, t)})
 
 
+def missing_limits(model: ModelRecord) -> list[tuple[str, list[str]]]:
+    """Moving joints with no effort or velocity in the lock, which URDF requires: (name, missing)."""
+    return [
+        (j.name, gone)
+        for j in model.joints
+        if j.type in ("revolute", "prismatic")
+        and (gone := [k for k in ("effort", "velocity") if getattr(j.limits, k, None) is None])
+    ]
+
+
+def urdf_notes(model: ModelRecord) -> tuple[str, str | None]:
+    """The two plain lines a URDF export owes the reader: geometry is not written; joints lacking limits."""
+    geometry = (
+        "visual and collision geometry are not exported: a lock records mesh files "
+        "and scales, not their poses or whether each is visual or collision."
+    )
+    bad = missing_limits(model)
+    if not bad:
+        return geometry, None
+    shown = "; ".join(f"{n}: {', '.join(k)}" for n, k in bad[:6])
+    more = f"; and {len(bad) - 6} more" if len(bad) > 6 else ""
+    s = "s have" if len(bad) > 1 else " has"
+    return geometry, (
+        f"{len(bad)} moving joint{s} no effort or velocity limit "
+        f"({shown}{more}); ROS will not load this file until they are set"
+    )
+
+
 def _urdf(model: ModelRecord, name: str) -> ET.Element:
     root = ET.Element("robot", name=name)
     root.append(ET.Comment(_NOTE))
@@ -137,6 +165,11 @@ def _urdf(model: ModelRecord, name: str) -> ET.Element:
             given = {"lower": lim.lower, "upper": lim.upper, "effort": lim.effort}
             given["velocity"] = lim.velocity
             ET.SubElement(el, "limit", {k: repr(v) for k, v in given.items() if v is not None})
+        if j.mimic is not None:
+            m = j.mimic
+            ET.SubElement(
+                el, "mimic", joint=m.joint, multiplier=repr(m.multiplier), offset=repr(m.offset)
+            )
     return root
 
 
@@ -285,9 +318,10 @@ def _refuse_own_files(model: ModelRecord, source_root: Path | None, targets) -> 
     refs += [sh.mesh for ln in model.links for sh in ln.geometry or [] if sh.kind == "mesh" and sh.mesh]
     src_dir = Path(model.source).parent
     own = set()
+    wide = [mesh_root(source_root / model.source, source_root, "workspace")] if source_root and model.asset_root == "workspace" else []
     for ref in refs:
         p = Path(ref.removeprefix("file://"))
-        roots = [None] if p.is_absolute() else [None, source_root, source_root and source_root / src_dir, src_dir]
+        roots = [None] if p.is_absolute() else [None, source_root, source_root and source_root / src_dir, src_dir, *wide]
         for root in roots:
             c = p if root is None else root / p
             if c.is_file():

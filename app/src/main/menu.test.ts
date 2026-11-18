@@ -27,6 +27,8 @@ vi.mock("electron", () => ({
   Menu: { buildFromTemplate: (t: unknown) => t },
 }));
 
+import { registerExportItems } from "./exportItems";
+import { EXPORTS } from "./exports";
 import { DOCS_URL, OFFLINE_LINE, buildMenu, findScript } from "./menu";
 
 type Item = Electron.MenuItemConstructorOptions;
@@ -170,5 +172,21 @@ describe("nothing in the menu does nothing", () => {
     const leaves = walk(top()).filter((i) => i.type !== "separator" && i.enabled !== false && !i.submenu);
     expect(leaves.length).toBeGreaterThan(15);
     expect(leaves.filter((i) => !i.click && !i.role)).toEqual([]);
+  });
+});
+
+describe("File > Export extras", () => {
+  const exportMenu = () => sub(find(menu("File"), "Export"));
+  const freeRows = () => EXPORTS.map((k) => k.label);
+
+  it("a free build (nothing registered) shows exactly the free rows", () => {
+    expect(exportMenu().map((i) => i.label)).toEqual(freeRows());
+  });
+
+  it("a registered paid row follows the free rows, only with a robot open", () => {
+    registerExportItems((robot) => [{ label: `Extra for ${robot}` }]);
+    expect(exportMenu().map((i) => i.label)).toEqual([...freeRows(), `Extra for ${MINE}`]);
+    state.robot = null;
+    expect(exportMenu().map((i) => i.label)).toEqual(freeRows());
   });
 });

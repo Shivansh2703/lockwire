@@ -60,7 +60,7 @@ export function GraphView({
   const rel = useMemo(() => (focusId ? relation(graph, focusId) : null), [graph, focusId]);
   const lit = useMemo(() => rel?.lit ?? new Set(card?.involves ?? []), [rel, card]);
   const on = lit.size > 0;
-  // "Only these" is the 3D view's own only-list (VIEW-1), so the graph and the 3D body stay in step.
+  // "Only these" is the 3D view's own only-list, so the graph and the 3D body stay in step.
   const mine = rel ? isolateIds([...rel.lit]) : [];
   const viewOnly = useViewState().only;
   const only = mine.length > 0 && viewOnly.length === mine.length && mine.every((p) => viewOnly.includes(p));
@@ -94,6 +94,16 @@ export function GraphView({
   const moved = useRef(false); // the user has panned or zoomed since the last fit
   useEffect(() => { moved.current = false; fit(); }, [pos]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!moved.current) fit(); }, [selected]); // a newly chosen check brings its parts into view, unless the user moved the view
+  // The space you can see changed (the drawer opened, the panels were hidden, the window resized): fit again, unless the user moved the view.
+  const [boxSize, setBoxSize] = useState("");
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setBoxSize(`${el.clientWidth}x${el.clientHeight}`));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => { if (!moved.current) fit(); }, [boxSize, free.top, free.right, free.bottom, free.left]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const zoom = (f: number, cx?: number, cy?: number) => { moved.current = true; setView((v) => {
     const r = box.current?.getBoundingClientRect();

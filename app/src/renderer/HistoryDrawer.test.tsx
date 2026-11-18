@@ -154,14 +154,14 @@ describe("HistoryDrawer", () => {
 
   // Charter bite 3 (component-level slice of it): outside a repository / no git on the
   // PATH, the drawer shows the same one sentence `vcs.NOT_A_REPO` gives every other caller
-  // -- never an empty list that reads as "no history" (the empty-ledger defect e0-32 named).
+  // -- never an empty list that reads as "no history" (the empty-ledger defect).
   it("outside a repository the drawer shows one sentence, not an empty list", () => {
     root = createRoot(container);
     act(() => {
       root.render(<HistoryDrawer gitAvailable={false} entries={X500_HISTORY} onDiff={noopDiff} />);
     });
     expect(container.querySelector(".history-drawer-no-repo")!.textContent).toBe(
-      "not a git repository — nothing committed",
+      "not a git repository: nothing committed",
     );
     // Not the "no commits" empty state -- a different sentence for a different cause.
     expect(container.querySelector(".history-drawer-empty")).toBeNull();
@@ -170,7 +170,7 @@ describe("HistoryDrawer", () => {
 
   // Mutation bite 3, at component level: swap the no-repo branch out from under the flag
   // and the drawer would fall through to rendering entries anyway, unable to tell "no git"
-  // from "has git, has entries" -- the empty-ledger defect this box exists to prevent.
+  // from "has git, has entries" -- the empty-ledger defect this test exists to prevent.
   it("mutation bite: a gitAvailable=false drawer never falls through to the entry list", () => {
     root = createRoot(container);
     act(() => {
@@ -261,7 +261,7 @@ describe("HistoryDrawer", () => {
       root.render(<HistoryDrawer gitAvailable={false} entries={[]} onDiff={noopDiff} contract="/robots/x500/lockwire.yaml" />);
     });
     expect(container.querySelector(".history-drawer-no-repo")!.textContent).toBe(
-      "not a git repository — nothing committed",
+      "not a git repository: nothing committed",
     );
     expect(container.querySelector(".history-write-actions")).toBeNull();
   });

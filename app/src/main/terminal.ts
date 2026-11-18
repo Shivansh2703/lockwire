@@ -14,7 +14,7 @@ import { resolveSidecarCommand, scrubChildEnv } from "./sidecar";
 // `lockwire` works in it. One pty for the app; a second start replaces the first.
 let pty: IPty | null = null;
 const MAX_WRITE = 64 * 1024;
-// The shell (not the sidecar or the agent's MCP child) also gets the desktop session, so
+// The shell (not the sidecar) also gets the desktop session, so
 // browser-opening commands work on Linux; it already runs as the user.
 const DESKTOP_ENV = /^(DISPLAY|WAYLAND_DISPLAY|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR)$/;
 

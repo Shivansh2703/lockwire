@@ -24,7 +24,7 @@ from ruamel.yaml import YAML
 
 _YAML = YAML(typ="safe")
 
-FIXTURES = Path(__file__).parent / "fixtures" / "e5_10_real_scenarios"
+FIXTURES = Path(__file__).parent / "fixtures" / "real_scenarios"
 SCENARIOS = json.loads((FIXTURES / "scenarios.json").read_text())
 LEG_JOINTS = [
     f"{leg}_{joint}" for leg in ("LF", "RF", "LH", "RH") for joint in ("HAA", "HFE", "KFE")

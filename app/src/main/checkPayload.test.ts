@@ -51,7 +51,7 @@ describe("checkPayloadToFace", () => {
   });
 
   it("test_reads_the_headline_from_the_payload_rather_than_composing_it", () => {
-    // E2-hl: `doc.headline` is `api.check`'s own field (`report.verdict_headline`,
+    // `doc.headline` is `api.check`'s own field (`report.verdict_headline`,
     // shared with `gui.py`'s HTML page) -- this function must read it
     // verbatim, never assemble a sentence from the counts itself.
     const face = checkPayloadToFace(DOC, "lockwire check /tmp/lockwire.yaml");

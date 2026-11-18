@@ -1,4 +1,4 @@
-"""Rigid-body statics for stage one — support reactions, determinate sets only.
+"""Rigid-body statics for stage one - support reactions, determinate sets only.
 
 ``docs/design/e5_solver_choice.md`` chose **numpy-stiffness** by
 measurement. This module is the *determinate subset* of that choice, and the
@@ -6,8 +6,8 @@ narrowing is deliberate, not a substitution:
 
 * For a **statically determinate** support set the reactions follow from
   equilibrium alone and are **independent of the stiffness EI**. The solver study measured
-  exactly that — its ``equilibrium-statics`` candidate matched the textbook
-  reactions to 1.9e-16 — and rejected it only because it cannot produce
+  exactly that - its ``equilibrium-statics`` candidate matched the textbook
+  reactions to 1.9e-16 - and rejected it only because it cannot produce
   *deflections* or answer a *redundant* set.
 * For a **redundant** set the reactions *do* depend on EI. The contract schema
   is frozen and declares no Young's modulus, no section and no area on
@@ -15,8 +15,8 @@ narrowing is deliberate, not a substitution:
   Those read NOT SCORED naming why, never a plausible-looking guess.
 
 Consequently a stiffness solve has no input it could consume here, and a beam
-deflection is not offered at all. What that document lists as unproven —
-plates, shear-dominated stubby members, out-of-plane frames, dynamics — is
+deflection is not offered at all. What that document lists as unproven -
+plates, shear-dominated stubby members, out-of-plane frames, dynamics - is
 likewise out of stage one and named in the payload rather than omitted.
 
 Sign convention: reactions are positive upward, against gravity acting along
@@ -25,8 +25,12 @@ the root frame's -Z. Positions are scalars on one horizontal span axis.
 
 from __future__ import annotations
 
+import functools
+import hashlib
+import itertools
 import math
 from collections import Counter
+from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
@@ -92,9 +96,9 @@ def support_reactions(
     """Reaction (force N, moment N*m) at each support, in the order given.
 
     One support is a fixed interface: it carries the whole load plus the moment
-    ``W * (load_pos - support)`` — case 1 in reaction form.
+    ``W * (load_pos - support)`` - case 1 in reaction form.
 
-    Two supports are the lever rule — case 3, the two-bolt bracket. Each
+    Two supports are the lever rule - case 3, the two-bolt bracket. Each
     is a simple support, so each carries force and no moment; a support behind
     the load correctly comes out negative (it pulls down).
 
@@ -174,8 +178,37 @@ class GravityPlan(NamedTuple):
     device: np.ndarray  # (n,) device kg, 0 for link and payload masses
 
 
+# Keyed on the file's bytes, not its mtime: a same-size rewrite inside one clock tick keeps the mtime.
+@functools.lru_cache(maxsize=16)
+def _mjcf_ties(path: str, digest: bytes) -> frozenset[str]:
+    from lockwire.mjcf import is_mjcf, looped_joints  # noqa: PLC0415  # mjcf -> check_sim -> checks -> statics
+
+    try:
+        return frozenset(looped_joints(Path(path))) if is_mjcf(Path(path)) else frozenset()
+    except (OSError, SyntaxError, ValueError, TypeError):  # SyntaxError: xml ParseError
+        return frozenset()
+
+
+def tied_joints(model) -> frozenset[str]:
+    """Joints that belong to a tied piece. The ONE place that decides "no per-joint number": an
+    MJCF `<equality>` constraint ties bodies into a closed loop or coupled joints
+    (mjcf.looped_joints) that an open-tree walk would score wrongly. The file is the one the lock
+    names, read beside the lock the model was loaded from (``model._lockfile``, set by
+    schema.load_contract and by a check that is given the lock's path), exactly as `check` finds
+    it and never from the working directory. A file that is not there shows no tie."""
+    from lockwire.checks import _model_on_disk, _urdf_path_candidate  # noqa: PLC0415  # checks -> statics
+
+    named = _urdf_path_candidate(model)
+    mjcf = named and named.lower().endswith((".mjcf", ".xml"))
+    path = _model_on_disk(model._lockfile, named) if mjcf else None
+    if not (path and path.is_file()):
+        return frozenset()
+    return _mjcf_ties(str(path), hashlib.blake2b(path.read_bytes(), digest_size=16).digest())
+
+
 def gravity_plan(
-    model, under: str | None = None, devices: dict[str, list[tuple]] | None = None
+    model, under: str | None = None, devices: dict[str, list[tuple]] | None = None,
+    *, keep_tied: bool = False,
 ) -> GravityPlan | None:
     """Walk order of the tree from its single root; ``under`` keeps only the root-to-joint
     path and that joint's subtree (other branches cannot change its subtree's torques).
@@ -185,9 +218,15 @@ def gravity_plan(
     when the model has no single root, a rotary joint has no axis, no link has a positive mass, or a
     massive link has no CoM in its own frame. Massless links count as zero (they are
     flagged separately by check_zero_mass).
+
+    Joints of a tied piece (``tied_joints``) are left out of the walk, so every caller scores only
+    the joints it can solve; ``keep_tied`` keeps them for a caller that needs the whole body mass.
     """
+    tied = frozenset() if keep_tied else tied_joints(model)
     kids: dict[str, list] = {}
     for j in model.joints:
+        if j.name in tied:
+            continue
         kids.setdefault(j.parent, []).append(j)
     parents = Counter(j.child for j in model.joints)  # parent joints per link
     children = set(parents)
@@ -361,6 +400,7 @@ class LoopPlan(NamedTuple):
     plan: GravityPlan  # the model as a tree: every loop cut at one passive pin
     # per independent loop: driven joints, passive joints, pins as (link, point, link, point)
     loops: list[tuple[list, list, list[tuple]]]
+    idle: list[list[str]] = []  # joint names of each loop that has no driven joint
 
 
 def loop_plan(model, cuts: dict[str, tuple[float, float, float]], devices=None) -> LoopPlan | None:
@@ -394,30 +434,45 @@ def loop_plan(model, cuts: dict[str, tuple[float, float, float]], devices=None) 
         if cut is None or cut.parent not in rot or cut.child not in rot:
             raise ChainError(f"closed chain: the lock does not hold the loop joint '{name}'")
         if cut.type not in ("revolute", "continuous") or not cut.axis or not any(cut.axis):
-            raise ChainError(f"closed chain: joint '{name}' closes a loop and is not a pin")
+            raise ChainError(
+                f"closed chain: the loop closes at joint '{name}', which is a {cut.type} joint, not a "
+                "revolute pin; Lockwire solves a loop only when every joint in it is a revolute pin, "
+                "so the loop's joints are not scored"
+            )
         if cut.limits is not None and cut.limits.effort_limit is not None:
-            raise ChainError(f"closed chain: the pin '{name}' that closes the loop is driven")
+            raise ChainError(
+                f"closed chain: the joint '{name}' that closes the loop has an effort limit, so it "
+                "counts as a motor; Lockwire needs the closing pin free, so give it effort 0"
+            )
         a, b = chain(cut.parent), chain(cut.child)
         shared = {j.name for j in a} & {j.name for j in b}
         turn = {j.name: j for j in (*a, *b) if j.name not in shared and j.type != "fixed"}
         above = [j.name for j in a if j.name in shared and j.type != "fixed"]
         if above or any(j.type not in ("revolute", "continuous") for j in turn.values()):
+            bad = [j for j in turn.values() if j.type not in ("revolute", "continuous")]
             raise ChainError(
-                f"closed chain: joint '{above[0]}' moves the whole loop"
+                f"closed chain: the loop hangs from a moving joint ('{above[0]}'); Lockwire solves a "
+                f"loop only when its base is fixed, so '{above[0]}' and the loop are not scored; to "
+                f"check the loop alone, make '{above[0]}' a fixed joint in a copy of the file"
                 if above
-                else f"closed chain: the loop through '{name}' has a joint that is not a pin"
+                else f"closed chain: the loop through '{name}' contains a {bad[0].type} joint "
+                f"('{bad[0].name}'); Lockwire solves a loop only when every joint in it is a "
+                "revolute pin, so the loop's joints are not scored"
             )
         unit = np.array(cut.axis, dtype=float) / math.sqrt(sum(v * v for v in cut.axis))
         ref = rot[cut.parent][0] @ _rpy(*cut.origin.rpy) @ unit
         if any(abs(abs(float(axis_of[n] @ ref)) - 1) > 1e-6 for n in turn):
-            raise ChainError(f"closed chain: the loop through '{name}' is not planar")
+            raise ChainError(
+                f"closed chain: the loop through '{name}' is not flat (its joint axes are not all "
+                "parallel); Lockwire solves only flat loops, so the loop's joints are not scored"
+            )
         pin = (cut.parent, np.array(cut.origin.xyz, dtype=float), cut.child, np.array(point))
         hit = [g for g in groups if g[0].keys() & turn.keys()]  # loops that share a joint
         for g in hit:
             groups.remove(g)
             turn.update(g[0])
         groups.append((turn, [pin, *(p for g in hit for p in g[1])]))
-    loops = []
+    loops, idle = [], []
     for turn, pins in groups:
         hang = [
             j.name
@@ -425,23 +480,57 @@ def loop_plan(model, cuts: dict[str, tuple[float, float, float]], devices=None) 
             if j.name not in turn and j.type != "fixed" and any(k.name in turn for k in chain(j.parent))
         ]  # fmt: skip
         if hang:
-            raise ChainError(f"closed chain: joint '{hang[0]}' hangs below the loop")
+            raise ChainError(
+                f"closed chain: joint '{hang[0]}' hangs from a link of the loop; Lockwire solves a "
+                "loop only when nothing moves below it, so the loop is not scored; to check the loop "
+                f"alone, make '{hang[0]}' a fixed joint in a copy of the file"
+            )
         order = [j for j in tree.joints if j.name in turn]
         driven = [j for j in order if j.limits is not None and j.limits.effort_limit is not None]
         passive = [j for j in order if j not in driven]
         if driven and len(passive) != 2 * len(pins):  # a planar pin removes two freedoms
             free = len(turn) - 2 * len(pins)
             raise ChainError(
-                f"closed chain: {len(driven)} driven joints ({', '.join(j.name for j in driven)}) "
-                f"on a loop with {free} freedoms; the load through it is not determined"
+                f"closed chain: the loop needs exactly {free} motor-driven joints to hold its shape, "
+                f"but {len(driven)} have an effort limit ({', '.join(j.name for j in driven)}); "
+                "Lockwire cannot split the load, so the loop is not scored; give a passive pin an "
+                "effort limit of 0"
             )
         if driven:
             loops.append((driven, passive, pins))
-    return LoopPlan(plan, loops)
+        else:
+            idle.append([j.name for j in order])
+    return LoopPlan(plan, loops, idle)
+
+
+LOOP_WHY = (
+    "cannot be assembled",
+    "near lock",
+    "reached only through a lock",
+    "pin limit",
+)  # what _why says
 
 
 def loop_torques(lp: LoopPlan, loop: tuple, angles, g: float = STANDARD_G) -> np.ndarray:
-    """Signed static gravity torque (P, driven) at the loop's driven joints for each row of
+    """Signed static gravity torque of ``loop_solve``; NaN where a pose got no number."""
+    return loop_solve(lp, loop, angles, g)[0]
+
+
+def loop_solve(
+    lp: LoopPlan, loop: tuple, angles, g: float = STANDARD_G, explain: bool = True
+) -> tuple[np.ndarray, list[str]]:
+    """``loop_solve_q`` without the joint angles."""
+    return loop_solve_q(lp, loop, angles, g, explain)[:2]
+
+
+def loop_solve_q(
+    lp: LoopPlan, loop: tuple, angles, g: float = STANDARD_G, explain: bool = True
+) -> tuple[np.ndarray, list[str], np.ndarray, np.ndarray]:
+    """(held, why, q, dx_du): ``q`` (P, driven + passive) are the closed loop's joint angles from
+    the modelled pose, driven then passive, and ``dx_du`` (P, passive, driven) how the passive ones
+    follow the driven ones; both meaningful only where the row of ``held`` is not NaN.
+
+    ``held`` is the signed static gravity torque (P, driven) at the loop's driven joints for each row of
     driven angles ``angles`` (P, driven; radians from the modelled pose), the loop closed at each.
 
     Virtual work on the cut tree: with Q the tree's gravity torques and x(u) the passive angles
@@ -450,6 +539,8 @@ def loop_torques(lp: LoopPlan, loop: tuple, angles, g: float = STANDARD_G) -> np
     by construction) in steps of _LOOP_STEP by Newton on the pin gaps. A row is NaN where the
     loop does not close along that path, a passive joint leaves its limits, or the path comes
     within _LOOP_SINGULAR of a locking pose: no number there, where it would grow without bound.
+    Also why each such row got none (LOOP_WHY), decided from the pose itself, not from where the
+    path stopped (see ``_why``); "" for a row scored.
     """
     driven, passive, pins = loop
     names = [j.name for j in (*driven, *passive)]
@@ -465,7 +556,11 @@ def loop_torques(lp: LoopPlan, loop: tuple, angles, g: float = STANDARD_G) -> np
         return np.stack([(gap(q + h[c]) - gap(q - h[c])) / 2e-6 for c in which], axis=2)
 
     x = np.zeros((len(target), len(passive)))
-    ok = np.ones(len(target), dtype=bool)
+    code = np.zeros(len(target), dtype=int)  # 0 = scored, else lost on the path
+
+    def out(bad: np.ndarray, why: int) -> None:
+        code[(code == 0) & bad] = why
+
     jx = jac(np.zeros((len(target), len(names))), cols)
     steps = max(1, math.ceil(float(np.abs(target).max(initial=0.0)) / _LOOP_STEP))
     for s in range(1, steps + 1):
@@ -474,8 +569,9 @@ def loop_torques(lp: LoopPlan, loop: tuple, angles, g: float = STANDARD_G) -> np
             q = np.hstack([u, x])
             x = x - np.einsum("pij,pj->pi", np.linalg.pinv(jac(q, cols)), gap(q))
             lost = ~np.isfinite(x).all(axis=1)
-            x[lost], ok = 0.0, ok & ~lost  # a row that ran away stays out, harmlessly at zero
-        ok &= np.linalg.norm(gap(np.hstack([u, x])), axis=1) < _LOOP_TOL
+            x[lost] = 0.0  # a row that ran away stays out, harmlessly at zero
+            out(lost, 1)
+        out(~(np.linalg.norm(gap(np.hstack([u, x])), axis=1) < _LOOP_TOL), 1)
         # Checked at every step, not only the end: past a locking pose the path can come out on
         # the linkage's other assembly, closed and wrong. A row that comes near one, or goes
         # through one (the pins' Jacobian turns inside out), is out for good. Servo ranges are
@@ -483,18 +579,78 @@ def loop_torques(lp: LoopPlan, loop: tuple, angles, g: float = STANDARD_G) -> np
         was, jx = jx, jac(np.hstack([u, x]), cols)
         unit = jx / np.maximum(np.linalg.norm(jx, axis=1, keepdims=True), 1e-300)
         near = np.linalg.svd(unit, compute_uv=False)[:, -1] < _LOOP_SINGULAR
-        ok &= ~(near | (np.linalg.det(np.swapaxes(was, 1, 2) @ jx) <= 0))
+        out(near, 2)
+        out(np.linalg.det(np.swapaxes(was, 1, 2) @ jx) <= 0, 3)
     for k, j in enumerate(passive):
         if j.limits is not None:
             lo = j.limits.lower if j.limits.lower is not None else -math.inf
             hi = j.limits.upper if j.limits.upper is not None else math.inf
-            ok &= (x[:, k] >= lo) & (x[:, k] <= hi)
+            out(~((x[:, k] >= lo) & (x[:, k] <= hi)), 4)
     q = np.hstack([target, x])
     at = {j.name: k for k, j in enumerate(lp.plan.joints)}
     tq = plan_torques(lp.plan, names, q, g, signed=True)[:, [at[n] for n in names]]
     dx_du = -np.linalg.pinv(jx) @ jac(q, range(nd))  # (P, passive, driven)
     held = tq[:, :nd] + np.einsum("pxd,px->pd", dx_du, tq[:, nd:])
-    return np.where(ok[:, None], held, np.nan)
+    lost = np.flatnonzero(code)
+    why = [""] * len(target)
+    for r, w in zip(lost, _why(lp, loop, target[lost], x[lost], gap, jac) if explain else ()):
+        why[r] = w
+    return np.where((code == 0)[:, None], held, np.nan), why, q, dx_du
+
+
+_WHY_SEEDS = 60  # ponytail: at most this many starts per pose; a closure only on a branch none hits reads "cannot be assembled"
+
+
+def _why(lp, loop, target, last, gap, jac) -> list[str]:
+    """Why each unscored pose (target driven angles, ``last`` the path's final passive angles) got no
+    number, from a direct closure attempt at the pose: Newton on the same pin gaps from the path's last
+    passive angles, then a coarse spread over each passive range. Inside the passive limits and
+    _LOOP_SINGULAR of locking: "near lock"; inside the limits and clear of it: "reached only through
+    a lock" (the linkage can sit there, but not by moving from the modelled pose); closed only outside
+    the limits: "pin limit"; no closure: "cannot be assembled"."""
+    if not len(target):
+        return []
+    driven, passive, _ = loop
+    nd, npas = len(driven), len(passive)
+    rng = [
+        (
+            j.limits.lower if j.limits and j.limits.lower is not None else -math.pi,
+            j.limits.upper if j.limits and j.limits.upper is not None else math.pi,
+        )
+        for j in passive
+    ]
+    k = max(2, min(12, int((_WHY_SEEDS - 1) ** (1 / npas))))
+    spread = np.array(list(itertools.product(*[np.linspace(lo, hi, k) for lo, hi in rng])))
+    spread = spread[: _WHY_SEEDS - 1]
+    out = []
+    for u, x0 in zip(target, last):
+        x = np.vstack([x0, spread])
+        t = np.tile(u, (len(x), 1))
+        with np.errstate(all="ignore"):
+            for _ in range(40):
+                q = np.hstack([t, x])
+                x = x - np.einsum(
+                    "pij,pj->pi", np.linalg.pinv(jac(q, range(nd, nd + npas))), gap(q)
+                )
+            q = np.hstack([t, x])
+            closed = np.linalg.norm(gap(q), axis=1) < _LOOP_TOL
+            jx = jac(q, range(nd, nd + npas))
+            unit = jx / np.maximum(np.linalg.norm(jx, axis=1, keepdims=True), 1e-300)
+            lock = np.linalg.svd(unit, compute_uv=False)[:, -1]
+        inside = np.all(
+            [(x[:, i] >= lo) & (x[:, i] <= hi) for i, (lo, hi) in enumerate(rng)], axis=0
+        )
+        clear = closed & inside
+        out.append(
+            LOOP_WHY[0]
+            if not closed.any()
+            else LOOP_WHY[3]
+            if not clear.any()
+            else LOOP_WHY[2]
+            if (lock[clear] >= _LOOP_SINGULAR).any()
+            else LOOP_WHY[1]
+        )
+    return out
 
 
 # ------------------------------------------------------------------ tip-over

@@ -21,7 +21,7 @@ build hash `fbe6228777e7`, build date `2026-07-14`, build time `01:31:22`, Darwi
 
 ## Reproduce
 
-**Measured:** run from the worktree root, foreground and headless:
+**Measured:** run from the repo root, foreground and headless:
 
 ```sh
 /opt/homebrew/bin/blender --background --factory-startup --python tests/fixtures/x500/x500_scene_build.py
@@ -149,7 +149,7 @@ Repeated physical parts have Blender's deterministic numeric suffixes.
 
 **Measured:** no local `.venv` existed. To respect no installs and no network,
 uv used already-installed system tools with these environment settings; PYTHONPATH
-selects this worktree's application source:
+selects this checkout's application source:
 
 ```sh
 export UV_NO_PROJECT=1 UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never
@@ -178,7 +178,7 @@ background command succeeded with sandbox escalation; no GUI was opened.
 **Read limitation:** these tests use installed system dependency versions rather
 than a fresh uv.lock-synced environment because package installs are forbidden.
 No requested artifact or check remains outstanding. No network, package installs,
-main-checkout edits, other-worktree edits or push were performed.
+edits outside this checkout or push were performed.
 
 ## Full inspector output
 

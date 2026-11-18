@@ -1,19 +1,19 @@
 """Commit the contract by path, and undo a write, from a source
-it names out loud — two offers, one module,
+it names out loud - two offers, one module,
 because both are the Python half of "version control" for the contract and
 both go through the one door, `lockwire.gitref`.
 
-**Commit** (`commit_contract`): builds nothing about the message —
+**Commit** (`commit_contract`): builds nothing about the message -
 the source and the witness in it come from `edit.apply_changes`'s own
 return (stitched by the app), never re-parsed out of
 the YAML here. It shows the exact argv before running anything, and commits
 **by path**: the contract and its sidecars, nothing else dirty in the tree.
-It never pushes — pushing is the user's call, not the app's.
+It never pushes - pushing is the user's call, not the app's.
 
 **Undo** (`undo_plan`/`apply_undo`): inside a
 repository git *is* the undo, so this half builds no history of its
 own either. What it adds is the one thing plain git does not give you: a
-plan you can read before anything runs — the exact argv, and the exact list
+plan you can read before anything runs - the exact argv, and the exact list
 of files it touches.
 
 **Blocker 5.** ``git restore -- <file>`` restores from **the index**, not
@@ -24,8 +24,8 @@ module plans therefore carries ``--source=<ref>`` explicitly; a bare
 ``test_undo_restores_from_head_not_the_index`` holds that.
 
 **Scope, and what is at risk.** A ``restore`` plan touches exactly the one
-path in ``scope``; a change to any neighbouring file — staged, unstaged or
-untracked — survives it. The working copy of the named file is what the
+path in ``scope``; a change to any neighbouring file - staged, unstaged or
+untracked - survives it. The working copy of the named file is what the
 undo discards: that is the undo, and the sentence says so before it runs. A
 ``revert`` plan can touch several files, so :func:`apply_undo` **refuses**
 it while the working tree is dirty rather than putting anyone's unsaved
@@ -33,7 +33,7 @@ work under a merge.
 
 Outside a repository nothing new is built for undo: a sibling ``<path>.bak``,
 if one exists, is the only safety net (its writer, ``edit.backup_before_write``,
-was cut as dead code — infra: cuts per docs/PLAN.md — so this branch is now
+was removed as unused, so this branch is now
 reachable only when something else left a ``.bak`` beside the file).
 
 The one door to git is `lockwire.gitref`; this module adds no
@@ -50,10 +50,10 @@ from lockwire import gitref
 from lockwire.edit import EditConflict, _contract_lock, contract_revision
 
 #: What every operation in the version-control leg says when there is no
-#: repository (or no `git` on the PATH) to act on — commit does nothing.
-NOT_A_REPO = "not a git repository — nothing committed"
+#: repository (or no `git` on the PATH) to act on - commit does nothing.
+NOT_A_REPO = "not a git repository: nothing committed"
 
-#: argv fragments that must never appear in anything this module builds —
+#: argv fragments that must never appear in anything this module builds -
 #: swept for by `test_no_code_path_here_pushes` (pushing is the user's
 #: call, never the app's).
 _PUSH_MARKERS = ("push", "remote", "--set-upstream")
@@ -62,7 +62,7 @@ _PUSH_MARKERS = ("push", "remote", "--set-upstream")
 def _witness_present(message: str) -> bool:
     """True when `message` carries a non-empty ``witness: ...`` marker.
 
-    The commit message carries source *and* witness — this is the
+    The commit message carries source *and* witness - this is the
     one check `commit_contract` makes on the message itself, since it does
     not build the message (that is `apply_changes`'s job, upstream of here).
     """
@@ -106,7 +106,7 @@ def commit_contract(
     `contract_path`; it is compared while holding the contract lock just
     before Git stages and commits. Refuses (``ValueError``) when `message`
     carries no witness, or when a requested path resolves outside the
-    repository — both are caller mistakes, not states to report and continue past.
+    repository - both are caller mistakes, not states to report and continue past.
 
     Outside a repository, or with no `git` on the PATH, does nothing and
     returns the one sentence the rest of the version-control leg gives
@@ -120,7 +120,7 @@ def commit_contract(
     "outside the repository").
     """
     if not _witness_present(message):
-        raise ValueError("commit message must carry a witness — no 'witness:' found")
+        raise ValueError("commit message must carry a witness: no 'witness:' found")
     if not paths:
         raise ValueError("commit_contract needs at least one path")
 
@@ -140,7 +140,7 @@ def commit_contract(
     # The message is free text ("relocate remote antenna"); scan only git's own argv.
     joined = " ".join(a for a in argv if a != message).lower()
     if any(marker in joined for marker in _PUSH_MARKERS):
-        raise AssertionError("commit_contract built an argv that pushes — refusing to run it")
+        raise AssertionError("commit_contract built an argv that pushes: refusing to run it")
 
     untouched = _other_dirty_paths(repo, set(relpaths))
 
@@ -190,7 +190,7 @@ def _is_dirty(relpath: str, *, repo: Path) -> bool:
 
 
 def _dirty_paths(repo: Path) -> list[str]:
-    """Every dirty path, for the refusal message only — never for a decision.
+    """Every dirty path, for the refusal message only - never for a decision.
 
     ponytail: porcelain v1 quotes odd names and writes renames as ``old -> new``;
     this is a human sentence, so the raw field is good enough. Use ``_is_dirty``
@@ -210,7 +210,7 @@ def _resolve(path: Path | str) -> tuple[Path, Path | None, str | None]:
         return target, None, None
     relpath = gitref.relpath_in_repo(target, repo)
     if relpath is None:
-        raise UndoRefused(f"{target} is outside the repository at {repo} — refusing")
+        raise UndoRefused(f"{target} is outside the repository at {repo}: refusing")
     return target, repo, relpath
 
 
@@ -219,9 +219,9 @@ def undo_plan(contract: Path | str, *, source: str = "HEAD") -> dict:
 
     Returns ``{"kind", "argv", "scope", "repo", "sentence"}`` where ``kind`` is:
 
-    ``restore``  the write is still uncommitted — put the file back to ``source``
+    ``restore``  the write is still uncommitted - put the file back to ``source``
                  (always ``--source=``, never the index). Touches one path.
-    ``revert``   the write is committed — offer ``git revert`` of that commit,
+    ``revert``   the write is committed - offer ``git revert`` of that commit,
                  naming every other file the commit touches.
     ``backup``   no repository: an existing sibling ``<path>.bak`` is the
                  only undo there is (nothing in this codebase writes one).
@@ -251,11 +251,11 @@ def undo_plan(contract: Path | str, *, source: str = "HEAD") -> dict:
             "argv": [],
             "scope": [],
             "repo": "",
-            "sentence": f"Not a git repository, and no {backup.name} — nothing to undo.",
+            "sentence": f"Not a git repository, and no {backup.name}: nothing to undo.",
         }
 
     if gitref.rev_parse(source, repo=repo) is None:
-        raise UndoRefused(f"{source!r} is not a commit in {repo} — refusing to undo")
+        raise UndoRefused(f"{source!r} is not a commit in {repo}: refusing to undo")
 
     if _is_dirty(relpath, repo=repo):
         if gitref.show(source, relpath, repo=repo) is None:
@@ -264,7 +264,7 @@ def undo_plan(contract: Path | str, *, source: str = "HEAD") -> dict:
                 "argv": [],
                 "scope": [],
                 "repo": str(repo),
-                "sentence": f"{relpath} does not exist at {source} — nothing to restore it to.",
+                "sentence": f"{relpath} does not exist at {source}: nothing to restore it to.",
             }
         return {
             "kind": "restore",
@@ -285,7 +285,7 @@ def undo_plan(contract: Path | str, *, source: str = "HEAD") -> dict:
             "argv": [],
             "scope": [],
             "repo": str(repo),
-            "sentence": f"{relpath} has no commit and no uncommitted change — nothing to undo.",
+            "sentence": f"{relpath} has no commit and no uncommitted change: nothing to undo.",
         }
     scope = _files_in_commit(sha, repo=repo)
     scope = [relpath, *(path for path in scope if path != relpath)]
@@ -318,7 +318,7 @@ def apply_undo(
 
     ``restore`` runs its argv; ``backup`` copies the sibling
     ``.bak`` back; ``nothing`` does nothing. A ``revert`` is **refused** while
-    any file in the working tree is dirty — a revert can touch several files and
+    any file in the working tree is dirty - a revert can touch several files and
     must never bury someone's unsaved work in a merge.
     """
     planned = _planned_contract(plan, repo)
@@ -326,7 +326,7 @@ def apply_undo(
     if supplied is not None and planned is not None and supplied != planned:
         raise UndoRefused(
             f"the supplied contract {supplied} is not the contract targeted by this plan "
-            f"({planned}) — refusing"
+            f"({planned}): refusing"
         )
     target = supplied if supplied is not None else planned
     if target is not None:
@@ -370,7 +370,7 @@ def _apply_undo(
         target = Path(plan["scope"][0]).resolve()
         backup = target.with_name(target.name + ".bak")
         if not backup.is_file():
-            raise UndoRefused(f"{backup} is gone — refusing to undo")
+            raise UndoRefused(f"{backup} is gone: refusing to undo")
         fd, name = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent, text=True)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -383,7 +383,7 @@ def _apply_undo(
     root = Path(repo) if repo is not None else (Path(plan["repo"]) if plan.get("repo") else None)
     root = root.resolve() if root is not None else None
     if root is None or not root.is_dir():
-        raise UndoRefused("no git repository for this plan — refusing to run it")
+        raise UndoRefused("no git repository for this plan: refusing to run it")
     if kind == "revert":
         dirty = _dirty_paths(root)
         if contract is not None:
@@ -394,9 +394,9 @@ def _apply_undo(
             raise UndoRefused(
                 "the working tree has uncommitted changes ("
                 + ", ".join(dirty)
-                + ") — commit or discard them before reverting; refusing"
+                + "): commit or discard them before reverting; refusing"
             )
     code, _ = gitref.run(plan["argv"], repo=root)
     if code != 0:
-        raise UndoRefused(f"git {' '.join(plan['argv'])} failed (exit {code}) — nothing changed")
+        raise UndoRefused(f"git {' '.join(plan['argv'])} failed (exit {code}): nothing changed")
     return plan

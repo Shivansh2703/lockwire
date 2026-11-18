@@ -1,0 +1,1957 @@
+{
+ "add": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "fields": {
+    "additionalProperties": true,
+    "title": "Fields",
+    "type": "object"
+   },
+   "id": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Id"
+   },
+   "kind": {
+    "title": "Kind",
+    "type": "string"
+   },
+   "locked_at": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Locked At"
+   },
+   "note": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Note"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "kind",
+   "source"
+  ],
+  "title": "AddArgs",
+  "type": "object"
+ },
+ "batch-edit": {
+  "$defs": {
+   "BatchChangeArgs": {
+    "additionalProperties": false,
+    "description": "One batch item. op picks the shape: declare (default), add, place, move.",
+    "properties": {
+     "fields": {
+      "additionalProperties": true,
+      "title": "Fields",
+      "type": "object"
+     },
+     "kind": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Kind"
+     },
+     "locked_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Locked At"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Note"
+     },
+     "offset": {
+      "anyOf": [
+       {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Offset"
+     },
+     "on": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "On"
+     },
+     "op": {
+      "default": "declare",
+      "enum": [
+       "declare",
+       "add",
+       "place",
+       "move"
+      ],
+      "title": "Op",
+      "type": "string"
+     },
+     "path": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Path"
+     },
+     "source": {
+      "title": "Source",
+      "type": "string"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Target"
+     },
+     "unit": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Unit"
+     },
+     "value": {
+      "default": null,
+      "title": "Value"
+     },
+     "witness": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Witness"
+     }
+    },
+    "required": [
+     "source"
+    ],
+    "title": "BatchChangeArgs",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "changes": {
+    "items": {
+     "$ref": "#/$defs/BatchChangeArgs"
+    },
+    "title": "Changes",
+    "type": "array"
+   },
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "journal": {
+    "default": true,
+    "title": "Journal",
+    "type": "boolean"
+   }
+  },
+  "required": [
+   "contract",
+   "changes"
+  ],
+  "title": "BatchEditArgs",
+  "type": "object"
+ },
+ "catalog-parts": {
+  "additionalProperties": false,
+  "properties": {
+   "family": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "description": "Keep only parts whose family holds this text; stock shapes are left out.",
+    "title": "Family"
+   },
+   "limit": {
+    "default": 50,
+    "description": "The most rows to return.",
+    "maximum": 200,
+    "minimum": 1,
+    "title": "Limit",
+    "type": "integer"
+   },
+   "query": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "description": "Words the part id, name or family must all hold (any case).",
+    "title": "Query"
+   }
+  },
+  "title": "CatalogPartsArgs",
+  "type": "object"
+ },
+ "catalog-robots": {
+  "additionalProperties": false,
+  "description": "No arguments: the catalog robots are the same for every contract.",
+  "properties": {},
+  "title": "CatalogRobotsArgs",
+  "type": "object"
+ },
+ "check": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   }
+  },
+  "title": "CheckArgs",
+  "type": "object"
+ },
+ "check-sim": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "description": "The lockfile to compare with.",
+    "title": "Contract",
+    "type": "string"
+   },
+   "sim": {
+    "description": "The sim file: a MuJoCo .xml (MJCF) or .sdf path.",
+    "title": "Sim",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract",
+   "sim"
+  ],
+  "title": "CheckSimArgs",
+  "type": "object"
+ },
+ "commit": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "message": {
+    "title": "Message",
+    "type": "string"
+   },
+   "paths": {
+    "items": {
+     "type": "string"
+    },
+    "title": "Paths",
+    "type": "array"
+   }
+  },
+  "required": [
+   "contract",
+   "message",
+   "paths"
+  ],
+  "title": "CommitArgs",
+  "type": "object"
+ },
+ "contract-at": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   },
+   "ref": {
+    "title": "Ref",
+    "type": "string"
+   }
+  },
+  "required": [
+   "ref"
+  ],
+  "title": "ContractAtArgs",
+  "type": "object"
+ },
+ "declare": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "formal": {
+    "default": false,
+    "title": "Formal",
+    "type": "boolean"
+   },
+   "locked_at": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Locked At"
+   },
+   "note": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Note"
+   },
+   "path": {
+    "title": "Path",
+    "type": "string"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "value": {
+    "title": "Value"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "path",
+   "value",
+   "source"
+  ],
+  "title": "DeclareArgs",
+  "type": "object"
+ },
+ "declare-form": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   }
+  },
+  "title": "DeclareFormArgs",
+  "type": "object"
+ },
+ "delete": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "index": {
+    "anyOf": [
+     {
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Index"
+   },
+   "kind": {
+    "enum": [
+     "link",
+     "joint",
+     "device",
+     "shape",
+     "group"
+    ],
+    "title": "Kind",
+    "type": "string"
+   },
+   "name": {
+    "title": "Name",
+    "type": "string"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "kind",
+   "name",
+   "source"
+  ],
+  "title": "DeleteArgs",
+  "type": "object"
+ },
+ "describe": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   },
+   "out": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Out"
+   }
+  },
+  "title": "DescribeArgs",
+  "type": "object"
+ },
+ "describe-device": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "description": "The lockfile holding the device.",
+    "title": "Contract",
+    "type": "string"
+   },
+   "device_id": {
+    "description": "A device id from the lockfile.",
+    "title": "Device Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract",
+   "device_id"
+  ],
+  "title": "DescribeDeviceArgs",
+  "type": "object"
+ },
+ "describe-system": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "description": "The lockfile to describe.",
+    "title": "Contract",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract"
+  ],
+  "title": "DescribeSystemArgs",
+  "type": "object"
+ },
+ "diff": {
+  "additionalProperties": false,
+  "properties": {
+   "a": {
+    "default": "HEAD",
+    "title": "A",
+    "type": "string"
+   },
+   "b": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "B"
+   },
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   },
+   "revisions_only": {
+    "default": false,
+    "title": "Revisions Only",
+    "type": "boolean"
+   }
+  },
+  "title": "DiffArgs",
+  "type": "object"
+ },
+ "explain-finding": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "description": "The lockfile the finding belongs to.",
+    "title": "Contract",
+    "type": "string"
+   },
+   "finding": {
+    "description": "A finding's quantity path from a check result, such as topology/wires/w.pack/fuse, or a check's name, such as fuse_wire.",
+    "title": "Finding",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract",
+   "finding"
+  ],
+  "title": "ExplainFindingArgs",
+  "type": "object"
+ },
+ "export": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   },
+   "force": {
+    "default": false,
+    "title": "Force",
+    "type": "boolean"
+   },
+   "format": {
+    "title": "Format",
+    "type": "string"
+   },
+   "out": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Out"
+   },
+   "segments": {
+    "anyOf": [
+     {
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Segments"
+   },
+   "units": {
+    "anyOf": [
+     {
+      "enum": [
+       "m",
+       "mm"
+      ],
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Units"
+   }
+  },
+  "required": [
+   "format"
+  ],
+  "title": "ExportArgs",
+  "type": "object"
+ },
+ "findings-export": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   },
+   "format": {
+    "default": "csv",
+    "enum": [
+     "csv",
+     "tsv"
+    ],
+    "title": "Format",
+    "type": "string"
+   }
+  },
+  "title": "FindingsExportArgs",
+  "type": "object"
+ },
+ "log": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   },
+   "revision_range": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Revision Range"
+   }
+  },
+  "title": "LogArgs",
+  "type": "object"
+ },
+ "mount-shape": {
+  "$defs": {
+   "MountShape": {
+    "additionalProperties": false,
+    "properties": {
+     "dimensions_mm": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Dimensions Mm",
+      "type": "array"
+     },
+     "fastener_pattern": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Fastener Pattern"
+     },
+     "kind": {
+      "enum": [
+       "plate",
+       "bracket",
+       "tube",
+       "custom-mesh"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "mesh_path": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Mesh Path"
+     }
+    },
+    "required": [
+     "kind",
+     "dimensions_mm"
+    ],
+    "title": "MountShape",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "locked_at": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Locked At"
+   },
+   "note": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Note"
+   },
+   "shape": {
+    "$ref": "#/$defs/MountShape"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "target": {
+    "title": "Target",
+    "type": "string"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "target",
+   "shape",
+   "source"
+  ],
+  "title": "MountShapeArgs",
+  "type": "object"
+ },
+ "move": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "locked_at": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Locked At"
+   },
+   "note": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Note"
+   },
+   "offset": {
+    "maxItems": 3,
+    "minItems": 3,
+    "prefixItems": [
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     }
+    ],
+    "title": "Offset",
+    "type": "array"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "target": {
+    "title": "Target",
+    "type": "string"
+   },
+   "unit": {
+    "title": "Unit",
+    "type": "string"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "target",
+   "offset",
+   "unit",
+   "source"
+  ],
+  "title": "MoveArgs",
+  "type": "object"
+ },
+ "page": {
+  "additionalProperties": false,
+  "description": "Same shape as the page's own arguments minus out: the page has nowhere to write to\nhere, it comes back in the reply's payload.",
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   },
+   "package_root": {
+    "items": {
+     "type": "string"
+    },
+    "title": "Package Root",
+    "type": "array"
+   },
+   "plan": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Plan"
+   },
+   "scene": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Scene"
+   },
+   "section": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "description": "One top-level section of the page (for example joints, budgets or cards): only that section comes back.",
+    "title": "Section"
+   }
+  },
+  "title": "PageArgs",
+  "type": "object"
+ },
+ "parts-match": {
+  "additionalProperties": false,
+  "properties": {
+   "parts": {
+    "description": "The parts list as text, one part per line.",
+    "title": "Parts",
+    "type": "string"
+   }
+  },
+  "required": [
+   "parts"
+  ],
+  "title": "PartsMatchArgs",
+  "type": "object"
+ },
+ "place": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "locked_at": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Locked At"
+   },
+   "note": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Note"
+   },
+   "offset": {
+    "maxItems": 3,
+    "minItems": 3,
+    "prefixItems": [
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     }
+    ],
+    "title": "Offset",
+    "type": "array"
+   },
+   "on": {
+    "title": "On",
+    "type": "string"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "target": {
+    "title": "Target",
+    "type": "string"
+   },
+   "unit": {
+    "title": "Unit",
+    "type": "string"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "target",
+   "on",
+   "offset",
+   "unit",
+   "source"
+  ],
+  "title": "PlaceArgs",
+  "type": "object"
+ },
+ "plan": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "plan": {
+    "title": "Plan",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract",
+   "plan"
+  ],
+  "title": "PlanArgs",
+  "type": "object"
+ },
+ "redo-edit": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract"
+  ],
+  "title": "StepArgs",
+  "type": "object"
+ },
+ "rename": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "kind": {
+    "enum": [
+     "link",
+     "joint",
+     "device",
+     "rail",
+     "wire",
+     "param",
+     "group"
+    ],
+    "title": "Kind",
+    "type": "string"
+   },
+   "new": {
+    "title": "New",
+    "type": "string"
+   },
+   "old": {
+    "title": "Old",
+    "type": "string"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "kind",
+   "old",
+   "new",
+   "source"
+  ],
+  "title": "RenameArgs",
+  "type": "object"
+ },
+ "reparent": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "locked_at": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Locked At"
+   },
+   "note": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Note"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "target": {
+    "title": "Target",
+    "type": "string"
+   },
+   "to": {
+    "title": "To",
+    "type": "string"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "target",
+   "to",
+   "source"
+  ],
+  "title": "ReparentArgs",
+  "type": "object"
+ },
+ "report": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "default": "lockwire.yaml",
+    "title": "Contract",
+    "type": "string"
+   },
+   "out": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Out"
+   },
+   "package_root": {
+    "items": {
+     "type": "string"
+    },
+    "title": "Package Root",
+    "type": "array"
+   },
+   "scene": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Scene"
+   }
+  },
+  "title": "ReportArgs",
+  "type": "object"
+ },
+ "review": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "locked_at": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Locked At"
+   },
+   "note": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Note"
+   },
+   "path": {
+    "title": "Path",
+    "type": "string"
+   },
+   "state": {
+    "enum": [
+     "approved",
+     "questioned"
+    ],
+    "title": "State",
+    "type": "string"
+   },
+   "witness": {
+    "title": "Witness",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract",
+   "path",
+   "state",
+   "witness"
+  ],
+  "title": "ReviewArgs",
+  "type": "object"
+ },
+ "rotate": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "locked_at": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Locked At"
+   },
+   "note": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Note"
+   },
+   "rpy": {
+    "maxItems": 3,
+    "minItems": 3,
+    "prefixItems": [
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     }
+    ],
+    "title": "Rpy",
+    "type": "array"
+   },
+   "source": {
+    "title": "Source",
+    "type": "string"
+   },
+   "target": {
+    "title": "Target",
+    "type": "string"
+   },
+   "unit": {
+    "title": "Unit",
+    "type": "string"
+   },
+   "witness": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Witness"
+   }
+  },
+  "required": [
+   "contract",
+   "target",
+   "rpy",
+   "unit",
+   "source"
+  ],
+  "title": "RotateArgs",
+  "type": "object"
+ },
+ "set-witness": {
+  "additionalProperties": false,
+  "properties": {
+   "name": {
+    "title": "Name",
+    "type": "string"
+   }
+  },
+  "required": [
+   "name"
+  ],
+  "title": "SetWitnessArgs",
+  "type": "object"
+ },
+ "start": {
+  "additionalProperties": false,
+  "properties": {
+   "blank": {
+    "default": false,
+    "title": "Blank",
+    "type": "boolean"
+   },
+   "example": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Example"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "out": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Out"
+   },
+   "overwrite": {
+    "default": false,
+    "title": "Overwrite",
+    "type": "boolean"
+   },
+   "urdf": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Urdf"
+   }
+  },
+  "title": "StartArgs",
+  "type": "object"
+ },
+ "starters": {
+  "additionalProperties": false,
+  "properties": {},
+  "title": "StartersArgs",
+  "type": "object"
+ },
+ "suggest-fixes": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "description": "The lockfile to search fixes for.",
+    "title": "Contract",
+    "type": "string"
+   },
+   "finding": {
+    "description": "The finding to clear: its quantity path as check prints it, such as topology/wires/w.pack/fuse.",
+    "title": "Finding",
+    "type": "string"
+   },
+   "limit": {
+    "default": 3,
+    "description": "The most fixes to return.",
+    "maximum": 5,
+    "minimum": 1,
+    "title": "Limit",
+    "type": "integer"
+   }
+  },
+  "required": [
+   "contract",
+   "finding"
+  ],
+  "title": "SuggestFixesArgs",
+  "type": "object"
+ },
+ "swap-apply": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "dry_run": {
+    "default": false,
+    "title": "Dry Run",
+    "type": "boolean"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "joint": {
+    "title": "Joint",
+    "type": "string"
+   },
+   "part_id": {
+    "title": "Part Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract",
+   "joint",
+   "part_id"
+  ],
+  "title": "SwapApplyArgs",
+  "type": "object"
+ },
+ "swap-preview": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "joint": {
+    "title": "Joint",
+    "type": "string"
+   },
+   "part_id": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Part Id"
+   }
+  },
+  "required": [
+   "contract",
+   "joint"
+  ],
+  "title": "SwapPreviewArgs",
+  "type": "object"
+ },
+ "undo": {
+  "additionalProperties": false,
+  "properties": {
+   "apply": {
+    "default": false,
+    "title": "Apply",
+    "type": "boolean"
+   },
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "expected_revision": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Expected Revision"
+   },
+   "source": {
+    "default": "HEAD",
+    "title": "Source",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract"
+  ],
+  "title": "UndoArgs",
+  "type": "object"
+ },
+ "undo-edit": {
+  "additionalProperties": false,
+  "properties": {
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract"
+  ],
+  "title": "StepArgs",
+  "type": "object"
+ },
+ "what-if": {
+  "$defs": {
+   "WhatIfChange": {
+    "additionalProperties": false,
+    "properties": {
+     "path": {
+      "title": "Path",
+      "type": "string"
+     },
+     "source": {
+      "title": "Source",
+      "type": "string"
+     },
+     "value": {
+      "title": "Value",
+      "type": "string"
+     },
+     "witness": {
+      "title": "Witness",
+      "type": "string"
+     }
+    },
+    "required": [
+     "path",
+     "value",
+     "source",
+     "witness"
+    ],
+    "title": "WhatIfChange",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "change": {
+    "$ref": "#/$defs/WhatIfChange"
+   },
+   "contract": {
+    "title": "Contract",
+    "type": "string"
+   },
+   "expected_revision": {
+    "title": "Expected Revision",
+    "type": "string"
+   }
+  },
+  "required": [
+   "contract",
+   "expected_revision",
+   "change"
+  ],
+  "title": "WhatIfArgs",
+  "type": "object"
+ }
+}

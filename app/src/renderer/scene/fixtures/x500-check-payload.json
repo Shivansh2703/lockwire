@@ -379,7 +379,7 @@
         "value": null,
         "unit": "",
         "kind": "not_scored",
-        "not_scored_because": "a stubby member (span/depth under about 10) is shear-dominated and would read stiffer than reality under the Euler-Bernoulli model e5-a measured",
+        "not_scored_because": "a stubby member (span/depth under about 10) is shear-dominated and would read stiffer than reality under the Euler-Bernoulli beam model",
         "id": "shear_dominated_members"
       },
       {

@@ -117,6 +117,25 @@ export function limitFor(request: unknown): number | undefined {
   return NO_LIMIT.has(name) ? undefined : SLOW.has(name) ? SLOW_MS : DEFAULT_MS;
 }
 
+/** The engine refused the request itself, before running anything. Same message as any other bad reply, so every
+ * existing caller behaves as before; `reason` names the arguments, for a caller that can retry (the Assistant). */
+export class SidecarRejected extends Error {
+  constructor(readonly reason: string) {
+    super("sidecar: invalid run reply");
+  }
+}
+
+// Argument names and the engine's own short messages only: never the rejected values.
+function rejectionReason(body: unknown): string {
+  const detail = isRecord(body) && Array.isArray(body.detail) ? body.detail : [];
+  const parts = detail.filter(isRecord).map((d) => {
+    const loc = (Array.isArray(d.loc) ? d.loc.map(String) : []).filter((x, i) => !(i === 0 && x === "body"));
+    const at = loc.slice(loc.indexOf("args") + 1).join(".");
+    return `${at || "request"}: ${typeof d.msg === "string" ? d.msg : "not accepted"}`;
+  });
+  return (parts.join("; ") || "the request did not fit").slice(0, 300);
+}
+
 export async function runSidecarCommand(request: unknown): Promise<SidecarRunReply> {
   const limit = limitFor(request);
   const call = (async () => {
@@ -125,6 +144,8 @@ export async function runSidecarCommand(request: unknown): Promise<SidecarRunRep
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     });
+    // The engine answers a request it cannot parse (a missing or unknown argument) with a 4xx and no run reply.
+    if (response.ok === false) throw new SidecarRejected(rejectionReason(await response.json().catch(() => null)));
     return parseSidecarRunReply(await response.json());
   })();
   if (limit === undefined) return call;

@@ -1,4 +1,4 @@
-"""Fired lane-A1 findings never leak "None" or an internal snake_case name into user-facing text."""
+"""Fired findings never leak "None" or an internal snake_case name into user-facing text."""
 
 import re
 

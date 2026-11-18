@@ -1,8 +1,8 @@
 // Builds the renderer's `CheckFacePayload` from the sidecar's real `check` reply
-// (`CheckPayload`, `../shared/api.gen`, e1-d3's generator).
+// (`CheckPayload`, `../shared/api.gen`, the generated types).
 //
 // Fills `robot`, `verdict`, `scored`, the three counts, the flat `findings`
-// and (E2-hl) `headline` -- `doc.headline`, `api.check`'s own field
+// and `headline` -- `doc.headline`, `api.check`'s own field
 // (`report.verdict_headline`, shared with `gui.py`'s HTML page rather than
 // re-derived here). `qualifier`/`cards` are
 // the page payload's half of the join (see `../renderer/checkFacePayload.ts`); no sidecar

@@ -3,7 +3,7 @@
 ``check_budgets`` already knows a rail_power budget is over its limit; this
 suite tests the second half — what else could carry it — via the checked-in
 ``over_budget_contract`` fixture below and the ``advice.build_rail_alternatives``
-builder directly. Parity-anchor law: the "every alternative carries a kind"
+builder directly. Anchored, not parity: the "every alternative carries a kind"
 test reads the alternatives back off the *contract's own check output* — a
 checked-in fixture, not the emitter's own re-derivation — so it is anchored
 outside the builder under test.
@@ -42,32 +42,32 @@ topology:
 devices:
   - id: dev.over
     model: mdl.a
-    owner: shivansh
+    owner: avery
     power: {rail: rail.over, draw: {value: 8, unit: W}}
   - id: dev.free
     model: mdl.b
-    owner: shivansh
+    owner: avery
     power: {rail: rail.free, draw: {value: 2, unit: W}}
   - id: dev.unknown
     model: mdl.c
-    owner: shivansh
+    owner: avery
     power: {rail: rail.unknown}
 budgets:
   - id: bud.over
     kind: rail_power
     rail: rail.over
     limit: {value: 5, unit: W}
-    owner: shivansh
+    owner: avery
   - id: bud.free
     kind: rail_power
     rail: rail.free
     limit: {value: 12, unit: W}
-    owner: shivansh
+    owner: avery
   - id: bud.unknown
     kind: rail_power
     rail: rail.unknown
     limit: {value: 5, unit: W}
-    owner: shivansh
+    owner: avery
 """
 
 
@@ -159,7 +159,7 @@ budgets:
     kind: rail_power
     rail: rail.over
     limit: {value: 5, unit: W}
-    owner: shivansh
+    owner: avery
 """
     )
     contract = load_contract(path)

@@ -1,5 +1,8 @@
 """from-parts: a pasted parts list matched to the catalog, and its draft lockfile."""
 
+import json
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from lockwire.cli import app
@@ -110,3 +113,63 @@ def test_a_maker_the_line_names_beats_the_chip_that_owns_the_id():
 def test_a_tie_on_a_later_catalog_part_goes_to_its_exact_name_not_the_first_part():
     (row,) = match_parts("Gens ace 2200mAh 3S 35C Bashing (XT60)")["lines"]
     assert (row["status"], row["id"]) == ("MATCHED", "pack.gensace.3s-2200-35c-bashing")
+
+
+NONSENSE = [
+    "mystery widget 3000",
+    "acme gizmo x9 pro",
+    "gadget 24v 3000",
+    "widget 5000",
+    "spinner 22160",
+]
+REAL = {
+    "Feetech STS3032": "feetech.sts3032",
+    "2x Dynamixel XL430-W250": "dynamixel.xl430-w250",
+    "actobotics 585442": "actobotics.585442",
+    "DIN 912 M3x6": "hw.iso4762.m3x6",
+    "Raspberry Pi 4 Model B": "rpi.pi4b",
+}
+
+
+def test_a_line_with_no_real_overlap_says_no_match_and_real_lines_still_match():
+    """Round 3: "mystery widget 3000" matched a U-channel at 0.95 because its 3.00" length was a
+    part-number key and "300" sits inside "3000"; "pro" alone matched odrive.pro. Mutation
+    bite: drop `_hit`'s digit-edge rule or the measurement skip in `_keys` and this fails."""
+    rows = match_parts("\n".join(NONSENSE + list(REAL)))["lines"]
+    assert [(r["text"], r["status"]) for r in rows[:5]] == [(t, "NO MATCH") for t in NONSENSE]
+    assert {r["text"]: r["id"] for r in rows[5:]} == REAL
+
+
+def test_match_parts_list_over_mcp_says_no_match_for_nonsense():
+    import asyncio
+
+    import pytest
+
+    client = pytest.importorskip("mcp.client")
+    from lockwire.mcp_server import build_server
+
+    async def run():
+        async with client.Client(build_server()) as c:
+            return await c.call_tool(
+                "match_parts_list", {"parts": "\n".join(NONSENSE + list(REAL))}
+            )
+
+    result = asyncio.run(run())
+    rows = (result.structured_content or json.loads(result.content[0].text))["lines"]
+    assert [r["status"] for r in rows] == ["NO MATCH"] * 5 + ["MATCHED"] * 5
+
+
+def test_a_family_add_device_part_creates_shows_its_id_not_one_models_name(tmp_path):
+    """Round 3: the new family was named "Feetech ST-3032-C036 smart servo (STS3032)". The
+    catalog has no family label, so the family shows its id alone. Mutation bite: put
+    `"name": part.name` back in `device_fields` (or drop the name) and this fails."""
+    import shutil
+
+    from lockwire import catalog
+
+    lock = tmp_path / "l.yaml"
+    shutil.copy(Path(catalog.__file__).parent / "examples/servo-bench.yaml", lock)
+    res = CliRunner().invoke(app, ["add", "device", str(lock), "--part", "feetech.sts3032"])
+    assert res.exit_code == 0, res.output
+    fam = next(f for f in load_contract(lock).families if f.id == "fam.servo.smart")
+    assert fam.name == "fam.servo.smart"

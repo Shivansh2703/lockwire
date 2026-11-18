@@ -3,9 +3,9 @@ import * as THREE from "three";
 import type { RobotJoint } from "../../shared/api.gen";
 import { createThickLine } from "./ThickLine";
 
-// The docking pass (plan v8 line 547): keep every callout inside the panel
-// and clear of every other callout. Pure geometry — no Canvas, no camera, no
-// React — so it needs nothing that is still queued upstream.
+// The docking pass keep every callout inside the panel
+// and clear of every other callout. Pure geometry: no Canvas, no camera, no
+// React: so it needs nothing that is still queued upstream.
 
 export interface CalloutBox {
   id: string;

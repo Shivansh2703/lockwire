@@ -52,3 +52,28 @@ def test_bad_ids_are_refused_before_the_port_opens_and_a_silent_bus_leaves_no_fo
     with pytest.raises(RuntimeError, match="no servo answered"):
         servo_bus.record_servos(None, [1], tmp_path / "o")
     assert not (tmp_path / "o").exists()
+
+
+def test_a_port_that_will_not_open_is_named_in_plain_words(tmp_path):
+    pytest.importorskip("serial")
+    out = CliRunner().invoke(app, ["record-servos", "--port", str(tmp_path / "no-port"), "--out", str(tmp_path / "r")])
+    text = " ".join(out.output.split())
+    assert out.exit_code == 2 and "could not open port" in text, text
+    assert "this folder" not in text and "Errno" not in text
+
+
+def test_an_os_error_with_no_file_name_prints_its_own_words():
+    from lockwire.cli import plain_os_error
+
+    assert plain_os_error(OSError(5, "could not open port COM9")) == "could not open port COM9"
+
+
+def test_a_port_another_program_holds_says_why(monkeypatch):
+    serial = pytest.importorskip("serial")
+
+    def busy(*a, **k):
+        raise serial.SerialException(13, "could not open port COM9: [Errno 13] Permission denied")
+
+    monkeypatch.setattr(serial, "Serial", busy)
+    with pytest.raises(RuntimeError, match=r"could not open port COM9 \(permission denied\)"):
+        servo_bus._port_open("COM9", 1_000_000)

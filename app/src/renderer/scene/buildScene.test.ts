@@ -316,7 +316,7 @@ describe("torque headroom and support polygon", () => {
   });
 });
 
-describe("link solids drawn from each payload (CAD-02)", () => {
+describe("link solids drawn from each payload", () => {
   const ROT = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const link = (solids: object[]) => [{ name: "arm", position: [0, 0, 0], solids }] as never;
   const arm = (length: number) => link([{ kind: "cylinder", radius: 0.02, length, position: [0, 0, 0.1], rotation: ROT }]);

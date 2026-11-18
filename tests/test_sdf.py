@@ -252,3 +252,16 @@ def test_include_found_on_the_gazebo_model_path(tmp_path, monkeypatch):
     monkeypatch.setenv("GZ_SIM_RESOURCE_PATH", f"/nonexistent{os.pathsep}{elsewhere}")
     model = parse_sdf(tmp_path / "robot" / "porter" / "model.sdf")
     assert "Suspension::link" in {link.name for link in model.links}
+
+
+def test_urdf_view_keeps_a_collisions_own_name_and_none_when_unnamed(tmp_path):
+    from lockwire.sdf import urdf_view
+
+    shape = "<geometry><sphere><radius>1</radius></sphere></geometry>"
+    path = tmp_path / "m.sdf"
+    path.write_text(
+        f'<sdf version="1.7"><model name="m"><link name="a"><collision name="foot">{shape}</collision>'
+        f"<collision>{shape}</collision></link></model></sdf>"
+    )
+    named, plain = urdf_view(path).findall("link/collision")
+    assert named.get("name") == "foot" and plain.get("name") is None

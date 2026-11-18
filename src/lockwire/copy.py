@@ -50,6 +50,18 @@ CHECK_LABELS: dict[str, str] = {
     "nan": "No bad readings",
     "hard_limit": "Within hard limit",
     "rate_hz": "Update rate",
+    "discharge_temp_c": "Pack temperature window",
+    "charge_temp_c": "Pack charging temperature window",
+    "sanity": "Model sanity checks",
+    "battery/chemistry": "Battery chemistry",
+    "internal_resistance_mohm": "Pack internal resistance",
+    "capacitance_f": "Rail capacitance",
+    "output_tolerance_pct": "Rail output tolerance",
+    "estop_category": "Emergency stop category",
+    "mass_vs_size": "Mass for its size",
+    "mjcf": "MuJoCo model",
+    "tvs": "Surge protection (TVS)",
+    "c_rate_continuous": "Continuous discharge rate",
     "recv_gap": "Gaps between messages",
     "enumeration": "Device seen",
     "liveness": "Device alive",
@@ -70,6 +82,7 @@ CHECK_LABELS: dict[str, str] = {
     "channel": "Commands on channel",
     "in_recording": "Commands in recording",
     "mass": "Mass declared",
+    "com": "CoM",  # centre of mass, never "Com"
     "mount_frame": "Mount frame",
     "mount_xyz": "Mount position",
     "mount_shape": "Mount shape",
@@ -82,7 +95,7 @@ CHECK_LABELS: dict[str, str] = {
     "bandwidth": "Bus load",
     "host": "Host link",
     "bus_ref": "Bus link",
-    "structure_hash": "CAD file linked",
+    "structure_hash": "Model file vs the lock",
     "placement": "Placement",
     "drives_joint": "Joint driven",
     "limit": "Budget limit",
@@ -134,23 +147,44 @@ def check_label(quantity: str) -> str:
         kind, _, what = (parts[1].removeprefix("bud.") if len(parts) > 1 else "").partition(".")
         kind = re.split(r"-", kind)[0]
         if kind and what:  # "bud.power.servo-5v" -> "Servo 5 V power budget": it names the budget
-            return f"{human_name(what)} {kind} budget"
+            return f"{label_name(what)} {kind} budget"
         return f"Total {kind} budget" if kind else CHECK_LABELS["budgets"]
     if not words and parts[:2] == ["topology", "wires"]:  # the wire's own id is the subject, not the label
         return "Wire check"
     # Unmapped: still readable, still no underscores (the test lists every known path).
     last = (words[-1] if words else quantity.split("/")[-1]).replace("_", " ").replace("-", " ")
+    # a field key's unit suffix ("capacitance_f", "temp_c") is no word: never shown as one
+    last = re.sub(r"(?<=\w) (c|f|pct|mohm|ohm|hz|s|v|a|w|mm|kg)$", "", last)
     text = " ".join(last.replace("|", "").split())
     return text[:1].upper() + text[1:] or "Check"
 
 
-ACRONYMS = {"imu", "esc", "gnss", "gps", "cpu", "can", "uart", "usb", "spi", "hbc", "nx"}
+ACRONYMS = {"imu", "esc", "gnss", "gps", "cpu", "can", "uart", "usb", "spi", "i2c", "hbc", "nx"}
 _MIXED_CASE = {
     "dronecan": "DroneCAN",
     "opencr": "OpenCR",
     "here3": "Here3",
     "anymal": "ANYmal",
     "so101": "SO-101",
+    # maker and model spellings the shipped examples use
+    "pm02": "PM02",
+    "esp32": "ESP32",
+    "pi5": "Pi 5",  # the lockfile family name: "Raspberry Pi 5"
+    "pixhawk": "Pixhawk",
+    "6c": "6C",
+    "rfd900x": "RFD900x",
+    "ist8310": "IST8310",
+    "mg996r": "MG996R",
+    "sts3215": "STS3215",
+    "st3215": "ST3215",
+    "xl330": "XL330",
+    "2d": "2D",
+    "telem1": "TELEM1",
+    "jetson": "Jetson",
+    "orin": "Orin",
+    "nano": "Nano",
+    "devkitc": "DevKitC",
+    "wroom": "WROOM",
 }
 _PART_NUMBER = re.compile(
     r"^[a-z]+-\d+-[a-z]", re.I
@@ -173,12 +207,12 @@ LEG_CODES = {
 
 
 def human_name(identifier: str) -> str:
-    """A person-readable part name from a contract id: "dev.adis_imu" -> "Adis IMU".
+    """A person-readable part name from a contract id: "dev.adis_imu" -> "adis IMU".
 
     Drops the kind prefix, splits snake/kebab case, drops a word repeated as the last word
-    ("camera ... camera") and a word that opens the next one ("esc esc1" -> "ESC1"). Short
-    codes with a digit and known acronyms are upper-cased ("pm02" -> "PM02"); a long word with
-    a digit is split ("computer1" -> "Computer 1"); other words are title-cased.
+    ("camera ... camera") and a word that opens the next one ("esc esc1" -> "esc1"). Words
+    keep the id's own spelling ("dev.pi5" -> "pi5", never "PI5"): only a known acronym
+    ("imu" -> "IMU") or a maker's own spelling ("opencr" -> "OpenCR") is re-cased.
     """
     for prefix in ("dev.", "rail.", "bus.", "bud.", "host.", "fam.", "mdl.", "w."):
         if identifier.startswith(prefix):
@@ -211,16 +245,18 @@ def human_name(identifier: str) -> str:
     def case(w: str) -> str:
         if w.lower() in ACRONYMS:
             return w.upper()
-        if w.lower() in _MIXED_CASE:
-            return _MIXED_CASE[w.lower()]
-        m = re.match(r"([a-z]{6,})(\d+)$", w, re.I)
-        if m:
-            return f"{m[1].capitalize()} {m[2]}"
-        if len(w) <= 11 and any(c.isdigit() for c in w):
-            return w.upper()
-        return w.capitalize()
+        if w.isalpha() and w.isupper() and len(w) > 1:  # a shouted word ("UPPER_LEG") reads lower
+            return w.lower()
+        return _MIXED_CASE.get(w.lower(), w)  # as written: "15W" and "pi5" keep their case
 
     return " ".join(case(w) for w in kept).replace("~", ".") or identifier
+
+
+def label_name(identifier: str) -> str:
+    """``human_name`` where it stands alone as a title, heading, label or table cell: only the
+    first letter is capitalised ("dev.servo1" -> "Servo1"); a name inside a sentence uses human_name."""
+    name = human_name(identifier)
+    return name[:1].upper() + name[1:]
 
 
 def robot_title(name: str) -> str:
@@ -245,7 +281,7 @@ def instead_row(text: str, kind: str) -> dict[str, str]:
         free = (
             (f"{math.floor(x)} W" if x >= 10 else f"{math.floor(x * 10) / 10:g} W") if w else m[3]
         )
-        short = f"Move {' '.join(human_name(m[1]).split()[:2])} to {re.sub(r' Motor$', '', human_name(m[2]))} rail · {free} free"
+        short = f"Move {' '.join(human_name(m[1]).split()[:2])} to {re.sub(r' motor$', '', human_name(m[2]))} rail · {free} free"
     else:
         m = re.match(r"add a (.+) regulator fed from rail '([^']+)'$", text)
         if m:
@@ -263,7 +299,7 @@ _PLAIN_FIX = (
     ("declare the traffic each driver", "Declare each device's traffic on this bus"),
     ("lock a cited bitrate", "Set this bus's speed from its datasheet"),
     ("lock model provenance", "Re-lock the model file so changes are caught"),
-    ("restore the URDF", "Put the model file back, or fix its path"),
+    ("restore the model file", "Put the model file back, or fix its path"),
     ("fill in the link's inertial", "Add this part's mass in the robot model"),
     (
         "declare the rail's voltage, or accept upstream",
@@ -329,6 +365,17 @@ def commit_summary(message: str) -> str:
 # Declare list: a value's plain name, from the tail of its contract path (longest tail wins).
 _VALUE_NAMES: dict[tuple[str, ...], str] = {
     ("input_voltage_range", "min"): "Lowest voltage",
+    # a link's (model) and a device's mass tolerance sit in one group for a part that is both
+    ("mass_tolerance", "abs"): "Model mass tolerance (absolute)",
+    ("mass_tolerance", "rel_pct"): "Model mass tolerance (percent)",
+    ("mass_tolerance", "min"): "Lowest model mass",
+    ("mass_tolerance", "typ"): "Typical model mass",
+    ("mass_tolerance", "max"): "Highest model mass",
+    ("physical", "mass_tolerance", "abs"): "Device mass tolerance (absolute)",
+    ("physical", "mass_tolerance", "rel_pct"): "Device mass tolerance (percent)",
+    ("physical", "mass_tolerance", "min"): "Lowest device mass",
+    ("physical", "mass_tolerance", "typ"): "Typical device mass",
+    ("physical", "mass_tolerance", "max"): "Highest device mass",
     ("input_voltage_range", "max"): "Highest voltage",
     ("voltage_range", "min"): "Lowest voltage",
     ("voltage_range", "max"): "Highest voltage",
@@ -352,7 +399,7 @@ _VALUE_NAMES: dict[tuple[str, ...], str] = {
 
 def value_name(parts: tuple[str, ...]) -> str:
     """ "input_voltage_range/min" -> "Lowest voltage"; anything unmapped is just capitalised words."""
-    for n in (2, 1):
+    for n in (3, 2, 1):
         if (hit := _VALUE_NAMES.get(parts[-n:])) is not None and len(parts) >= n:
             return hit
     if parts[:1] == ("link_budget",) and len(parts) > 1:

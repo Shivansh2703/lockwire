@@ -78,7 +78,14 @@ def hook_check(stdin: str) -> tuple[int, str]:
         tool, args = payload["tool_name"], payload["tool_input"]
         path = Path(args.get("file_path", "")).resolve()
     except Exception as error:  # noqa: BLE001 - can't tell which file, so not ours to block
-        return 0, f"lockwire hook-check skipped: {type(error).__name__}: {error}"
+        why = (
+            "it is not JSON"
+            if isinstance(error, json.JSONDecodeError)
+            else f"it has no {error.args[0]} field"
+            if isinstance(error, KeyError)
+            else str(error)
+        )
+        return 0, f"lockwire hook-check skipped: could not read the hook input: {why}"
     if tool not in ("Write", "Edit", "MultiEdit") or not (
         path.name == LOCK or path.suffix.lower() in MODELS
     ):
@@ -98,7 +105,7 @@ def hook_check(stdin: str) -> tuple[int, str]:
     except Exception as error:  # noqa: BLE001 - a model edit we couldn't check fails closed
         return (
             2,
-            f"lockwire could not check this edit to {path.name} ({type(error).__name__}: {error}); fix that, then retry",
+            f"lockwire could not check this edit to {path.name} ({error or 'unknown error'}); fix that, then retry",
         )
     lines = [line for block in found.values() for line in block]
     if not lines:

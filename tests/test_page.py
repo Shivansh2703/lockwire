@@ -1,5 +1,6 @@
 """The GUI page: it must open on something, group honestly, and never soften a finding away."""
 
+import math
 import os
 import re
 import shutil
@@ -129,9 +130,9 @@ def test_empty_state_after_start_names_the_next_step(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
 
     payload = build_payload(load_contract(tmp_path / "contract.yaml"))
-    assert payload["headline"] == "Nothing could be compared yet"
+    assert payload["headline"] == "Nothing could be compared yet" and payload["state"] == "warn"
     next_step = (
-        "nothing declared yet — add what is on it: lockwire add device|rail|bus …, "
+        "nothing declared yet: add what is on it: lockwire add device|rail|bus …, "
         "or declare from the model: lockwire scene import"
     )
     assert payload["qualifier"] == next_step
@@ -142,7 +143,7 @@ def test_empty_state_after_start_names_the_next_step(tmp_path, monkeypatch):
 
 
 def test_qualifier_is_silent_when_nothing_was_unchecked():
-    """`0 things I couldn't check` is noise that reads as a defect."""
+    """`0 not scored` is noise that reads as a defect."""
     payload = build_payload(load_contract(X500))
     payload["unchecked"] = 0
     from lockwire.page import _headline
@@ -269,6 +270,17 @@ def test_a_measured_warning_is_never_titled_as_a_check_that_could_not_run(clean_
     f = Finding(severity="warning", quantity=q, observed=obs, expected=exp, action="")
     title = _sentence(clean_contract, [f])[0]
     assert title == "1 part above its max input voltage (12.48 V vs 12.00 V)"
+
+
+def test_only_a_recording_finding_says_measured(clean_contract):
+    """A record check reads the files; "Measured" would claim a reading was taken."""
+    f = Finding(severity="warning", quantity="model/links/frames", observed="4 massless frames",
+                expected="mass on real parts", action="")
+    assert _sentence(clean_contract, [f])[1].startswith("Found 4 massless frames.")
+    f.stage = 2  # a preflight stage: the number came from the powered-on robot
+    assert _sentence(clean_contract, [f])[1].startswith("Measured 4 massless frames.")
+    health = Finding(severity="warning", quantity="health/imu", observed="drift", expected="in band", action="")
+    assert _sentence(clean_contract, [health])[1].startswith("Measured drift.")  # live samples
 
 
 def test_a_pure_world_frame_is_neither_a_finding_nor_a_missing_weight(clean_contract):
@@ -1092,6 +1104,39 @@ def test_payload_lists_link_solids_with_named_sizes_resolved_and_the_ignore_list
     assert page["collision_pairs"] == [{"link1": first.name, "link2": second.name, "reason": "bolted"}]
 
 
+def test_payload_gives_each_link_its_centre_of_mass_in_the_robot_frame(tmp_path):
+    # A leaf link with only mesh files (a foot, a calf end) draws a bone to here.
+    from lockwire.schema import JointOrigin
+
+    _qarm_payload(tmp_path)
+    contract = load_contract(next(tmp_path.glob("*.yaml")))
+    joint = contract.model.joints[0]
+    joint.origin = JointOrigin(xyz=(0.0, 0.0, 0.0), rpy=(0.0, 0.0, math.pi / 2))
+    child = next(lk for lk in contract.model.links if lk.name == joint.child)
+    child.com, child.frame = (0.1, 0.0, 0.0), None
+    links = {row["name"]: row for row in build_payload(contract)["links"]}
+    at = links[child.name]["position"]
+    assert links[child.name]["com"] == pytest.approx([at[0], at[1] + 0.1, at[2]], abs=1e-9)  # turned by the joint's rpy
+    child.com = None
+    assert {row["name"]: row for row in build_payload(contract)["links"]}[child.name]["com"] is None
+
+
+def test_a_mesh_shape_on_a_link_is_not_listed_as_a_solid(tmp_path):
+    # 3D-SOAK: a "mesh" row broke the payload's LinkSolid kinds, so the app refused the whole page of any such robot.
+    import lockwire
+    from lockwire.api_payload import LinkSolid
+
+    text = (Path(lockwire.__file__).parent / "examples" / "arm-power" / "contract.yaml").read_text()
+    tip = "    - kind: box  # design choice: 20 mm x 10 mm x 10 mm fingertip block at the forearm end\n"
+    assert tip in text
+    (tmp_path / "contract.yaml").write_text(text.replace(tip, "    - kind: mesh\n      mesh: tip.stl\n" + tip))
+    links = build_payload(load_contract(tmp_path / "contract.yaml"))["links"]
+    assert [s["kind"] for s in {row["name"]: row["solids"] for row in links}["tip"]] == ["box"]
+    for row in links:
+        for s in row["solids"]:
+            LinkSolid.model_validate(s)
+
+
 def test_qarm_findings_target_the_joints_and_link_they_are_about(tmp_path):
     page = _qarm_payload(tmp_path)
     targets = [t for card in page["cards"] for t in card["targets"]]
@@ -1191,7 +1236,7 @@ def test_reference_joints_use_plain_words():
     sheet = _reference_face(Contract(robot=RobotInfo(name="r"), model=model), None)["drawers"][0][
         "content"
     ]
-    assert "| Yaw | Rotates | Base | End Effector |" in sheet and "World" not in sheet
+    assert "| Yaw | Rotates | Base | End effector |" in sheet and "World" not in sheet
     assert "revolute" not in sheet
     from lockwire.schema import DeviceInstance  # noqa: PLC0415
 
@@ -1209,7 +1254,7 @@ def test_rail_current_limit_violation_is_not_called_a_lockfile_difference(tmp_pa
     )  # one pin
     cards = build_payload(load_contract(out))["cards"]
     card = next(c for c in cards if "rails/rail.jetson-header-5v/current_limit" in c["raw"])
-    assert card["title"] == "Jetson Header 5 V over its current limit"
+    assert card["title"] == "Jetson header 5 V over its current limit"
 
 
 def test_weak_servo_card_names_the_torque_gap_not_an_unmapped_drive():
@@ -1227,7 +1272,7 @@ def test_weak_servo_card_names_the_torque_gap_not_an_unmapped_drive():
     findings = [weak("elbow_flex"), weak("gripper")]
     cards = _cards(load_contract(CLEAN), findings)
     assert [c["title"] for c in cards] == [
-        "Elbow Flex: servo 1.91 N·m, joint limit 10 N·m",
+        "Elbow flex: servo 1.91 N·m, joint limit 10 N·m",
         "Gripper: servo 1.91 N·m, joint limit 10 N·m",
     ]
     assert cards[0]["group_title"] == "{n} servos can't reach their joint limit"
@@ -1275,7 +1320,7 @@ def test_mass_vs_size_card_names_the_part_once_in_plain_words():
     cards = build_payload(Contract(robot=RobotInfo(name="p"), model=parse_urdf(pack1)))["cards"]
     card = next(c for c in cards if c["shape"] == "model/links/*/mass_vs_size")
     assert (
-        card["title"] == "Mass vs size: Heavy, Offset and Spin"
+        card["title"] == "Mass for its size: heavy, offset and spin"
     )  # once, not "Mass vs size: Mass Vs Size"
     assert card["fix"] == "Check the units of Heavy's mass and shape, then lock it again"
 
@@ -1448,7 +1493,7 @@ def test_motion_preview_is_nothing_without_a_speed_limit_or_a_move():
     assert motion_preview(_pendulum_contract(), move) is None
     assert motion_preview(_pendulum_contract(velocity=1.0, acceleration=10.0), Plan(segments=[{"pose": {"j": 0.0}}])) is None
 
-# --------------------------------------------------------------------------- PNL-CTL controls panel data
+# --------------------------------------------------------------------------- controls panel data
 
 MOTOR = {"torque_constant": 0.1, "terminal_resistance_ohm": 0.5, "no_load_speed_rad_s": 300.0}
 
@@ -1691,8 +1736,8 @@ def _wiring_html():
 def test_wiring_report_lists_every_wire_with_ends_spec_and_length():
     html = _wiring_html()
     assert 'class="harness"' in html and html.count("<tr data-from=") == 2
-    assert "<td>Wire Feed</td><td>A J1 1</td><td>B A3</td><td>22 AWG, RD</td><td>0.25 m</td></tr>" in html
-    assert "<td>Wire Tx</td><td>A J1 2</td><td>B A4</td><td>22 AWG</td><td></td></tr>" in html
+    assert "<td>Wire feed</td><td>A J1 1</td><td>B A3</td><td>22 AWG, RD</td><td>0.25 m</td></tr>" in html
+    assert "<td>Wire tx</td><td>A J1 2</td><td>B A4</td><td>22 AWG</td><td></td></tr>" in html
 
 
 def test_wiring_report_diagram_has_clickable_pins_and_print_rules():
@@ -1770,8 +1815,8 @@ def _arm_payload(path):
 
 
 def _torque(page):
-    """The biggest 'Measured X N*m' gravity torque among the page's cards."""
-    return max(float(m) for c in page["cards"] for m in re.findall(r"Measured ([\d.]+) N\*m", c["body"]))
+    """The biggest 'Found X N*m' gravity torque among the page's cards."""
+    return max(float(m) for c in page["cards"] for m in re.findall(r"Found ([\d.]+) N\*m", c["body"]))
 
 
 def test_editing_a_named_size_in_the_app_moves_the_torque_and_the_drawn_link(tmp_path, monkeypatch):
@@ -1863,7 +1908,7 @@ def test_gaugeless_signal_wire_sends_null_awg_and_prints_no_gauge():
     c = _gaugeless_wired()
     assert build_payload(c)["wiring_wires"][-1]["awg"] is None
     html = render_html(c)
-    assert "None AWG" not in html and "<td>Wire Tx</td><td>A J1 2</td><td>B A4</td><td></td><td></td></tr>" in html
+    assert "None AWG" not in html and "<td>Wire tx</td><td>A J1 2</td><td>B A4</td><td></td><td></td></tr>" in html
 
 
 def test_the_page_carries_the_robot_graph_and_each_card_its_involved_parts_from_rel1(monkeypatch):
@@ -1873,7 +1918,7 @@ def test_the_page_carries_the_robot_graph_and_each_card_its_involved_parts_from_
     monkeypatch.setattr(page, "robot_graph", lambda c: graph)
     monkeypatch.setattr(page, "involved", lambda c, f: ["link:a", "joint:j"])
     payload = build_payload(load_contract(X500))
-    assert payload["robot_graph"] == graph
+    assert payload["robot_graph"] == {**graph, "nodes": [{**graph["nodes"][0], "label": "A"}]}  # named
     assert payload["cards"] and all(c["involves"] == ["joint:j", "link:a"] for c in payload["cards"])
 
 
@@ -1917,13 +1962,13 @@ def test_wire_findings_and_graph_name_parts_not_ids():
     payload = build_payload(_example("arm-power/contract.yaml"))
     titles = [c["title"] for c in payload["cards"]]
     assert not [t for t in titles if re.search(r"\bW\b|\bW\.", t)]
-    assert "Servo Feed" in " ".join(titles)
+    assert "servo feed" in " ".join(titles)
     for t in titles:
         head, _, tail = t.partition(": ")
         assert head != tail
     labels = [n["label"] for n in payload["robot_graph"]["nodes"] if n["kind"] in ("device", "rail", "wire")]
     assert labels and not [x for x in labels if re.match(r"(dev|rail|w)\.", x)]
-    assert human_name("w.servo-feed") == "Servo Feed"
+    assert human_name("w.servo-feed") == "servo feed"
 
 
 # --------------------------------------------------------------------------- UIA-1 titles say the catch
@@ -1949,7 +1994,7 @@ def test_drifted_mass_title_says_changed_from_locked_with_both_numbers_not_missi
         action="re-lock",
     )
     title = _sentence(Contract(robot=RobotInfo(name="r")), [drift])[0]
-    assert title == "LINK1 mass changed from its locked value: 0.25 kg now, 0.07912 kg locked"
+    assert title == "Link1 mass changed from its locked value: 0.25 kg now, 0.07912 kg locked"
     assert "missing" not in title
     gap = drift.model_copy(update={"severity": "warning"})
     assert "missing mass" in _sentence(Contract(robot=RobotInfo(name="r")), [gap])[0]
@@ -1960,3 +2005,88 @@ def test_no_example_card_title_says_its_own_name_twice():
         for title in _titles(f"{name}/contract.yaml"):
             head, _, tail = title.partition(": ")
             assert not tail or head.casefold() != tail.casefold(), title
+
+
+@pytest.mark.parametrize("src", [["--example", "arm-power"], ["--example", "quadruped"], ["tests/fixtures/fivebar_wide.sdf"]])
+def test_page_counts_equal_the_check_documents_counts(src, tmp_path):
+    """The Check screen shows the page's counts, so they must be the check document's own."""
+    from lockwire import api
+
+    assert runner.invoke(app, ["start", *src, "--out", str(tmp_path / "l.yaml")]).exit_code == 0
+    c, p = api.check(tmp_path / "l.yaml")["counts"], api.page(tmp_path / "l.yaml")
+    assert (p["violations"], p["warnings"], p["unchecked"]) == (c["violation"], c["warning"], c["not_scored"])
+
+
+def test_structure_drift_is_not_labelled_as_a_cad_link_problem():
+    from lockwire.page import finding_label
+
+    contract = Contract(robot=RobotInfo(name="r"))
+    base = dict(quantity="model/structure_hash", expected="x", action="re-lock")
+    drift = Finding(severity="violation", observed="joint j limits changed", **base)
+    unlinked = Finding(severity="not_scored", observed="no model file in provenance; not scored", **base)
+    assert _sentence(contract, [drift])[0] == "The model file differs from the lock"
+    assert _sentence(contract, [unlinked])[0] == "CAD file not linked"
+    assert "CAD" not in finding_label(drift) + finding_label(unlinked)
+
+
+def test_tip_margin_card_says_computed_not_measured():
+    """The tip margin is worked out from the model; no cited threshold exists yet.
+    Mutation bite: drop the tip_margin branch in page._sentence_words and this fails."""
+    path = Path(__file__).parent.parent / "src/lockwire/examples/rover/contract.yaml"
+    card = next(c for c in build_payload(load_contract(path))["cards"] if "model/tip_margin" in c["raw"])
+    assert card["body"].startswith("Computed centre of mass at (")
+    assert card["body"].endswith("No cited margin threshold yet.")
+    assert "Measured" not in card["body"] and "Needs" not in card["body"]
+
+
+def test_card_titles_say_the_real_problem_and_no_field_key():
+    """Round 3: "Wire check: Bus Data" hid a reserved boot pin; "Couldn't check Discharge Temp C"
+    showed a field key; the report's graph cut "dev.jetson-nano-comp..." and showed raw ids."""
+    from lockwire.report_html import render_html
+
+    contract = _example("arm-power/contract.yaml")
+    titles = [c["title"] for c in build_payload(contract)["cards"]]
+    assert "Reserved boot pin: ESP32 IO12" in titles
+    assert "Couldn't check pack temperature window" in titles
+    graph = render_html(_example("rover/contract.yaml")).split('id="robotgraph"')[1]
+    assert ">Jetson Nano computer</text>" in graph and "…" not in graph and ">dev." not in graph
+
+
+def test_model_not_rechecked_card_carries_its_own_next_command():
+    """The app offered "Declare it" on "The model file was not re-checked"; the tool's step is
+    `lockwire start <urdf>`, so the card carries that command for the app to offer."""
+    cards = build_payload(_example("rover/contract.yaml"))["cards"]
+    (card,) = [c for c in cards if c["quantity"] == "model/structure_hash"]
+    assert card["next_command"] == "lockwire start <urdf>"
+
+
+def test_app_pass_names_graph_parts_wires_and_tolerance_and_disambiguates_twins():
+    """The app's hidden pass: raw ids in graph and Docs wires, a field key as a Declare label,
+    "voltage unknown", and "Battery" twice in the part filter (device and rail)."""
+    from lockwire.copy import value_name
+    from lockwire.describe import describe_system
+
+    contract = _example("arm-power/contract.yaml")
+    labels = [n["label"] for n in build_payload(contract)["robot_graph"]["nodes"]]
+    assert "Upper arm" in labels and "upper-arm" not in labels
+    assert "Battery (dev.battery)" in labels and "Battery (rail.battery)" in labels
+    sheet = describe_system(contract, human=True)
+    assert "| Pack | 22 | in free air | Battery |" in sheet and "w.pack" not in sheet
+    assert value_name(("physical", "mass_tolerance", "abs")) == "Device mass tolerance (absolute)"
+    assert value_name(("mass_tolerance", "abs")) == "Model mass tolerance (absolute)"
+
+
+def test_page_qualifier_says_checks_not_scored_count_and_the_placement_rows_apart(tmp_path, monkeypatch):
+    """rover: check says 3 not scored; the served page (with the 3D view's placement rows, which
+    check never makes) says the same 3 and names the rest "not part of the check", as the app does."""
+    import json
+
+    from lockwire import serve
+
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["start", "--example", "rover"]).exit_code == 0
+    counted = json.loads(runner.invoke(app, ["check", "--json", "-"]).stdout)["counts"]["not_scored"]
+    reply = serve.page_reply(serve.PageArgs(contract="lockwire.yaml"))  # the free handler
+    assert reply.payload, reply.refusal
+    qualifier = reply.payload["qualifier"]
+    assert f" {counted} not scored · " in qualifier and re.search(r"· \d+ not part of the check", qualifier), qualifier

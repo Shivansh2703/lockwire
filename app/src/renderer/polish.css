@@ -231,7 +231,7 @@ body {
   color: var(--panel);
   font: 800 13px/1 var(--sans);
   letter-spacing: 0;
-  content: "–" / "";
+  content: "−" / "";
 }
 .check-verdict-go .check-verdict-word::before {
   content: "✓" / "";
@@ -1354,7 +1354,7 @@ code {
   }
 }
 
-/* ---- Pass 12: the command box ---- */
+/* ---- The command box ---- */
 
 /* The base field rule is more specific than a single class, so it was giving this input a filled
    background, its own corners and a focus ring that ran outside the box's rounded top. The caret and
@@ -1617,7 +1617,7 @@ code {
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-/* ---- One focus ring (his "blue highlight out of bounds") ----
+/* ---- One focus ring (the "blue highlight out of bounds" defect) ----
    Cause, measured with scripts/focus-audit.mjs on every screen: the base rule drew every ring 2 px
    OUTSIDE its control, and only text fields had been moved inside. So 743 of 889 control visits had a
    ring hanging outside, and wherever the control sat in a panel that scrolls, a list, a pill of tabs

@@ -50,7 +50,7 @@ class SourceVisibility(BaseModel):
     """Whether a source was usable; unavailable and malformed are normal draft states.
 
     ``fs_access`` records *how* a filesystem source was read (i2c / device-tree).
-    ``None`` means unknown — callers that refuse host-side facts must treat it as
+    ``None`` means unknown - callers that refuse host-side facts must treat it as
     unsafe, never as an implicit runner read. Absent from older draft artifacts;
     default keeps those loadable under ``extra="forbid"``.
     """
@@ -391,7 +391,7 @@ def scan_machine(
 
     ``fs_access="local"`` reads i2c/device-tree via ``Path`` under ``fs_root``
     (host-side). ``fs_access="runner"`` reads the same trees by executing
-    ``ls``/``cat``/``find`` through ``runner`` — required when the target is a
+    ``ls``/``cat``/``find`` through ``runner`` - required when the target is a
     container and host Path would silently sample the wrong machine.
     """
 

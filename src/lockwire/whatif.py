@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
 
-from lockwire.checks import run_record_checks
+from lockwire.checks import refuse_unreadable_model, run_record_checks
 from lockwire.edit import Change, propose_changes
 from lockwire.report import RecordReport
 from lockwire.schema import Contract, load_contract
@@ -112,6 +112,7 @@ def _facts(report: RecordReport) -> tuple[FactResult, ...]:
 
 
 def _check(contract, contract_path: Path) -> ContractCheckResult:
+    refuse_unreadable_model(contract, contract_path)
     report = run_record_checks(contract, contract_path=contract_path)
     return ContractCheckResult(report=report, facts=_facts(report))
 

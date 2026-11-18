@@ -6,7 +6,7 @@ Traps handled here (spec v3):
 - Zero-mass / missing-inertial links are flagged, not silently accepted.
 - Structure hash covers the kinematic topology (joints + links), so a moved
   mount or re-parented joint changes it; cosmetic reordering does not.
-- Unresolved xacro / ROS substitutions are refused — never treated as link names.
+- Unresolved xacro / ROS substitutions are refused - never treated as link names.
 """
 
 import datetime as dt
@@ -16,7 +16,7 @@ import re
 import threading
 import typing
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +27,7 @@ from lockwire.schema import (
     JointOrigin,
     Link,
     MeshRef,
+    Mimic,
     ModelRecord,
     PrincipalInertia,
     Provenance,
@@ -35,7 +36,7 @@ from lockwire.schema import (
 )
 
 # `${var}` in a name is xacro property substitution (TurtleBot3 ships this unexpanded).
-# A bare `$` (e.g. link `cost_$`) is NOT matched — that would be a false positive.
+# A bare `$` (e.g. link `cost_$`) is NOT matched - that would be a false positive.
 _XACRO_PROP = re.compile(r"\$\{[^}]+\}")
 # ROS command substitutions that survive only when xacro was never run.
 _ROS_SUBST = re.compile(r"\$\((?:arg|find)\b")
@@ -249,11 +250,11 @@ def read_model_bytes(
         return out
     if "ament_index_python" in str(failure):
         raise UnresolvedXacroError(
-            f"{path}: xacro expansion failed — $(find …) needs a ROS environment. Expand it "
+            f"{path}: xacro expansion failed: $(find …) needs a ROS environment. Expand it "
             f"there (xacro model.urdf.xacro > model.urdf), then re-run. ({failure})"
         ) from failure
     raise UnresolvedXacroError(
-        f"{path}: unresolved xacro — xacro expansion failed: {failure}. {_REMEDY}"
+        f"{path}: unresolved xacro: xacro expansion failed: {failure}. {_REMEDY}"
     ) from failure
 
 
@@ -281,13 +282,13 @@ def _refuse_unresolved_xacro(root: ET.Element, path: Path) -> None:
     3. `$(arg …)` / `$(find …)` in any attribute value
 
     False-positive shape we deliberately do *not* match: a bare `$` in a name
-    (`link_$1`, `cost_usd`) — only braced `${…}` property syntax counts.
+    (`link_$1`, `cost_usd`) - only braced `${…}` property syntax counts.
     """
     for el in root.findall("link"):
         name = el.get("name") or ""
         if _XACRO_PROP.search(name):
             raise UnresolvedXacroError(
-                f"{path}: unresolved xacro — link name {name!r} still contains "
+                f"{path}: unresolved xacro: link name {name!r} still contains "
                 f"${{…}} substitutions. This is a xacro template, not a finished URDF. "
                 f"{_REMEDY}"
             )
@@ -295,7 +296,7 @@ def _refuse_unresolved_xacro(root: ET.Element, path: Path) -> None:
         name = el.get("name") or ""
         if _XACRO_PROP.search(name):
             raise UnresolvedXacroError(
-                f"{path}: unresolved xacro — joint name {name!r} still contains "
+                f"{path}: unresolved xacro: joint name {name!r} still contains "
                 f"${{…}} substitutions. This is a xacro template, not a finished URDF. "
                 f"{_REMEDY}"
             )
@@ -304,7 +305,7 @@ def _refuse_unresolved_xacro(root: ET.Element, path: Path) -> None:
             link_name = ref.get("link", "") if ref is not None else ""
             if _XACRO_PROP.search(link_name):
                 raise UnresolvedXacroError(
-                    f"{path}: unresolved xacro — joint {name!r} {end} link "
+                    f"{path}: unresolved xacro: joint {name!r} {end} link "
                     f"{link_name!r} still contains ${{…}} substitutions. "
                     f"This is a xacro template, not a finished URDF. {_REMEDY}"
                 )
@@ -317,13 +318,13 @@ def _refuse_unresolved_xacro(root: ET.Element, path: Path) -> None:
             tag.startswith("{") and "xacro" in tag[1:].split("}", 1)[0]
         ):
             raise UnresolvedXacroError(
-                f"{path}: unresolved xacro — <{local}> element remains in the document. "
+                f"{path}: unresolved xacro: <{local}> element remains in the document. "
                 f"This is a xacro template, not a finished URDF. {_REMEDY}"
             )
         for attr_val in el.attrib.values():
             if _ROS_SUBST.search(attr_val):
                 raise UnresolvedXacroError(
-                    f"{path}: unresolved xacro — $(arg …)/$(find …) substitutions remain "
+                    f"{path}: unresolved xacro: $(arg …)/$(find …) substitutions remain "
                     f"in attribute values. This is a xacro template, not a finished URDF. "
                     f"{_REMEDY}"
                 )
@@ -457,6 +458,20 @@ def locked_record_hash(model: ModelRecord, topology: "UrdfTopology", legacy: boo
     return _model_structure_hash([Link(name=n) for n in topology.link_names], joints)
 
 
+def legacy_follower_hash(model: ModelRecord, topology: "UrdfTopology", legacy: bool) -> str | None:
+    """The on-disk hash as locks written before follower joints kept limits and mimic had it.
+
+    None without a mimic joint: nothing to strip, so no second hash.
+    """
+    # ponytail: delete once locks have been re-written (a release after 0.5.2) and drop the callers'
+    # branch; a pre-0.5.2 lock of a mimic robot then reads as drift and a re-lock clears it.
+    if not any(j.mimic for j in topology.joints):
+        return None
+    strip = {"limits": None, "mimic": None}
+    joints = tuple(j.model_copy(update=strip) if j.mimic else j for j in topology.joints)
+    return locked_record_hash(model, replace(topology, joints=joints), legacy)
+
+
 _JOINT_TYPES = typing.get_args(Joint.model_fields["type"].annotation)
 
 
@@ -499,12 +514,12 @@ def _parse_joint(
         )
     limit_el = el.find("limit")
     limits = None
-    # A mimic joint follows its parent and has no limits of its own (OnRobot's RG6 ships 0/0/effort 0).
-    if limit_el is not None and el.find("mimic") is None:
+    mimic_el = el.find("mimic")
+    if limit_el is not None:
         lo, hi = limit("lower"), limit("upper")
         if jtype in ("revolute", "prismatic") and None not in (lo, hi) and lo >= hi:
             # A reversed range would abort the whole lock: treat as unlimited and say so.
-            if notes is not None:
+            if notes is not None and mimic_el is None:  # OnRobot's RG6 follower ships 0/0/effort 0
                 notes.append(f"joint {el.get('name')!r} has lower {lo} >= upper {hi}; unlimited.")
         else:
             limits = JointLimits(
@@ -520,6 +535,13 @@ def _parse_joint(
         origin=JointOrigin(xyz=xyz, rpy=rpy),
         axis=axis,
         limits=limits,
+        mimic=None
+        if mimic_el is None
+        else Mimic(
+            joint=mimic_el.get("joint", ""),
+            multiplier=_num(mimic_el.get("multiplier", "1"), f"joint {name!r} mimic multiplier"),
+            offset=_num(mimic_el.get("offset", "0"), f"joint {name!r} mimic offset"),
+        ),
     )
 
 
@@ -570,7 +592,7 @@ def _refuse_doctype_entity(raw: bytes, path: Path) -> None:
     """Refuse a DOCTYPE/ENTITY-bearing URDF before ``ET.fromstring`` ever sees it.
 
     stdlib ``xml.etree`` does not resolve *external* entities, but an internal
-    entity declared and referenced within the same document still expands —
+    entity declared and referenced within the same document still expands -
     a 336-byte billion-laughs file grows to a multi-megabyte attribute with no
     error. Refusing on the raw bytes, the same shape ``schema.py`` uses for
     YAML anchors/aliases, means the parser never has a chance to expand it.
@@ -648,7 +670,7 @@ def describe_structure_drift(model: ModelRecord, topology: UrdfTopology) -> str:
     elif topology.joints:
         # Contract predates this fix (or was locked from a joint-less source): the
         # hash may still be moving on joint changes the link diff above can't see.
-        parts.append("joints not recorded in this contract — re-run init to record them")
+        parts.append("joints not recorded in this contract: re-run init to record them")
 
     if not parts:
         parts.append("kinematic topology changed")

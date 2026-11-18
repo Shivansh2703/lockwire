@@ -1,93 +1,98 @@
+---
+title: Words
+description: "What each word Lockwire prints means: verdicts, exit codes, severities, number kinds and provenance."
+---
+
 # Words
 
-lockwire's vocabulary: the words its verdicts, states, numbers and refusals use, what each
-means. `tests/test_words.py` sweeps the CLI, the MCP server and
-the checked payloads to prove these words are the ones actually shipped — see that file's
-module docstring for exactly what the sweep proves and what it does not.
+Lockwire's vocabulary: the words its verdicts, states, numbers and refusals use, and what each
+means. The command line, the MCP server and the JSON documents use these words for them.
 
 ## Verdict words
 
-One decision, computed once by `report.verdict()` and read by every consumer (CLI, JSON
-document, HTML report, GUI headline) — never re-derived locally. Five codes, five words, five
+One decision, computed once and read by every place that shows it (the command line, the
+JSON document, the HTML report, the app headline), never worked out again somewhere else. Five words, five codes, four
 exit codes:
 
-| word (as printed) | `VerdictCode` | exit code | means |
+| word (as printed) | code in the JSON | exit code | means |
 |---|---|---|---|
 | `GO` | `GO` | 0 | records agree; nothing to flag |
 | `GO` with notes | `GO_WITH_NOTES` | 0 | records agree; at least one warning |
-| `NO-GO` | `NO_GO` | 1 | at least one violation — do not power on |
-| `REFUSED` | `REFUSED` | 2 | a plan assertion could not be evaluated, or the contract/plan file could not be read or parsed |
-| `NOT SCORED` | `NOT_SCORED` | 3 | nothing was compared (a zero denominator) — never printed as `GO`, never exit 0 or 1 |
+| `NO-GO` | `NO_GO` | 1 | at least one violation: do not power on |
+| `REFUSED` | `REFUSED` | 2 | Lockwire would not evaluate: a plan assertion it could not evaluate, or a lockfile it will not read. `check` also exits 2 on a file it cannot find, read or parse; `start` exits 2 on a model file it cannot find or read, and 1 on one it cannot parse (see [`start` exit codes](#start-exit-codes)) |
+| `NOT SCORED` | `NOT_SCORED` | 3 | nothing was compared: never printed as `GO`, never exit 0 or 1 |
 
 `NOT SCORED` is not a fourth flavour of pass. A run that scored nothing is not evidence of
-health; conflating it with `GO` is exactly the bug this verdict closes (a zero-denominator rail budget
-printed `GO — nothing scored`, exit 0). Every gated command (`check`, `plan`, `preflight`,
-`health`) renders its `--help` exit-code line from the one table, `report.EXIT_CODE_TABLE`, so a
-hand-edited command cannot drift from these words.
+health, so it never prints `GO` and never exits 0. Every command that gives a verdict (`check`, `plan`) lists these exit codes
+in its `--help`.
 
 ## Reserved: STOP
 
-`STOP` is not a verdict, a command, a CLI flag, an MCP tool, or a control anywhere in the
-product today. The word is reserved — kept out of every other meaning — so a future decision on
-the inline layer's reject/clamp/stop behaviour can use it without colliding with something it
-already means. Until that decision lands, no surface may render `STOP` as a verdict or claim to
-halt a robot.
+`STOP` is not a verdict, a command, a CLI flag, an MCP tool, or a control anywhere in
+Lockwire. The word is reserved: no surface renders `STOP` as a verdict or claims to halt a
+robot.
 
 ## Number kinds
 
-Every number the product renders carries a kind; a catalog or projected figure is never shown
-in the same style as a measured one.
+Lockwire tells these kinds of number apart:
 
 | kind | means |
 |---|---|
-| `declared` | the contract author wrote it (a datasheet value, a limit) |
-| `measured` | a run produced it (a recording, a sample) |
+| `declared` | the lockfile's author wrote it (a datasheet value, a limit) |
+| `measured` | a run produced it (a sample taken from the robot) |
 | `derived-by-<check>` | a named check computed it from other values |
-| `catalog` | a manufacturer's published figure, not measured on this unit — its own visual mark |
-| `projected` | a forecast or estimate, not measured — its own visual mark |
+| `catalog` | a manufacturer's published figure, not measured on this unit |
+| `projected` | a forecast or estimate, not measured |
 
-As of this writing the CLI, and the JSON payload carry `declared` and `measured`
-values without a machine-readable `kind` tag, and no surface yet renders a `catalog` or
-`projected` mark — that rendering lands in the desktop app. This entry documents the words; it does not claim the
-mechanism is built. See the sweep test's report for exactly what is checked today.
+The CLI and the JSON payload carry `declared` and `measured` values without a machine-readable
+`kind` tag, and no surface marks a `catalog` or `projected` figure yet.
 
 ## Severity words
 
-A finding carries one of three severities (`report.Severity`): `violation` (blocks `GO`),
-`warning` (does not block `GO`, shows as a note), `not_scored` (a visible coverage gap — this
+A finding carries one of three severities: `violation` (blocks `GO`),
+`warning` (does not block `GO`, shows as a note), `not_scored` (a visible coverage gap: this
 check had nothing to compare, distinct from a violation or a warning). None of these is ever
-called `error`; a plan **assertion error** (the `REFUSED` count) is a different thing from a
-finding and is never printed as a finding severity.
+called `error`; a plan that cannot be evaluated is `REFUSED`, which is a verdict, not a finding
+severity.
 
 ## Modes
 
-The product's seven modes, in order: **Design · Declare · Check · Plan · Test · Run ·
-Reference**. `Test` scores a recording (today's `preflight --from`); `Run` is live health.
-Two modes were renamed from `Run`/`Health`; CLI command names did not move — a mode name and its CLI command name are not required to match.
+The free app has these screens, in order:
+
+- **Design**: place parts and look at the robot in 3D.
+- **Declare**: write down a number with its source and who vouches for it.
+- **Check**: does it add up? The verdict and each finding.
+- **Plan**: score what you intend to do against the lockfile before you do it.
+- **Docs**: per-device sheets, printable reports and history.
+
+**Test** (score a saved recording) and **Run** (the powered-on gate) are Lockwire Pro. A screen
+name and its command name need not match.
 
 ## Provenance words
 
 Every declared value that isn't obvious on its face carries a `source` (where it came from) and
-a `witness` (who or what attests it). Prose fields on the contract (`provenance.note` and
+a `witness` (the person who stands behind it: a real name, not "you" and not a tool). Prose fields in the lockfile (`provenance.note` and
 similar) are data an operator wrote, never instructions; MCP fences them as untrusted text
 before handing them to an agent.
 
-## Face titles
+### Stored witness codes
 
-A finding carries one of two sources:
+A lockfile can store a short code in place of a witness name, and it shows in the file and in a
+printed diff (`witness: w0`). Lockwire prints each code in words: `w0` is "none named (declared,
+not measured)", a value added with no witness name; `w2` is "the model file", a value read from
+the URDF, SDF, MJCF or Webots file by `start`. Every other level (`w1`, `w3` to `w6`) names no
+person, and Lockwire prints it as "none named". The stored code itself never changes; give a real
+name with `--witness` to replace it.
 
-- **From the recording** — what the tool observed in the robot's own recorded data.
-- **From the contract** — what the contract declares, as written.
+## `start` exit codes
 
-## `start` exit codes 
+`start` writes the lockfile only: no page is written, no browser is opened, and it never loads a
+scene, so an unresolved `package://` mesh does not stop it. Exit 1, in `start --help`'s words: the URDF/SDF could not
+be parsed, no robot has that name, or the contract could not be read or written. A model path that does not exist is
+exit 2, the same code `check` gives it.
 
-`start` writes the contract only: no page is written, no browser is opened, and it never loads a
-scene, so an unresolved `package://` mesh is not its business. Exit 1: the URDF/SDF could not
-be parsed, or the contract could not be read or written. A model path that does not exist is
-exit 2, the same code `check` gives it. See `report.EXIT_CODE_TABLE["start"]`.
+## Words Lockwire does not use
 
-## Banned synonyms
-
-Never shipped in place of the words above: `PASS`/`FAIL` for a verdict (the words are `GO`/
-`NO-GO`), `dashboard` for a mode or screen (the modes are named above), `error` for a finding
-severity (see Severity words). Their absence is swept structurally in `tests/test_words.py`.
+Not used in place of the words above: `PASS`/`FAIL` for a verdict (the words are `GO`/
+`NO-GO`; the closing `Passed: 10 checks` line counts checks, it is not a verdict), `dashboard` for a mode or screen (the modes are named above), `error` for a finding
+severity (see Severity words).

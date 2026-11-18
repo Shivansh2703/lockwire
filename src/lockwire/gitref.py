@@ -4,7 +4,7 @@ Every call goes through :func:`_git`: a list argv, ``shell=False``, no string
 interpolation anywhere. A ref that arrives from the command line is validated
 by :func:`valid_ref` before it can become an argument, so a hostile name
 (``; rm -rf /``, ``--upload-pack=touch pwned``, ``--output=…``) is refused
-rather than parsed as an option — argv already defeats the shell, and the
+rather than parsed as an option - argv already defeats the shell, and the
 leading-dash rule defeats the option smuggling argv does not.
 
 Repo questions are answered by ``git rev-parse``, never by looking for a
@@ -118,7 +118,7 @@ def blame(relpath: str, *, repo: Path) -> str | None:
 def commit(relpaths: Sequence[str], *, message: str, repo: Path) -> tuple[int, str]:
     """``git commit -m <message> -- <relpaths>``. Commit by path.
 
-    List argv throughout — ``message`` and every path travel as separate argv
+    List argv throughout - ``message`` and every path travel as separate argv
     elements, never interpolated into a string a shell could re-parse. The
     trailing pathspec (``--``) is what makes this a commit *by path*: nothing
     else staged or dirty is swept in. Result-shaping (the returned dict, the
@@ -165,14 +165,14 @@ def describe(*, repo: Path) -> str | None:
     A document's footer wants a human ref (tag-relative, or the
     short sha ``--always`` falls back to) alongside the full commit sha
     ``rev_parse`` already gives. ``git`` missing or the command failing both
-    degrade to None rather than raising — the caller falls back further.
+    degrade to None rather than raising - the caller falls back further.
     """
     code, out = _git(["describe", "--tags", "--always", "--dirty"], cwd=repo)
     return out.strip() if code == 0 and out.strip() else None
 
 
 def run(args: Sequence[str], *, repo: Path) -> tuple[int, str]:
-    """Run a prepared git argv in ``repo`` — the door for callers that build their
+    """Run a prepared git argv in ``repo`` - the door for callers that build their
     own subcommand (``lockwire.vcs``'s undo shows the argv on screen before it runs,
     so the list it hands back here must be the list that executes).
 

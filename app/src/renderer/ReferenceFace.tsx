@@ -4,6 +4,8 @@ import type { Finding, ReferenceFace as ReferenceFacePayload } from "../shared/a
 import { tidyNumbers } from "./kit/format";
 import { linkTo } from "./FindingList";
 import { insteadJump, type Jump, type OnJump } from "./jump";
+import { witnessWords } from "../shared/witness";
+import { shownFinding, useShown } from "./shown";
 import { CommandLine, Disclosure, Field, FindingDetail, Jumper, StatusPill } from "./kit";
 
 export interface ReferenceFaceProps {
@@ -80,10 +82,10 @@ const HEADERS: Record<string, string> = {
   upstream: "Upstream", efficiency: "Eff.", charged_by: "Charged by",
 };
 const humanHeader = (h: string) => HEADERS[h] ?? (h.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()));
-const EMPTY = new Set(["-", "—", ""]);
+const EMPTY = new Set(["-", "\u2014", ""]);
 
-// "NOT SCORED — reason" -> a pill; the reason stays in the tooltip and for screen readers.
-const NOT_SCORED = /^NOT SCORED\s*[—-]\s*([\s\S]*)$/;
+// "NOT SCORED: reason" (older engines: a long dash) -> a pill; the reason stays in the tooltip and for screen readers.
+const NOT_SCORED = /^NOT SCORED\s*[\u2014:-]\s*([\s\S]*)$/;
 function Val({ text, why }: { text: string; why?: boolean }): ReactNode {
   text = tidyNumbers(text);
   const m = NOT_SCORED.exec(text);
@@ -140,7 +142,9 @@ export function Sheet({ text, ...nm }: { text: string } & Named) {
 const middle = (s: string, max = 44) => (s.length <= max ? s : `${s.slice(0, 20)}…${s.slice(-(max - 21))}`);
 
 /** Reference shows static material plus the explicitly selected served-plan evidence. */
-export function ReferenceFace({ payload, selectedPlanFinding: f = null, names, onJump }: ReferenceFaceProps) {
+export function ReferenceFace({ payload, selectedPlanFinding = null, names, onJump }: ReferenceFaceProps) {
+  const shown = useShown(); // display only: no machine path on screen; Copy keeps the engine's command
+  const f = selectedPlanFinding && shownFinding(selectedPlanFinding, shown);
   const [q, setQ] = useState("");
   const nm = { names, onJump };
   // The plan finding's quantity, numbers and fix open its Declare row; source and witness its review.
@@ -159,9 +163,9 @@ export function ReferenceFace({ payload, selectedPlanFinding: f = null, names, o
               { label: "Observed", value: to(at, <span className="reference-plan-finding-observed">{f.observed}</span>, own) },
               { label: "Expected", value: to(at, <span className="reference-plan-finding-expected">{f.expected}</span>, own) },
               { label: "Fix", value: to(at, <span className="reference-plan-finding-action">{f.action}</span>, own) },
-              { label: "Source", value: to(`Go to the review of ${f.quantity}`, f.source ?? "source unknown", review) },
-              { label: "Checked by", value: to(`Go to the review of ${f.quantity}`, f.witness ?? "unknown", review) },
-              { label: "Locked", value: <span className="reference-plan-finding-locked-at">{f.locked_at ?? "date unknown"}</span> },
+              { label: "Source", value: to(`Go to the review of ${f.quantity}`, f.source ?? "no source recorded", review) },
+              { label: "Checked by", value: to(`Go to the review of ${f.quantity}`, witnessWords(f.witness), review) },
+              { label: "Locked", value: <span className="reference-plan-finding-locked-at">{f.locked_at ?? "no date recorded"}</span> },
               ...((f.alternatives ?? []).length ? [{
                 label: "Instead",
                 value: <ul>{(f.alternatives ?? []).map((a, i) => <li key={i} data-kind={a.kind}>{to(`Show ${a.text}`, <>{a.text} ({a.kind})</>, insteadJump(a))}</li>)}</ul>,
@@ -175,7 +179,7 @@ export function ReferenceFace({ payload, selectedPlanFinding: f = null, names, o
           <div key={`${drawer.title}-${index}`} className="reference-drawer">
             {/* provenance is a tooltip: the sentence names where the sheet came from, not what it says */}
             <Disclosure open={index === 0} summary={<span title={drawer.provenance}>{drawer.title}</span>}>
-              {index > 0 && <div className="reference-drawer-cli"><CommandLine command={drawer.cli_line} display={middle(drawer.cli_line)} /></div>}
+              {index > 0 && <div className="reference-drawer-cli"><CommandLine command={drawer.cli_line} display={middle(shown(drawer.cli_line))} /></div>}
               <div className="reference-drawer-content"><Sheet text={drawer.content} {...nm} /></div>
             </Disclosure>
           </div>

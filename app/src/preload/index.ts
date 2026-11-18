@@ -7,8 +7,8 @@ import { proApi } from "./proRegistry";
 
 type MenuPush = { result: StartUrdfResult } | { error: string } | { stepped: string };
 import {
-  AGENT_EVENT_CHANNEL,
   ASSISTANT_EVENT_CHANNEL,
+  ASSISTANT_SHOW_CHANNEL,
   MENU_OPENED_CHANNEL,
   SHORTCUTS_CHANNEL,
   THEME_CHANNEL,
@@ -17,11 +17,11 @@ import {
   TERMINAL_EVENT_CHANNEL,
   SIDECAR_STATE_CHANGED_CHANNEL,
   type CommandClass,
-  type AgentPush,
   type AssistantApplyResult,
   type AssistantEvent,
   type AssistantSendRequest,
   type AssistantSettings,
+  type AssistantShow,
   type AssistantSetRequest,
   type AssistantSetResult,
   type AssistantTurn,
@@ -95,7 +95,7 @@ const lockwire = {
     ipcRenderer.on(THEME_CHANNEL, listener);
     return () => ipcRenderer.removeListener(THEME_CHANNEL, listener);
   },
-  // e9-join: the renderer is sandboxed (no nodeIntegration) and can't import "./sidecar"
+  // The renderer is sandboxed (no nodeIntegration) and can't import "./sidecar"
   // itself -- these three are its only legal reach into the sidecar's state.
   getSidecarState: (): Promise<SidecarState> => run("sidecar:state", undefined),
   restartSidecar: (): Promise<{ accepted: true }> => run("sidecar:restart", undefined),
@@ -104,18 +104,16 @@ const lockwire = {
   sendAssistant: (request: AssistantSendRequest): Promise<AssistantTurn> => run("assistant:send", request),
   applyAssistant: (request: { id: string; witness: string }): Promise<AssistantApplyResult> => run("assistant:apply", request),
   cancelAssistant: (): Promise<{ ok: true }> => run("assistant:cancel", undefined),
+  showAssistantFinding: (request: { contract: string; finding: string }): Promise<{ ok: boolean }> => run("assistant:show-finding", request),
   onAssistantEvent: (cb: (event: AssistantEvent) => void): (() => void) => {
     const listener = (_event: unknown, payload: AssistantEvent) => cb(payload);
     ipcRenderer.on(ASSISTANT_EVENT_CHANNEL, listener);
     return () => ipcRenderer.removeListener(ASSISTANT_EVENT_CHANNEL, listener);
   },
-  startAgent: (contract: string, text: string, revision: string): Promise<{ ok: true } | { ok: false; error: string }> => run("agent:start", { contract, text, revision }),
-  designPower: (contract: string, spec: string, revision: string): Promise<{ ok: true } | { ok: false; error: string }> => run("agent:power-design", { contract, spec, revision }),
-  stopAgent: (contract: string): Promise<{ ok: true }> => run("agent:stop", { contract }),
-  onAgentEvent: (cb: (push: AgentPush) => void): (() => void) => {
-    const listener = (_event: unknown, payload: AgentPush) => cb(payload);
-    ipcRenderer.on(AGENT_EVENT_CHANNEL, listener);
-    return () => ipcRenderer.removeListener(AGENT_EVENT_CHANNEL, listener);
+  onAssistantShow: (cb: (show: AssistantShow) => void): (() => void) => {
+    const listener = (_event: unknown, payload: AssistantShow) => cb(payload);
+    ipcRenderer.on(ASSISTANT_SHOW_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(ASSISTANT_SHOW_CHANNEL, listener);
   },
   startTerminal: (request: TerminalStartRequest): Promise<{ ok: true }> => run("terminal:start", request),
   writeTerminal: (data: string): Promise<{ ok: true }> => run("terminal:write", { data }),

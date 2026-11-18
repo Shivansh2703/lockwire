@@ -1,6 +1,9 @@
 """The public library door: ``import lockwire.api``.
 
-lockwire answers the same questions through four doors — the command line, the
+To run a check from Python: ``from lockwire.api import check; check("lockwire.yaml")``
+(``check_document`` only formats findings you already have; ``check`` is the entry point).
+
+lockwire answers the same questions through four doors - the command line, the
 MCP server, the HTTP sidecar (``serve.py``) and this module. The project allows
 exactly one implementation behind them, so this file **wraps** what already
 exists and computes nothing of its own:
@@ -41,7 +44,7 @@ from ruamel.yaml import YAMLError
 from lockwire import blame as blame_history
 from lockwire import gitref, units
 from lockwire.catalog import load_catalog
-from lockwire.checks import check_urdf_drift, run_record_checks
+from lockwire.checks import check_urdf_drift, crash_is_a_bug, refuse_unreadable_model, run_record_checks
 from lockwire.describe import describe_all
 from lockwire.edit import (
     Change,
@@ -49,6 +52,7 @@ from lockwire.edit import (
     apply_changes,
     apply_review,
     contract_revision,
+    link_new,
     move as _move,
     place as _place,
     reparent as _reparent,
@@ -57,6 +61,7 @@ from lockwire.edit import (
 )
 from lockwire.factdiff import fact_diff, load_contract_text
 from lockwire.forces import force_document
+from lockwire.missing import missing_inputs
 from lockwire.plan import Plan, load_plan
 from lockwire.plan import validate_plan as _validate_plan
 from lockwire.plan_payload import PlanPayload
@@ -131,7 +136,7 @@ def from_parts(
 
 
 def api_schema(out: Path | str) -> None:
-    """Write the payload union's JSON schema — ``api_payload.export_openapi``.
+    """Write the payload union's JSON schema - ``api_payload.export_openapi``.
 
     ``api_payload`` is imported here rather than at module scope so
     ``import lockwire.api`` stays as thin as
@@ -144,7 +149,7 @@ def api_schema(out: Path | str) -> None:
 
 
 def api_types(out: Path | str) -> None:
-    """Write the payload union's TypeScript types — ``emit_ts.write``.
+    """Write the payload union's TypeScript types - ``emit_ts.write``.
 
     ``emit_ts`` is imported here rather than at module scope for the same
     reason ``api_schema`` imports ``api_payload`` locally:
@@ -158,8 +163,8 @@ def api_types(out: Path | str) -> None:
 
 def declare_form(contract: Path | str | Contract) -> dict[str, Any]:
     """The Declare form's payload: every quantity ``declare`` could
-    write in `contract` — present or not — plus a pre-filled witness box.
-    ``page.build_declare_form`` — read-only, nothing here writes.
+    write in `contract` - present or not - plus a pre-filled witness box.
+    ``page.build_declare_form`` - read-only, nothing here writes.
 
     Not in ``FUNCTIONS``: there is no ``lockwire declare-form`` command, only
     the three face boxes reading this document (same "not a
@@ -198,7 +203,7 @@ def page(
     plan_outcomes: list[Any] | None = None,
     cli_line: str | None = None,
 ) -> dict[str, Any]:
-    """The page dict ``page.build_payload`` computes, wrapped unchanged —
+    """The page dict ``page.build_payload`` computes, wrapped unchanged -
     the root gap this closes: ``PagePayload`` (``api_payload.py``) was
     defined with nothing behind it. This does not recompute anything
     ``build_payload`` does not already compute; it only loads the contract the
@@ -207,19 +212,19 @@ def page(
     ``contract_path`` is a separate override (defaulting to ``contract`` when
     that is a path, ``None`` when it is already a ``Contract``) because
     ``build_payload`` itself takes a parsed ``Contract`` *and* its path as two
-    fields — the path drives the health summary and the describe faces, not
-    just the loader — so a caller that already parsed the contract (the
+    fields - the path drives the health summary and the describe faces, not
+    just the loader - so a caller that already parsed the contract (the
     sidecar, which also needs it for scene/preflight/plan lookups first) can
     pass both without a second parse.
 
     Not in ``FUNCTIONS``/``__all__``: there is no ``lockwire page`` CLI
     command, and ``test_every_cli_command_has_a_library_twin`` refuses a
     ``FUNCTIONS`` entry with no CLI leaf of the same name. So this sits beside
-    ``load_scene``/``passed_baseline_channels`` above — a computation more
+    ``load_scene``/``passed_baseline_channels`` above - a computation more
     than one door needs (the sidecar's ``page`` command) without being the
     twin of its own CLI command. the page's CLI command remains the one that
     writes this same payload to a file; this returns the dict itself for a
-    caller — the sidecar, today — that wants the document.
+    caller - the sidecar, today - that wants the document.
     """
     from lockwire.page import build_payload as _build_payload  # noqa: PLC0415
 
@@ -261,7 +266,7 @@ def contract_at(contract: Path | str, ref: str) -> dict[str, Any]:
     text = gitref.show(sha, relpath, repo=repo)
     if text is None:
         raise FileNotFoundError(f"{contract_path.name} did not exist at {ref}")
-    return {"ref": ref, "commit": sha, "lockfile": text, "page": page(load_contract_text(text))}
+    return {"ref": ref, "commit": sha, "lockfile": text, "page": page(load_contract_text(text, contract_path))}
 
 
 #: The free library operations. Every name here has a CLI command of the same
@@ -372,6 +377,7 @@ def bom_rows(contract: Contract) -> list[dict[str, Any]]:
         key = (dev.model, mass, prov.source if prov else "")
         groups.setdefault(key, [model]).append(dev)
     rows = []
+    pack = _pack_device(contract)
     for (model_id, mass, source), (model, *devs) in groups.items():
         fam = contract.family(model.family) if model else None
         vr = model.input_voltage_range if model else None
@@ -385,8 +391,14 @@ def bom_rows(contract: Contract) -> list[dict[str, Any]]:
                 p for p in parts
                 if p.id.rsplit(".", 1)[-1].lower() == tail and p.family == model.family
             ]  # fmt: skip
+            # `add device --part` names the model mdl.<catalog id with - for .>
+            hit = hit or [p for p in parts if f"mdl.{p.id.replace('.', '-')}" == model_id]
+            # else the maker of every catalog part citing the same datasheet, when they agree
+            makers = {p.maker for p in parts if url and any(url in n.source for n in p.numbers.values())}
             if len(hit) == 1:
                 maker = hit[0].maker or ""
+            elif len(makers) == 1:
+                maker = makers.pop() or ""
             if mass is None and len(hit) == 1 and "mass" in hit[0].numbers:
                 n = hit[0].numbers["mass"]
                 mass = units.to_base(n.value, n.unit)
@@ -398,7 +410,11 @@ def bom_rows(contract: Contract) -> list[dict[str, Any]]:
                 "part": model_id,
                 "quantity": str(len(devs)),
                 "maker": maker,
-                "kind": (fam.name if fam else model.family if model else ""),
+                # the device a rail proves is the pack is a battery pack, whatever family it
+                # was filed under (round 3: arm-power's pack read "Compute and control boards")
+                "kind": "Battery pack"
+                if pack in {d.id for d in devs}
+                else (fam.name if fam else model.family if model else ""),
                 "unit_mass_kg": "" if mass is None else _g(mass),
                 "total_mass_kg": "" if mass is None else _g(mass * len(devs)),
                 "voltage": f"{vr.min.value:g}-{vr.max.value:g} {vr.max.unit}" if vr else "",
@@ -493,6 +509,8 @@ def verdict_document(
                 "violation": decision.violations,
                 "warning": decision.warnings,
                 "not_scored": decision.not_scored,
+                # advice findings are listed but never counted above: named, so the counts add up
+                "advice": sum(finding.advice_unsourced for finding in findings),
             },
             "scored": decision.scored,
             "findings": [finding.model_dump(mode="json") for finding in findings],
@@ -512,6 +530,10 @@ def verdict_document(
         # `information` is exactly what compute_system_cg returned.
         document["forces"] = force_document(contract, getattr(findings, "information", []))
         _tag_mass_rows(contract, document["forces"]["masses"])
+        document["forces"]["joint_torques"] = list(getattr(findings, "joint_torques", []))
+        stand = getattr(findings, "standing", None) or {}
+        document["forces"]["standing"] = stand.get("rows", [])
+        document["forces"]["stance"] = stand.get("stance")
     return document
 
 
@@ -533,7 +555,7 @@ def _tag_mass_rows(contract: Contract, rows: list[dict[str, Any]]) -> None:
 
 
 def load(contract: Path | str) -> Contract:
-    """Load and validate a contract file — ``schema.load_contract``, nothing more."""
+    """Load and validate a contract file - ``schema.load_contract``, nothing more."""
     return load_contract(Path(contract))
 
 
@@ -543,10 +565,11 @@ def check_document(
     *,
     revision: str | None = None,
     actuator_evidence: Mapping[str, ArtifactRef] | None = None,
+    given: tuple[Path | str, bool] | None = None,
 ) -> dict[str, Any]:
     """The `check` document: `verdict_document` plus `headline`.
 
-    A thin wrapper, not a second document builder — `cli.py`'s ``check``
+    A thin wrapper, not a second document builder - `cli.py`'s ``check``
     command (it and this file must not be able to disagree about one
     run) already computes ``findings`` itself for its own console render, so
     it calls this rather than duplicating the ``headline`` line; ``api.check``
@@ -564,6 +587,7 @@ def check_document(
         document["counts"]["warning"],
         document["counts"]["not_scored"],
         len(scored_records),
+        getattr(findings, "scored", None),
     )
     # Only the paid check slot produces case reports; without it the key is absent.
     case_reports = getattr(findings, "actuator_case_reports", [])
@@ -600,6 +624,8 @@ def check_document(
             for report in case_reports
         ]
     document["revision"] = revision
+    if missing := missing_inputs(findings, contract, given):  # absent when the check lacked nothing
+        document["missing_inputs"] = missing
     return document
 
 
@@ -780,6 +806,9 @@ def check(
 ) -> dict[str, Any]:
     """Record-level checks: the document ``lockwire check --json`` writes.
 
+    This is the entry point for running a check from Python:
+    ``from lockwire.api import check; check("lockwire.yaml")["verdict"]``.
+
     ``rerun`` (model-file checks): the command that re-checks a datasheet-mass mismatch.
     ``model_file``: the model as typed, when ``contract_path`` is a throwaway lock of it;
     hints then name that model, as ``lockwire check <model>`` prints them, minus a re-run of
@@ -796,6 +825,7 @@ def check(
         if isinstance(contract, Contract)
         else Path(contract)
     )
+    refuse_unreadable_model(loaded, path)  # a model file there but unreadable: no verdict
     admitted_evidence, admitted_root, revision = _actuator_check_context(
         loaded, path, actuator_evidence, evidence_root, expected_revision
     )
@@ -823,16 +853,17 @@ def check(
         typed_paths(findings, path, model_file)
         drop_same_figure(findings, mass)
         zero_if_nothing_compared(findings)
-    return check_document(
+    return crash_is_a_bug(check_document)(  # a bug building the report is never a load refusal
         loaded,
         findings,
         revision=revision,
         actuator_evidence=admitted_evidence,
+        given=(model_file, True) if model_file is not None else (path, False) if path else None,
     )
 
 
 def is_stale(document: Mapping[str, Any], contract: Path | str) -> bool:
-    """Whether ``document`` — any check/edit result carrying ``revision``
+    """Whether ``document`` - any check/edit result carrying ``revision``
     was computed against contract bytes that are no longer the ones
     on disk, e.g. after ``vcs.apply_undo`` restores an earlier revision.
 
@@ -858,6 +889,7 @@ def plan(
         parsed = Plan.model_validate(plan)
     else:
         parsed = load_plan(Path(plan))
+    refuse_unreadable_model(loaded, None if isinstance(contract, Contract) else Path(contract))
     report = _validate_plan(loaded, parsed)
     # Joined into the typed shape (steps, finding_labels) so every install writes one document.
     document = verdict_document(loaded, report, PLAN_ARTIFACT_TYPE)
@@ -865,7 +897,7 @@ def plan(
 
 
 def describe(contract: Path | str | Contract) -> dict[str, Any]:
-    """Every generated reference file, keyed by filename — ``describe.describe_all``."""
+    """Every generated reference file, keyed by filename - ``describe.describe_all``."""
     loaded = contract if isinstance(contract, Contract) else load(contract)
     return envelope(
         "lockwire-describe",
@@ -885,7 +917,7 @@ def declare(
     dry_run: bool = False,
     expected_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Declare one fact — the write door, through the same gate as the CLI.
+    """Declare one fact - the write door, through the same gate as the CLI.
 
     ``source`` and ``witness`` are not defaulted and not filled in here: they go
     to ``edit.apply_changes``, which refuses an empty one. A wrapper that
@@ -910,9 +942,9 @@ def declare(
     # ``apply_changes`` above is the commit point (same shape as
     # ``api.add``): by the time this line runs,
     # ``result.written`` already names whether the write landed. The
-    # ``contract_sha`` call below still has to re-read the file from disk —
+    # ``contract_sha`` call below still has to re-read the file from disk -
     # a value computed before the write would name the pre-write file, not
-    # what a caller asking "what did I just declare" wants — so the read
+    # what a caller asking "what did I just declare" wants - so the read
     # stays after the write, but it can no longer raise bare: an unhandled
     # ``OSError`` there (e.g. the contract becoming unreadable in the window
     # between the write and this re-read) used to surface as an ordinary
@@ -947,11 +979,11 @@ def add(
     expected_revision: str | None = None,
     **fields: Any,
 ) -> dict[str, Any]:
-    """Add a device/rail/bus/family/model/budget/battery block — the write
+    """Add a device/rail/bus/family/model/budget/battery block - the write
     door behind ``lockwire add``, through ``edit.add_entry``.
 
     ``fields`` carries the same keys the CLI builds (``model``, ``owner``,
-    ``family``, ``physical_mass``, ...) — see ``add_entry``'s docstring.
+    ``family``, ``physical_mass``, ...) - see ``add_entry``'s docstring.
     The one-submit path: for ``kind="device"``, passing both ``family``
     and ``model`` among ``fields`` creates the family and/or model alongside
     the device, atomically, when either does not already exist.
@@ -971,16 +1003,16 @@ def add(
     # ``add_entry`` above is the commit point: by the time this
     # line runs, ``result.written`` already names whether the write landed.
     # ``contract_sha`` still has to re-read the file from disk to answer "sha
-    # of what's there now" — a value computed *before* the write would name
+    # of what's there now" - a value computed *before* the write would name
     # the pre-write file, which is not what a caller asking "what did I just
-    # write" wants — so the read stays after the write, but it can no longer
+    # write" wants - so the read stays after the write, but it can no longer
     # be allowed to raise bare: an unhandled ``OSError`` here (e.g. the
     # contract becoming unreadable in the window between the write and this
     # re-read) surfaced as an ordinary exception, indistinguishable from
     # nothing having been written, for an add that had already landed on
     # disk. The obvious caller response to an exception is to retry the add,
     # and a retry after a real write is a second write. Catch it and report a
-    # distinct, named disposition instead — ``written`` stays exactly what
+    # distinct, named disposition instead - ``written`` stays exactly what
     # ``add_entry`` returned, and ``contract_sha`` is ``None`` with
     # ``contract_sha_error`` explaining why, never a bare raise.
     document: dict[str, Any] = {
@@ -1010,12 +1042,12 @@ def review(
     expected_revision: str | None = None,
 ) -> dict[str, Any]:
     """Approve or question one declared value, writing the reviewer's note into
-    the file — the same document ``--json`` prints.
+    the file - the same document ``--json`` prints.
 
     Wraps ``edit.apply_review`` exactly the way ``declare`` wraps
     ``apply_changes``; the witness/questioned-needs-a-note gate lives in
     ``edit.apply_review``, not here. ``locked_at`` mirrors ``declare``'s own
-    parameter — tests only, so a review's date can be pinned.
+    parameter - tests only, so a review's date can be pinned.
     """
     contract_path = Path(contract)
     result = apply_review(
@@ -1134,7 +1166,7 @@ def move(
     dry_run: bool = False,
     expected_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Move a device in its mount frame, or a link in its parent's — `edit.move`."""
+    """Move a device in its mount frame, or a link in its parent's - `edit.move`."""
     path = Path(contract)
     return _edit_document(
         path,
@@ -1166,7 +1198,7 @@ def rotate(
     dry_run: bool = False,
     expected_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Set a link's orientation, unit required, never defaulted — `edit.rotate`."""
+    """Set a link's orientation, unit required, never defaulted - `edit.rotate`."""
     path = Path(contract)
     return _edit_document(
         path,
@@ -1197,7 +1229,7 @@ def reparent(
     dry_run: bool = False,
     expected_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Change a device's mount link or a link's joint parent — `edit.reparent`.
+    """Change a device's mount link or a link's joint parent - `edit.reparent`.
 
     The cycle and orphan refusals are `edit.py`'s, not re-implemented here; the
     structure-hash move arrives in `lines`, the same text the CLI prints.
@@ -1219,18 +1251,22 @@ def reparent(
     )
 
 
-def _diff_side(spec: str, contract: Path, repo: Path | None) -> Contract:
+def _diff_side(
+    spec: str, contract: Path, repo: Path | None, revisions_only: bool = False
+) -> Contract:
     """One side of ``diff``: a contract file on disk, or the contract at a git ref.
 
     Mirrors ``cli._diff_side``'s resolution rules (a spec naming an existing file
     is read straight off disk and never touches git) without its console/typer
-    parts, which belong to the CLI door, not the library.
+    parts, which belong to the CLI door, not the library. ``revisions_only`` reads the
+    spec as a git ref and never as a path on disk (for callers that must not let a
+    name choose a file).
     """
     on_disk = Path(spec)
-    if on_disk.exists() and on_disk.is_file():
+    if not revisions_only and on_disk.exists() and on_disk.is_file():
         return load_contract(on_disk)
     if repo is None:
-        raise ValueError("not a git repository — nothing to compare against")
+        raise ValueError("not a git repository: nothing to compare against")
     if gitref.rev_parse(spec, repo=repo) is None:
         raise ValueError(f"no such ref {spec!r}")
     relpath = gitref.relpath_in_repo(contract, repo)
@@ -1239,10 +1275,12 @@ def _diff_side(spec: str, contract: Path, repo: Path | None) -> Contract:
     text = gitref.show(spec, relpath, repo=repo)
     if text is None:
         raise FileNotFoundError(f"{contract.name} did not exist at {spec}")
-    return load_contract_text(text)
+    return load_contract_text(text, contract)
 
 
-def diff(contract: Path | str, a: str = "HEAD", b: str | None = None) -> dict[str, Any]:
+def diff(
+    contract: Path | str, a: str = "HEAD", b: str | None = None, revisions_only: bool = False
+) -> dict[str, Any]:
     """What changed in the facts between two refs: the document ``lockwire diff --json`` writes.
 
     ``a`` and ``b`` are refs (or contract paths), the same as the CLI's arguments;
@@ -1252,8 +1290,12 @@ def diff(contract: Path | str, a: str = "HEAD", b: str | None = None) -> dict[st
     if b is None and not contract_path.exists():
         raise FileNotFoundError(f"no contract at {contract_path}")
     repo = gitref.repo_root(contract_path if contract_path.exists() else Path.cwd())
-    before = _diff_side(a, contract_path, repo)
-    after = _diff_side(b if b is not None else str(contract_path), contract_path, repo)
+    before = _diff_side(a, contract_path, repo, revisions_only)
+    after = (
+        _diff_side(str(contract_path), contract_path, repo)
+        if b is None
+        else _diff_side(b, contract_path, repo, revisions_only)
+    )
     return fact_diff(before, after).as_json()
 
 
@@ -1262,7 +1304,7 @@ def _contract_at(ref: str, relpath: str, *, repo: Path) -> Contract | None:
     if text is None:
         return None
     try:
-        return load_contract_text(text)
+        return load_contract_text(text, repo / relpath)
     except UnsupportedSchemaVersion:
         raise
     except (OSError, TypeError, ValueError, YAMLError):
@@ -1404,7 +1446,7 @@ def upgrade(
             os.fsync(handle.fileno())
         if contract_path.read_bytes() != raw:
             raise ValueError("legacy contract changed during upgrade")
-        os.link(temporary_name, out_path)
+        link_new(temporary_name, out_path)
     finally:
         Path(temporary_name).unlink(missing_ok=True)
     return [
@@ -1417,7 +1459,7 @@ def upgrade(
 # ---------------------------------------------------------------------------
 # Shared pieces below ``FUNCTIONS``: not CLI-command twins of their own (no
 # ``lockwire load-scene`` or ``lockwire passed-baseline-channels``), so they
-# stay out of ``FUNCTIONS``/``__all__`` — but each is a computation more than
+# stay out of ``FUNCTIONS``/``__all__`` - but each is a computation more than
 # one door needs, so it lives once. Both were duplicated verbatim
 # between ``cli.py`` and ``serve.py``; the
 # sidecar now calls these instead of carrying its own copy. ``cli.py`` keeps
@@ -1437,19 +1479,17 @@ def _selected_external_meshes(
         declared = contract_path.parent / declared
     if declared.resolve() != scene_path.resolve():
         return None
-    from lockwire.scene_urdf import mesh_root  # noqa: PLC0415 - same root `start` records against
+    from lockwire.scene import SceneRefusal  # noqa: PLC0415 - public scene error
+    from lockwire.scene_urdf import resolve_asset  # noqa: PLC0415 - same door `check` uses
 
-    root = mesh_root(declared, contract_path.parent)
     declared_assets: dict[Path, str] = {}
     for asset in contract.model.external_assets:
-        resolved = (root / asset.path).resolve()
-        if not resolved.is_relative_to(root):
-            from lockwire.scene import SceneRefusal  # noqa: PLC0415 - public scene error
-
-            raise SceneRefusal(
-                f"{contract_path}: declared external asset {asset.path!r} escapes the robot's package folder."
-            )
-        declared_assets[resolved] = asset.sha256
+        file, why = resolve_asset(
+            declared, contract_path.parent, contract.model.asset_root, asset.path
+        )
+        if why:
+            raise SceneRefusal(f"{contract_path}: declared external asset {asset.path!r} {why}.")
+        declared_assets[file.resolve()] = asset.sha256
     return declared_assets
 
 
@@ -1507,7 +1547,7 @@ def load_scene(
     contract_path: Path | str, scene: Path | str | None, package_root: Iterable[Path | str] = ()
 ) -> tuple[Any, str | None]:
     """Find and load the scene named by ``--scene``, or discovered beside the
-    contract — the one "which scene, from where" decision ``report`` and
+    contract - the one "which scene, from where" decision ``report`` and
     ``gui`` both need. Returns ``(None, None)`` when there is nothing to load;
     raises ``lockwire.scene.SceneRefusal`` on a scene that fails to parse.
 

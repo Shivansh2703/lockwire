@@ -1,8 +1,8 @@
-"""The parts catalog — a library of parts a user might pick from.
+"""The parts catalog - a library of parts a user might pick from.
 
 Deliberately NOT part of the contract schema (`schema.py`, frozen). A contract is a
 declared, witnessed statement about the robot you have; a catalog is a library of parts you might
-use to build one. They answer different questions and don't share a lifecycle — a catalog entry
+use to build one. They answer different questions and don't share a lifecycle - a catalog entry
 changes when a vendor revises a datasheet, a contract entry changes when this robot's build
 changes. Keeping the catalog its own model in its own file means the freeze on `schema.py` is
 never touched: no field here is a contract field, so there is nothing to validate against
@@ -10,7 +10,7 @@ the contract schema.
 
 Every number on a catalog part carries a `kind` and a `source`: a real
 number quotes where it came from; a placeholder says plainly that it is a placeholder. Nothing on
-a catalog part is presented as a real number without one of these two badges — an unlabelled
+a catalog part is presented as a real number without one of these two badges - an unlabelled
 number is a bug in the seed data, not a permitted state (see `_source_not_blank` below and
 `tests/test_catalog.py::test_every_seeded_number_has_a_kind_and_a_source`).
 """
@@ -41,7 +41,7 @@ _ROBOTS_PATH = Path(__file__).parent / "catalog_robots.yaml"
 
 # "datasheet": a manufacturer datasheet, spec page or product-listing figure, cited by URL/name.
 # "source_file": a real number read out of a file already in this repo (e.g. a vendor URDF's
-#   <mass> tag) — real, but the citation is a file, not a published datasheet.
+#   <mass> tag) - real, but the citation is a file, not a published datasheet.
 # "assumed": fabricated for seeding, no real part backs it; the source string must say so.
 NumberKind = Literal["datasheet", "source_file", "assumed"]
 
@@ -69,7 +69,7 @@ class SourcedNumber(BaseModel):
     @classmethod
     def _source_not_blank(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("source must not be blank — a number without a source is not allowed")
+            raise ValueError("source must not be blank: a number without a source is not allowed")
         return v
 
 
@@ -134,16 +134,16 @@ class CatalogPart(BaseModel):
     """One entry in the catalog: a part a user might pick, not a claim about a robot they have.
 
     Reconciliation with `schema.py`'s `DeviceModel`: two vocabularies for "a part"
-    now exist and they are deliberately not one. `CatalogPart` is the SHOPPING vocabulary — a part
-    you might pick, sourced numbers, no robot attached. `DeviceModel` is the REGISTRY vocabulary —
+    now exist and they are deliberately not one. `CatalogPart` is the SHOPPING vocabulary - a part
+    you might pick, sourced numbers, no robot attached. `DeviceModel` is the REGISTRY vocabulary -
     checks, hard limits and known failure modes for a device on a robot you actually have. They
     share only `id` and `family`; nothing else lines up because the two answer different
     questions and don't share a lifecycle (see the module docstring). A consumer that needs both
-    must go through one door (the one-door rule), not read both models directly — `grep -rln
+    must go through one door (the one-door rule), not read both models directly - `grep -rln
     CatalogPart src/lockwire/ tests/` names every module that may reference this class, and
     `test_no_module_straddles_catalog_and_registry_vocabularies` below fails the day that set
     grows to include a module that also references `DeviceModel`. Merging the two, if ever wanted,
-    is a `schema.py` change and therefore a maintainer's call — not a refactor to do
+    is a `schema.py` change and therefore a maintainer's call - not a refactor to do
     on a reading of "decide the reconciliation."
     """
 
@@ -448,13 +448,25 @@ def _cached(key: tuple, build):
     return _CACHE[key]
 
 
-def load_catalog(path: Path | str | None = None) -> Catalog:
-    """Parsed once per process per file state (path, mtime, size, plus the private parts file
-    for the default); every call returns its own copy."""
+def _shared_catalog(path: Path | str | None = None) -> Catalog:
+    """The cached catalog itself, no copy: read-only, for callers that return immutable values."""
     p = Path(path) if path is not None else _SEED_PATH
     private = Path.home() / ".lockwire" / "parts.yaml"
     key = ("catalog", _stamp(p), _stamp(private) if path is None else None)
-    return _cached(key, lambda: _load_catalog(path)).model_copy(deep=True)
+    return _cached(key, lambda: _load_catalog(path))
+
+
+def load_catalog(path: Path | str | None = None) -> Catalog:
+    """Parsed once per process per file state (path, mtime, size, plus the private parts file
+    for the default); every call returns its own copy."""
+    return _shared_catalog(path).model_copy(deep=True)
+
+
+def wire_ohm_per_m(awg) -> float | None:
+    """The catalog wire table's ohm per metre for ``awg``, or None (no table or no such row).
+    Reads the cached catalog without a copy; the result is a float, so nothing can be mutated."""
+    table = _shared_catalog().wire_table
+    return next((r.ohm_per_m for r in table.rows if r.awg == awg), None) if table else None
 
 
 def materials() -> list[schema.Material]:
@@ -702,3 +714,44 @@ def load_pinouts(folder: Path | str | None = None) -> list[PinoutCard]:
 def _load_pinouts(files: list[Path]) -> list[PinoutCard]:
     yaml = YAML(typ="safe")
     return [PinoutCard.model_validate(yaml.load(f.read_text(encoding="utf-8"))) for f in files]
+
+
+def listing(words: list[str], family: str | None = None) -> list[dict]:
+    """The rows `list_parts` (MCP) and `catalog-parts` (served) show: parts with their sourced
+    numbers, then stock shapes. ``words`` must all appear (lower case); ``family`` keeps parts of
+    that family and drops the stock shapes, which have none."""
+    parts: list[dict] = [
+        {
+            "id": p.id,
+            "name": p.name,
+            "kind": "part",
+            "label": p.label,
+            "numbers": {k: f"{n.value:g} {n.unit}" for k, n in p.numbers.items()},
+        }
+        for p in load_catalog().parts
+        if all(w in f"{p.id} {p.name} {p.family}".lower() for w in words)
+        and (family is None or family.lower() in p.family.lower())
+    ]
+    if family is not None:
+        return parts
+    solid = ("plate", "round_rod")  # mass follows a named dimension only here (edit._stock_link)
+    return parts + [
+        {
+            "id": r.id,
+            "name": r.name,
+            "kind": "stock",
+            "recipe": r.shape,
+            "dimensions": r.dimensions,
+            "named_dimensions": r.shape in solid,
+            "mass_basis": (
+                "derived from material density"
+                if r.shape in solid
+                else "maker's mass per metre"
+                if r.mass_from == "mass_per_length"
+                else "true cross-section x length x material density"
+            ),
+            "material_required": r.mass_from == "material",
+        }
+        for r in stock()
+        if all(w in f"{r.id} {r.name} {r.shape}".lower() for w in words)
+    ]

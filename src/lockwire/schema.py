@@ -1,4 +1,4 @@
-"""Contract schema v0.4 — the physics lockfile.
+"""Contract schema v0.4 - the physics lockfile.
 
 One YAML file, checked into the robot's repo, recording everything the software
 silently assumes about the physical system. Structure follows spec v3:
@@ -15,12 +15,12 @@ silently assumes about the physical system. Structure follows spec v3:
 Invariants enforced here rather than by convention:
 - every physical quantity is a Quantity{value, unit}; unknown units fail
   validation; frame-dependent quantities carry a frame
-- unknown keys are rejected (extra="forbid") — a typo is a violation, not a
+- unknown keys are rejected (extra="forbid") - a typo is a violation, not a
   silently ignored field
 - locked entries carry a Provenance block
 
 Cross-entry references use '/'-separated paths ("devices/<id>/physical/mass"),
-never dots — device ids themselves contain dots ("dev.imu").
+never dots - device ids themselves contain dots ("dev.imu").
 """
 
 import datetime as dt
@@ -36,7 +36,7 @@ from copy import deepcopy
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -203,7 +203,7 @@ GainQuantity = Annotated[Quantity, AfterValidator(_quantity_dimension("gain", "R
 DataRateQuantity = Annotated[
     Quantity, AfterValidator(_quantity_dimension("data_rate", "data-rate quantity"))
 ]
-# Carrier frequency uses the existing rate/Hz unit — the registry has no MHz spelling.
+# Carrier frequency uses the existing rate/Hz unit - the registry has no MHz spelling.
 FrequencyQuantity = Annotated[
     Quantity, AfterValidator(_quantity_dimension("rate", "carrier-frequency quantity"))
 ]
@@ -367,7 +367,7 @@ class ReviewNote(Base):
     """A reviewer's judgement of a declared value, written into the file.
 
     `state` is exactly one of these two words. The witness gate is the
-    *existing* `validate_witness` (edit.py) — imported lazily inside the
+    *existing* `validate_witness` (edit.py) - imported lazily inside the
     validator to avoid a module-level cycle (edit.py imports from schema.py).
     """
 
@@ -519,7 +519,7 @@ Dimension = float | str
 
 
 def _ref(name: str) -> str:
-    """PARAM-NEG: a dimension string "-name" is minus the param ``name``."""
+    """A negated param: a dimension string "-name" is minus the param ``name``."""
     return name.removeprefix("-")
 
 
@@ -641,11 +641,18 @@ class Link(Base):
     # tolerance group: optional and additive; None so old files save unchanged.
     mass_kind: MassKind | None = None  # absent reads as "estimated" (effective_mass_kind)
     mass_override: MassQuantity | None = None
+    # Optional and additive: the band a weighed or supplier mass is known to; None = exact.
+    mass_tolerance: "Tolerance | None" = None
     material: Material | None = None
     # shape group: optional and additive; the structure hash reads link names only.
     geometry: list[Shape] | None = None
     collision: list[Shape] | None = None
     _derived: set[str] = PrivateAttr(default_factory=set)  # mass/com derived, never saved
+
+    @model_validator(mode="after")
+    def _mass_band(self) -> "Link":
+        _check_mass_tolerance(self.mass, self.mass_tolerance)
+        return self
 
     @property
     def effective_mass_kind(self) -> MassKind:
@@ -756,6 +763,9 @@ class MeshRef(Base):
     scale: str = "1 1 1"
 
 
+AssetRoot = Literal["package", "workspace"]
+
+
 class ModelRecord(Base):
     source: str  # the model file path, or "lockfile" when links/joints live only here
     source_sha256: str
@@ -765,6 +775,10 @@ class ModelRecord(Base):
     # Exact bytes for external URDF/SDF mesh files, relative to the contract.
     # A selected model with mesh geometry refuses an undeclared or changed file.
     external_assets: list[ArtifactRef] = []
+    # Optional and additive, so SCHEMA_VERSION does not move and every older lock loads unchanged:
+    # what `external_assets` paths are relative to. None means "package" (the robot's package
+    # folder); "workspace" is that folder's parent, written when a mesh sits in a sibling package.
+    asset_root: AssetRoot | None = None
     # None: written before mesh refs were recorded, so a scale or file edit is not compared.
     mesh_refs: list[MeshRef] | None = None
     links: list[Link] = []
@@ -772,6 +786,8 @@ class ModelRecord(Base):
     zero_mass_links: list[str] = []
     provenance: Provenance | None = None  # None: an anonymous edit (0.7 and later only)
     _zero_raw: list[str] | None = PrivateAttr(default=None)  # the stored list
+    # The lock file this model was loaded from. In memory only: never saved, validated or compared.
+    _lockfile: ClassVar[Path | None] = None
 
     @model_validator(mode="after")
     def _unique_names(self) -> "ModelRecord":
@@ -852,6 +868,22 @@ def tolerance_corners(
         low = value if tolerance.min is None else tolerance.min
         return low, value if tolerance.max is None else tolerance.max
     return value - spread, value + spread
+
+
+def _check_mass_tolerance(mass: Quantity | None, tol: "Tolerance | None") -> None:
+    """A mass band needs a mass, a mass-sized spread and no negative corner."""
+    if tol is None:
+        return
+    if mass is None:
+        raise ValueError("mass_tolerance needs a mass declared beside it")
+    if tol.abs is not None:
+        if tol.abs.dimension() != "mass" or tol.abs.value < 0:
+            raise ValueError(f"mass_tolerance abs must be a mass of 0 or more, got {tol.abs}")
+    elif tol.rel_pct is None and (tol.min or 0) < 0:
+        raise ValueError("mass_tolerance min must be 0 or more")
+
+
+Link.model_rebuild()
 
 
 class DependencyEdge(Base):
@@ -1012,7 +1044,7 @@ class ThermalLimit(Base):
     ``kind`` names the trip: ``throttle`` is the actionable gate; ``shutdown``
     is the hard stop and may appear as finding context, not the fire threshold.
     For Jetson Orin-class modules the published operand is the composite
-    T.SoC junction (equal-ratio CPU/GPU/SoC) — no discrete per-zone trip
+    T.SoC junction (equal-ratio CPU/GPU/SoC) - no discrete per-zone trip
     points are published. ``provenance`` is required: a limit without a named
     published source is a hand-typed guess.
     """
@@ -1027,7 +1059,7 @@ class Radio(Base):
     """Telemetry-radio datasheet facts consumed by the link-budget check.
 
     RX sensitivity is rate-dependent (e.g. RFD900x 10⁻⁵ BER table); ``air_rate``
-    binds the sensitivity figure — a sensitivity without its rate is meaningless.
+    binds the sensitivity figure - a sensitivity without its rate is meaningless.
     Carrier frequency is an instance/link-budget fact (selected channel), not a
     model default: an undeclared frequency is ``not_scored``, never an assumed
     mid-band channel.
@@ -1064,8 +1096,8 @@ class LinkBudget(Base):
     antenna emits ``not_scored`` rather than inventing a channel or gain.
 
     ``installation_loss`` is mandatory: real links carry
-    feedline, connector, and miscellaneous cable loss (typically 1–3 dB). A
-    silent default of zero would report an optimistic margin — the wrong
+    feedline, connector, and miscellaneous cable loss (typically 1-3 dB). A
+    silent default of zero would report an optimistic margin - the wrong
     direction on a check whose job is catching inadequate links. Omission
     fails validation; an author who knows their run has 3 dB of feedline
     loss declares it here.
@@ -1074,7 +1106,7 @@ class LinkBudget(Base):
     required_range: LengthQuantity
     fade_margin_required: GainQuantity  # dB
     fade_margin_required_enforced_by: DeclaredEnforcement | None = None
-    installation_loss: GainQuantity  # dB; feedline + connector + misc — no default
+    installation_loss: GainQuantity  # dB; feedline + connector + misc - no default
     carrier_frequency: FrequencyQuantity | None = None  # Hz; None -> not_scored
     tx_antenna: AntennaGain | None = None
     rx_antenna: AntennaGain | None = None
@@ -1112,7 +1144,7 @@ class DeviceModel(Base):
     """Shareable registry artifact: checks, limits, failure modes. Never local config.
 
     Invariant (day one, before any registry exists): model artifacts are
-    DECLARATIVE DATA — envelopes, limits, failure-mode strings. Never code,
+    DECLARATIVE DATA - envelopes, limits, failure-mode strings. Never code,
     templates-with-logic, or anything evaluated at check time. The checker is
     the only code that runs; a community-published model must not be able to
     execute anything on robot infrastructure.
@@ -1137,17 +1169,17 @@ IdentityStrength = Literal["instance", "model", "positional"]
 
 
 class DeviceIdentity(Base):
-    """Stable descriptors only — never port or enumeration order (spec: USB re-enum trap).
+    """Stable descriptors only - never port or enumeration order (spec: USB re-enum trap).
 
     `bus_ref` is consumed by reference integrity, bandwidth budgeting, and the
     bus identity-collision check.
 
-    Identity strength varies by bus — the gate must know how
+    Identity strength varies by bus - the gate must know how
     much "the same device is present" can mean here:
     - instance:   a per-unit id exists (DroneCAN 128-bit UID, GigE MAC, 1-Wire ROM,
                   a genuine USB iSerialNumber)
     - model:      only part-level descriptors (VID:PID, WHO_AM_I, CANopen vendor+product;
-                  USB clones ship duplicate serials — override to "model" if suspect)
+                  USB clones ship duplicate serials - override to "model" if suspect)
     - positional: identity is really wiring position (I2C address straps, mux channel)
     `strength` overrides; otherwise derived from which descriptors are present.
     """
@@ -1176,7 +1208,7 @@ class SignalSource(Base):
     `field` is a path into the message: `linear_acceleration.z`, `effort[0]`, or
     `position[name=knee_joint]` (index found in the sibling `name` array; see fieldpath.py).
 
-    **`unit` is required and never inferred** — type it. A `sensor_msgs/msg/Imu` linear acceleration is m/s² by REP 145
+    **`unit` is required and never inferred** - type it. A `sensor_msgs/msg/Imu` linear acceleration is m/s² by REP 145
     and could be derived from the message type, and that is exactly the shortcut
     this refuses: an inferred unit is a number nobody typed and nobody checked.
     Unit handling has already produced three defects. Adding
@@ -1243,7 +1275,7 @@ class Driver(Base):
     dds_deadline_s: float | None = None  # opt-in ROS 2 requested deadline, not packet loss
     payload_bytes: int | None = None  # bandwidth-budget summand
     # ROS 2 capture operands. Optional and read by nothing in the check
-    # path — `lockwire_ros`'s capture node is the only consumer, so a contract
+    # path - `lockwire_ros`'s capture node is the only consumer, so a contract
     # without them behaves exactly as it did before schema 0.3 gained them.
     # ULog could hardcode its topic->signal map (`ulog.py`) because PX4's
     # vocabulary is fixed; ROS 2 topics are named per robot, so the map has to
@@ -1345,6 +1377,12 @@ class Physical(Base):
     # tolerance group: optional and additive; None so old files save unchanged.
     mass_kind: MassKind | None = None  # absent reads as "estimated" (effective_mass_kind)
     mass_override: MassQuantity | None = None
+    mass_tolerance: Tolerance | None = None  # as on Link: the band the mass is known to
+
+    @model_validator(mode="after")
+    def _mass_band(self) -> "Physical":
+        _check_mass_tolerance(self.mass, self.mass_tolerance)
+        return self
 
     @property
     def effective_mass_kind(self) -> MassKind:
@@ -1440,7 +1478,7 @@ class SignalEnvelope(EnvelopeEvidence):
     variance_floor: float | None = None  # CUSUM reference value
     # Stage-3 one-shot floor (preflight ``sanity``): the capture's minimum
     # sliding-window population variance must be >= this value. Not the CUSUM
-    # reference — that is ``variance_floor`` (docs/stats_design.md);
+    # reference - that is ``variance_floor`` (docs/stats_design.md);
     # baseline/CUSUM must not read this field.
     oneshot_variance_min: float | None = None
 
@@ -1548,7 +1586,7 @@ class DeviceThermal(Base):
     from the contract author's datasheet; ``ambient`` is the declared
     operating air temperature. Declared per-device: it does not account for
     co-located dissipation, so a device packed beside hot neighbours can run
-    hotter than this figure implies. Either may be absent — the check emits
+    hotter than this figure implies. Either may be absent - the check emits
     ``not_scored`` naming the gap rather than guessing a resistance.
     """
 
@@ -1880,10 +1918,10 @@ class Wire(Base):
     """Power conductor; ampacity check compares published AWG limit to rail draw.
 
     ``installation`` is mandatory: free-air and enclosed ampacities differ
-    2–3× in published tables, so a silent default would report a confident wrong
+    2-3× in published tables, so a silent default would report a confident wrong
     answer. AWG is a gauge index (not a Quantity); ampacity current is the
     **worst** rolled-up rail watts across nominal and every declared device
-    ``PowerMode``, divided by rail volts — never a silently-defaulted single
+    ``PowerMode``, divided by rail volts - never a silently-defaulted single
     mode. ``draw_mode`` is retained for Budget-parity / explicit
     documentation but is not the ampacity selection path.
     """
@@ -2019,7 +2057,7 @@ class Budget(Base):
     rail: str | None = None  # rail_power only
     draw_mode: str = "nominal"  # named device-power override selected by power budget checks
     sources: Literal["devices", "links", "links+devices"] = "devices"  # mass_total: what to
-    # sum — explicit so double-counting a device that also appears in the URDF is a declared
+    # sum - explicit so double-counting a device that also appears in the URDF is a declared
     # choice, not an accident
     nominal: Quantity | None = None  # mass_total only: the datasheet mass the sum must match
     tolerance_pct: float | None = None  # with nominal; absent means exact
@@ -3865,7 +3903,7 @@ class Gearbox(Base):
     """A CAD-lite reduction stage between two recorded joints.
 
     Declarative data only, like `Budget`: `ratio` and the two joint references
-    are consumed by nothing yet — this is the record, not a torque-budget
+    are consumed by nothing yet - this is the record, not a torque-budget
     integration. `input_joint`/`output_joint` existence and any position in
     the link tree are `edit.add_entry`'s and `edit.reparent`'s job, not
     this model's; that keeps the reference check in one place.
@@ -4362,7 +4400,7 @@ class Contract(Base):
         if self.printed and legacy and not (info.context or {}).get("upgrading"):
             raise ValueError(
                 f"printed: needs lockfile format 0.6 or later (this file is "
-                f"{self.schema_version}); `lockwire upgrade` writes a 0.7 copy"
+                f"{self.schema_version}); 'lockwire upgrade' writes a 0.7 copy"
             )
         return self
 
@@ -4438,7 +4476,7 @@ class Contract(Base):
         if legacy and not upgrading and any(m.thrust_table for m in self.device_models):
             raise ValueError(
                 f"device_models thrust_table needs lockfile format 0.6 or later (this file is "
-                f"{self.schema_version}); `lockwire upgrade` writes a 0.7 copy"
+                f"{self.schema_version}); 'lockwire upgrade' writes a 0.7 copy"
             )
         return self
 
@@ -4697,17 +4735,17 @@ def _guard_contract_raw(path: Path) -> None:
 
     Byte-size is checked from ``Path.stat`` (no read) so a giant scalar never
     reaches ruamel's scanner. Anchors/aliases are refused after load by
-    ``_reject_yaml_anchors_aliases`` — the parser decides membership.
+    ``_reject_yaml_anchors_aliases`` - the parser decides membership.
     """
     size = path.stat().st_size
     if size > MAX_CONTRACT_BYTES:
-        raise ValueError(f"contract file exceeds size limit ({size} bytes > {MAX_CONTRACT_BYTES})")
+        raise ValueError(f"lockfile exceeds size limit ({size} bytes > {MAX_CONTRACT_BYTES})")
 
 
 class UnsupportedSchemaVersion(ValueError):
     """A contract declares a ``schema_version`` this lockwire cannot read.
 
-    Error path only — no schema *field* is added, moved or retyped by this
+    Error path only - no schema *field* is added, moved or retyped by this
     class (the schema freeze binds the fields, not the refusal a bad one raises).
     It subclasses ``ValueError`` so every existing ``except ValueError`` caller
     keeps working; the point of the type is that a door can recognise this one
@@ -4719,9 +4757,18 @@ class UnsupportedSchemaVersion(ValueError):
     def __init__(self, found: object, supported: frozenset[str]) -> None:
         self.found = found
         self.supported = ", ".join(sorted(supported))
-        super().__init__(
-            f"contract declares schema_version {found!r}; this lockwire supports {self.supported}"
-        )
+        message = f"lockfile declares schema_version {found!r}; this lockwire supports {self.supported}"
+        try:  # a file from a newer Lockwire: say what to do next
+            newer = max(map(_version_key, supported)) < _version_key(str(found))
+        except ValueError:
+            newer = False
+        if newer:
+            message += "; the file comes from a newer Lockwire: upgrade with pip install -U lockwire"
+        super().__init__(message)
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
 
 
 _PLAIN = {
@@ -4758,14 +4805,17 @@ _NOT_A_LOCKFILE = (
 
 class ContractError(ValueError):
     """A lockfile that failed validation: the user's mistake, not a lockwire bug. ``lines`` is
-    one ``<file>: <dotted.path>: <plain message>`` per error; ``main`` and the MCP tools print
-    them as they are (exit 2) instead of pydantic's dump."""
+    one ``<file>: <slash/path>: <plain message>`` (``<file>: <slash/path> is missing``) per
+    error; ``main`` and the MCP tools print them as they are (exit 2) instead of pydantic's dump."""
 
     def __init__(self, error: ValidationError, name: str) -> None:
         self.lines = []
         for e in error.errors():
             msg = plain_message(e)
-            where = ".".join(map(str, e["loc"]))
+            where = "/".join(map(str, e["loc"]))
+            if e["type"] == "missing" and where:
+                self.lines.append(f"{name}: {where} is missing")
+                continue
             self.lines.append(f"{name}: {where + ': ' if where else ''}{msg}")
         if any(e["type"] == "missing" for e in error.errors()):
             self.lines.append(
@@ -4777,7 +4827,11 @@ class ContractError(ValueError):
 
 def load_contract(path: Path) -> Contract:
     _guard_contract_raw(path)
-    return load_contract_bytes(path.read_bytes(), name=path.name)
+    contract = load_contract_bytes(path.read_bytes(), name=path.name)
+    if contract.model is not None:
+        # where a relative model source is read from, whatever the working directory
+        object.__setattr__(contract.model, "_lockfile", path.resolve())
+    return contract
 
 
 def load_contract_bytes(raw: bytes, *, upgrading: bool = False, name: str = "lockfile") -> Contract:
@@ -4786,7 +4840,7 @@ def load_contract_bytes(raw: bytes, *, upgrading: bool = False, name: str = "loc
 
     if len(raw) > MAX_CONTRACT_BYTES:
         raise ValueError(
-            f"contract file exceeds size limit ({len(raw)} bytes > {MAX_CONTRACT_BYTES})"
+            f"lockfile exceeds size limit ({len(raw)} bytes > {MAX_CONTRACT_BYTES})"
         )
     try:
         data = _load_yaml_guarded(_yaml(), StringIO(raw.decode("utf-8")))
@@ -4824,9 +4878,9 @@ def upgrade_contract_document(document: dict[str, Any]) -> dict[str, Any]:
     if declared not in SUPPORTED_SCHEMA_VERSIONS:
         raise UnsupportedSchemaVersion(declared, SUPPORTED_SCHEMA_VERSIONS)
     if declared in {"0.2", "0.3"} and ("structural" in proposed or "simulation" in proposed):
-        raise ValueError("legacy contract must not contain structural or simulation v1 sections")
+        raise ValueError("legacy lockfile must not contain structural or simulation v1 sections")
     if declared in {"0.2", "0.3"} and proposed.get("actuator_cases"):
-        raise ValueError("legacy contract must not contain actuator_cases")
+        raise ValueError("legacy lockfile must not contain actuator_cases")
     proposed["schema_version"] = SCHEMA_VERSION
     return proposed
 
@@ -4837,7 +4891,7 @@ def upgrade_contract_text(text: str) -> str:
     data = _load_yaml_guarded(_yaml(), StringIO(text))
     _reject_yaml_anchors_aliases(data)
     if not isinstance(data, dict):
-        raise ValueError("contract document must be a mapping")
+        raise ValueError("lockfile must be a mapping")
     proposed = upgrade_contract_document(data)
     if _declared_version(data) in {"0.5", "0.6"}:  # same shape, so edit the version line only
         edited, count = re.subn(

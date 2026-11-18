@@ -113,7 +113,7 @@ def test_x500_scored_floor_and_not_scored_set_after_b1_contract_growth():
             "devices/dev.companion.jetson-orin-nano/power/rail",
             "devices/dev.radio.rfd900x/power/rail",  # voltage compatibility, radio now on a modeled rail
             "devices/dev.radio.rfd900x/link_budget",  # no longer shares a key with the voltage-compat comparison above
-            "rails/rail.pixhawk-telem1-5v",  # new rail's voltage comparison vs its upstream
+            "topology/rails/rail.pixhawk-telem1-5v/voltage",  # new rail's voltage comparison vs its upstream
             "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/accel_x",
             "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/accel_y",
             "devices/dev.flight-controller.pixhawk-6c/envelopes/bench-idle/accel_z",
@@ -126,7 +126,7 @@ def test_x500_scored_floor_and_not_scored_set_after_b1_contract_growth():
     not_scored = {f.quantity for f in report if f.severity == "not_scored"}
     assert not_scored == {
         "model/structure_hash",  # no URDF provenance (pre-existing)
-        "topology/battery/chemistry",  # W2-8: one line asks for the pack chemistry
+        "topology/battery/chemistry",  # one line asks for the pack chemistry
         "model/sanity",  # the lock points at a .sdf, so the URDF sanity checks do not run
         "budgets/bud.mass.payload",  # unknown masses -> budget not scored
         "topology/buses/bus.i2c.external/bandwidth",  # Pixhawk 6C spec publishes no I2C rate

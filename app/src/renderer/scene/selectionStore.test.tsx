@@ -1,5 +1,5 @@
 /**
- * e2-ss — drives the pick through the real path as far as a headless test can: a `pointerdown`
+ * Drives the pick through the real path as far as a headless test can: a `pointerdown`
  * DOM event on the mounted `<Canvas>`, which raycasts (real `THREE.Raycaster`, pure geometry
  * math — needs no WebGL context, so jsdom is enough) against the real mounted meshes. Only the
  * renderer (no GL in jsdom) is stubbed, same idiom as `buildScene.test.ts`.
@@ -37,7 +37,7 @@ class StubResizeObserver {
 vi.stubGlobal("ResizeObserver", StubResizeObserver);
 
 // jsdom does not implement matchMedia; Canvas.tsx now also watches devicePixelRatio via a media
-// query (e2-sm/e2-f, landed after this box) — same mock idiom as App.test.tsx/CheckFace.test.tsx.
+// query — same mock idiom as App.test.tsx/CheckFace.test.tsx.
 window.matchMedia = vi.fn().mockImplementation((query: string) => ({
   matches: false,
   media: query,
@@ -65,7 +65,7 @@ function packIndicesU16(values: number[]) {
 // at (2,2,2) looking at (0,0,0)) but far from the screen edges — so the screen center hits it
 // and a corner pick does not.
 const PART_ID = "part-42";
-// e2-f3 (landed after this box) made Canvas.tsx's `lens` prop required and toggles
+// Canvas.tsx's `lens` prop is required and it toggles
 // `mesh.visible` by `ScenePart.lenses` membership. This test is about pick-to-part-id
 // resolution, not lenses, so the part carries the default "off" lens and Canvas is
 // mounted on "off" — every part stays visible exactly as it was before that prop

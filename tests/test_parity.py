@@ -35,7 +35,7 @@ for _names, _why in {
     "hw scan record-servos": "probes attached hardware",
     "diff blame log": "needs git history a robot-facing server does not own",
     "mcp serve": "launches a server itself",
-    "bench api-types api-schema import": "hidden developer or build-time command",
+    "bench api-types api-schema api-args-schema import": "hidden developer or build-time command",
 }.items():
     NAMED_GAPS |= {n.replace("~", " "): _why for n in _names.split()}
 

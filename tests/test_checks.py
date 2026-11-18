@@ -222,7 +222,7 @@ def test_voltage_compat_rejects_device_below_declared_input_range(clean_contract
         "rail 'rail.5v' supplies 5.20 V to device 'dev.imu'",
         "device model 'mdl.imu.bmi088' input range [7.00 V, 20.00 V]",
         "-1.80 V",
-        "shivansh",
+        "avery",
         (
             "rail rail.5v voltage: rail-regulator-datasheet.pdf; "
             "device model mdl.imu.bmi088 input range: device-datasheet.pdf"
@@ -331,7 +331,7 @@ def test_x500_corrected_variant_has_zero_findings_and_cited_bec_margin():
         f for f in findings if f.severity == "not_scored" and f.quantity == "model/structure_hash"
     ]
     assert len(urdf_gaps) == 1  # bites silent skip of Tier A without URDF provenance
-    assert urdf_gaps[0].observed == "no URDF provenance; structure drift not scored"
+    assert urdf_gaps[0].observed == "no model file in provenance; structure drift not scored"
     # the RFD900x declares a partial link_budget (mission range/fade
     # margin/installation-loss) and carrier_frequency
     # (declared band-centre 915 MHz, labelled assumption); the
@@ -625,6 +625,7 @@ def test_cg_articulation_is_explicit_and_clean_fixture_still_has_zero_findings(c
     cg = report.information[0]
     assert cg.complete is False  # bites silently choosing an undeclared joint configuration
     assert "configuration-dependent" in cg.limitation  # bites hiding why system CG is partial
+    assert cg.mass_limitation is None  # joints move the CG, not the total; describe must not say so
 
 
 def test_cg_renders_as_information_with_contributors(clean_contract, capsys):
@@ -650,7 +651,7 @@ def test_planted_rail_power_breach(clean_contract):
     assert len(findings) == 1  # bites duplicate findings for one direct rail overload
     f = findings[0]
     assert f.quantity == "budgets/bud.power.rail5v"  # bites checking the wrong budget
-    assert f.owner == "shivansh"  # bites dropping budget ownership from the finding
+    assert f.owner == "avery"  # bites dropping budget ownership from the finding
     assert "dev.radio.rfd900" in f.dependent  # bites losing the overload witness
     assert "rail.5v" in f.action  # bites an action that cannot identify the overloaded rail
 
@@ -711,7 +712,7 @@ def test_draw_mode_single_draw_finding_is_byte_identical(clean_contract):
         expected_quantity=Quantity(value=5.00, unit="W"),
         delta="+1.40 W (+28%)",
         dependent="dev.imu, dev.radio.rfd900",
-        owner="shivansh",
+        owner="avery",
         cluster_root="rail.5v",
         action="shed load on rail 'rail.5v' or raise its capacity with provenance",
         # the alternatives half of the advice sentence — no
@@ -1206,7 +1207,7 @@ def test_anymal_d_drives_joint_resolves(tmp_path):
         model=model,
         devices=[
             DeviceInstance(
-                id="dev.lf_hip", model="mdl.actuator", drives_joint="LF_HAA", owner="shivansh"
+                id="dev.lf_hip", model="mdl.actuator", drives_joint="LF_HAA", owner="avery"
             )
         ],
     )
@@ -1300,7 +1301,7 @@ def test_ampacity_not_scored_on_nonpositive_rail_voltage(clean_contract):
             awg=16,
             installation="free_air",
             rail="rail.5v",
-            owner="shivansh",
+            owner="avery",
         )
     )
 
@@ -1524,7 +1525,7 @@ def test_ampacity_with_unknown_consumer_draw_is_not_scored(clean_contract):
     imu = clean_contract.device("dev.imu")
     imu.power.draw = None
     clean_contract.topology.wires.append(
-        Wire(id="wire.rail.5v", awg=16, installation="free_air", rail="rail.5v", owner="shivansh")
+        Wire(id="wire.rail.5v", awg=16, installation="free_air", rail="rail.5v", owner="avery")
     )
 
     findings = check_ampacity(clean_contract)
@@ -1786,7 +1787,7 @@ def test_clean_contract_with_adequately_gauged_wire_stays_zero(clean_contract):
             awg=16,
             installation="free_air",
             rail="rail.5v",
-            owner="shivansh",
+            owner="avery",
         )
     )
     _assert_clean_baseline(
@@ -1808,7 +1809,7 @@ def test_planted_undersized_wire_ampacity_fires(clean_contract):
             awg=16,
             installation="free_air",
             rail="rail.5v",
-            owner="shivansh",
+            owner="avery",
         )
     )
 
@@ -1831,7 +1832,7 @@ def _ampacity_on_5v(contract, awg, watts):
     contract.device("dev.imu").power.draw = Quantity(value=0.0, unit="W")
     contract.device("dev.radio.rfd900").power.draw = Quantity(value=watts, unit="W")
     contract.topology.wires.append(
-        Wire(id="wire.rail.5v", awg=awg, installation="free_air", rail="rail.5v", owner="shivansh")
+        Wire(id="wire.rail.5v", awg=awg, installation="free_air", rail="rail.5v", owner="avery")
     )
     return check_ampacity(contract)
 
@@ -1848,10 +1849,10 @@ def test_ampacity_chassis_column_scores_22_awg_under_limit(clean_contract):
     clean_contract.device("dev.imu").power.draw = Quantity(value=0.0, unit="W")
     clean_contract.device("dev.radio.rfd900").power.draw = Quantity(value=32.5, unit="W")
     clean_contract.topology.wires.append(
-        Wire(id="wire.rail.5v", awg=22, installation="free_air", rail="rail.5v", owner="shivansh")
+        Wire(id="wire.rail.5v", awg=22, installation="free_air", rail="rail.5v", owner="avery")
     )
     assert check_ampacity(clean_contract, scores=scores) == []  # 6.5 A under 7 A
-    assert "wires/wire.rail.5v" in scores._keys
+    assert "topology/wires/wire.rail.5v/ampacity" in scores._keys
 
 
 def test_ampacity_gauge_in_neither_table_is_not_scored_in_plain_words(clean_contract):
@@ -1882,7 +1883,7 @@ def test_ampacity_evaluates_worst_declared_mode_not_defaulted_nominal(clean_cont
         awg=16,
         installation="free_air",
         rail="rail.5v",
-        owner="shivansh",
+        owner="avery",
     )
     assert wire.draw_mode == "nominal"  # the silent default under test
     clean_contract.topology.wires.append(wire)
@@ -1913,7 +1914,7 @@ def test_planted_enclosed_wire_uses_published_enclosed_ampacity(clean_contract):
             awg=16,
             installation="enclosed",
             rail="rail.5v",
-            owner="shivansh",
+            owner="avery",
         )
     )
 
@@ -1937,7 +1938,7 @@ def test_unlisted_gauge_emits_not_scored(clean_contract):
             awg=40,
             installation="free_air",
             rail="rail.5v",
-            owner="shivansh",
+            owner="avery",
         )
     )
 
@@ -1958,7 +1959,7 @@ def test_planted_dangling_wire_rail_ref(clean_contract):
             awg=16,
             installation="free_air",
             rail="rail.ghost",
-            owner="shivansh",
+            owner="avery",
         )
     )
 
@@ -2014,7 +2015,7 @@ def test_urdf_drift_web_link_says_web_link(testbot_urdf):
     findings = check_urdf_drift(Contract(robot=RobotInfo(name="testbot"), model=model))
     assert [f.severity for f in findings] == ["not_scored"]
     assert "web link" in findings[0].observed  # bites the relative-path wording
-    assert "download the URDF" in findings[0].action  # bites 'restore' advice for a link
+    assert "download the model file" in findings[0].action  # bites 'restore' advice for a link
 
 
 def test_urdf_drift_matching_urdf_is_silent(tmp_path, testbot_urdf):
@@ -2130,7 +2131,7 @@ def test_urdf_drift_no_urdf_provenance_is_not_scored(clean_contract):
     findings = check_urdf_drift(clean_contract)
     assert len(findings) == 1
     assert findings[0].severity == "not_scored"  # bites silent skip on Tier A without a URDF
-    assert findings[0].observed == "no URDF provenance; structure drift not scored"
+    assert findings[0].observed == "no model file in provenance; structure drift not scored"
     assert _violations(findings) == []
 
 
@@ -2640,8 +2641,8 @@ _CLEAN_SCORED_KEYS = frozenset(
         "devices/dev.imu/drives_joint",
         "devices/dev.imu/envelopes/nominal-op/accel_z",
         "devices/dev.imu/envelopes/bench-idle/accel_z",
-        "rails/rail.5v",
-        "rails/rail.22v",
+        "topology/rails/rail.5v/voltage",
+        "topology/rails/rail.22v/voltage",
         "budgets/bud.power.rail5v",
         "budgets/bud.endurance",
         "buses/bus.usb0",
@@ -2674,7 +2675,7 @@ def test_empty_model_does_not_claim_records_agree():
     assert exit_code == 3
     assert "records agree" not in text
     assert "nothing compared" in text
-    assert EMPTY_SCORE_OBSERVED in " ".join(text.split())
+    assert "nothing was scored: no check had both of its numbers declared yet" in " ".join(text.split())
 
 
 def test_owner_model_only_device_is_nothing_scored():
@@ -2682,7 +2683,7 @@ def test_owner_model_only_device_is_nothing_scored():
 
     ``check_device_owners`` and model FK resolution run, but neither compares two
     independent populated operands. Counting ``len(devices)`` would claim
-    ``records agree (1 scored)`` — the defect this bounce closes.
+    ``records agree (1 scored)`` — the defect this test closes.
     """
     contract = load_contract(Path(__file__).parent / "fixtures" / "contract_owner_only.yaml")
     findings = run_record_checks(contract)
@@ -2714,7 +2715,7 @@ def test_clean_scored_denominator_is_comparisons_not_declarations(clean_contract
     assert findings.scored == len(_CLEAN_SCORED_KEYS) == 9
     assert count_scored_comparisons(clean_contract) == 9
 
-    # Declarations that must NOT inflate the count (the bounce's constructed case
+    # Declarations that must NOT inflate the count (the constructed case
     # living inside the clean fixture).
     for absent in (
         "devices/dev.gnss",
@@ -2874,11 +2875,11 @@ def test_ampacity_without_witnesses_is_not_scored(clean_contract):
             awg=16,
             installation="free_air",
             rail="rail.5v",
-            owner="shivansh",
+            owner="avery",
         )
     )
     r = run_record_checks(clean_contract)
-    assert "wires/wire.rail.5v.empty" not in (r.scored_keys or frozenset())
+    assert "topology/wires/wire.rail.5v.empty/ampacity" not in (r.scored_keys or frozenset())
 
 
 def test_ampacity_with_witnesses_is_scored(clean_contract):
@@ -2889,11 +2890,11 @@ def test_ampacity_with_witnesses_is_scored(clean_contract):
             awg=16,
             installation="free_air",
             rail="rail.5v",
-            owner="shivansh",
+            owner="avery",
         )
     )
     r = run_record_checks(clean_contract)
-    assert "wires/wire.rail.5v" in (r.scored_keys or frozenset())
+    assert "topology/wires/wire.rail.5v/ampacity" in (r.scored_keys or frozenset())
 
 
 # --------------------------------------------------------------- presence floor, part 4
@@ -2955,10 +2956,10 @@ def test_zero_draw_witnesses_do_not_score_ampacity(clean_contract):
             awg=16,
             installation="free_air",
             rail="rail.5v",
-            owner="shivansh",
+            owner="avery",
         )
     )
-    assert "wires/wire.rail.5v" in (run_record_checks(clean_contract).scored_keys or frozenset()), (
+    assert "topology/wires/wire.rail.5v/ampacity" in (run_record_checks(clean_contract).scored_keys or frozenset()), (
         "honest path must score before the mutation, or this test proves nothing"
     )
 
@@ -2992,7 +2993,7 @@ def test_zero_rate_traffic_does_not_score_bus_bandwidth(clean_contract):
     A device declaring ``nominal_rate_hz = 0`` is a contributor carrying nothing:
     0 bps against the utilisation ceiling passes for no reason. The cycle-3
     review graded this site "soft" rather than a defect; it is the same shape as
-    the three it bounced.
+    the three defects it found.
     """
     assert "buses/bus.usb0" in (run_record_checks(clean_contract).scored_keys or frozenset()), (
         "honest path must score first, or this test proves nothing"
@@ -3548,6 +3549,50 @@ def test_gravity_reach_fires_below_and_is_silent_above(clean_contract):
     assert check_gravity_reach(_reach_contract(clean_contract, 30.0)) == []
 
 
+def _noted(contract, **payloads):
+    from lockwire.checks import check_gravity_reach
+
+    for link in contract.model.links:
+        if link.name in payloads:
+            link.payload = Quantity(value=payloads[link.name], unit="kg")
+    scores = _ScoreBook()
+    check_gravity_reach(contract, scores=scores)
+    scores.payload_notes()
+    return scores.notes
+
+
+_HELD = "Note: No joint's holding torque carries the 2 kg payload on base"
+
+
+def test_a_payload_on_a_held_body_is_noted_and_one_on_a_moving_link_is_not(clean_contract):
+    from tests.test_statics import chain1
+
+    clean_contract.model = chain1()
+    assert _noted(clean_contract, base=2.0) == [_HELD + ", so no joint torque changes."]
+    clean_contract.model = chain1()
+    assert _noted(clean_contract, l=2.0) == []
+
+
+def test_two_payloads_one_held_and_one_moving_note_only_the_held_one(clean_contract):
+    from tests.test_statics import chain1
+
+    clean_contract.model = chain1()
+    assert _noted(clean_contract, base=2.0, l=1.0) == [_HELD + ", so no joint torque changes."]
+
+
+def test_a_held_payload_on_a_legged_robot_is_counted_in_the_standing_loads(tmp_path):
+    from lockwire.checks import run_record_checks
+    from tests.test_standing import _open_quadruped
+
+    contract, where = _open_quadruped(tmp_path)
+    plain = run_record_checks(contract, contract_path=where)
+    next(k for k in contract.model.links if k.name == "base").payload = Quantity(value=2.0, unit="kg")
+    loaded = run_record_checks(contract, contract_path=where)
+    assert plain.notes == []
+    assert loaded.notes == [_HELD + "; it is counted in the standing loads."]
+    assert loaded.standing["rows"] != plain.standing["rows"]
+
+
 _FOURBAR = "fixtures/fourbar_world/lockwire.yaml"
 
 
@@ -3660,7 +3705,7 @@ def test_gravity_reach_passed_entry_is_one_line_and_detail_keeps_the_pose(clean_
     check_gravity_reach(clean_contract, scores=scores)
     (record,) = scores.records
     assert _scored_title(clean_contract, record) == (
-        "j: 4.91 N*m of 9.00 N*m joint effort limit — 4.09 N*m headroom"
+        "j: 4.91 N*m of 9.00 N*m joint effort limit, 4.09 N*m headroom"
     )
     assert "peak over its own range" in record.detail
 
@@ -4262,7 +4307,7 @@ def test_check_pack_1_model_mistakes(urdf, quantity, severity, monkeypatch):
 
 def test_sdf_closed_loop_is_no_fault_and_its_hips_are_scored_through_the_loop(monkeypatch):
     """SDF allows a closed loop: no finding for the loop itself, the hips inside it are scored
-    with the loop solved (owner 2026-11-13: "Yes, build it here"), the open tail scores as before,
+    with the loop solved, the open tail scores as before,
     and a lock with no model file beside it says the loop is not scored instead of guessing."""
     from lockwire.sdf import parse_sdf
 
@@ -4277,7 +4322,7 @@ def test_sdf_closed_loop_is_no_fault_and_its_hips_are_scored_through_the_loop(mo
     assert got["model/joints/tail/limits/effort"].severity == "violation"
     par = Contract(robot=RobotInfo(name="p"), model=parse_sdf(Path("fourbar_par.sdf")))
     seen = {f.quantity: f.observed for f in run_record_checks(par, contract_path=Path("x.yaml"))}
-    assert "peak is over those only" in seen["model/joints/drive/limits/effort"]  # crosses flat
+    assert "found by refining the coarse grid" in seen["model/joints/drive/limits/effort"]  # crosses flat
     bare = {
         f.quantity: f.severity for f in run_record_checks(contract)
     }  # no file to read pins from
@@ -4679,7 +4724,9 @@ def test_unrecorded_meshes_are_not_compared_not_silent(tmp_path):
     urdf.write_text(_MESH_URDF)  # package://pkg does not resolve: bytes not pinned
     start_contract(urdf, out=lock)
     (finding,) = check_mesh_drift(contract := load_contract(lock), contract_path=lock)
-    assert finding.severity == "not_scored" and finding.observed.startswith("1 mesh files")
+    # where the file is goes in the action: the stored observed names no file
+    assert finding.severity == "not_scored" and finding.observed.startswith("1 mesh file was not inside")
+    assert "outside the robot's package folder" in finding.action
     contract.model.mesh_refs = None  # a lock written before mesh refs were recorded
     (finding,) = check_mesh_drift(contract, contract_path=lock)
     assert finding.severity == "not_scored" and "predates" in finding.observed
@@ -4847,8 +4894,9 @@ def test_engine_registry_runs_present_module_skips_absent_and_propagates_other_e
         raise ModuleNotFoundError("other", name="somewhere_else")
 
     monkeypatch.setattr(checks.importlib, "import_module", boom)
-    with pytest.raises(ModuleNotFoundError):
+    with pytest.raises(checks.CheckCrashed) as crashed:  # still not swallowed: a crash, not a skip
         checks.run_record_checks(clean_contract)
+    assert isinstance(crashed.value.__cause__, ModuleNotFoundError)
 
 
 def test_engine_registry_hands_plan_only_to_functions_that_take_it(clean_contract, monkeypatch):
@@ -5256,6 +5304,19 @@ def test_brownout_all_stall_drop_to_4_3_v_is_no_go_and_exits_1(tmp_path):
     assert CliRunner().invoke(app, ["check", str(path)]).exit_code == 1
 
 
+def test_brownout_check_loads_the_catalog_once_not_per_wire_drop(tmp_path, monkeypatch):
+    """The brown-out search calls wire_drop_v many times; each used to deep-copy the catalog."""
+    from lockwire import checks
+    from lockwire.schema import load_contract
+
+    calls = []
+    real = checks.load_catalog
+    monkeypatch.setattr(checks, "load_catalog", lambda *a, **k: calls.append(1) or real(*a, **k))
+    check_servo_brownout = checks.check_servo_brownout
+    assert check_servo_brownout(load_contract(_brownout_lock(tmp_path)))
+    assert len(calls) <= 2  # measured: 1 after the fix, 41 before
+
+
 def test_brownout_rail_with_margin_is_go_and_exits_0(tmp_path):
     from typer.testing import CliRunner
 
@@ -5321,7 +5382,7 @@ def test_webots_file_gets_the_same_model_checks_as_its_urdf_twin(name):
 
 
 def test_webots_zero_mass_moving_link_gets_the_urdf_finding():
-    assert "model/links/upper/mass — observed zero or missing mass" in _check_output("zero_mass", "wbt")  # fmt: skip
+    assert "model/links/upper/mass: observed zero or missing mass" in _check_output("zero_mass", "wbt")  # fmt: skip
 
 
 # ---------------------------------------------------------------- rail source rules
@@ -5713,7 +5774,7 @@ def test_paid_modes_empty_slot_changes_nothing(clean_contract, monkeypatch):
 
 
 def test_mjcf_export_scores_the_same_checks_and_exit_as_its_urdf(tmp_path):
-    """Effort lives in the MJCF <actuator>; the gravity checks must still score it (lane D gap)."""
+    """Effort lives in the MJCF <actuator>; the gravity checks must still score it (a gap found in the MJCF path)."""
     from typer.testing import CliRunner
 
     from lockwire.cli import app
@@ -6350,3 +6411,164 @@ def test_urdf_loop_keeps_gravity_reach_scored(monkeypatch):
     run = run_record_checks(contract, contract_path=Path("lockwire.yaml"))
     assert run.scored == 4
     assert "model/joints/limits/effort" not in {f.quantity for f in run}
+
+
+def test_passive_loop_pin_with_zero_effort_gets_no_datasheet_advice(tmp_path):
+    from lockwire.sdf import parse_sdf
+
+    text = (Path(__file__).parent / "fixtures" / "fivebar.sdf").read_text()
+    zero = "<effort>0</effort><velocity>20</velocity>"
+    text = text.replace("<velocity>20</velocity>", zero)  # a real robot writes 0 on a passive pin
+
+    def run(sdf):
+        (tmp_path / "f.sdf").write_text(sdf)
+        model = parse_sdf(tmp_path / "f.sdf")
+        return run_record_checks(
+            Contract(robot=RobotInfo(name="p"), model=model), contract_path=tmp_path / "l.yaml"
+        )
+
+    got = {f.quantity for f in run(text)}
+    assert not any(f"model/joints/{p}/limits/effort" in got for p in ("link", "knee", "closure"))
+    one = text.replace(zero, "<effort>1</effort><velocity>20</velocity>", 1)
+    said = " ".join(f.observed for f in run(one))
+    assert "give a passive pin an effort limit of 0" in said
+
+
+def test_closed_loop_names_the_grid_poses_it_could_not_score(tmp_path):
+    """fivebar_wide.sdf: hips on a 7 x 7 grid of +/-1.5 rad (steps of 0.5), tips 0.06 m off-centre
+    each side, bars 0.13 and 0.10, so the loop closes while the tips are 0.03..0.23 m apart. By hand
+    the tips are 0.0149/0.0251/0.0156/0.0149 m apart at (a,b) = (1,-1.5), (1,-1), (1.5,-1.5),
+    (1.5,-1): cannot be assembled; at (0.5,-1.5) and (1.5,-0.5) they are 0.0338 m, 12% over the closing
+    limit: near lock. The other 43 poses solve."""
+    from lockwire.report import unsolved_line
+    from lockwire.sdf import parse_sdf
+
+    def tips(a, b):  # hip at +/-0.03, crank (0.03, -0.04) turned about +Y by its angle
+        r = (
+            0.03 + 0.03 * math.cos(a) - 0.04 * math.sin(a),
+            -0.03 * math.sin(a) - 0.04 * math.cos(a),
+        )
+        s = (
+            -0.03 - 0.03 * math.cos(b) - 0.04 * math.sin(b),
+            0.03 * math.sin(b) - 0.04 * math.cos(b),
+        )
+        return math.dist(r, s)
+
+    grid = [-1.5 + 0.5 * i for i in range(7)]
+    out = {(a, b) for a in grid for b in grid if not 0.03 <= tips(a, b) <= 0.23}
+    assert out == {(1.0, -1.5), (1.0, -1.0), (1.5, -1.5), (1.5, -1.0)}  # the hand list
+    near = {(0.5, -1.5), (1.5, -0.5)}
+    true = {k: "cannot be assembled" for k in out} | {k: "near lock" for k in near}  # D by hand
+    sdf = (Path(__file__).parent / "fixtures/fivebar_wide.sdf").read_text()
+    for text, passed in ((sdf, True), (sdf.replace("<effort>5<", "<effort>0.1<"), False)):
+        (tmp_path / "w.sdf").write_text(text)
+        run = run_record_checks(
+            Contract(robot=RobotInfo(name="p"), model=parse_sdf(tmp_path / "w.sdf")),
+            contract_path=tmp_path / "lockwire.yaml",
+        )
+        got = run.scored_records if passed else [f for f in run if f.severity == "violation"]
+        assert len(got) == 2 and got[0].unsolved_poses == got[1].unsolved_poses
+        poses = got[0].unsolved_poses
+        by = {
+            tuple(round(math.radians(v), 6) for v in p.angles_deg.values()): p.reason for p in poses
+        }
+        assert by == true
+        line = unsolved_line(poses)
+        assert line.startswith("not solved: near lock at a=+29, b=-86; a=+86, b=-29 (2 poses) · ")
+
+
+@pytest.mark.parametrize(
+    "a, off, lim, want",
+    [
+        ([[1, 1], [1, 1]], [0, 1], None, "cannot be assembled"),  # x0 + x1 = 0 and = -1
+        ([[1, 1], [1, 1.01]], [0, 0], None, "near lock"),  # closes at 0, pin Jacobian near singular
+        ([[1, 0], [0, 1]], [0, 0], None, "reached only through a lock"),  # closes, square pulls
+        ([[1, 0], [0, 1]], [0, 0], (2.0, 3.0), "pin limit"),  # closes at 0, outside the pins' range
+    ],
+)
+def test_loop_pose_reason_comes_from_a_direct_closure_attempt(a, off, lim, want):
+    """The classifier alone, on a stubbed linear pin gap a @ x + off."""
+    from types import SimpleNamespace as NS
+
+    import numpy as np
+
+    from lockwire import statics
+
+    a, off = np.array(a, dtype=float), np.array(off, dtype=float)
+    limits = NS(lower=lim[0], upper=lim[1]) if lim else None
+    loop = ([NS()], [NS(limits=limits)] * 2, [])
+    g = lambda q: q[:, 1:] @ a.T + off  # noqa: E731
+    j = lambda q, c: np.tile(a, (len(q), 1, 1))  # noqa: E731
+    assert statics._why(None, loop, np.zeros((1, 1)), np.zeros((1, 2)), g, j) == [want]
+
+
+def test_text_output_shows_a_path_inside_the_current_folder_as_relative(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    inside, outside = str(tmp_path / "robots" / "a.urdf"), "/elsewhere/b.urdf"
+    for src, shown in ((inside, "robots/a.urdf"), (outside, outside)):
+        finding = Finding(
+            severity="violation", quantity="q", observed="o", expected="e", action="a",
+            source=src, next_command=f"lockwire start {src}",
+        )  # fmt: skip
+        text = _plain_render([finding])[1]
+        assert f"source: {shown}\n" in text and f"run: lockwire start {shown}" in text
+        assert str(tmp_path) not in text
+
+
+def test_model_outside_the_lock_folder_gets_one_note_and_no_finding(tmp_path):
+    from typer.testing import CliRunner
+    from lockwire.cli import app
+
+    for sub in ("outside", "proj/sub"):
+        (tmp_path / sub).mkdir(parents=True)
+        shutil.copy(Path(__file__).parent / "fixtures/gripper_mimic.urdf", tmp_path / sub / "r.urdf")
+    note = "Note: this lock reads its model from outside its folder ("
+    for name, sub, rec in (("out", "outside", "../outside/r.urdf"), ("in", "proj/sub", None),
+                           ("abs", "outside", f"{tmp_path}/outside/r.urdf")):  # fmt: skip
+        lock = tmp_path / "proj" / f"{name}.yaml"
+        CliRunner().invoke(app, ["start", str(tmp_path / sub / "r.urdf"), "--out", str(lock)])
+        if name == "abs":
+            lock.write_text(lock.read_text().replace("../outside/r.urdf", rec))
+        run = CliRunner().invoke(app, ["check", str(lock)])
+        assert run.exit_code == 0 and run.output.count(note + (rec or "")) == (rec is not None)
+        assert "copy the model next to the lock" in run.output or rec is None
+
+
+def test_outside_note_follows_the_real_location_of_the_model(tmp_path):
+    from typer.testing import CliRunner
+    from lockwire.cli import app
+
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "proj/sub").mkdir(parents=True)
+    src = Path(__file__).parent / "fixtures/gripper_mimic.urdf"
+    for sub in ("outside", "proj/sub"):
+        shutil.copy(src, tmp_path / sub / "r.urdf")
+    (tmp_path / "proj/out.urdf").symlink_to(tmp_path / "outside/r.urdf")
+    (tmp_path / "proj/in.urdf").symlink_to(tmp_path / "proj/sub/r.urdf")
+    (tmp_path / "via").symlink_to(tmp_path / "proj")
+    real = str(tmp_path / "proj/sub/r.urdf")
+    for folder, model, noted in (("proj", "out.urdf", 1), ("proj", "in.urdf", 0),
+                                 ("via", "sub/r.urdf", 0)):  # fmt: skip
+        lock = tmp_path / folder / f"{model[:3]}.yaml"
+        CliRunner().invoke(app, ["start", real, "--out", str(lock)])
+        lock.write_text(lock.read_text().replace(real, model).replace("sub/r.urdf", model))
+        run = CliRunner().invoke(app, ["check", str(lock)])
+        assert run.exit_code == 0 and run.output.count("reads its model from outside") == noted
+
+
+def test_example_lines_name_the_axis_units_and_where_ambient_goes(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from lockwire.cli import app
+
+    run = CliRunner().invoke
+    monkeypatch.chdir(tmp_path)
+    run(app, ["start", "--example", "drone", "--no-check"])
+    out = run(app, ["check", "--all"]).output
+    assert "accel_x: [-0.1961, 0.1961] m/s^2 within the hard limit [-156.9, 156.9] m/s^2" in out
+    assert "of inside" not in out
+    run(app, ["start", "--example", "arm-power", "--no-check", "--out", "ap.yaml"])
+    out = " ".join(run(app, ["check", "ap.yaml", "--all"]).output.split())
+    assert "ambient temperature (the robot, declared on any one device)" in out
+    assert "How: lockwire declare ap.yaml devices/dev.servo.shoulder/thermal/ambient" in out
+    assert out.count("lockwire declare ap.yaml devices/dev.servo.shoulder/thermal/ambient") == 1  # printed once

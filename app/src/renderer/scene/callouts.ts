@@ -1,7 +1,7 @@
-// Callout layer mechanics (plan v8 line 547): project a 3D anchor to screen
+// Callout layer mechanics project a 3D anchor to screen
 // space and write `translate3d(...)` onto a FIXED POOL of divs, never through
 // React state (a `useState` in the per-frame callback is the mistake v8 names
-// outright — it re-renders the whole panel 60x/sec).
+// outright: it re-renders the whole panel 60x/sec).
 //
 // This file does not know a source line or run: `SceneLabel` carries only a
 // payload part id and label fields. `onLabelClick` therefore passes that id
@@ -10,13 +10,13 @@
 
 import * as THREE from "three";
 
-/** the five kinds, mirrored from `api_payload.NumberKind` — read here, not
+/** the five kinds, mirrored from `api_payload.NumberKind`: read here, not
  * re-declared as a source of truth; this file only asks "declared or not". */
 export type LabelKind = "declared" | "measured" | "derived" | "catalog" | "projected";
 
 /** a `declared` figure is drawn in the declared style; every other kind
- * (measured/derived/catalog/projected) is drawn as derived — a value this box
- * did not itself declare must never look identical to one that was. */
+ * (measured/derived/catalog/projected) is drawn as derived: a value the person
+ * did not themselves declare must never look identical to one that was. */
 export function labelStyle(kind: LabelKind | null | undefined): "declared" | "derived" {
   return kind === "declared" ? "declared" : "derived";
 }
@@ -24,7 +24,7 @@ export function labelStyle(kind: LabelKind | null | undefined): "declared" | "de
 export interface ScreenAnchor {
   x: number;
   y: number;
-  /** Anchor is behind the camera — caller should not draw this callout at all. */
+  /** Anchor is behind the camera: caller should not draw this callout at all. */
   behindCamera: boolean;
 }
 
@@ -50,7 +50,7 @@ export interface CalloutPoolEntry {
   id: string | null;
 }
 
-/** Creates the fixed pool once. Never call this per frame — the whole point
+/** Creates the fixed pool once. Never call this per frame: the whole point
  * of a pool is that no div is created or removed after this. */
 export function createCalloutPool(size: number, container: HTMLElement): CalloutPoolEntry[] {
   const pool: CalloutPoolEntry[] = [];
@@ -83,7 +83,7 @@ export interface PlacedCallout {
 }
 
 /** THE animation-frame callback's body: writes `translate3d` directly onto the
- * already-created pool elements. No `setState`, no new/removed DOM nodes —
+ * already-created pool elements. No `setState`, no new/removed DOM nodes:
  * every slot beyond `placed.length` is just hidden, and slot i always reuses
  * the same `HTMLDivElement` it was given at pool-creation time. */
 export function updateCalloutPositions(pool: readonly CalloutPoolEntry[], placed: readonly PlacedCallout[]): void {

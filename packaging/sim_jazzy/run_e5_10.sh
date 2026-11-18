@@ -7,11 +7,11 @@
 #   /out  a writable bind mount for traces and JSON verdicts
 #
 # Produces in /out: network.json, assets_verify.json,
-# x500_idle_pose.jsonl (E5.9 no-motion), x500_thrust_pose.jsonl,
-# anymal_joint_states.raw, anymal_controller_state.raw (E5.10 motion).
+# x500_idle_pose.jsonl (no motion), x500_thrust_pose.jsonl,
+# anymal_joint_states.raw, anymal_controller_state.raw (motion).
 set -euo pipefail
 
-test -r /opt/ros/jazzy/setup.bash || { echo "run_e5_10: Jazzy ROS setup missing" >&2; exit 78; }
+test -r /opt/ros/jazzy/setup.bash || { echo "sim run: the Jazzy ROS setup is missing from this image; rebuild it from packaging/sim_jazzy/Dockerfile" >&2; exit 78; }
 set +u
 source /opt/ros/jazzy/setup.bash
 set -u

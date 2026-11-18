@@ -41,7 +41,7 @@ Then ask the agent: "Check my robot's lockwire.yaml and explain the NO-GO."
 - **`list_robots`**: the catalog robots whose vendor datasheet the checks compare with.
 - **`list_parts`**: the catalog parts (private ones too) with their sourced numbers, then the stock shapes (`kind` "stock": `recipe`, `dimensions`, `named_dimensions`, `mass_basis`, `material_required`); `query` words narrow the list.
 - **`upgrade_contract`**: write a current-format lockfile from an older one, leaving the old file unchanged.
-- **`export_model`**: write the contract's robot model as a URDF, SDF or MJCF file beside the contract (`format`, default `urdf`); refuses to overwrite an existing file. Those three carry no geometry. `format` `stl`, `obj` or `dae` writes a `<name>-<format>` folder beside the contract instead: one binary STL, OBJ or COLLADA file per shaped link plus an `assembly` file at the zero pose, in metres; meshes that are not STL are listed in `not_exported`.
+- **`export_model`**: write the lockfile's robot model as a URDF, SDF or MJCF file beside the lockfile (`format`, default `urdf`); refuses to overwrite an existing file. Those three carry no geometry. `format` `stl`, `obj` or `dae` writes a `<name>-<format>` folder beside the lockfile instead: one binary STL, OBJ or COLLADA file per shaped link plus an `assembly` file at the zero pose, in metres; meshes that are not STL are listed in `not_exported`.
 - **`compare_proposal`**: what a proposed change would do to the checks, without writing the lockfile.
 - **`describe_device`**: one device's reference: role, measures, limits, where each value came from.
 - **`describe_system`**: the whole robot's reference: rails, buses, budgets, joints.
@@ -70,22 +70,23 @@ plain message, never a stack trace.
 
 ## Example: `validate_plan`
 
-Two loads planned on the servo rail of the x500 drone example (in Lockwire's test fixtures):
+Two loads planned on the motor rail of the drone example. Make the example with
+`lockwire start --example drone`, start the server in that folder, and call:
 
 ```json
 {
-  "contract": "tests/fixtures/x500/contract.yaml",
+  "contract": "lockwire.yaml",
   "plan": {
     "steps": [
-      {"kind": "rail_load", "rail": "rail.servo-motor", "draw": {"value": 500, "unit": "W"}},
-      {"kind": "rail_load", "rail": "rail.servo-motor", "draw": {"value": 450, "unit": "W"}}
+      {"kind": "rail_load", "rail": "rail.motor-power", "draw": {"value": 500, "unit": "W"}},
+      {"kind": "rail_load", "rail": "rail.motor-power", "draw": {"value": 450, "unit": "W"}}
     ]
   }
 }
 ```
 
 The planned draw rolls up with what the rail already carries, through the rail's
-efficiency, and lands over its capacity. The answer, shortened to one finding:
+efficiency, and lands over its capacity. The answer, shortened to one finding and its main fields:
 
 ```json
 {
@@ -95,9 +96,9 @@ efficiency, and lands over its capacity. The answer, shortened to one finding:
     {
       "severity": "violation",
       "quantity": "plan/steps/0/rail_load/draw",
-      "observed": "1196.68 W rolled-up draw on rail.servo-motor",
+      "observed": "1196.68 W rolled-up draw on rail.motor-power (contract plus this plan's rail loads)",
       "expected": "<= 888.00 W capacity",
-      "action": "shed load on rail 'rail.servo-motor' or raise its capacity"
+      "action": "shed load on rail 'rail.motor-power' or raise its capacity"
     }
   ]
 }
@@ -107,7 +108,7 @@ efficiency, and lands over its capacity. The answer, shortened to one finding:
 
 - `lockwire agent-setup` writes the three Lockwire rules into `AGENTS.md` and `CLAUDE.md`,
   plus a pre-commit hook and a CI workflow. Running it again changes nothing.
-- `lockwire agent-setup --claude` also adds an edit hook to `.claude/settings.json`: before
+- `lockwire agent-setup --claude` also adds an edit hook to `.claude/settings.local.json`: before
   Claude Code edits a URDF, SDF or `lockwire.yaml`, `lockwire hook-check` checks the new
   content and blocks an edit that breaks the locked physics.
 - The `plugin/` folder in the Lockwire repo is a Claude Code plugin: the same MCP server, the

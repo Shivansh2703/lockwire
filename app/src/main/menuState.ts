@@ -81,6 +81,11 @@ export function currentRobot(): string | null {
   return current;
 }
 
+/** Rebuild the menu now (a paid build learned something the menu shows, e.g. which links are plates). */
+export function refreshMenu(): void {
+  for (const cb of listeners) cb();
+}
+
 export function onMenuState(cb: () => void): void {
   listeners.add(cb);
 }

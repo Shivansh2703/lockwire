@@ -9,6 +9,7 @@ import { CLOSE_ROBOT_CHANNEL, SHORTCUTS_CHANNEL, THEME_CHANNEL } from "../shared
 import { EXPORTS, exportRobot, saveCopy } from "./exports";
 import { openRecentFromMenu, openRobotFromMenu, stepFromMenu } from "./ipc";
 import { logFilePath } from "./log";
+import { extraExportItems } from "./exportItems";
 import { clearRecent, closeRobot, currentRobot, recentName, recentRobots } from "./menuState";
 
 type Item = Electron.MenuItemConstructorOptions;
@@ -80,7 +81,7 @@ export function buildMenu(): Menu {
       { label: "Close robot", ...needsRobot, click: () => { closeRobot(); focused()?.webContents.send(CLOSE_ROBOT_CHANNEL); } },
       { type: "separator" },
       { label: "Save a Copy…", accelerator: "CmdOrCtrl+Shift+S", ...needsRobot, click: () => void saveCopy(robot!) },
-      { label: "Export", ...needsRobot, submenu: EXPORTS.map((kind): Item => ({ label: kind.label, ...needsRobot, click: () => void exportRobot(robot!, kind) })) },
+      { label: "Export", ...needsRobot, submenu: [...EXPORTS.map((kind): Item => ({ label: kind.label, ...needsRobot, click: () => void exportRobot(robot!, kind) })), ...(robot === null ? [] : extraExportItems(robot))] },
       { type: "separator" },
       buildRevealLogsMenuItem(),
       { type: "separator" },

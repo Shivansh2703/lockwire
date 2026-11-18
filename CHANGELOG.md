@@ -1,6 +1,93 @@
 # Changelog
 
-## 0.5.1 — 2026-11-14
+## 0.5.3 - 2026-11-18
+
+Lockwire 0.5.3 is the public launch release. It checks more kinds of robot, says more when it cannot check something, and the desktop app has one Assistant panel in place of two. It includes everything built since 0.5.1.
+
+### Before you upgrade
+- An accepted closed-loop holding-torque finding must be accepted again: the refined search changes its pose and wording, so the old accept row no longer matches it.
+- The verdict line and each finding now use a colon where they used a long dash. A failing check now prints `NO-GO: 2 violation(s), 2 warning(s)`, and a passing one prints for example `GO: records agree (10 scored); 12 check(s) not scored`. Anything that parses the old line, such as a script or a test, must change. The JSON output keeps every field it had and gains new ones (for example `missing_inputs`, and `advice` in the counts); the verdict words and the exit codes are unchanged. The scored line is reworded (see Check a robot). Other printed output no longer uses long dashes either.
+- The verdict line now counts advice, a finding whose limit is not yet sourced and stays outside the verdict, for example `GO: records agree (1 scored), 1 advice (not yet sourced, outside the verdict)` or `GO with notes: 1 warning(s) · 1 advice (not yet sourced, outside the verdict)`. The verdict word and the exit code do not change, but a script that reads the line must allow the new part.
+- A lock that uses a per-part mass tolerance, or a robot with meshes in a sibling ROS package, cannot be read by Lockwire 0.5.1 or earlier. They stop with "unknown key" and exit 2. Upgrade every place that reads the lock (teammates, CI) first. A lock without these is unchanged.
+- `lockwire what-if` now exits 1 when the answer after the change is NO-GO, and prints a short before-and-after answer. For the full JSON use `--json -`.
+- A legged robot now gets a standing-load check when its feet are found, either by a collision named foot or by links named foot or toe. A robot that was GO can show more warnings (ANYmal D stays GO and shows 6 warnings instead of 3). It becomes NO-GO only when a joint is over its limit at the drawn pose with all feet down. The peak holding torque of a closed-loop joint can print higher, because the search now refines around the worst pose. A pass can become a violation.
+- A model file that is a pipe or a device now refuses with exit 2 at `check`, `check-sim`, `start` and `describe` instead of hanging. A model file that exists but cannot be read refuses with exit 2.
+- A lock made by Lockwire 0.5.1 or earlier from an SDF file with a posed joint is a NO-GO until you re-lock it: the links below that joint now read as changed. `check` says so and prints the re-lock command. A lock of a URDF with a follower (mimic) joint should be re-locked once too.
+- Lockwire now needs numpy 2.4.6 or newer, where it needed 2.5.1. Nothing else about installing changes.
+- The old Agent tab is gone. The side drawer has the Assistant and a Terminal. The token and dollar count and the app's own grouping of findings by cause in "Review my robot" went with it; the Assistant now groups by cause itself.
+- If you ran `lockwire agent-setup` with an earlier version, your `.pre-commit-config.yaml` still pins an old Lockwire that may not read new lockfiles. Change its `rev:` to `v0.5.3`. Running `lockwire agent-setup` again names that line and the new value; it does not edit the file.
+- An accept written by 0.5.3 is not recognised by 0.5.1 or earlier: `lockwire check` there reopens the finding. Upgrade every place that reads the lockfile (teammates, CI, pre-commit pins) before you accept with 0.5.3.
+- `lockwire agent-setup --claude` now writes its edit hook to `.claude/settings.local.json`, the settings file for this machine only, not the committed `.claude/settings.json`. Running it again moves a hook an earlier version left in `.claude/settings.json` and leaves the rest of that file as it was, unless that file was edited by hand: then it names the entry to delete. Add `.claude/settings.local.json` to `.gitignore`.
+
+### Check a robot
+- Legged robots get a standing-load check: foot forces with all feet down, a diagonal pair and one leg, and joint torques over each leg's poses. Feet are found by a collision named foot or by links named foot or toe, and the warnings come grouped, one for each kind of stance.
+- Each link and device can carry a mass tolerance (a percent, a plus-or-minus mass, or a min and max). `check` passes a mass inside the band, `describe` shows it, and `declare` can write it.
+- `check --mass` now counts its mass comparisons on the scored line: a mass that matches the sheet adds to "add up", and one that does not adds to "do not".
+- The scored line adds up to its total, with a scored comparison that warns counted as "warn", and names every warning and violation outside it at its end, for example "2 other violation(s) · 1 other warning(s)". Its warnings and violations together match the verdict's counts.
+- `lockwire start <name>` takes a robot_descriptions name, for example `ur5e` or `go2`, and needs `lockwire[robots]`. It copies the robot's model file and meshes into the current folder, and the lockfile holds no path from your machine. The names `lockwire catalog robots` lists (such as `turtlebot3-burger`) are datasheet records, not models: `start` refuses them and says which names work.
+- Witness levels print as words, for example "none named (declared, not measured)", in place of codes like `w0`.
+- A witness name is refused when it is written if it spans more than one line, holds `<` or `>`, or runs past 80 characters. A lock that already holds such a name still opens.
+- A `--note` can span more than one line, and the lockfile stays valid.
+- `--source` must be one line: a line break in it is refused when it is written. A lock that already holds one still opens.
+- `check --all` says how far a value is off and what limit it is held to in plain words, for example "off by +17.10 W, +114%", "1.8 times that" and "the safe current for this wire".
+- `describe` names each family as "Name (id)" and says "no source recorded" where a value has none. `blame` names each row in words, marks a change not yet in git "not committed yet", and outside git says in one line that no row names a commit.
+- Identical accepted findings print as one line with a count, for example "accepted: 6 checks (first: devices/dev.servo.left-hip-yaw/power/rail; --all lists each): ..." in the humanoid example, where 0.5.1 printed each one; `check --all` and `--json` still list each.
+- `describe` writes a rail line as "rail.5v capacity: ..." where it wrote "rail rail.5v capacity: ...", and the wires table in `SYSTEM.md` gets a "between" column and says the run in words ("in free air").
+- A lockfile that does not load names the field as a path and says what is wrong, for example `topology/rails/0/capacity is missing`.
+- `lockwire agent-setup` pins the pre-commit hook to the Lockwire that runs it, and names an older pin it finds without editing it.
+- `lockwire what-if` prints the verdict before and after, one row per quantity that changed, and the change you asked about.
+- One "what is missing" summary lists the inputs a check could not use, each with an instruction that works when followed.
+- Meshes in a sibling ROS package are recorded and compared, and a mesh that cannot be found says which folder layout it expected.
+- A payload that no joint's holding torque carries gets one note line.
+- Closed-loop mechanisms: the worst pose is found by refining the grid, `check --all` lists every pose that got no number with a reason, and every limit of the support refuses in plain words, with a guide.
+- `check-sim` honours a part's mass tolerance.
+- `add battery --chemistry` records the chemistry in the lock. A value that is not li-ion, lipo, lifepo4, nimh or lead-acid is refused.
+- `export --format urdf` writes a recorded mimic relation and names revolute and prismatic joints that have no effort or velocity limits.
+- The brown-out check reads wire resistance without copying the parts catalog many times, so it runs faster.
+- The edit hook uses a `lockwire` only if it runs, so a stale launcher left by an old install is skipped for the next one that works.
+- The parts catalog has the Espressif ESP32-DevKitC (`espressif.esp32-devkitc`), with its 5 V supply and minimum supply current from Espressif's own documents; `catalog parts esp32` and `add device --part` find it.
+- One word for a check that had nothing to compare: "not scored". `check` heads its list "Not scored (N):" where it printed "Not compared yet (N):", and `check-sim`, the CI job summary, `--format github` and the HTML report say "not scored" too.
+- `lockwire what-if` no longer needs `--witness`: a what-if writes nothing. A name you do give is still checked.
+
+### Reports
+- The exported PDF is a real report: the verdict and counts, the findings with their fixes, what is not scored, and no machine path. It used to hold only the wiring drawing and the connection graph.
+- `--redact-paths` leaves no folder or user name in a shared report, including encoded paths.
+- The report's Power tab is left out when the robot declares no power.
+- `lockwire report` with no `--out` writes `<lockfile name>-report.html` beside the lockfile and says whether it wrote or replaced it.
+- (Pro) File, Export has plate drawings in SVG and DXF.
+
+### The Assistant
+- One panel. It shows the check's verdict with a count of violations, a list of findings with a button to show each on the robot, and one Apply button. Answers are plain text.
+- It reaches much more of the engine: part swap, catalog search, the parts-list matcher, system and device descriptions, the robot graph, and files inside the robot's folder (a PDF is read as a document).
+- The verdict it quotes is the engine's, asked fresh every turn, or "unknown". Numbers that no tool returned are marked.
+- Every proposal card shows the engine's before and after. You press Apply to write. If the model file changed since the card was made, the card is re-checked first, and nothing is written until you sign again.
+- It can search for fixes: for a failing finding it tries stronger servos, thicker wires, fuse sizes, regulators and packs, proves each on a copy, and offers only fixes that clear the finding with nothing new and nothing worse.
+- It can build a part from a datasheet PDF with page and quote, a power tree from catalog parts, and a robot from a template. Each ends in a card held for Apply.
+- It can show things on screen: select a part, show only what a finding involves, switch to the connections view, open the graph. It never changes the file by itself.
+- File tools read only inside the robot's folder and are off in very wide folders. Nothing sent to the model carries this machine's home folder, and a path inside the robot's folder is sent as a relative path.
+- (Pro) The Assistant reads the power sheet, bring-up sheet, tolerance corners, tip sweep and reach envelope, and runs the go/no-go gate and the baseline check on a recording that already exists. It cannot start anything on a live robot. The tolerance corners and Monte Carlo now score closed-loop joints.
+
+### The app
+- The Check screen shows the passed joint torques.
+- The Check screen's violation, warning and not-scored counts are the same as the command line's, and the "Not scored" list adds up to its count. Advice not yet sourced is counted apart, carries a quiet "i" mark ("Advice, not yet sourced") and has its own Advice filter, and the placement check, which `lockwire check` does not run, is listed under "Not part of the check".
+- A changed joint limit reads "The model file differs from the lock".
+- The question box is one growing line with a round send button.
+- The 3D view recovers after a graphics restart, and robots with mesh shapes open.
+- A robot opened without its mesh files draws a thin rod from a last link's joint to its centre of mass. The gripper marker appears only on a real free end or on a gripper's fingers, not on a foot or a wheel.
+- The report the app exports as a PDF prints its findings, budgets and what adds up.
+
+### Fixed
+- A model file under a folder path with spaces is checked in full again.
+- A mesh recorded in the lock that now resolves outside the robot's package folder, for example through a link, is a violation. A mesh that is already outside the folder when you lock is not recorded: `check` says it was not inside the robot's package folder at lock and its bytes are not compared, and its action says where the file is.
+- A MuJoCo model whose joints are tied by equality no longer prints a wrong torque.
+- An SDF joint with its own pose no longer misplaces the child link's centre of mass, inertia and shapes.
+- A joint-effort warning no longer fires on a passive pin of a solved closed loop.
+- `describe` no longer marks the total mass incomplete because of a joint.
+- A check, plan or report that crashes inside Lockwire now always exits 2 with no verdict and says it is a bug in Lockwire.
+- Drift messages say "model file" where they said "URDF".
+- An edited mesh or MJCF file is never shown from a stale cache, even when it is rewritten at the same size within the same instant.
+
+## 0.5.1 - 2026-11-14
 
 The desktop app's look, redone. The command line and every check are the same as 0.5.0.
 
@@ -18,7 +105,7 @@ The desktop app's look, redone. The command line and every check are the same as
 ### Fixed
 - The keyboard focus highlight is drawn inside every control. It used to sit outside and get cut off by panels, lists and the tab bar.
 
-## 0.5.0 — 2026-11-14
+## 0.5.0 - 2026-11-14
 
 ### Get your robot in
 - `lockwire check robot.wbt` reads Webots robots (.wbt, .proto), and Webots files get the same model checks as a URDF.
@@ -138,14 +225,14 @@ The desktop app's look, redone. The command line and every check are the same as
 - Coming from 0.2.8: a bare MuJoCo file (no lockfile) that 0.2.8 called NOT SCORED (exit 3) now gets a verdict, often GO with notes (exit 0).
 - Coming from 0.2.8: `check --json` reports `schema_version` "0.7" instead of "0.6", and under `forces` the `mass_total.value` and `cg.value` that were null are numbers wherever Lockwire can now work them out.
 - Coming from 0.2.8: the agent tool server lists 24 tools instead of 13. The 13 released tools are unchanged; the 11 new ones include editors (proposals by default, writing only with `apply=true`) and tools that write files but refuse to overwrite.
-- A robot whose servos, all stalling at once, would pull a rail below its minimum is now a NO-GO (all-servo brownout check, only where the catalog has stall data for the servos; none of the 42 example and fixture robots measured changed verdict).
+- A robot whose servos, all stalling at once, would pull a rail below its minimum is now a NO-GO (all-servo brownout check, only where the catalog has stall data for the servos; none of the 42 example and test robots measured changed verdict).
 - A closed loop in an SDF model (a five-bar leg, a parallel linkage) is no longer a NO-GO. `check` solves a planar loop and scores each driven joint's holding torque through it, and names the loops it cannot solve as not scored (not planar, a joint moving above or below the loop, too many or too few driven joints). The torque is for the base held still, not for the robot standing. URDF is unchanged: two parent joints on one link is still a failure there.
 - Three part ratings were lowered to the cautious printed figure where a source prints two, and one part name was corrected. `check` and `--strict` output is unchanged on all 9 example and template files.
 - Catalog numbers were re-read blind against their sources: 807 numbers, 0 wrong (2 pages refused the re-read and keep their status).
 - The lockfile format is now 0.7 (pin-to-pin wires and an optional rail change what a file means); 0.6 and older files load unchanged and `lockwire upgrade` on a 0.6 file rewrites only the version line. Lockwire 0.2.8 and older refuse a file that uses new fields and name the field.
 - Lockfiles can describe more of the power and wiring (all optional): wire length and net class; rail source, regulator, dropout, minimum input, capacitance, regen and thermal fields; battery parallel cells, reserve, voltage curve, R1/C1; bus phy, length, protocol, twisted; a `topology.protection` list (fuses, breakers, TVS diodes, reverse-polarity guards); connectors with pins; a `safety` block; tolerance bands, `assertions`, `modes`; params, link geometry and collision shapes, mimic joints.
 
-## 0.2.8 — 2026-11-11
+## 0.2.8 - 2026-11-11
 
 - `lockwire check model.xml` now reads MuJoCo MJCF models (masses, joints, ranges) instead of refusing them, and says what it did not compare (like actuators and meshes).
 - `lockwire check` now notes when two neighbouring joints of one limb that share a name prefix (like `head_yaw` and `head_pitch`) have efforts 20 or more times apart, since one may be a typo.
@@ -164,7 +251,7 @@ The desktop app's look, redone. The command line and every check are the same as
 - `lockwire plan` says its rail total includes the plan's own added loads, so it can read higher than `check`.
 - xacro `$(find pkg)` without a git folder no longer searches above the model's own workspace.
 
-## 0.2.7 — 2026-11-10
+## 0.2.7 - 2026-11-10
 
 Fixed:
 
@@ -252,11 +339,11 @@ Moved:
 
 - These commands were in the public 0.2.6 package and are not in 0.2.7: `preflight`, `baseline`, `baseline-review`, `baseline-check`, `sample`, `health`, `actuator-review-draft` and `bag`. They no longer install with `pip install lockwire`. Running one prints a waitlist line pointing to https://lockwirerobotics.com and exits non-zero. `lockwire help --all` still lists the Pro commands. The MCP tools `preflight`, `health` and `prepare_actuator_review_draft` are no longer in the free package either; they were in public 0.2.6. The ROS 2 package that runs preflight on a live robot is Pro. The check, check-sim, Part Swap, catalog, servo recorder, desktop app and MCP server stay free.
 
-## 0.2.6 — 2026-11-09
+## 0.2.6 - 2026-11-09
 
 New:
 
-- The formerly-Pro commands (`preflight`, `baseline`, `baseline-review`, `baseline-check`, `sample`, `health`, `actuator-review-draft`) are now open source under Apache-2.0 and install with `pip install lockwire`.
+- The formerly-Pro commands (`preflight`, `baseline`, `baseline-review`, `baseline-check`, `sample`, `health`, `actuator-review-draft`) are now open source under Apache-2.0 and install with `pip install lockwire`. (They moved back to Lockwire Pro in 0.2.7.)
 - `lockwire check-sim` compares a MuJoCo (MJCF) or SDF sim file with the lockfile, value by value: masses, centres of mass, inertia, joint limits, effort, damping, friction and armature. It reads MuJoCo `<default>` classes and multiplies actuator force range by gear. It never runs a simulation, and lists what the sim format cannot express. The MCP server has a matching `check_sim_config` tool.
 - An edit hook for Claude Code: `lockwire agent-setup --claude` adds `lockwire hook-check` to the project's settings, run by the same Python that ran agent-setup (not whatever `lockwire` is first on PATH). It checks a proposed edit to a URDF, SDF or lockwire.yaml and blocks one that breaks the locked physics. If the check itself fails on such a file, or the plugin finds no working lockwire, the edit is blocked with one line saying why; edits to other files always go through.
 - A Claude Code plugin in `plugin/`: the MCP server, the edit hook, a `/lockwire` skill and a read-only robot reviewer.
@@ -264,8 +351,8 @@ New:
 - Documentation: guides for the command line, CI, AI agents and every check, in `docs/guides/`.
 - CI guard: `lockwire accept <finding> --reason ... --witness ...` records a known gap (say, a datasheet mass that counts the battery) in the lockfile's new `accepted:` list; `check` shows it as accepted and fires again if the value changes. `check --adopt <prefixes>` annotates without failing, and `check --baseline` fails only on new findings. An edit to the model after it was locked can never be accepted, adopted or baselined. Lockfiles that use `accepted:` need this Lockwire or newer; older versions refuse them.
 - `lockwire check go2` checks a known robot by name: with `pip install 'lockwire[robots]'` it fetches the robot's published URDF and checks it, comparing its mass with the vendor's datasheet when the robot is in the catalog.
-- ROS 2 bags: `lockwire bag inspect` lists a bag's topics and fields, and `lockwire bag check` runs preflight on it (`pip install 'lockwire[ros2bag]'`; MCAP bags; `--example` uses a sample bag, no robot needed). Signal fields can index arrays, `effort[0]`, or name a joint, `position[name=knee]`, so `sensor_msgs/JointState` works even when a driver reorders its joints.
-- ROS 2 live gate in one command: `ros2 run lockwire_ros preflight lockwire.yaml --seconds 10` captures from the running robot and exits with the verdict (0 GO, 1 NO-GO, 2 could not run). `lockwire_gate.launch.py` can be included in a launch file to gate it.
+- ROS 2 bags (moved to Lockwire Pro in 0.2.7): `lockwire bag inspect` lists a bag's topics and fields, and `lockwire bag check` runs preflight on it (`pip install 'lockwire[ros2bag]'`; MCAP bags; `--example` uses a sample bag, no robot needed). Signal fields can index arrays, `effort[0]`, or name a joint, `position[name=knee]`, so `sensor_msgs/JointState` works even when a driver reorders its joints.
+- ROS 2 live gate in one command (moved to Lockwire Pro in 0.2.7): `ros2 run lockwire_ros preflight lockwire.yaml --seconds 10` captures from the running robot and exits with the verdict (0 GO, 1 NO-GO, 2 could not run). `lockwire_gate.launch.py` can be included in a launch file to gate it.
 - The pre-commit hook also runs when a URDF, xacro or SDF file changes, not only `lockwire.yaml`.
 - Desktop app: the Check screen opens on the first problem, findings accepted on record show in a muted Accepted section, and Compare with datasheet sits on the verdict card. A new open screen, a fixer for a missing mesh folder, trackpad pan and pinch, and Hide panels to see the whole robot.
 - `lockwire start <robot name>` copies the robot's model beside the lockfile, so the folder holds everything the lock needs.
@@ -311,7 +398,7 @@ Verdicts tell the whole truth:
 - A model that can no longer be read since it was locked is a violation, not a pass.
 - The report page's empty-state card is no longer hidden behind the SDF note.
 
-## 0.2.5 — 2026-10-28
+## 0.2.5 - 2026-10-28
 
 - A side drawer in the app, opened with the Assistant button: the Assistant moves into it, and a Terminal tab gives you a real shell that starts in your robot's folder.
 - The drone, arm, quadruped, rover and humanoid starters declare sourced sensor limits.
@@ -320,7 +407,7 @@ Verdicts tell the whole truth:
 - The file-mode test runs only on macOS and Linux, where file modes exist, so Windows CI is green again.
 - Fixed: a URDF whose fixed joint carries `lower="0" upper="0"` limits (Kinova's gen3_lite.urdf, for one) opens again. Limits are only checked on moving joints.
 
-## 0.2.4 — 2026-10-21
+## 0.2.4 - 2026-10-21
 
 New in the free app and library:
 
@@ -357,7 +444,7 @@ Fixes you will notice:
 
 Under the hood: updated the MCP library and pyjwt for security advisories, Electron to 44.9.2, and npm patch releases. The Windows CI job now fails when tests fail, so its badge means what it says.
 
-## 0.2.2 — 2026-10-16
+## 0.2.2 - 2026-10-16
 
 Easier first run, and five starter robots. (0.2.1 was never published; its changes ship here.)
 
@@ -385,9 +472,9 @@ Easier first run, and five starter robots. (0.2.1 was never published; its chang
 - Linux: `chmod +x Lockwire-*.AppImage`, then run it. Ubuntu 22.04 needs `sudo apt install libfuse2`; Ubuntu 24.04 needs `sudo apt install libfuse2t64`.
 - Windows app: not yet.
 
-## 0.2.0 — the free desktop app
+## 0.2.0 - 2026-10-15
 
-The app's planning half is now free.
+The free desktop app: its planning half is now free.
 
 - A desktop app for planning a robot before it is powered: Open a robot description, Design it,
   Declare what it must hold, Plan changes, and Check them against the contract. The first run
@@ -400,7 +487,7 @@ The app's planning half is now free.
 
 Lockwire Pro keeps the powered preflight gate, recording analysis and health.
 
-## 0.1.0 — first public release
+## 0.1.0 - first public release
 
 - The physics lockfile: a checked-in YAML contract for a robot's devices, frames, power and
   signals, validated by a strict schema.

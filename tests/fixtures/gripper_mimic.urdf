@@ -1,0 +1,5 @@
+<robot name="gripper">
+  <link name="b"/><link name="f"/><link name="m"/>
+  <joint name="j" type="prismatic"><parent link="b"/><child link="f"/><limit lower="0" upper="1" effort="5" velocity="1"/></joint>
+  <joint name="k" type="prismatic"><parent link="b"/><child link="m"/><limit lower="0" upper="1" effort="5" velocity="1"/><mimic joint="j"/></joint>
+</robot>

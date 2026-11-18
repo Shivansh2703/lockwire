@@ -33,7 +33,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 // `mockIsPackaged` is read via a getter (not a fixed literal) so each test can flip it
 // and see resolveSidecarCommand() react -- proves the switch is app.isPackaged, not
-// process.resourcesPath's truthiness (which Electron sets in dev too, e2-sp).
+// process.resourcesPath's truthiness (which Electron sets in dev too).
 let mockIsPackaged = false;
 let mockUserDataDirSwitch = false;
 vi.mock("electron", () => ({
@@ -101,7 +101,7 @@ afterEach(() => {
 
 const HAS_VENV = existsSync(join(dirname(require.resolve("../../../pyproject.toml")), ".venv"));
 
-describe("the sidecar's lifecycle and token (e2-t)", () => {
+describe("the sidecar's lifecycle and token", () => {
   // a hostile .xacro reads `$(env NAME)`; the child must not inherit the app's secrets.
   it("test_M20_the_sidecar_child_env_is_an_allowlist_not_the_apps_whole_environment", () => {
     process.env.FAKE_SECRET_FOR_TEST = "x";

@@ -2,10 +2,10 @@
 
 A link's visuals belong to the link (`extras_id = name_chain = (link)`); link poses
 compose joint `<origin xyz rpy>` down the tree from the root with every joint at zero
-(fixed/revolute/prismatic/continuous alike — no joint *type* changes the pose used here).
+(fixed/revolute/prismatic/continuous alike - no joint *type* changes the pose used here).
 URDF and SDF are Z-up metres already, same as the contract: no axis conversion (`up = "z"`).
 
-SDF link poses are used directly (`<link><pose>`), model-relative — this build does not
+SDF link poses are used directly (`<link><pose>`), model-relative - this build does not
 walk SDF `<joint>` chains or honour `relative_to`; a link's own `<pose>` is taken as its
 final pose under the (identity) model frame.
 
@@ -191,16 +191,18 @@ _SCENE_CACHE: dict[tuple, tuple] = {}
 
 
 def _stamp(p: Path) -> tuple | None:
-    """Identity of a file on disk: mtime and size (None when absent)."""
+    """Identity of a file on disk: mtime, size and a digest of its bytes (None when absent).
+    The digest catches a same-size rewrite inside one mtime clock tick (Linux)."""
     try:
         st = p.stat()
+        digest = hashlib.blake2b(p.read_bytes(), digest_size=16).digest()
     except OSError:
         return None
-    return (st.st_mtime_ns, st.st_size)
+    return (st.st_mtime_ns, st.st_size, digest)
 
 
 def _load_mesh_file(resolved: Path, source: Path) -> list[tuple]:
-    """-> a list of (positions, normals_or_None, indices) submeshes — one for every
+    """-> a list of (positions, normals_or_None, indices) submeshes - one for every
     reader except DAE, which may carry several geometries in one file."""
     suffix = resolved.suffix.lower()
     if (seen := _MESHES_READ.get()) is not None:
@@ -285,13 +287,94 @@ def package_root(source: Path) -> Path | None:
     return next((d for d in source.parents if _is_file(d / "package.xml")), None)
 
 
-def mesh_root(source: Path, contract_dir: Path) -> Path:
+def mesh_root(source: Path, contract_dir: Path, asset_root: str | None = None) -> Path:
     """The one folder a declared mesh must sit inside: the robot's package, else the
     lockfile's folder when it holds the model, else the model's own folder (a lock written
     elsewhere, such as the throwaway one `check robot.urdf` makes). `external_assets` paths
-    are relative to it."""
+    are relative to it, or to its parent when the lock says `asset_root: workspace`."""
     folder, source = contract_dir.resolve(), source.resolve()
-    return package_root(source) or (folder if source.is_relative_to(folder) else source.parent)
+    root = package_root(source) or (folder if source.is_relative_to(folder) else source.parent)
+    return root.parent if asset_root == "workspace" else root
+
+
+def is_package_folder(folder: Path, own: Path | None = None) -> bool:
+    """The one rule for a folder directly under the workspace: the model's own package folder, or
+    one holding package.xml (ROS) or model.config (Gazebo model). A symlinked folder passes: whoever
+    plants a link in the workspace already controls it."""
+    return folder.is_dir() and (folder == own or _is_file(folder / "package.xml") or _is_file(folder / "model.config"))
+
+
+def resolve_asset(source: Path, contract_dir: Path, asset_root: str | None, rel: str) -> tuple[Path, str | None]:
+    """The one door from a recorded asset path to a file on disk: (file, None), or (file, why)
+    when it must not be opened. A workspace asset's first folder has to be a package folder
+    (`is_package_folder`); the real path (links followed) has to stay inside it. A path the
+    system cannot resolve (NUL character, over-long name, unreadable parent) is a refusal too."""
+    root = mesh_root(source, contract_dir, asset_root)
+    try:
+        file, parts = root / rel, Path(rel).parts
+        pkg = root
+        if asset_root == "workspace":
+            first = parts[0] if parts else ""
+            pkg = root / first
+            if first in ("", "..", ".", "/") or not is_package_folder(pkg, mesh_root(source, contract_dir)):
+                return file, "is outside the robot's package folders"
+        if not file.resolve().is_relative_to(pkg.resolve()):
+            return file, "is a link that leaves the package folder"
+        file.is_file()  # resolve() hides an over-long name; this raises it
+    except (ValueError, OSError):
+        return root, "cannot be resolved"
+    return file, None
+
+
+def sibling_hint(source: Path, uris: list[str], base: Path | None = None) -> str:
+    """For each missing package:// or model:// name (once per name): where it was looked for and
+    the folder layout that would make it resolve, with the user's own names. With ``base`` (the
+    lockfile's folder) paths are said relative to it, and a folder outside it by its name only:
+    no machine path is stored or sent."""
+    own = package_root(source)
+    ws = own.parent if own else source.resolve().parent
+    if base is not None:
+        try:
+            ws = ws.relative_to(base.resolve())
+        except ValueError:
+            ws = Path(ws.name)
+    beside = "the model's package folder" if own else "the model file"
+    seen: dict[str, str] = {}
+    for uri in sorted(uris):
+        scheme, _, rest = uri.partition("://")
+        name, _, rel = rest.partition("/")
+        if scheme not in ("package", "model") or name in seen or (own and name == _package_name(own)):
+            continue
+        if sibling_package(source, name) if scheme == "package" else is_package_folder(ws / name):
+            continue
+        marker = "package.xml" if scheme == "package" else "model.config"
+        bare = " That folder needs a package.xml or model.config." if (ws / name).is_dir() else ""
+        seen[name] = (
+            f" Looked for a folder of package '{name}' in {'the lockfile folder' if str(ws) == '.' else ws}, found none.{bare}"
+            f" {uri} expects {ws / name / marker} and {ws / name / rel}, next to {beside}."
+        )
+    return "".join(seen.values())
+
+
+def _package_name(folder: Path) -> str:
+    try:
+        name = ET.fromstring((folder / "package.xml").read_bytes()).findtext("name")
+    except (OSError, ET.ParseError):
+        name = None
+    return (name or "").strip() or folder.name
+
+
+def sibling_package(source: Path, pkg: str) -> Path | None:
+    """The folder of package `pkg` beside the model's own package folder (one level, never higher):
+    its package.xml names it, or without a package.xml its folder name does. Only a package folder
+    (`is_package_folder`) counts."""
+    own = package_root(source)
+    if own is None or _package_name(own) == pkg:
+        return None
+    for d in sorted(own.parent.iterdir()):
+        if d != own and not d.is_symlink() and is_package_folder(d) and _package_name(d) == pkg:
+            return d.resolve()
+    return None
 
 
 def _resolve_package(
@@ -358,7 +441,7 @@ def _resolve_mesh_path(
         resolved = _resolve_package(pkg, rel, base_dir, package_roots)
         if resolved is None:
             raise SceneRefusal(
-                f"{source}: cannot resolve {scheme}://{pkg} — set --package-root DIR "
+                f"{source}: cannot resolve {scheme}://{pkg}: set --package-root DIR "
                 "(a folder containing the package) or source your ROS workspace."
             )
         return resolved
@@ -396,7 +479,7 @@ def _scale_positions(
 ) -> tuple[float, ...]:
     if scale == (1.0, 1.0, 1.0):
         return positions
-    # ponytail: normals are not re-scaled by 1/scale (wrong under non-uniform scale) —
+    # ponytail: normals are not re-scaled by 1/scale (wrong under non-uniform scale) -
     # upgrade if a non-uniform-scaled mesh's shading visibly breaks.
     return tuple((np.asarray(positions, dtype=np.float64).reshape(-1, 3) * scale).ravel().tolist())
 
@@ -556,7 +639,7 @@ def _scene_from_urdf(
 
     def walk(link_name: str, pose: _Pose) -> None:
         if link_name in visited:
-            raise SceneRefusal(f"{source}: link {link_name!r} reached twice — cyclic joint tree.")
+            raise SceneRefusal(f"{source}: link {link_name!r} reached twice: cyclic joint tree.")
         visited.add(link_name)
         link_el = links.get(link_name)
         if link_el is not None:
@@ -777,7 +860,7 @@ def load_robot_scene(
     """A `.urdf`, `.sdf` or literal-XML `.xacro` file -> `Scene`.
 
     URDF/xacro parses are cached on (file, args) and reused while the model file and every
-    mesh file it read keep their (mtime, size); the caller gets a fresh `Scene` each time."""
+    mesh file it read keep their (mtime, size, bytes); the caller gets a fresh `Scene` each time."""
     path = Path(path)
     if path.suffix.lower() not in (".urdf", ".xacro"):
         return _parse_robot_scene(path, package_roots, external_assets)

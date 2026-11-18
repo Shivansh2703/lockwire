@@ -14,10 +14,12 @@ from pydantic import Field
 from lockwire import fieldpath, units
 from lockwire.advice import Alternative
 from lockwire.controls import reach_findings
-from lockwire.copy import human_name
+from lockwire.copy import human_name, label_name
 from lockwire.checks import (
+    crash_is_a_bug,
     _worst_rail_power,
     power_rollup,
+    servo_for,
     unknown_draw_message,
     unusable_effort_finding,
 )
@@ -228,7 +230,7 @@ def load_plan(path: Path) -> Plan:
 # `upstream`/`efficiency` up to `rail_id`, maximized over nominal and every
 # declared PowerMode. Reusing it here (instead of a plan-local direct-rail
 # sum) keeps `lockwire plan` and `lockwire check` agreeing on one number per
-# rail — see tests/test_plan.py's agreement test.
+# rail - see tests/test_plan.py's agreement test.
 
 
 def _rail_worst_w_with_device_pinned(
@@ -240,9 +242,9 @@ def _rail_worst_w_with_device_pinned(
     a named mode, so its contribution should not also vary across the
     rollup's own worst-mode search. Swap the device's declared draw for a
     single fixed value (no other modes) in a shallow contract copy, then call
-    the same helper again — the efficiency chain from the device's rail up to
+    the same helper again - the efficiency chain from the device's rail up to
     ``rail_id`` is whatever _worst_rail_power already does, not reimplemented.
-    Returns ``(watts, unknown_consumers)`` — the caller must not score a peak
+    Returns ``(watts, unknown_consumers)`` - the caller must not score a peak
     when unknown_consumers is non-empty.
     """
     device = contract.device(device_id)
@@ -335,8 +337,8 @@ def _score_max_rate(
 
     Where the rate cannot be computed it is said out loud. A plan carries no
     timestamps, so the elapsed time between two publishes on a topic comes from
-    the contract's own ``driver.nominal_rate_hz``. Missing either operand — the
-    previous value or the declared rate — is ``not_scored`` naming which one is
+    the contract's own ``driver.nominal_rate_hz``. Missing either operand - the
+    previous value or the declared rate - is ``not_scored`` naming which one is
     missing, never a silent pass: a rate limit that quietly stops applying is a
     rate limit that has stopped biting.
     """
@@ -378,7 +380,7 @@ def _score_max_rate(
                 expected=f"<= max_rate {band.max_rate:g} {band.unit}/s{band.why_suffix}",
                 action=(
                     "both endpoints are inside the band but the move between them is "
-                    "faster than the declared rate — slow the step or split it"
+                    "faster than the declared rate: slow the step or split it"
                 ),
             )
         )
@@ -387,6 +389,7 @@ def _score_max_rate(
         record(path, "PASS")
 
 
+@crash_is_a_bug
 def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
     """Check an agent's intended plan against the contract before anything executes.
 
@@ -422,7 +425,7 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
     # sibling children must combine at a shared parent). Each total is
     # expressed as one synthetic device on its rail and handed to
     # `power_rollup`, whose upstream/efficiency walk is the only copy of that
-    # walk — same shallow-model_copy pattern as
+    # walk - same shallow-model_copy pattern as
     # _rail_worst_w_with_device_pinned. Real devices are swapped out because
     # their watts are already in `_worst_rail_power`'s base figure.
     synthetic = [
@@ -445,13 +448,13 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
     joints = {joint.name: joint for joint in contract.model.joints} if contract.model else {}
 
     # The value a signal last carried in this plan, in its
-    # hard limit's unit, keyed by (topic, signal) — the left operand a
+    # hard limit's unit, keyed by (topic, signal) - the left operand a
     # `Band.max_rate` comparison needs. A step can sit inside the band at both
     # ends and still be destructive in between; nothing else in the plan
     # remembers the previous value.
     #
     # Compare now, predict eventually, never actuate. The rate
-    # bound is *scored* here and never enforced on a device — a crossing is a
+    # bound is *scored* here and never enforced on a device - a crossing is a
     # Finding, exactly like every other lockwire comparison.
     previous_published: dict[tuple[str, str], float] = {}
 
@@ -484,6 +487,8 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                 continue
 
             limits = joint.limits
+            # URDF units: metres and newtons on a prismatic joint, radians and N*m otherwise.
+            pos_u, vel_u, eff_u = ("m", "m/s", "N") if joint.type == "prismatic" else ("rad", "rad/s", "N*m")
             if step.position is not None:
                 path = f"{base}/joint_target/position"
                 if limits is None or limits.lower is None or limits.upper is None:
@@ -491,7 +496,7 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                         Finding(
                             severity="not_scored",
                             quantity=path,
-                            observed=f"{step.position}",
+                            observed=f"{step.position} {pos_u}",
                             expected="the contract declares no position limits for this joint",
                             action="declare limits.lower/upper for this joint to score position",
                         )
@@ -502,9 +507,9 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                         Finding(
                             severity="violation",
                             quantity=path,
-                            observed=f"{step.position}",
+                            observed=f"{step.position} {pos_u}",
                             expected=_with_enforcement_provenance(
-                                f"inside [{limits.lower}, {limits.upper}]",
+                                f"inside [{limits.lower}, {limits.upper}] {pos_u}",
                                 ("lower", limits.lower_enforced_by),
                                 ("upper", limits.upper_enforced_by),
                             ),
@@ -522,7 +527,7 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                         Finding(
                             severity="not_scored",
                             quantity=path,
-                            observed=f"{step.velocity}",
+                            observed=f"{step.velocity} {vel_u}",
                             expected="the contract declares no velocity limit for this joint",
                             action="declare limits.velocity for this joint to score velocity",
                         )
@@ -533,9 +538,9 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                         Finding(
                             severity="violation",
                             quantity=path,
-                            observed=f"{step.velocity}",
+                            observed=f"{step.velocity} {vel_u}",
                             expected=_with_enforcement_provenance(
-                                f"<= {limits.velocity}",
+                                f"<= {limits.velocity} {vel_u}",
                                 ("velocity", limits.velocity_enforced_by),
                             ),
                             action="reduce the commanded velocity",
@@ -552,7 +557,7 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                         Finding(
                             severity="not_scored",
                             quantity=path,
-                            observed=f"{step.effort}",
+                            observed=f"{step.effort} {eff_u}",
                             expected="the contract declares no effort limit for this joint",
                             action="declare limits.effort for this joint to score effort",
                         )
@@ -566,9 +571,9 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                         Finding(
                             severity="violation",
                             quantity=path,
-                            observed=f"{step.effort}",
+                            observed=f"{step.effort} {eff_u}",
                             expected=_with_enforcement_provenance(
-                                f"<= {limits.effort}",
+                                f"<= {limits.effort} {eff_u}",
                                 ("effort", limits.effort_enforced_by),
                             ),
                             action="reduce the commanded effort",
@@ -583,11 +588,17 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                 )
                 actuator_path = f"{base}/joint_target/effort_actuator"
                 if driver_device is None:
+                    mapped = servo_for(contract.servo, joint.name)
                     out.append(
                         Finding(
                             severity="not_scored",
                             quantity=actuator_path,
-                            observed="no device drives this joint",
+                            observed=(
+                                f"the lockfile's servo map names {mapped} for this joint, but no "
+                                "device declares drives_joint for it"
+                                if mapped
+                                else "no device drives this joint"
+                            ),
                             expected="a device with drives_joint set to this joint",
                             action="declare which device drives this joint to score actuator effort",
                         )
@@ -730,7 +741,7 @@ def validate_plan(contract: Contract, plan: "Plan") -> PlanReport:
                         action=(
                             f"This robot has no device named {human_name(step.device)}"
                             if device is None
-                            else f"{human_name(step.device)} has no power modes declared"
+                            else f"{label_name(step.device)} has no power modes declared"
                         ),
                     )
                 )

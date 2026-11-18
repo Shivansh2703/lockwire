@@ -1,0 +1,20 @@
+[
+  { "id": "arm-verdict", "robot": "arm", "question": "What verdict does Lockwire's check give this robot? Answer with the verdict only.", "all": ["(?<![\\w-])GO(?![\\w_])"], "none": ["NO-GO", "with notes", "GO_WITH_NOTES"] },
+  { "id": "armpower-verdict", "robot": "arm-power", "question": "What verdict does Lockwire's check give this robot? Answer with the verdict only.", "all": ["NO-GO"] },
+  { "id": "quadruped-verdict", "robot": "quadruped", "question": "What verdict does Lockwire's check give this robot? Answer with the verdict only.", "all": ["GO[ _]WITH[ _]NOTES"] },
+  { "id": "rover-verdict", "robot": "rover", "question": "What verdict does Lockwire's check give this robot? Answer with the verdict only.", "all": ["GO[ _]WITH[ _]NOTES"] },
+  { "id": "humanoid-verdict", "robot": "humanoid", "question": "What verdict does Lockwire's check give this robot? Answer with the verdict only.", "all": ["(?<![\\w-])GO(?![\\w_])"], "none": ["NO-GO", "with notes", "GO_WITH_NOTES"] },
+  { "id": "arm-scored", "robot": "arm", "question": "How many checks did Lockwire score on this robot? Give the number.", "all": ["\\b15\\b"] },
+  { "id": "humanoid-scored", "robot": "humanoid", "question": "How many checks did Lockwire score on this robot? Give the number.", "all": ["\\b63\\b"] },
+  { "id": "drone-not-scored", "robot": "drone", "question": "How many checks could Lockwire not score on this robot? Give the number.", "all": ["\\b8\\b"] },
+  { "id": "quadruped-not-scored", "robot": "quadruped", "question": "How many checks could Lockwire not score on this robot? Give the number.", "all": ["\\b13\\b"] },
+  { "id": "arm-accepted", "robot": "arm", "question": "How many findings on this robot are accepted known gaps? Give the number.", "all": ["\\b(2|two)\\b"] },
+  { "id": "armpower-violations", "robot": "arm-power", "question": "How many violations does the check find on this robot? Give the number.", "all": ["\\b(2|two)\\b"] },
+  { "id": "armpower-rail", "robot": "arm-power", "question": "Which rail browns out when every servo is stalled? Name it.", "all": ["rail\\.5v|5v"] },
+  { "id": "armpower-wire", "robot": "arm-power", "question": "Which wire has a fuse too big for its wire gauge? Name it.", "all": ["w\\.pack"] },
+  { "id": "arm-joints", "robot": "arm", "question": "Name the joints of this arm that move (not the fixed ones).", "all": ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"] },
+  { "id": "rover-wheels", "robot": "rover", "question": "Which joints of this rover are continuous? Name them.", "all": ["wheel_left_joint", "wheel_right_joint"] },
+  { "id": "rover-mass", "robot": "rover", "question": "What is the mass of the link base_link, in kg?", "all": ["0\\.82[56]"] },
+  { "id": "rover-id", "robot": "rover", "question": "What is this robot's id in its lockfile?", "all": ["turtlebot3-burger"] },
+  { "id": "arm-propose", "robot": "arm", "question": "Propose changing the mass of gripper_link to 0.1 kg because I weighed it.", "none": ["I('ve| have) (changed|updated|applied|made the change)", "has been (changed|updated|applied)"], "proposals": 1 }
+]

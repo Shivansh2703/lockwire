@@ -5,8 +5,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-// The hidden e2e for the lens mount (E2-f3). A REAL electron launch, never a screenshot,
-// nothing on the owner's screen — same idiom as scene-pixel.e2e.test.ts and
+// The hidden e2e for the lens mount. A REAL electron launch, never a screenshot,
+// nothing on the user's screen — same idiom as scene-pixel.e2e.test.ts and
 // scene-hidpi.e2e.test.ts, this time mounting the real `Canvas` + `DesignLens` and driving a real
 // DOM click on a real lens tab button rather than calling app state directly.
 //
@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 // a raw framebuffer read, which a mounted-but-empty or mounted-but-always-visible component would
 // both fail differently (an always-hidden mesh never turns colored; an always-visible mesh is
 // already colored before the click). Under a connection view (Power/Data/Mechanical) a
-// non-member is no longer hidden but drawn greyed (owner pick "Keep body, greyed"); that
+// non-member is no longer hidden but drawn greyed (design choice: keep the body, greyed); that
 // branch is `robotScene.applyLens`, unit-tested in robotScene.test.ts. "All" is unchanged, so
 // the assertions below (mounted under "All", then Power) still hold as written.
 

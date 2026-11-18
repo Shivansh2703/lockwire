@@ -1,6 +1,6 @@
 """Record-level checks (rung 1): do the records agree with each other?
 
-No robot required — these run in CI on every change to the contract or its
+No robot required - these run in CI on every change to the contract or its
 witnesses. Every check emits the one grammar (report.Finding). The
 false-positive budget is a first-class requirement: a clean contract must
 produce zero findings.
@@ -13,7 +13,9 @@ import inspect
 import itertools
 import fnmatch
 import math
+import os
 import re
+import stat
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
@@ -22,22 +24,23 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from pydantic import BaseModel
 
-from lockwire import plugins, statics, units
+from lockwire import plugins, standing, statics, units
 from lockwire.advice import build_rail_alternatives
-from lockwire.catalog import SourcedNumber, belt_pitch, load_catalog, recognise
+from lockwire.catalog import SourcedNumber, belt_pitch, load_catalog, recognise, wire_ohm_per_m
 from lockwire.cli_line import cli_line
-from lockwire.edit import resolve_source, source_is_absolute
+from lockwire.edit import resolve_source, source_is_absolute, witness_words
 from lockwire.report import (
     CGContributor,
     CGReport,
     Finding,
     RecordReport,
     ScoredRecord,
+    UnsolvedPose,
     format_magnitude,
 )
 from lockwire.mechanism import NAMED_SET, Mechanism, analyse_model
 from lockwire.scene import Scene
-from lockwire.scene_urdf import mesh_root
+from lockwire.scene_urdf import resolve_asset, sibling_hint
 from lockwire.scene_view import resolve_scene
 from lockwire.presets import NOT_SOURCED, choose_preset
 from lockwire.schema import (
@@ -52,12 +55,14 @@ from lockwire.schema import (
     Rail,
     Provenance,
     Tolerance,
+    tolerance_corners,
 )
-from lockwire.sdf import loop_cuts, parse_sdf, read_sdf_root, read_sdf_topology, urdf_view
+from lockwire.sdf import loop_cuts, parse_sdf, posed_joint_links, read_sdf_root, read_sdf_topology, urdf_view
 from lockwire.urdf import (
     _has_doctype_entity,
     describe_structure_drift,
     legacy_axis_joints,
+    legacy_follower_hash,
     locked_record_hash,
     mesh_refs,
     parse_urdf,
@@ -99,7 +104,7 @@ def unknown_draw_message(device_id: str, rail_id: str) -> str:
     """one phrasing for "this consumer's draw is undeclared", reused by
     every surface (terminal, page, engineer report, describe) so the same gap
     reads the same way everywhere."""
-    return f"{device_id} draws an unknown amount from {rail_id} — declare its draw"
+    return f"{device_id} draws an unknown amount from {rail_id}: declare its draw"
 
 
 # Presence-floor disclosure when no record-check comparison had both operands
@@ -111,7 +116,7 @@ EMPTY_SCORE_QUANTITY = "check/scored"
 class _ScoreBook:
     """Declarations for which a check compared two independent populated operands.
 
-    The presence-floor denominator is ``len(self)`` — reported by the checks
+    The presence-floor denominator is ``len(self)`` - reported by the checks
     themselves at the moment both operands are confirmed, not inferred from
     how many devices/rails/budgets the contract declares.
     """
@@ -120,6 +125,17 @@ class _ScoreBook:
         self._keys: set[str] = set()
         self._n = 0
         self.records: list[ScoredRecord] = []
+        self.joint_torques: list[dict] = []  # one row per scored joint, for the check document
+        self.standing: dict | None = None  # check_standing_sweep's stance and rows, same use
+        self.unheld: list[tuple[str, float]] = []  # payloads no joint's holding torque carries
+        self.notes: list[str] = []  # plain lines printed after the verdict; never a finding
+
+    def payload_notes(self) -> None:
+        """One note per payload no joint's holding torque carries; standing rows count it in."""
+        rows = self.standing and self.standing["rows"]
+        end = "; it is counted in the standing loads" if rows else ", so no joint torque changes"
+        for name, kg in self.unheld:
+            self.notes.append(f"Note: No joint's holding torque carries the {kg:g} kg payload on {name}{end}.")
 
     def record(self, key: str) -> None:
         self._keys.add(key)
@@ -136,11 +152,12 @@ class _ScoreBook:
         expected_quantity: Quantity | None = None,
         provenance: Provenance | None = None,
         detail: str | None = None,
+        unsolved_poses: tuple = (),
     ) -> None:
         """Record a PASSED comparison alongside ``record`` (same key, same call site).
 
         Only call this on the branch where the comparison did NOT produce a
-        violation/warning finding — one scored comparison yields exactly one
+        violation/warning finding - one scored comparison yields exactly one
         of {violation, warning, ScoredRecord} so the presence-floor identity
         (``len(scored_records) + violations + warnings == scored``) holds.
 
@@ -159,6 +176,7 @@ class _ScoreBook:
                 expected_quantity=expected_quantity,
                 provenance=provenance,
                 detail=detail,
+                unsolved_poses=unsolved_poses,
             )
         )
 
@@ -195,8 +213,32 @@ def _paid_check_missing(quantity: str, what: str) -> Finding:
         quantity=quantity,
         observed="not run: the recording checks did not load",
         expected=f"{what} checked",
-        action=f"reinstall lockwire to check {what}, or remove them from the contract",
+        action=f"reinstall lockwire to check {what}, or remove them from the lockfile",
     )
+
+
+class CheckCrashed(Exception):
+    """A check threw. A bug in lockwire, never a verdict and never a problem with the file."""
+
+
+class ModelFileRefusal(ValueError):
+    """The lock's model file is there but cannot be read: no verdict, and its own plain sentence."""
+
+
+def crash_is_a_bug(run):
+    """Decorate a scorer: whatever it throws leaves as `CheckCrashed(<error name>)`, so a caller
+    that treats load errors as a plain refusal cannot take a crashed check for one."""
+
+    @functools.wraps(run)
+    def wrapped(*args, **kwargs):
+        try:
+            return run(*args, **kwargs)
+        except ModelFileRefusal:  # the user's model file, not a bug: refused as it is
+            raise
+        except Exception as error:
+            raise CheckCrashed(type(error).__name__) from error
+
+    return wrapped
 
 
 def requires(*fields: str):
@@ -222,7 +264,7 @@ def requires(*fields: str):
     return deco
 
 
-# Engine-module registry (lane A2 implements against this; checks.py is not theirs).
+# Engine-module registry: other modules plug their checks in here without editing checks.py.
 # Each module below, if it exists, defines a module-level ``ENGINE_CHECKS`` tuple of
 # callables run as ``check(contract, contract_path=contract_path)`` -> list[Finding].
 # A function that also accepts a ``plan`` keyword gets ``plan=`` too (None when run_record_checks
@@ -253,9 +295,17 @@ def _engine_checks() -> Iterator[Callable[..., list[Finding]]]:
         yield from getattr(module, "ENGINE_CHECKS", ())
 
 
+def _beside(c: Contract, contract_path: Path | None) -> None:
+    """A check handed the lock's path reads the model file beside that lock, as schema.load_contract
+    sets it; this covers a contract rebuilt from an edited document (what-if, a variant)."""
+    if contract_path and c.model is not None:
+        object.__setattr__(c.model, "_lockfile", contract_path.resolve())
+
+
 def _with_mjcf_effort(c: Contract, contract_path: Path | None) -> Contract:
     """An MJCF model keeps its joint effort in <actuator>; give the checks that read
     `joint.limits.effort` the same number a URDF's <limit effort> gives them, in memory only."""
+    _beside(c, contract_path)
     named = _urdf_path_candidate(c.model) if c.model and c.model.joints else None
     path = named and _model_on_disk(contract_path, named)
     from lockwire.mjcf import is_mjcf, parse_mjcf  # mjcf -> check_sim -> checks
@@ -289,6 +339,7 @@ def _with_mjcf_effort(c: Contract, contract_path: Path | None) -> Contract:
     )
 
 
+@crash_is_a_bug
 def run_record_checks(
     contract: Contract,
     current_conditions: dict[str, float] | None = None,
@@ -315,6 +366,7 @@ def run_record_checks(
     ``_ScoreBook`` denominator for a run that never had one.
     """
     plugins.ensure()
+    refuse_unreadable_model(contract, contract_path)  # every verdict runs here: none without the model
     contract = _with_mjcf_effort(contract, contract_path)
     scores = _ScoreBook()
     findings: list[Finding] = []
@@ -335,11 +387,13 @@ def run_record_checks(
     findings += check_gravity_reach(contract, scores=scores, contract_path=contract_path)
     findings += check_tip_over(contract)
     findings += check_standing_load(contract)
+    findings += check_standing_sweep(contract, scores=scores, contract_path=contract_path)
+    scores.payload_notes()
     findings += check_hold_torque(contract, plan)
     findings += check_bus_bandwidth(contract, scores=scores)
     findings += check_zero_mass(contract, contract_path=contract_path)
     findings += check_floating_mass(contract)
-    findings += check_unusable_effort(contract)
+    findings += check_unusable_effort(contract, contract_path=contract_path)
     findings += check_servo_stall(
         contract, servo or contract.servo, scores=scores, contract_path=contract_path
     )
@@ -391,6 +445,8 @@ def run_record_checks(
     scored = len(scores)
     if scored == 0:
         findings.append(_empty_score_disclosure())
+    findings = _lock_relative(findings, contract_path)
+    scores.notes[:] = [_lock_relative_text(n, contract_path, command=True) for n in scores.notes]
     findings, accepted = _set_aside_accepted(contract, findings)
     return RecordReport(
         findings,
@@ -398,9 +454,46 @@ def run_record_checks(
         scored=scored,
         scored_keys=scores.keys,
         scored_records=scores.records,
+        joint_torques=scores.joint_torques,
+        standing=scores.standing,
         actuator_case_reports=actuator_case_reports,
         accepted=accepted,
+        notes=scores.notes,
     )
+
+
+def _lock_relative_text(text: str, contract_path: Path | None, *, command: bool = False) -> str:
+    """Paths without this computer's folders, so machine output (JSON, csv, a CI annotation, the
+    page, MCP) prints what plain `check` prints: a path inside the current folder reads from it (a
+    command runs where it is typed, a CI annotation's `file=` stays repo-relative), any other path
+    inside the lockfile's folder reads from that folder, as the lockfile writes it. A command (or a
+    note carrying one) keeps such a path whole: run from here, a lock-relative path would miss."""
+    if contract_path is None:
+        return text
+    cwd = Path.cwd()
+    folder = Path(contract_path).absolute().parent
+    bases = [] if cwd == Path(cwd.anchor) else [cwd]
+    lock = () if command else (folder, folder.resolve())
+    for base in dict.fromkeys(str(b).rstrip(os.sep) + os.sep for b in (*bases, *lock)):
+        # a folder with a space was quoted whole: quote what is left only if it still needs it
+        text = re.sub(f"'{re.escape(base)}([^']*)'", lambda m: cli_line(m[1]), text)
+        text = re.sub(f"(?<![^\\s=:(]){re.escape(base)}", "", text)  # a whole path, not /private/<base>
+    return text
+
+
+def _lock_relative(findings: list[Finding], contract_path: Path | None) -> list[Finding]:
+    """Each finding's source and next command without this computer's folders (observed text,
+    which accepts match on, is left exactly as stored)."""
+    return [
+        f.model_copy(
+            update={
+                k: _lock_relative_text(v, contract_path, command=k == "next_command")
+                for k in ("source", "next_command")
+                if isinstance(v := getattr(f, k), str)
+            }
+        )
+        for f in findings
+    ]
 
 
 _LOCK_DRIFT = re.compile(
@@ -418,19 +511,41 @@ def is_lock_drift(finding: Finding) -> bool:
     return finding.severity == "violation" and bool(_LOCK_DRIFT.fullmatch(finding.quantity))
 
 
+# Words released 0.5.1 stored in a finding's observed text, and the words this build stores for
+# the same finding. Only the words differ: every number and name is carried over unchanged, so a
+# changed number still reopens an accepted finding. Read, never printed.
+_OLD_WORDS: tuple[tuple[re.Pattern[str], Any], ...] = (
+    (re.compile(r"^CoM at "), "centre of mass at "),
+    (re.compile(r"^URDF is a web link; "), "model file is a web link; "),
+    (re.compile(r"^no URDF provenance; "), "no model file in provenance; "),
+    (re.compile(r"^URDF (.+) absent; "), r"model file \1 absent; "),
+    (re.compile(r"^URDF (.+): relative path, no contract base dir \u2014 "), r"model file \1: relative path, no contract base dir: "),
+    (re.compile(r"^URDF unreadable \("), "model file unreadable ("),
+    (re.compile(r"^(\d+) mesh files were not found( at lock)?;"), lambda m: f"{_meshes_said(int(m[1]), m[2] or '')};"),
+)
+
+
+def canonical_observed(observed: str) -> str:
+    """An observed text in this build's words (0.5.1's words mapped through _OLD_WORDS)."""
+    for old, new in _OLD_WORDS:
+        observed = old.sub(new, observed, count=1)
+    return observed
+
+
 def _set_aside_accepted(
     contract: Contract, findings: list[Finding]
 ) -> tuple[list[Finding], list[Finding]]:
-    """Split off findings the lockfile accepted at exactly their observed value."""
-    pins = {(a.id, a.observed): a for a in contract.accepted or []}
+    """Split off findings the lockfile accepted at exactly their observed value (in today's words:
+    an accept row written by 0.5.1 in its words still matches, see canonical_observed)."""
+    pins = {(a.id, canonical_observed(a.observed)): a for a in contract.accepted or []}
     kept, accepted = [], []
     for finding in findings:
-        row = pins.get((finding.quantity, finding.observed))
+        row = pins.get((finding.quantity, canonical_observed(finding.observed)))
         if row is None or is_lock_drift(finding):
             kept.append(finding)
             continue
         how = (
-            f"accepted ({row.reason}, witness {row.provenance.witness or "no name on record"}, {row.provenance.locked_at})"
+            f"accepted ({row.reason.rstrip('.')}, witness {witness_words(row.provenance.witness) or "no name on record"}, {row.provenance.locked_at})"
         )
         accepted.append(finding.model_copy(update={"action": how, "next_command": None}))
     return kept, accepted
@@ -444,7 +559,7 @@ def _is_accountable_owner(owner: str) -> bool:
 
 
 def check_device_owners(c: Contract) -> list[Finding]:
-    """A device contract must name who is accountable for resolving its assertions."""
+    """Every device must name the person or team accountable for it."""
     return [
         Finding(
             severity="violation",
@@ -479,7 +594,7 @@ def _catalog_part_mass(ref: str) -> tuple[str, SourcedNumber] | None:
 
 
 def check_compared_from(c: Contract) -> list[Finding]:
-    """Check a device mass copied from one concrete seeded catalog part.
+    """Check a device mass copied from a catalog part still matches that part.
 
     ``Provenance.compared_from`` records the identity of the copied source; it
     never substitutes a catalog value for the device's own declaration. Only
@@ -542,6 +657,9 @@ def check_compared_from(c: Contract) -> list[Finding]:
         source_mass = Quantity(value=catalog_mass.value, unit=catalog_mass.unit)
         if math.isclose(declared_mass.base(), source_mass.base(), rel_tol=1e-9):
             continue
+        tol = device.physical.mass_tolerance
+        if tol and (b := _mass_band(declared_mass, tol))[0] <= source_mass.base() <= b[1]:
+            continue  # inside the band the declared mass carries
         findings.append(
             Finding(
                 severity="warning",
@@ -584,7 +702,7 @@ def _iter_source_fields(node: Any, path: str) -> Iterator[tuple[str, str]]:
 
 
 def check_source_portability(c: Contract) -> list[Finding]:
-    """a source is a file beside the contract, a URL or a cited title.
+    """A source is a file beside the lockfile, a URL or a cited title.
 
     Write paths refuse an absolute path outright (``edit.validate_source``); a
     contract that already carries one predates that gate, so it is reported here
@@ -775,7 +893,7 @@ def check_reference_integrity(c: Contract) -> list[Finding]:
                     expected="a contract path that resolves",
                     dependent=", ".join(e.code),
                     owner=e.owner,
-                    action="fix the edge's quantity path — the code it guards is now unguarded",
+                    action="fix the edge's quantity path: the code it guards is now unguarded",
                 )
             )
 
@@ -840,22 +958,23 @@ def check_edge_tolerance(
     *,
     scores: _ScoreBook | None = None,
 ) -> list[Finding]:
-    """Score an edge's declared tolerance against a live current reading.
+    """A dependency's declared tolerance against a fresh reading; the free check has no live
+    reading, so it lists these as not compared (readings come from Lockwire Pro).
 
     ``DependencyEdge.tolerance`` bounds how far ``e.quantity`` may drift from
     the contract's own declared value before the code in ``e.code`` should
     stop trusting it. Scoring that drift needs two independently populated
-    operands — the contract's declared value (``c.resolve(e.quantity)``) and
-    a live/current reading — and ``DependencyEdge`` carries no second,
+    operands (the contract's declared value (``c.resolve(e.quantity)``) and
+    a live/current reading), and ``DependencyEdge`` carries no second,
     distinct field to diff against (its fields are exactly
     quantity/tolerance/code/owner). Inventing one would mean touching
     ``schema.py``, which stays frozen; this
-    check follows ``check_condition_envelopes``'s own precedent instead — a
+    check follows ``check_condition_envelopes``'s own precedent instead: a
     caller-supplied mapping of fresh readings keyed by the same path,
     threaded through ``run_record_checks`` exactly like ``current_conditions``.
     The CLI ``check`` command does not populate it today (the same
     API-path gap that check documents for itself), so absent a supplied
-    reading this stays a disclosed ``not_scored`` coverage gap — never a
+    reading this stays a disclosed ``not_scored`` coverage gap, never a
     silent pass and never a guessed comparison.
 
     A dangling quantity path stays ``check_reference_integrity``'s violation,
@@ -865,7 +984,7 @@ def check_edge_tolerance(
     ``Physical.mass``.
 
     Both operands present and the drift falls inside the tolerance band:
-    recorded via ``scores`` and silent (the false-positive budget) — this is
+    recorded via ``scores`` and silent (the false-positive budget); this is
     a real two-operand comparison, unlike a structural presence check, so it
     now belongs in the ``_ScoreBook`` denominator.
     """
@@ -995,7 +1114,8 @@ def check_edge_tolerance(
 
 
 def check_electrical_segments(c: Contract, *, scores: _ScoreBook) -> list[Finding]:
-    """Bound only explicitly sourced logic, one unbuffered I2C segment and CAN wiring."""
+    """Logic levels, I2C and CAN wiring against their sourced limits: logic-level margins, one
+    unbuffered I2C segment, and a CAN segment's nodes and end terminations."""
     if c.topology is None:
         return []
     out: list[Finding] = []
@@ -1287,8 +1407,8 @@ def check_bus_identities(c: Contract) -> list[Finding]:
 
 
 def check_rail_topology(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
-    """Rail ancestry must be acyclic and voltage cannot rise through an
-    unmodeled converter. Otherwise rollups can hang or bless a wiring typo."""
+    """Rails must not feed each other in a loop, and voltage cannot rise through a
+    converter the lockfile does not declare: either would hide a wiring mistake."""
     if c.topology is None:
         return []
 
@@ -1327,7 +1447,7 @@ def check_rail_topology(c: Contract, *, scores: _ScoreBook | None = None) -> lis
     for rail in c.topology.rails:
         if rail.voltage is None:
             # no declared voltage means no upstream/derived comparison is
-            # possible — never treat it as 0 V.
+            # possible - never treat it as 0 V.
             if rail.voltage_range is not None:
                 observed = f"{rail.id} declares a voltage range but no nominal voltage"
                 expected = "a declared nominal rail voltage for the upstream comparison"
@@ -1363,7 +1483,7 @@ def check_rail_topology(c: Contract, *, scores: _ScoreBook | None = None) -> lis
         # A rail declaring a charging source is not bounded by its battery: an
         # alternator holds the bus ABOVE the pack in order to charge it.
         # Such a rail is scored against the charging source's rated output
-        # instead — still two independently authored records.
+        # instead - still two independently authored records.
         charge_rating: Band | None = None
         charger = c.device(rail.charged_by) if rail.charged_by is not None else None
         if charger is not None:
@@ -1394,8 +1514,8 @@ def check_rail_topology(c: Contract, *, scores: _ScoreBook | None = None) -> lis
                 continue
             lo = units.to_base(charge_rating.lo, charge_rating.unit)
             hi = units.to_base(charge_rating.hi, charge_rating.unit)
-            if scores is not None:
-                scores.record(f"rails/{rail.id}")
+            if scores is not None:  # keyed by the quantity its finding or pass carries
+                scores.record(f"topology/rails/{rail.id}/voltage")
             if not (lo <= child_v <= hi):
                 out.append(
                     Finding(
@@ -1428,13 +1548,14 @@ def check_rail_topology(c: Contract, *, scores: _ScoreBook | None = None) -> lis
                 )
             continue
 
-        # Both rail voltage and upstream voltage populated — the two-source comparison.
-        if scores is not None:
-            scores.record(f"rails/{rail.id}")
+        # Both rail voltage and upstream voltage populated - the two-source comparison.
         efficiency_warning = (
             not math.isclose(child_v, parent_v, rel_tol=1e-9)
             and "efficiency" not in rail.model_fields_set
         )
+        if scores is not None:  # keyed by the quantity of the one outcome it ends in
+            alone = efficiency_warning and child_v <= parent_v
+            scores.record(f"topology/rails/{rail.id}/{'efficiency' if alone else 'voltage'}")
         if efficiency_warning:
             out.append(
                 Finding(
@@ -1616,6 +1737,7 @@ def compute_system_cg(c: Contract) -> list[CGReport]:
             continue
         contributors: list[CGContributor] = []
         limitations = list(frame_limitations)
+        mass_gaps: list[str] = []  # only what leaves the total itself short
 
         if budget.sources in ("devices", "links+devices"):
             mounted_devices = [device for device in c.devices if device.physical is not None]
@@ -1624,7 +1746,8 @@ def compute_system_cg(c: Contract) -> list[CGReport]:
                 assert physical is not None
                 if physical.mass is None:
                     # undeclared mass is a coverage gap, never a 0 kg contributor.
-                    limitations.append(f"device {device.id!r} has no declared mass")
+                    mass_gaps.append(f"device {device.id!r} has no declared mass")
+                    limitations.append(mass_gaps[-1])
                     continue
                 mass = physical.mass.base()
                 if physical.mount_frame is None:
@@ -1632,7 +1755,7 @@ def compute_system_cg(c: Contract) -> list[CGReport]:
                     # total (it is a mass) but is excluded from CG, disclosed.
                     position = None
                     limitations.append(
-                        f"device {device.id!r} has a mass but no mount frame — CG excludes it"
+                        f"device {device.id!r} has a mass but no mount frame: CG excludes it"
                     )
                 elif physical.mount_xyz is None:
                     position = None
@@ -1657,7 +1780,11 @@ def compute_system_cg(c: Contract) -> list[CGReport]:
                 )
 
         if budget.sources in ("links", "links+devices") and c.model is not None:
+            warned = {f.quantity for f in check_zero_mass(c)}  # the check's own rule
             for link in c.model.links:
+                if f"model/links/{link.name}/mass" in warned:
+                    mass_gaps.append(f"link {link.name!r} has no mass")
+                    limitations.append(mass_gaps[-1])
                 if link.mass is None:
                     continue
                 mass = link.mass.base()
@@ -1720,6 +1847,7 @@ def compute_system_cg(c: Contract) -> list[CGReport]:
                 positioned_mass_kg=positioned_mass,
                 contributors=contributors,
                 limitation="; ".join(dict.fromkeys(limitations)) or None,
+                mass_limitation="; ".join(mass_gaps) or None,
                 budget_limit_kg=budget.limit.base(),
             )
         )
@@ -1733,7 +1861,7 @@ def check_voltage_compatibility(c: Contract, *, scores: _ScoreBook | None = None
     The connection is the same direct device ``power.rail`` edge consumed by
     power budgets. Reference integrity owns missing models and rails; an absent
     input range is an optional declaration and intentionally produces nothing.
-    The comparison is inclusive: a rail voltage exactly equal to a declared min or max is compatible — a datasheet min/max includes its endpoints.
+    The comparison is inclusive: a rail voltage exactly equal to a declared min or max is compatible: a datasheet min/max includes its endpoints.
     """
     out: list[Finding] = []
     fraction_warned: set[str] = set()
@@ -1745,7 +1873,7 @@ def check_voltage_compatibility(c: Contract, *, scores: _ScoreBook | None = None
         if model is None or rail is None or model.input_voltage_range is None:
             continue
         if rail.voltage_range is not None:
-            # the rail publishes a whole range — compatible iff it is
+            # the rail publishes a whole range - compatible iff it is
             # fully inside the device's declared input range (inclusive).
             if scores is not None:
                 scores.record(f"devices/{device.id}/power/rail")
@@ -1824,7 +1952,7 @@ def check_voltage_compatibility(c: Contract, *, scores: _ScoreBook | None = None
             )
             continue
 
-        # Rail voltage vs datasheet input range — both sides present.
+        # Rail voltage vs datasheet input range - both sides present.
         if scores is not None:
             scores.record(f"devices/{device.id}/power/rail")
         rail_v = rail.voltage.base()
@@ -1958,10 +2086,10 @@ def power_rollup(
     present; devices with no such override retain their compatible single draw.
 
     A device with no declared ``draw`` (and, by the schema validator, no
-    modes either — modes require a fallback draw) is an UNKNOWN consumer: it
+    modes either - modes require a fallback draw) is an UNKNOWN consumer: it
     is never summed as 0 W. Instead its id is recorded, keyed by every rail on
     its path to the battery, in the returned ``rail_unknown``/``battery_unknown``
-    — a caller that depends on any of those totals must not_score itself
+    - a caller that depends on any of those totals must not_score itself
     rather than silently sum around the gap.
 
     Decision: a budget checking nominal stays SILENT even when the same tree would breach at peak - the contract explicitly selected its mode, and no near-miss warning policy exists. The narrower future enhancement, if ever wanted: warn only when draw_mode is non-nominal and zero devices declare any named mode. Deliberate, disclosed asymmetry: budgets score the contract's selected draw mode, while check_ampacity scores the worst declared mode. A budget is a design target the author owns; ampacity is a fire limit that holds no matter which mode the author had in mind.
@@ -2035,7 +2163,7 @@ _power_rollup = power_rollup
 
 def _format_hours(hours: float) -> str:
     """Display a duration in the unit a human reads fastest: minutes under an
-    hour, hours at or above it. Display only — the contract and schema stay in
+    hour, hours at or above it. Display only - the contract and schema stay in
     hours; only these rendered strings change."""
     if abs(hours) < 1.0:
         return f"{hours * 60:.1f} min"
@@ -2104,9 +2232,9 @@ def _frame_links(c: Contract, contract_path: Path | None) -> frozenset[str]:
 def check_budgets(
     c: Contract, *, scores: _ScoreBook | None = None, contract_path: Path | None = None
 ) -> list[Finding]:
-    """Budgets are derived entries: current value = sum over witnesses, here the
-    contract's own device and model entries. Power follows the efficiency-aware
-    rail tree so one child load constrains its converter, ancestors, and endurance."""
+    """Each budget is the sum of the lockfile's own device and model entries, compared with
+    its limit. Power follows the rail tree, converter efficiency included, so one load counts
+    against its converter, the rails above it, and endurance."""
     out: list[Finding] = []
     for b in c.budgets:
         limit = b.limit.base()
@@ -2167,7 +2295,7 @@ def check_budgets(
                 )
             if unknown_consumers:
                 # a rail with any consumer of unknown draw cannot be safely
-                # summed — never sum an unknown draw as 0 W.
+                # summed - never sum an unknown draw as 0 W.
                 device_id = unknown_consumers[0]
                 out.append(
                     Finding(
@@ -2194,7 +2322,7 @@ def check_budgets(
                         action="add device power witnesses or remove the empty budget",
                     )
                 )
-                # No witness draw — limit vs .get(..., 0.0) is vacuous; do not score.
+                # No witness draw - limit vs .get(..., 0.0) is vacuous; do not score.
             else:
                 # Score on the rolled-up MAGNITUDE, not on the contributor list.
                 # A non-empty list whose every draw is 0.0 W sums to nothing, and
@@ -2347,7 +2475,10 @@ def check_budgets(
                 # a partial sum (unknown masses) can only prove "too heavy", never "too light"
                 # 1e-9 relative slack: 0.1 kg + 0.2 kg is 0.30000000000000004 kg, not off nominal
                 tol_kg = max((b.tolerance_pct or 0.0) / 100 * nominal_kg, 1e-9 * nominal_kg)
-                if abs(total_kg - nominal_kg) > tol_kg and (not unknown_mass or gap_pct > 0):
+                decidable = not unknown_mass or gap_pct > 0
+                if scores is not None and decidable:
+                    scores.record(f"budgets/{b.id}/nominal")  # the --mass comparison itself
+                if abs(total_kg - nominal_kg) > tol_kg and decidable:
                     out.append(
                         Finding(
                             severity="violation",
@@ -2364,6 +2495,13 @@ def check_budgets(
                             locked_at=b.provenance.locked_at if b.provenance is not None else None,
                             action="the summed link masses disagree with the declared nominal mass; fix the model or the declared value",
                         )
+                    )
+                elif scores is not None and decidable:
+                    scores.passed(
+                        f"budgets/{b.id}/nominal",
+                        observed=format_magnitude(total_kg, "kg") + framed,
+                        expected=f"{format_magnitude(nominal_kg, 'kg')} +/- {b.tolerance_pct or 0:g}%",
+                        margin=f"{abs(gap_pct):.0f}% off",
                     )
 
         elif b.kind == "endurance":
@@ -2385,7 +2523,7 @@ def check_budgets(
                 continue
             if battery_unknown:
                 # any device on the way to the battery with unknown draw
-                # makes endurance unsafe to compute — never sum it as 0 W.
+                # makes endurance unsafe to compute - never sum it as 0 W.
                 device_id = sorted(battery_unknown)[0]
                 out.append(
                     Finding(
@@ -2408,7 +2546,7 @@ def check_budgets(
             total_w = battery_w
             if total_w == 0.0:
                 # zero declared draw is an unmeasured
-                # budget, not a warning-worthy anomaly — never score it, and
+                # budget, not a warning-worthy anomaly - never score it, and
                 # never let it read as "0.00 min" against the required minutes.
                 out.append(
                     Finding(
@@ -2418,14 +2556,14 @@ def check_budgets(
                         observed_quantity=Quantity(value=0.0, unit="W"),
                         expected="at least one device with a power entry",
                         owner=b.owner,
-                        action="add power draws to devices — endurance is uncheckable until then",
+                        action="add power draws to devices: endurance is uncheckable until then",
                     )
                 )
                 continue
             capacity_wh = c.topology.battery.capacity.base()
             hours = capacity_wh / total_w
             required_h = units.convert(b.limit.value, b.limit.unit, "h")
-            # Battery capacity/draw vs required endurance — both sides present.
+            # Battery capacity/draw vs required endurance - both sides present.
             if scores is not None:
                 scores.record(f"budgets/{b.id}")
             if hours < required_h:
@@ -2456,7 +2594,7 @@ def check_budgets(
                 )
                 continue
             # Nominal passes: check declared cold-capacity deratings. A failure here
-            # is a go-with-note (MEL-style) — the mission works, but not below the
+            # is a go-with-note (MEL-style) - the mission works, but not below the
             # named pack temperature.
             derated_warning = False
             for row in sorted(c.topology.battery.derating, key=lambda r: -r.below_c):
@@ -2486,7 +2624,7 @@ def check_budgets(
                             locked_at=b.provenance.locked_at if b.provenance is not None else None,
                             action=(
                                 f"cold ops below {row.below_c:g} C unsupported "
-                                "— restrict conditions, preheat pack, or grow "
+                                "; restrict conditions, preheat pack, or grow "
                                 "the battery"
                             ),
                         )
@@ -2510,15 +2648,15 @@ def check_budgets(
 
 
 # Published copper ampacity (amperes), 90 °C insulation column.
-# Source: NFPA 70 National Electrical Code (NEC) 2020 —
+# Source: NFPA 70 National Electrical Code (NEC) 2020 -
 #   free_air  -> Table 310.17 (single-insulated conductors in free air)
 #   enclosed  -> Table 310.16 (≤3 current-carrying conductors in raceway,
-#               cable, or earth) — the same standard's enclosed column, not a
+#               cable, or earth) - the same standard's enclosed column, not a
 #               hand-typed derating multiplier (derating honesty).
 # Gauges absent from these tables are not scored (emit not_scored).
 #
 # 18/16 AWG free-air corroboration: checked
-# against NFPA 70 (NEC) 2020 Table 310.17 copper 90 °C — 18 AWG = 18 A,
+# against NFPA 70 (NEC) 2020 Table 310.17 copper 90 °C - 18 AWG = 18 A,
 # 16 AWG = 24 A. Values stand; no correction.
 AMPACITY_SOURCE = (
     "NFPA 70 (NEC) 2020 Table 310.17 (free air) / Table 310.16 "
@@ -2526,8 +2664,8 @@ AMPACITY_SOURCE = (
 )
 _AMPACITY_A: dict[tuple[int, str], float] = {
     # (awg, installation) -> amperes
-    (18, "free_air"): 18.0,  # NEC 2020 Table 310.17 Cu 90 °C — corroborated
-    (16, "free_air"): 24.0,  # NEC 2020 Table 310.17 Cu 90 °C — corroborated
+    (18, "free_air"): 18.0,  # NEC 2020 Table 310.17 Cu 90 °C - corroborated
+    (16, "free_air"): 24.0,  # NEC 2020 Table 310.17 Cu 90 °C - corroborated
     (14, "free_air"): 35.0,
     (12, "free_air"): 40.0,
     (10, "free_air"): 55.0,
@@ -2570,7 +2708,7 @@ def _worst_rail_power(c: Contract, rail_id: str) -> tuple[float, str, set[str], 
     path reports a confident wrong pass on a fire-safety check. Returns
     ``(load_w, mode_name, witnesses, unknown_consumers)`` for the worst mode
     (nominal first on ties so a true peak is what gets named when it wins).
-    ``unknown_consumers`` is invariant across draw_mode — a device with no
+    ``unknown_consumers`` is invariant across draw_mode - a device with no
     declared draw has no modes either (the schema requires a fallback), so it
     is unknown under every mode; a non-empty set means the caller cannot
     safely compute a peak and must not_score instead.
@@ -2591,12 +2729,13 @@ def _worst_rail_power(c: Contract, rail_id: str) -> tuple[float, str, set[str], 
 
 
 def check_ampacity(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
-    """Published AWG ampacity vs computed rail current (two-source).
+    """The current a wire carries, computed from its loads, against the published safe current
+    for its gauge.
 
     Limit side: embedded NEC tables cited in ``AMPACITY_SOURCE``. Draw side:
     the **worst** rolled-up device watts on the wire's rail across nominal and
     every declared ``PowerMode`` (``_worst_rail_power``), divided by rail
-    voltage — never the wire's defaulted ``draw_mode`` alone. A gauge or
+    voltage, never the wire's defaulted ``draw_mode`` alone. A gauge or
     installation absent from the published table emits ``not_scored`` rather
     than inventing a derating.
 
@@ -2686,13 +2825,13 @@ def check_ampacity(c: Contract, *, scores: _ScoreBook | None = None) -> list[Fin
             continue
         draw_a = load_w / voltage_v
         contributors = sorted(witnesses)
-        # NEC ampacity vs computed draw — score on the computed CURRENT, not on
+        # NEC ampacity vs computed draw - score on the computed CURRENT, not on
         # the witness list. This comment previously named the vacuous-pass defect
         # while the guard only checked list non-emptiness: a witness declaring
         # 0 W yields 0 A against a published ampacity limit, which passes for no
         # reason. Draws are non-negative, so > 0 means a real load was weighed.
         if scores is not None and draw_a > 0.0:
-            scores.record(f"wires/{wire.id}")
+            scores.record(f"topology/wires/{wire.id}/ampacity")
         has_named_modes = any(c.device(device_id).power.modes for device_id in contributors)
 
         if draw_a > limit_a:
@@ -2741,12 +2880,12 @@ def check_ampacity(c: Contract, *, scores: _ScoreBook | None = None) -> list[Fin
 
 
 def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list[Finding]:
-    """Published rail current_limit vs computed draw (sibling to check_ampacity).
+    """A rail's published current_limit against its computed draw (wire limits are `ampacity`).
 
     Draw side: the worst rolled-up watts across nominal and every declared
     PowerMode (``_worst_rail_power``), divided by
     the rail's worst-case voltage: its declared ``voltage_range.min`` when
-    present (the conservative bound — lower voltage means higher current for
+    present (the conservative bound: lower voltage means higher current for
     the same watts), else its single ``voltage``. A rail with no voltage fact
     (neither) or an unsummable draw (any consumer of unknown draw) is
     ``not_scored`` rather than guessing.
@@ -2833,7 +2972,7 @@ def check_rail_current(c: Contract, *, scores: _ScoreBook | None = None) -> list
             )
             continue
         draw_a = load_w / voltage_v
-        # Score on the computed CURRENT, not on the witness list — a witness
+        # Score on the computed CURRENT, not on the witness list - a witness
         # declaring 0 W yields 0 A and would vacuous-pass for no reason.
         if scores is not None and draw_a > 0.0:
             scores.record(f"topology/rails/{rail.id}/current_limit")
@@ -2914,6 +3053,10 @@ _REACH_ANGLES = (0.0, math.pi / 2, -math.pi / 2)
 _REACH_MAX_POSES = 20_000
 _LOOP_GRID = 7  # poses per driven joint across its range when a closed loop is solved
 _LOOP_MAX_POSES = 2500  # four driven joints on one loop; more is refused, not ground through
+# ponytail: refinement adds at most this many poses per loop (three local re-grids at a third of the
+# step each); the worst pose sits next to a lock, between coarse points. Upgrade path: a
+# constrained optimiser (maximise the torque subject to the lock-threshold constraint).
+_LOOP_REFINE_MAX = 2000
 _ROTARY = ("revolute", "continuous")
 
 
@@ -2954,13 +3097,25 @@ def _sinusoid_peak(a, b, limits) -> tuple[np.ndarray, np.ndarray]:
     return best, at
 
 
-def gravity_loads(c: Contract) -> dict[str, float] | None:
+def gravity_loads(
+    c: Contract, contract_path: Path | None = None, info: dict | None = None
+) -> dict[str, float] | None:
     """Worst-pose static gravity load (N*m) per rotary joint, exactly as check_gravity_reach
-    scores it but for every rotary joint, limit or not; None when it cannot score."""
-    got = _gravity_worst(c)
+    scores it but for every rotary joint, limit or not; None when it cannot score. With the
+    lock's path a closed loop (SDF) is solved as the check solves it. ``info`` receives "reasons"
+    (the check's own not-scored texts) and "loop" (loop joint -> its driven joints)."""
+    got = _gravity_worst(c, contract_path)
+    if info is not None:
+        info["reasons"] = [f.observed for f in (got if isinstance(got, list) else got[3])]
     if isinstance(got, list):
         return None
     worst, by_name = got[0], got[1]
+    if info is not None:
+        info["loop"] = {
+            n: [m for m, r in worst.items() if r[2] == row[2]]
+            for n, row in worst.items()
+            if row[2].startswith("closed loop")
+        }  # one loop's joints share the same "how" text, which names its servos and pins
     return {n: row[0].torque_nm for n, row in worst.items() if by_name[n].type in _ROTARY}
 
 
@@ -2995,20 +3150,9 @@ def _tip_not_scored(why: str) -> Finding:
     )
 
 
-@requires("model")
-def check_tip_over(c: Contract, *, contacts: list[str] | None = None) -> list[Finding]:
-    """NO-GO when the robot would tip over: its centre of mass sits outside the area its wheels or feet touch.
-
-    ``contacts`` names the ground-touching links (declared contacts will pass them). Left None, they are the
-    links named wheel/foot/feet/toe/paw/caster/skid within 5 cm of the lowest such link, at the zero
-    pose, gravity along the root -Z. The polygon is the convex hull of their origins; that is
-    geometry and needs no sourced number. Silent with no contacts or no centre of mass; not scored
-    (with the reason) for a second root or fewer than three non-collinear contacts.
-
-    The margin percent below is a convention, not a cited one: the distance from the CoM
-    to the nearest polygon edge as a percent of that distance for the polygon's own vertex mean
-    (100 = as centred as the polygon allows). It has no source, so it is advice only and never fails.
-    """
+def _tip(c: Contract, contacts: list[str] | None) -> list[Finding] | tuple:
+    """check_tip_over's geometry: (CoM, polygon, contacts, signed CoM-to-edge distance in m,
+    negative outside), or the findings it returns instead (none, or one not-scored line)."""
     frames = statics.link_frames(c.model)
     named = [lk.name for lk in c.model.links if _CONTACT_NAME.search(lk.name)]
     if frames is None:
@@ -3026,8 +3170,35 @@ def check_tip_over(c: Contract, *, contacts: list[str] | None = None) -> list[Fi
         if not contacts:
             return []
         return [_tip_not_scored("the contacts do not span an area (fewer than 3 non-collinear points)")]
-    dist = statics.tip_distance(com[:2], hull)
-    where = f"CoM at ({com[0]:.3f}, {com[1]:.3f}) m over {len(hull)} contact points ({', '.join(contacts)})"
+    return com, hull, contacts, statics.tip_distance(com[:2], hull)
+
+
+def tip_distance_m(c: Contract) -> float | None:
+    """The unrounded CoM-to-edge distance behind model/tip_over and model/tip_margin (negative
+    outside the polygon); None when check_tip_over prints neither."""
+    got = None if c.model is None else _tip(c, None)
+    return None if got is None or isinstance(got, list) else got[3]
+
+
+@requires("model")
+def check_tip_over(c: Contract, *, contacts: list[str] | None = None) -> list[Finding]:
+    """NO-GO when the robot would tip over: its centre of mass sits outside the area its wheels or feet touch.
+
+    ``contacts`` names the ground-touching links (declared contacts will pass them). Left None, they are the
+    links named wheel/foot/feet/toe/paw/caster/skid within 5 cm of the lowest such link, at the zero
+    pose, gravity along the root -Z. The polygon is the convex hull of their origins; that is
+    geometry and needs no sourced number. Silent with no contacts or no centre of mass; not scored
+    (with the reason) for a second root or fewer than three non-collinear contacts.
+
+    The margin percent below is a convention, not a cited one: the distance from the CoM
+    to the nearest polygon edge as a percent of that distance for the polygon's own vertex mean
+    (100 = as centred as the polygon allows). It has no source, so it is advice only and never fails.
+    """
+    got = _tip(c, contacts)
+    if isinstance(got, list):
+        return got
+    com, hull, contacts, dist = got
+    where = f"centre of mass at ({com[0]:.3f}, {com[1]:.3f}) m over {len(hull)} contact points ({', '.join(contacts)})"
     if dist < 0:
         return [
             Finding(
@@ -3046,7 +3217,7 @@ def check_tip_over(c: Contract, *, contacts: list[str] | None = None) -> list[Fi
             severity="warning",
             quantity="model/tip_margin",
             observed=f"{where} is {dist * 1000:.0f} mm inside the edge: tip margin {100 * dist / centred:.0f}%",
-            expected="no cited margin threshold",
+            expected="no cited margin threshold yet",
             action="none needed unless the robot will tilt or accelerate hard",
             advice_unsourced=True,  # margin convention from memory, no source yet
         )
@@ -3092,7 +3263,9 @@ def _standing_rows(
                     np.dot(np.cross(foot - jpos, [0.0, 0.0, load]), axis)
                 )
             j = by_child.get(j.parent)
-    limits = {j.name: j.limits.effort_limit if j.limits else None for j in c.model.joints}
+    limits = {
+        j.name: j.limits.effort_limit if j.limits and not j.mimic else None for j in c.model.joints
+    }
     cited = {n for n, v in limits.items() if v is not None}  # the model's own declared effort
     for d in c.devices:  # no joint effort: the driving servo's catalogued peak torque is the limit
         m = c.device_model(d.model)
@@ -3176,6 +3349,186 @@ def check_standing_load(c: Contract) -> list[Finding]:
     return out
 
 
+def _pose_text(pose: dict[str, float]) -> str:
+    return ", ".join(f"{k}={round(v)}deg" for k, v in pose.items())
+
+
+_STAND_KIND = {"diag_fl_hr": "diagonal_pair", "diag_fr_hl": "diagonal_pair"}
+_STAND_SPAN = {  # what a grouped warning's count covers
+    "all_feet": "in this case",
+    "diagonal_pair": "across the diagonal-pair cases",
+    "one_leg": "across the one-leg cases",
+}
+
+
+def _standing_group(kind: str, rows: list[dict], cases: list[dict]) -> Finding:
+    """One warning for a stance kind's rows over their limits: the worst joint (the largest share
+    of its limit) with its numbers, then how many more joints of that stance kind are over, each
+    named. Every joint's numbers stay in the standing rows (check --all, --json, the report's detail)."""
+    x = max(rows, key=lambda r: r["share"])
+    limit, at, peak, force = x["limit_nm"], x["at_file_nm"], x["peak_nm"], x["foot_force_n"]
+    feet = "+".join(x["feet"]) if x["case"] != "one_leg" else x["leg"]
+    case = next(k for k in cases if k["case"] == x["case"])["label"]
+    at_text = "not solved" if at is None else f"{at:.2f} N*m"
+    pose = x["peak_pose_deg"]
+    swept = any(abs(v) > 1e-6 for v in pose.values())
+    others = sorted({r["joint"] for r in rows} - {x["joint"]})
+    far = max(pose.items(), key=lambda kv: abs(kv[1])) if pose else None
+    quantity = f"model/standing/{kind}"
+    return Finding(
+        severity="warning",
+        quantity=quantity,
+        observed=(
+            f"{x['joint']} would carry {peak:.2f} N*m in the case {case} ({feet}) at "
+            f"{_pose_text(pose)} (at the file's pose {at_text})"
+            + (
+                f"; the {force:.1f} N foot force is the one from the drawn stance, held constant while the {x['leg']} leg moves"
+                if swept
+                else f" ({force:.1f} N under {x['leg']})"
+            )
+            + (
+                f"; {len(others)} more joint{'s are' if len(others) > 1 else ' is'} over the limit "
+                f"{_STAND_SPAN[kind]}: {', '.join(others)} (each joint's numbers are in the standing rows)"
+                if others
+                else ""
+            )
+            + (
+                f". That pose has {far[0]} at {round(far[1])} deg, more than a half turn: the model's "
+                "joint range allows it, and a real leg may never stand there"
+                if kind == "all_feet" and far and abs(far[1]) > 180
+                else ""
+            )
+        ),
+        expected=f"<= {limit:.2f} N*m joint effort limit",
+        delta=f"+{peak - limit:.2f} N*m",
+        dependent=quantity,
+        action="the joint cannot hold this stance: raise its effort limit, or keep the leg out of that pose",
+    )
+
+
+def check_standing_sweep(
+    c: Contract, *, scores: _ScoreBook | None = None, contract_path: Path | None = None
+) -> list[Finding]:
+    """Each joint's torque with the robot on its feet (collisions with the word foot in their name, else leg-end links named foot or toe), over every pose its leg can reach.
+
+    Feet are the model's collisions with the word foot in the name (left_foot, foot_fl, leftFoot,
+    foot2; not footrest or barefoot), as a sphere, box or cylinder; with none, the leg-end links
+    named foot or toe (FL_foot, LF_FOOT, left_toe_link) with their lowest such collision. A robot
+    with neither is left alone, and one with a foot of another kind is not scored for standing at all. Static, level ground, vertical foot forces: with
+    all feet down they balance the weight and tipping moments about the centre of mass with the
+    least sum of squares; a four-footed robot also gets each diagonal pair (a line, not an
+    area), and every robot the one-leg upper bound. A leg's joint torque is its gravity term
+    plus the foot force times the foot's lever arm (virtual work), at the file's own pose and
+    over a grid of the leg's joint ranges with the other legs held at the file pose and the foot
+    forces held at the file pose's. All feet down at the file's own pose over an effort limit is
+    a violation (the robot cannot stand as drawn); any other pose, pair or single leg over it is
+    a warning that names the case and pose. The warnings are grouped, one per
+    stance kind (all feet down, diagonal pair, one leg), naming the worst joint, then how many more
+    joints of that kind are over and each one's name; every joint's numbers stay in the standing rows. This sits beside ``check_standing_load``, which
+    needs declared contacts and the zero pose. Not covered: sideways foot forces, friction,
+    slopes, motion and impacts, legs moving together.
+    """
+    if c.model is None:
+        return []
+    found = _urdf_root(c, contract_path)
+    if found is None:
+        if scores is not None:
+            scores.standing = {"stance": standing.empty_stance(standing.NO_FOOT), "rows": []}
+        return []
+    path, root = found
+
+    def cuts():
+        if path.suffix.lower() != ".sdf":
+            raise ValueError("closed chain: the loop's pins are read from an SDF file")
+        return loop_cuts(path)
+
+    got = standing.analyse(c.model, root, _mounted_masses(c)[0], cuts, _loop_refine)
+    if scores is not None:
+        scores.standing = {"stance": got["stance"], "rows": got["rows"]}
+    stance = got["stance"]
+    out: list[Finding] = []
+    if got["not_scored"]:
+        return [
+            Finding(
+                severity="not_scored",
+                quantity="model/standing",
+                observed=f"standing load not scored: {got['not_scored']}",
+                expected="a kinematic tree or planar closed loops with masses and CoMs, and every foot a sphere, box or cylinder",
+                action="see the reason; the holding-torque rows are unaffected",
+            )
+        ]
+    tips = [x for x in stance["cases"] if x["case"] == "all_feet" and x["forces"] is None]
+    if tips:
+        out.append(
+            Finding(
+                severity="warning",
+                quantity="model/standing/tips",
+                observed=f"all feet down: {tips[0]['note']}"
+                + (
+                    ""
+                    if stance["balance_margin_m"] is None
+                    else f"; the centre of mass is {-stance['balance_margin_m'] * 1000:.0f} mm outside the support polygon (no force split)"
+                ),
+                expected="centre of mass inside the support polygon",
+                action="move mass toward the feet or widen the stance",
+            )
+        )
+    over: dict[str, list[dict]] = {}  # stance kind -> its rows over the limit, warned as one
+    for x in got["rows"]:
+        quantity = f"model/joints/{x['joint']}/standing/{x['case']}"
+        limit, at, peak, force = x["limit_nm"], x["at_file_nm"], x["peak_nm"], x["foot_force_n"]
+        feet = "+".join(x["feet"]) if x["case"] != "one_leg" else x["leg"]
+        case = next(k for k in stance["cases"] if k["case"] == x["case"])["label"]
+        at_text = "not solved" if at is None else f"{at:.2f} N*m"
+        if x["case"] == "all_feet" and at is not None and at > limit:
+            if scores is not None:
+                scores.record(quantity)
+            out.append(
+                Finding(
+                    severity="violation",
+                    quantity=quantity,
+                    observed=(
+                        f"{x['joint']} carries {at:.2f} N*m with all feet down at the pose the file draws "
+                        f"({force:.1f} N under {x['leg']}): the robot cannot stand as drawn"
+                    ),
+                    expected=f"<= {limit:.2f} N*m joint effort limit",
+                    delta=f"+{at - limit:.2f} N*m",
+                    dependent=quantity,
+                    action="raise its effort limit, move the feet or the centre of mass, or lighten the robot",
+                )
+            )
+        elif peak > limit:
+            over.setdefault(_STAND_KIND.get(x["case"], x["case"]), []).append(x)
+        elif scores is not None:
+            scores.record(quantity)
+            scores.passed(
+                quantity,
+                f"worst {peak:.2f} N*m over the swept leg poses ({at_text} at the drawn pose), {case}",
+                f"<= {limit:.2f} N*m joint effort limit",
+                f"headroom {limit - peak:.2f} N*m",
+                detail=f"{case} ({feet}): {at_text} at the file's pose, peak {peak:.2f} N*m at {_pose_text(x['peak_pose_deg'])}",
+            )
+    for kind, rows in over.items():  # one warning per stance kind, so a long list stays readable
+        out.append(_standing_group(kind, rows, stance["cases"]))
+        if scores is not None:
+            scores.record(out[-1].quantity)
+    named = got["unlimited"] + got["shared"]
+    if named:
+        out.append(
+            Finding(
+                severity="not_scored",
+                quantity="model/joints/standing",
+                observed=(
+                    f"standing load not scored for {', '.join(named[:3])}{', ...' if len(named) > 3 else ''}: "
+                    "no effort limit, or shared by several legs"
+                ),
+                expected="a positive effort limit on a joint of one leg",
+                action="give the joint an effort limit",
+            )
+        )
+    return out
+
+
 def check_hold_torque(c: Contract, plan: "Plan | None") -> list[Finding]:
     """Warns when holding a plan pose against gravity needs more torque than the joint can give.
 
@@ -3188,9 +3541,9 @@ def check_hold_torque(c: Contract, plan: "Plan | None") -> list[Finding]:
         gp = statics.gravity_plan(c.model)
     except statics.ChainError:
         return []
+    out = tied_not_scored(c.model, "hold torque", {n for s in plan.segments for n in s.pose})
     if gp is None:
-        return []
-    out = []
+        return out
     for seg in plan.segments:
         if not seg.pose:
             continue
@@ -3235,8 +3588,10 @@ def check_gravity_reach(
     driven joint holds its share by virtual work, a passive pin holding nothing. That is still
     the base held with no ground contact, not a standing load. ``not_scored`` for the loops it
     does not solve: not planar, driven joints that do not exactly fix the loop, a joint moving
-    above or below the loop, or no SDF file on disk to read the pins. A grid pose the linkage
-    locks at or cannot reach is left out of the peak and counted in the output.
+    above or below the loop, no driven joint, or no SDF file on disk to read the pins (the list
+    is docs/guides/closed-loops.md). A grid pose the linkage locks at or cannot reach is left
+    out of the peak and counted in the output. An MJCF ``<equality>`` constraint (a loop the body
+    tree does not show) is ``not_scored`` for the joints it closes or couples.
 
     From the model file: when it names its driven joints in <transmission>/<ros2_control>
     blocks, a slide none of them names is passive (a suspension), so its load is not compared.
@@ -3248,7 +3603,20 @@ def check_gravity_reach(
         return got
     worst, by_name, note, out = got
     driven, reduction = _transmissions(c, contract_path) if worst else (set(), {})
-    for name, (r, pose, how, dev) in worst.items():
+    # a payload is held when its link is not below any scored joint
+    below = {by_name[n].child for n in worst}
+    while grown := {j.child for j in c.model.joints if j.parent in below} - below:
+        below |= grown
+    held = [(k.name, k.payload.base()) for k in c.model.links if k.payload and k.name not in below]
+    if scores is not None:
+        scores.unheld = held
+    unloaded = (
+        "no joint's holding torque carries the "
+        + " or the ".join(f"{kg:g} kg payload on {n}" for n, kg in held)
+        if held
+        else ""
+    )
+    for name, (r, pose, how, dev, unsolved, loop_facts) in worst.items():
         if r.limit_nm is None:
             continue
         quantity = f"model/joints/{name}/limits/effort"
@@ -3267,7 +3635,7 @@ def check_gravity_reach(
                 )
             )
             continue
-        payload = f"with {r.payload_kg:g} kg payload" if r.payload_kg else "no payload declared"
+        payload = f"with {r.payload_kg:g} kg payload" if r.payload_kg else unloaded or "no payload declared"
         looped = how.startswith("closed loop")
         unit, what = (
             ("N", "N weight along the slide axis")
@@ -3286,6 +3654,19 @@ def check_gravity_reach(
         expected = f"<= {r.limit_nm:.2f} {unit} joint effort limit"
         if scores is not None:
             scores.record(quantity)
+            scores.joint_torques.append(
+                {
+                    "joint": name,
+                    "peak": r.torque_nm,
+                    "unit": unit,
+                    "limit": r.limit_nm,
+                    "headroom": r.margin_nm,
+                    "pose_deg": {k: math.degrees(v) for k, v in pose.items()},
+                    "passed": r.torque_nm <= r.limit_nm,
+                    "loop": loop_facts
+                    and {**loop_facts, "unsolved_poses": [u.model_dump(mode="json") for u in unsolved]},
+                }
+            )
         if r.torque_nm <= r.limit_nm:
             if scores is not None:
                 scores.passed(
@@ -3296,6 +3677,7 @@ def check_gravity_reach(
                     expected,
                     f"{r.margin_nm:.2f} {unit} headroom",
                     detail=observed,
+                    unsolved_poses=unsolved,
                 )
             continue
         gear = reduction.get(name, 1.0)
@@ -3314,6 +3696,7 @@ def check_gravity_reach(
                 expected=expected,
                 delta=f"+{r.torque_nm - r.limit_nm:.2f} {unit}",
                 dependent=quantity,
+                unsolved_poses=unsolved,
                 action=(
                     f"if {name}'s effort is joint-side, as URDF intends, the joint cannot hold "
                     "this pose; if motor-side, write the joint-side effort into the model"
@@ -3324,6 +3707,63 @@ def check_gravity_reach(
             )
         )
     return out
+
+
+def _loop_refine(lp, loop, sides, poses, held, score=None):
+    """(poses, held, refined): the coarse poses plus extra ones from re-gridding, three times at a
+    smaller step each, around each column of ``held``'s worst solved poses (a driven joint's
+    torque, or what ``score(poses)`` returns for new poses, same columns) and the solved ones
+    beside an unsolved coarse pose. refined is "yes", "no" (more than 3 driven joints: not refined) or
+    "capped" (_LOOP_REFINE_MAX reached). Picking costs O(poses log poses) per round, no pair scan."""
+    nd = len(sides)
+    if nd > 3:
+        return poses, held, "no"
+    m = 7 if nd <= 2 else 5  # window points per driven joint: the step shrinks by 3 or 2 each round
+    lo, hi = np.array([s[0] for s in sides]), np.array([s[-1] for s in sides])
+    step = np.array([s[1] - s[0] for s in sides])
+    shape = tuple(len(s) for s in sides)
+    ok = np.isfinite(held).all(axis=1).reshape(shape)
+    near_bad = np.zeros(shape, bool)  # solved coarse poses with an unsolved grid neighbour
+    for ax in range(nd):
+        for sh in (1, -1):
+            r = np.roll(~ok, sh, axis=ax)
+            edge = [slice(None)] * nd
+            edge[ax] = 0 if sh == 1 else -1
+            r[tuple(edge)] = False
+            near_bad |= r
+    near_bad = (near_bad & ok).reshape(-1)
+    all_p, all_h, left, capped = poses, held, _LOOP_REFINE_MAX, False
+    w = np.array(list(itertools.product(np.linspace(-1, 1, m), repeat=nd)))
+    for rnd in range(3):
+        picks: list[int] = []
+        # round 0: the best pose, then the best two beside a lock; later: the best two (one if nd=3)
+        rules = [(None, 1), (near_bad, 3)] if rnd == 0 else [(None, 2 if nd <= 2 else 1)]
+        for k in range(held.shape[1]):
+            col = np.where(np.isfinite(all_h[:, k]), all_h[:, k], -np.inf)
+            chosen: list[int] = []
+            for mask, want in rules:
+                ok_i = np.isfinite(col) if mask is None else np.isfinite(col[: len(mask)]) & mask
+                idx = np.flatnonzero(ok_i)
+                for i in idx[np.argsort(-col[idx])]:
+                    if len(chosen) >= want:
+                        break
+                    if all(np.abs(all_p[i] - all_p[j]).max() > step.max() / 2 for j in chosen):
+                        chosen.append(int(i))
+            picks += [i for i in chosen if i not in picks]
+        if not picks:
+            break
+        new = np.vstack([np.clip(all_p[i] + w * step, lo, hi) for i in picks])
+        if len(new) > left:
+            new, capped = new[:left], True
+        if not len(new):
+            break
+        got = score(new) if score else np.abs(statics.loop_solve(lp, loop, new, explain=False)[0])
+        left -= len(new)
+        all_p, all_h = np.vstack([all_p, new]), np.vstack([all_h, got])
+        step = step * 2 / (m - 1)
+        if capped:
+            break
+    return all_p, all_h, "capped" if capped else "yes"
 
 
 def _loop_worst(
@@ -3350,41 +3790,131 @@ def _loop_worst(
                 hi = j.limits.upper if j.limits.upper is not None else math.pi
                 sides.append(np.linspace(lo, hi, _LOOP_GRID))
             if _LOOP_GRID ** len(driven) > _LOOP_MAX_POSES:
-                return f"closed chain: {len(driven)} driven joints on one loop are too many to grid"
+                return (
+                    f"closed chain: the loop has {len(driven)} motor-driven joints, more than the "
+                    f"{int(math.log(_LOOP_MAX_POSES, _LOOP_GRID))} Lockwire can sweep, so its joints are not scored"
+                )
             poses = np.array(list(itertools.product(*sides)))
-            held = np.abs(statics.loop_torques(lp, loop, poses))
+            held, why_not = statics.loop_solve(lp, loop, poses)
+            held = np.abs(held)
+            unsolved = tuple(
+                UnsolvedPose(
+                    reason=w,
+                    angles_deg={d.name: math.degrees(float(v)) for d, v in zip(driven, row)},
+                )
+                for row, w in zip(poses, why_not)
+                if w
+            )
             closed = int(np.isfinite(held).all(axis=1).sum())
             if not closed:
-                return "closed chain: the loop locks or stays open at every pose tried"
+                return (
+                    "closed chain: the loop cannot close at any pose within the driven joints' ranges "
+                    "(it locks or stays open); check the joint limits and link lengths in the file"
+                )
             # the poses left out are the ones nearest locking, where the torque is largest: say so
             near = round(math.degrees(math.acos(1 - statics._LOOP_SINGULAR**2)))
-            short = f"closed loop solved at {closed} of {len(poses)} grid poses" + (
-                ""
-                if closed == len(poses)
-                else f"; peak is over those only, the other {len(poses) - closed} lock, sit within "
-                f"{near} deg of locking or cannot be reached, and torque rises toward locking"
+            peak_p, peak_h, refined = _loop_refine(lp, loop, sides, poses, held)
+            found = {
+                "yes": "by refining the coarse grid",
+                "no": f"on the coarse grid only ({len(driven)} driven joints: too many to refine)",
+                "capped": "by refining the coarse grid, stopped at the pose cap (peak may be higher)",
+            }[refined]
+            short = (
+                f"closed loop solved at {closed} of {len(poses)} coarse grid poses"
+                + (
+                    ""
+                    if closed == len(poses)
+                    else f"; the other {len(poses) - closed} lock, sit within {near} deg of locking or "
+                    "cannot be reached, and torque rises toward locking"
+                )
+                + f"; peak is the largest over poses at least {near} deg from a lock, found {found}"
             )
             how = (
                 f"{short}, servos "
                 f"{', '.join(j.name for j in driven)}, free pins {', '.join(j.name for j in passive)}"
                 "; base held, no ground contact, so not a standing load"
             )
+            file_held = np.abs(statics.loop_torques(lp, loop, np.zeros((1, len(driven)))))[0]
             for k, j in enumerate(driven):
-                i = int(np.nanargmax(held[:, k]))
+                i = int(np.nanargmax(peak_h[:, k]))
                 lim = j.limits.effort_limit
                 kg = float((lp.plan.carries @ lp.plan.payload)[lp.plan.joints.index(j)])
                 row = statics.JointTorque(
-                    j.name, float(held[i, k]), lim, lim - float(held[i, k]), kg
+                    j.name, float(peak_h[i, k]), lim, lim - float(peak_h[i, k]), kg
                 )
-                pose = {d.name: float(v) for d, v in zip(driven, poses[i])}
+                pose = {d.name: float(v) for d, v in zip(driven, peak_p[i])}
                 dev = "device masses included" if mounted else "no device masses"
-                worst[j.name] = (row, pose, how, dev)
+                m = int(np.nanargmin(held[:, k]))
+                at_file = float(file_held[k])  # one loop_torques call at the modelled angles
+                facts = {
+                    "lowest": float(held[m, k]),
+                    "lowest_pose_deg": {d.name: math.degrees(float(v)) for d, v in zip(driven, poses[m])},
+                    "at_file_pose": at_file if math.isfinite(at_file) else None,
+                    "solved": closed,
+                    "total": len(poses),
+                    "refined": refined,
+                }
+                worst[j.name] = (row, pose, how, dev, unsolved, facts)
             ends = {(a, b) for a, _, b, _ in pins}  # the cut pins, by the links they join
             solved |= {j.name for j in (*driven, *passive)}
             solved |= {j.name for j in c.model.joints if (j.parent, j.child) in ends}
     except (OSError, ET.ParseError, ValueError) as e:  # ChainError is a ValueError
         return str(e)
+    if lp is not None and lp.idle:
+        return (
+            f"closed chain: no joint of the loop ({', '.join(lp.idle[0])}) has an effort limit, so no "
+            "motor holds it and there is no torque to score; if one of them is a motor, give it its "
+            "effort limit"
+        )
     return None
+
+
+def _mounted_masses(c: Contract) -> tuple[dict[str, list[tuple]], list[str]]:
+    """(link -> [(xyz in that link, kg)] of the devices mounted on it, the devices not counted)."""
+    link_names = {lk.name for lk in c.model.links}
+    mounted: dict[str, list[tuple]] = {}
+    uncounted: list[str] = []
+    for d in c.devices:
+        p = d.physical
+        if p is None or (p.mass is None and p.mount_frame is None):
+            continue  # nothing declared about where or how heavy: not a mounted device
+        if p.mass is None or p.mount_frame not in link_names:
+            uncounted.append(
+                f"{d.id} (no mass)"
+                if p.mass is None
+                else f"{d.id} (frame {p.mount_frame!r} is not a link)"
+            )
+            continue
+        xyz = tuple(v.base() for v in p.mount_xyz) if p.mount_xyz else (0.0, 0.0, 0.0)
+        mounted.setdefault(p.mount_frame, []).append((xyz, p.mass.base()))
+    return mounted, uncounted
+
+
+def _tied_why(names: list[str]) -> str:
+    return (
+        f"{', '.join(names[:3])}{', ...' if len(names) > 3 else ''}: the MJCF file ties bodies together "
+        "with an <equality> constraint (a closed loop or coupled joints), which a gravity walk of "
+        "the body tree would score wrongly; Lockwire solves a closed loop only from an SDF file, "
+        "so these joints get no number"
+    )
+
+
+def tied_not_scored(model, what: str, only=None) -> list[Finding]:
+    """The plain 'not scored, and why' line for the joints of a tied piece (statics.tied_joints),
+    for a check named ``what``; ``only`` limits it to joints the check was asked about. [] when none."""
+    tied = statics.tied_joints(model)
+    hit = sorted(tied if only is None else tied & set(only))
+    if not hit:
+        return []
+    return [
+        Finding(
+            severity="not_scored",
+            quantity=f"model/joints/{hit[0]}",
+            observed=f"{what} not scored: {_tied_why(hit)}",
+            expected="a kinematic tree of revolute/continuous joints with axes, masses and CoMs",
+            action=f"{what} is unchecked for these joints; check them by hand",
+        )
+    ]
 
 
 def _gravity_worst(
@@ -3447,32 +3977,19 @@ def _gravity_worst(
 
     slides = [
         j for j in joints if j.type == "prismatic" and j.axis and any(j.axis)
-        and j.limits is not None and j.limits.effort_limit is not None
+        and j.limits is not None and j.limits.effort_limit is not None and not j.mimic
     ]  # fmt: skip
-    by_name = {j.name: j for j in (*rotary, *slides)}
+    _beside(c, contract_path)
+    tied = statics.tied_joints(c.model)
+    by_name = {j.name: j for j in (*rotary, *slides) if j.name not in tied}
     sets = {j.name: reach_set(j) for j in by_name.values()}
     held = [j.name for j in joints if j.type not in ("fixed", *_ROTARY)]
     note = f"; {', '.join(held[:2])}{', ...' if len(held) > 2 else ''} held at zero" if held else ""
-    link_names = {lk.name for lk in c.model.links}
-    mounted: dict[str, list[tuple]] = {}
-    uncounted: list[str] = []
-    for d in c.devices:
-        p = d.physical
-        if p is None or (p.mass is None and p.mount_frame is None):
-            continue  # nothing declared about where or how heavy: not a mounted device
-        if p.mass is None or p.mount_frame not in link_names:
-            uncounted.append(
-                f"{d.id} (no mass)"
-                if p.mass is None
-                else f"{d.id} (frame {p.mount_frame!r} is not a link)"
-            )
-            continue
-        xyz = tuple(v.base() for v in p.mount_xyz) if p.mount_xyz else (0.0, 0.0, 0.0)
-        mounted.setdefault(p.mount_frame, []).append((xyz, p.mass.base()))
+    mounted, uncounted = _mounted_masses(c)
     if uncounted:
         more = f", +{len(uncounted) - 3} more" if len(uncounted) > 3 else ""
         note += f"; {len(uncounted)} device masses not counted: {', '.join(uncounted[:3])}{more}"
-    worst: dict[str, tuple[Any, dict[str, float], str, str]] = {}
+    worst: dict[str, tuple[Any, dict[str, float], str, str, tuple, dict | None]] = {}
     done: list[frozenset[str]] = []
     over: set[frozenset[str]] = set()
     unwalked: list[tuple[str, str]] = []  # (joint, why gravity_plan refused it)
@@ -3499,7 +4016,7 @@ def _gravity_worst(
         if plan is None:
             return []  # no single root or an off-frame CoM: silent, as before
         for kk, joint in enumerate(plan.joints):
-            lim = joint.limits.effort_limit if joint.limits is not None else None
+            lim = joint.limits.effort_limit if joint.limits is not None and not joint.mimic else None
             if (joint.type == "prismatic") != (j.type == "prismatic"):
                 continue
             if joint.type == "prismatic" and joint.name != j.name:
@@ -3528,8 +4045,10 @@ def _gravity_worst(
                 pose = {n: v for n, v in zip(names, poses[i]) if by_name[n].type in _ROTARY}
                 if joint.type in _ROTARY:
                     pose[joint.name] = float(q[i])
-                worst[joint.name] = (row, pose, how, dev)
+                worst[joint.name] = (row, pose, how, dev, (), None)
     out: list[Finding] = []
+    if tied:
+        out += _reach_not_scored(_tied_why(sorted(j.name for j in (*rotary, *slides) if j.name in tied)))
     solved: set[str] = set()
     looped = any(w.startswith("closed chain") for _, w in unwalked)
     why = _loop_worst(c, contract_path, mounted, worst, solved) if looped else None
@@ -3712,7 +4231,7 @@ def check_bus_bandwidth(c: Contract, *, scores: _ScoreBook | None = None) -> lis
             for device in contributors
         )
         ceiling_bps = bus.bitrate * BUS_UTILIZATION_CEILING
-        # Bitrate ceiling vs declared traffic — score on the summed TRAFFIC, not
+        # Bitrate ceiling vs declared traffic - score on the summed TRAFFIC, not
         # on the contributor list. A device declaring nominal_rate_hz = 0 is a
         # contributor that carries nothing: 0 bps against the ceiling passes for
         # no reason.
@@ -3845,8 +4364,8 @@ def check_link_values(c: Contract, *, contract_path: Path | None = None) -> list
 
 
 def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
-    """Missing or non-positive link mass is derived from the canonical link
-    records so a stale zero_mass_links cache cannot hide incomplete inertia."""
+    """A link with no mass, or a mass of zero or less, read from the link records themselves,
+    so no link is left out of the inertia."""
     if c.model is None:
         return []
     found = _urdf_root(c, contract_path)
@@ -3900,9 +4419,9 @@ def check_zero_mass(c: Contract, *, contract_path: Path | None = None) -> list[F
             expected="a positive mass with units",
             action=(
                 "fill in the link's inertial in the source model, then run "
-                f"`{cli_line('lockwire', 'declare', contract_path or 'lockwire.yaml')} model/links/{name}/mass "
-                '"<mass> kg" --source "datasheet" --witness "you"` '
-                "(replace <mass>), or accept as massless with a Tier C assumption"
+                f"{cli_line('lockwire', 'declare', contract_path or 'lockwire.yaml')} model/links/{name}/mass "
+                '"<mass> kg" --source "<where it comes from>" --witness "<your name>" '
+                "(replace each <...>), or accept as massless with a Tier C assumption"
             ),
         )
         for name in massless
@@ -4238,7 +4757,7 @@ _BULK_UF_PER_SERVO = 470.0
 
 @requires("topology")
 def check_bulk_capacitance(c: Contract) -> list[Finding]:
-    """A servo rail whose declared Rail.capacitance_f is below 470 uF per servo (advice, unsourced).
+    """A servo rail whose declared bulk capacitance is below 470 uF per servo (advice, unsourced).
 
     A rail with no capacitance_f, or with no servo on it, emits nothing.
     """
@@ -4330,10 +4849,32 @@ def check_servo_brownout(c: Contract) -> list[Finding]:
     return out
 
 
-def check_unusable_effort(c: Contract) -> list[Finding]:
-    """a model joint effort <= 0 is unset, not a limit; warn on a fresh check."""
+def _loop_passive_pins(c: Contract, contract_path: Path | None) -> set[str]:
+    """Joints a solved closed loop holds passive: the pins and the cut joints that close it."""
+    srcs = (c.model.provenance.source, c.model.source)
+    named = next((n for n in srcs if n.lower().endswith(".sdf")), None)
+    path = _model_on_disk(contract_path, named) if named else None
+    try:
+        cuts = loop_cuts(path) if path else {}
+        lp = statics.loop_plan(c.model, cuts, None) if cuts else None
+    except (OSError, ET.ParseError, ValueError):  # ChainError is a ValueError
+        return set()
+    out: set[str] = set()
+    for _, passive, pins in lp.loops if lp else ():
+        ends = {(a, b) for a, _, b, _ in pins}
+        out |= {j.name for j in passive}
+        out |= {j.name for j in c.model.joints if (j.parent, j.child) in ends}
+    return out
+
+
+def check_unusable_effort(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
+    """A model joint effort of 0 or less is unset, not a limit; warn on a fresh check.
+
+    A passive pin of a solved closed loop keeps effort 0 on purpose (a positive limit would make
+    it a driven joint and stop the loop being scored), so it gets no warning."""
     if c.model is None:
         return []
+    passive = _loop_passive_pins(c, contract_path)
     # check_torque_budgets already warns for a joint with a usable actuator; don't double up.
     budgeted = {
         d.drives_joint
@@ -4351,6 +4892,8 @@ def check_unusable_effort(c: Contract) -> list[Finding]:
         and j.limits.effort is not None
         and j.limits.effort_limit is None
         and not (j.type in ("revolute", "continuous") and j.name in budgeted)
+        and j.name not in passive
+        and not j.mimic  # a follower's effort is its leader's; vendors ship 0
     ]
 
 
@@ -4364,15 +4907,15 @@ def check_mechanisms(c: Contract, *, scores: _ScoreBook | None = None) -> list[F
     The comparison is *declared vs measured* like every other check here: the
     declaration is a loop joint of type ``continuous``, and the second operand is the
     closed-form Grashof answer computed from the loop's four measured link lengths
-    (``mechanism.py``). No solver is involved and no tolerance is argued — Grashof is
+    (``mechanism.py``). No solver is involved and no tolerance is argued: Grashof is
     an exact inequality on four numbers.
 
     Two silences are deliberate. A loop where **nothing** is declared ``continuous``
     produces no finding at all: a four-bar of limited revolute joints is a
     double-rocker, which is a legitimate machine and not a defect, and a check that
     spoke there would spend the false-positive budget on every parallel linkage in
-    every model. And a loop that IS declared continuous but is not a four-bar — a
-    five-bar, a coupled linkage, a loop whose axes are not recorded — is
+    every model. And a loop that IS declared continuous but is not a four-bar (a
+    five-bar, a coupled linkage, a loop whose axes are not recorded) is
     ``not_scored`` **naming the kind it found**, never scored as a four-bar built from
     four of its links. That silent-approximation path is the one this check exists to
     close: it would produce a confident, plausible, wrong answer.
@@ -4397,7 +4940,7 @@ def check_mechanisms(c: Contract, *, scores: _ScoreBook | None = None) -> list[F
                     ),
                     action=(
                         f"{declared} is declared to turn all the way round and nothing here "
-                        "checked whether it can — verify this loop by hand, or record the "
+                        "checked whether it can: verify this loop by hand, or record the "
                         "geometry named above so the check can answer it"
                     ),
                 )
@@ -4519,6 +5062,90 @@ def _model_on_disk(contract_path: Path | None, named: str) -> Path | None:
     return resolve_source(contract_path, named) if contract_path else None
 
 
+def _meshes_said(n: int, at: str = " at lock") -> str:
+    return f"{n} mesh file{'' if n == 1 else 's'} {'was' if n == 1 else 'were'} not inside the robot's package folder{at}"
+
+
+def _meshes_outside(model: Path, uris: list[str]) -> str:
+    """The hint for meshes not pinned at lock: a file that exists outside the package folder is not
+    "not found". Hint text, in the action: the stored observed carries no file name or path."""
+    there = [u for u in uris if "://" not in u and (model.parent / u).is_file()]
+    if there:
+        return f"{there[0]} exists, but outside the robot's package folder; "
+    return "missing, or kept outside the robot's package folder; "
+
+
+def not_a_regular_file(path: Path) -> bool:
+    """True when `path` is there and is neither a regular file nor a folder: a pipe, a device, a
+    socket. `stat` follows links and never blocks; `open` on a pipe waits for a writer forever."""
+    try:
+        mode = path.stat().st_mode
+    except (OSError, ValueError):
+        return False  # absent, broken link, no permission, bad name: the callers' own branches
+    return not (stat.S_ISREG(mode) or stat.S_ISDIR(mode))
+
+
+def refuse_unreadable_model(c: Contract, contract_path: Path | None) -> None:
+    """Raise `ModelFileRefusal` when the model file the lock names is there but cannot be read: a
+    folder, a link to nothing, no permission, or a name no file can have (a NUL, too long, not
+    encodable). A plainly missing file is left as it is (still an open call), and so are
+    no model, a lockfile-only model, a URL and a relative name with no lock to anchor it."""
+    named = c.model and _urdf_path_candidate(c.model)  # provenance first, as check_urdf_drift
+    plain_only = False  # a name with no model suffix is never read, but a pipe or device is still refused
+    if not named and c.model and c.model.source != "lockfile":
+        named = (c.model.provenance.source if c.model.provenance else "") or c.model.source
+        plain_only = True
+    if not named or "://" in named:
+        return
+    path = Path(named)
+    if not path.is_absolute():
+        if contract_path is None:
+            return
+        path = contract_path.resolve().parent / named  # not resolve_source: it skips "a b.urdf"
+    if not_a_regular_file(path):
+        why, fix = "is not a regular file (a pipe or a device)", "point the lock at the model file"
+    elif plain_only:
+        return
+    else:
+        try:
+            with path.open("rb"):
+                return
+        except (FileNotFoundError, NotADirectoryError):
+            if not path.is_symlink():
+                return  # simply absent: still an open call
+            why, fix = "is a link to a file that is not there", "fix the link"
+        except IsADirectoryError:
+            why, fix = "is a folder, not a file", "point the lock at the model file inside it"
+        except PermissionError:
+            why, fix = "cannot be opened (no permission)", "give your user read access to it"
+        except (OSError, ValueError):  # a NUL, a name too long for this system, one it cannot encode
+            why, fix = "has a name this computer cannot open", "correct the name in the lock"
+    name = "".join(ch if ch.isprintable() else "?" for ch in Path(named).name)
+    shown = name if len(name) <= 60 else f"{name[:50]}...{name[-8:]}"  # the name only, never a folder
+    raise ModelFileRefusal(
+        f"the model file {shown} {why}, so there is no verdict; {fix}, "
+        f"or re-lock from the model you have with {cli_line('lockwire', 'start')}"
+    )
+
+
+def outside_folder_note(contract: Contract, contract_path: Path | None) -> str | None:
+    """One plain line when the model file the lock names is read from outside the lock's folder.
+
+    A note, never a finding: it is still read, and a lock in `config/` may point at `../urdf/`.
+    """
+    named = contract.model and _urdf_path_candidate(contract.model)
+    path = named and contract_path and _model_on_disk(contract_path, named)
+    if not path:
+        return None
+    folder = contract_path.resolve().parent
+    if path.resolve().is_relative_to(folder):  # real locations: a file that will not travel
+        return None
+    return (
+        f"Note: this lock reads its model from outside its folder ({named}). That is fine if "
+        "intended; copy the model next to the lock before sending the lock to someone else."
+    )
+
+
 def _check_self_structure(model: ModelRecord, scores: _ScoreBook | None) -> list[Finding]:
     """A lockfile-sourced model is scored on its own structure: every joint joins two links of
     the lock and no link has two parents. Silent without links (nothing to compare)."""
@@ -4549,7 +5176,7 @@ def _check_self_structure(model: ModelRecord, scores: _ScoreBook | None) -> list
 def check_urdf_drift(
     c: Contract, *, scores: _ScoreBook | None = None, contract_path: Path | None = None
 ) -> list[Finding]:
-    """Compare the contract's structure_hash against the on-disk URDF.
+    """Compare the links and joints recorded in the lockfile with the model file on disk.
 
     Tier A promises the locked model matches the URDF named in provenance. A
     hash mismatch is a violation that names the structural delta (links/joints
@@ -4558,7 +5185,7 @@ def check_urdf_drift(
     pass and never a false NO-GO.
 
     A relative URDF path resolves from the contract's own directory when the
-    caller passed ``contract_path`` — never from the working directory, so
+    caller passed ``contract_path``, never from the working directory, so
     the same contract scores the same from anywhere. Without that anchor it stays
     ``not_scored``: a coverage gap is strictly better than an unearned GO.
     Absolute paths that are missing are likewise ``not_scored``.
@@ -4574,14 +5201,14 @@ def check_urdf_drift(
             Finding(
                 severity="not_scored",
                 quantity="model/structure_hash",
-                observed="no URDF provenance; structure drift not scored",
-                expected="a URDF path in model provenance so structure can be scored",
+                observed="no model file in provenance; structure drift not scored",
+                expected="a model file path in model provenance so structure can be scored",
                 source=c.model.provenance.source,
                 witness=c.model.provenance.witness,
                 locked_at=c.model.provenance.locked_at,
                 action=(
-                    "lock model provenance to the on-disk URDF, or accept that "
-                    "URDF drift is unchecked"
+                    "lock model provenance to the on-disk model file, or accept that "
+                    "model drift is unchecked"
                 ),
                 next_command=cli_line("lockwire", "start") + " <urdf>",
             )
@@ -4592,12 +5219,12 @@ def check_urdf_drift(
         path = resolve_source(contract_path, named) or path
     if not path.is_file():
         if named.lower().startswith(("http://", "https://")):
-            observed = "URDF is a web link; not re-checked offline"
+            observed = "model file is a web link; not re-checked offline"
         elif path.is_absolute():
-            observed = f"URDF {path} absent; structure drift not scored"
+            observed = f"model file {path} absent; structure drift not scored"
         else:
             observed = (
-                f"URDF {path}: relative path, no contract base dir — "
+                f"model file {path}: relative path, no contract base dir: "
                 "not resolvable; structure drift not scored"
             )
         return [
@@ -4606,12 +5233,12 @@ def check_urdf_drift(
                 quantity="model/structure_hash",
                 observed=observed,
                 # absent, not unreadable: visible on GO (report.verdict caps only unreadable)
-                expected="the URDF on disk at the provenance path",
+                expected="the model file on disk at the provenance path",
                 source=named,
                 action=(
-                    "download the URDF next to the lockfile to re-check it"
+                    "download the model file next to the lockfile to re-check it"
                     if named.lower().startswith(("http://", "https://"))
-                    else "restore the URDF or correct model provenance to its on-disk path"
+                    else "restore the model file or correct model provenance to its on-disk path"
                 ),
                 next_command=cli_line("lockwire", "start") + " <urdf>",
             )
@@ -4644,7 +5271,7 @@ def check_urdf_drift(
                     observed=(
                         f"the model needs xacro arguments ({error}); structure drift not scored"
                     ),
-                    expected="a readable URDF at the provenance path",
+                    expected="a readable model file at the provenance path",
                     source=str(path),
                     action=f"run {cli_line('lockwire', 'start', path)} --xacro-arg name=value to re-check it",
                 )
@@ -4658,26 +5285,26 @@ def check_urdf_drift(
                     severity="violation",
                     quantity="model/structure_hash",
                     observed=f"the model file no longer parses since it was locked ({error})",
-                    expected="a URDF that parses and matches the locked structure",
+                    expected="a model file that parses and matches the locked structure",
                     source=str(path),
-                    action="fix the URDF, or re-lock the model from a file that parses",
+                    action="fix the model file, or re-lock the model from a file that parses",
                 )
             ]
         return [
             Finding(
                 severity="not_scored",
                 quantity="model/structure_hash",
-                observed=f"URDF unreadable ({error}); structure drift not scored",
-                expected="a readable URDF at the provenance path",
+                observed=f"model file unreadable ({error}); structure drift not scored",
+                expected="a readable model file at the provenance path",
                 source=str(path),
-                action="fix or replace the URDF so structure drift can be scored",
+                action="fix or replace the model file so structure drift can be scored",
             )
         ]
 
     # v0.2 records with joints derive structure_hash from Link/Joint rows; v0.1
     # init records keep the URDF kinematic topology hash.
     disk_hash = topology.record_hash if c.model.joints else topology.topology_hash
-    # Contract structure_hash vs on-disk URDF hash — both sides present.
+    # Contract structure_hash vs on-disk URDF hash - both sides present.
     if scores is not None:
         scores.record("model/structure_hash")
     # A match leaves no record: it says "unchanged since lock", not "adds up";
@@ -4686,7 +5313,17 @@ def check_urdf_drift(
         return []
     # A lock written before 0.5 read an <axis/> with no xyz as 0 0 1; 0.5 and later read 1 0 0.
     legacy = c.schema_version in {"0.2", "0.3", "0.4"}
-    if c.model.joints and locked_record_hash(c.model, topology, legacy) == c.model.structure_hash:
+    locked = c.model.structure_hash
+    matched = c.model.joints and locked_record_hash(c.model, topology, legacy) == locked
+    if c.model.joints and not matched and legacy_follower_hash(c.model, topology, legacy) == locked:
+        matched = True  # the lock is unchanged; it only predates followers keeping their limits
+        if scores is not None:
+            relock = _relock_command(path, contract_path, c.model.xacro_args)
+            scores.notes.append(
+                "this lock was written before follower joints kept their limits; re-lock to "
+                f"record them: {relock}"
+            )
+    if matched:
         old = legacy_axis_joints(c.model, topology) if legacy else []
         if not old:
             return []
@@ -4705,16 +5342,25 @@ def check_urdf_drift(
             )
         ]
 
+    relock = _relock_command(path, contract_path, c.model.xacro_args)
+    on_disk = {j.name: j for j in topology.joints}
+    moved = {  # links either side of a joint whose origin changed
+        n
+        for j in c.model.joints
+        if j.name in on_disk
+        and (j.origin.xyz, j.origin.rpy) != (on_disk[j.name].origin.xyz, on_disk[j.name].origin.rpy)
+        for n in (j.parent, j.child)
+    }
     return [
         Finding(
             severity="violation",
             quantity="model/structure_hash",
             observed=describe_structure_drift(c.model, topology),
-            expected="structure hash matching the on-disk URDF",
-            delta=(f"contract {c.model.structure_hash[:12]}... != urdf {disk_hash[:12]}..."),
+            expected="structure hash matching the on-disk model file",
+            delta=(f"contract {c.model.structure_hash[:12]}... != model file {disk_hash[:12]}..."),
             source=str(path),
-            action=_RELOCK_ACTION,
-            next_command=_relock_command(path, contract_path, c.model.xacro_args),
+            action=_posed_drift_action(path, moved, scores, relock) or _RELOCK_ACTION,
+            next_command=relock,
         )
     ]
 
@@ -4727,6 +5373,30 @@ _RELOCK_ACTION = (
 
 def _describe_hint(contract_path: Path | str | None) -> str:
     return cli_line("lockwire", "describe", contract_path or "lockwire.yaml")
+
+
+def _posed_drift_action(
+    path: Path, names: set[str], scores: _ScoreBook | None, relock: str | None
+) -> str | None:
+    """The true action when SDF drift sits on a link below a joint with its own `<pose>`.
+
+    Lockwire before 0.5.3 misread those links; the lock does not record its writer's version,
+    so the note prints whenever the condition holds (a real edit there reads the same).
+    """
+    try:
+        hit = path.suffix.lower() == ".sdf" and names & posed_joint_links(path)
+    except (OSError, ET.ParseError, ValueError):
+        return None
+    if not hit:
+        return None
+    said = (
+        "If you did not edit this link, this lock may come from Lockwire before 0.5.3, which "
+        "misread links below a joint that has its own pose"
+    )
+    note = f"{said}. To re-lock: {relock}. If you did edit it, review the change first."
+    if scores is not None and note not in scores.notes:
+        scores.notes.append(note)
+    return f"{said}: re-lock with the command below (it discards locked entries). If you did edit it, review the change first."
 
 
 def _relock_command(
@@ -4742,10 +5412,24 @@ def _relock_command(
     return cli_line("lockwire", "start", urdf, *out, *args, "--force")
 
 
+def _mass_band(mass: Quantity, tol: Tolerance) -> tuple[float, float, str]:
+    """The (low, high) corners in kg of a mass under its tolerance, widened by the 1e-6 slack
+    model comparisons already use, and the band as a person reads it."""
+    low, high = (units.to_base(x, mass.unit) for x in tolerance_corners(mass.value, tol, mass.unit))
+    if tol.rel_pct is not None:
+        text = f"{mass.base():g} kg \u00b1 {tol.rel_pct:g} %"
+    elif tol.abs is not None:
+        text = f"{mass.base():g} kg \u00b1 {units.to_base(tol.abs.value, tol.abs.unit):g} kg"
+    else:
+        text = f"{low:g} to {high:g} kg"
+    slack = 1e-6 * max(abs(low), abs(high)) + 1e-9
+    return low - slack, high + slack, text
+
+
 def check_model_values(
     c: Contract, *, scores: _ScoreBook | None = None, contract_path: Path | None = None
 ) -> list[Finding]:
-    """Locked link mass / COM / principal inertia vs the on-disk URDF or SDF.
+    """Locked link mass (inside its `mass_tolerance` band when it has one) / COM / principal inertia vs the on-disk URDF or SDF.
 
     `structure_hash` cannot see a value edit, so with the structure unchanged each
     link's values are compared (relative 1e-6, absolute 1e-9). Anything unreadable
@@ -4788,8 +5472,11 @@ def check_model_values(
         c.model.structure_hash
     ) or (
         c.model.joints
-        and locked_record_hash(c.model, topology, c.schema_version in {"0.2", "0.3", "0.4"})
-        == c.model.structure_hash
+        and c.model.structure_hash
+        in (
+            locked_record_hash(c.model, topology, c.schema_version in {"0.2", "0.3", "0.4"}),
+            legacy_follower_hash(c.model, topology, c.schema_version in {"0.2", "0.3", "0.4"}),
+        )
     )
     if not same:
         return []
@@ -4803,6 +5490,7 @@ def check_model_values(
     def tensor(i) -> tuple[float, ...]:  # MJCF: the inertial's rotation counts, axes too
         return tuple((np.array(i.axes).T @ np.diag(i.moments_kgm2) @ np.array(i.axes)).flat)
 
+    relock = _relock_command(path, contract_path, c.model.xacro_args)
     findings = []
     if mjcf:  # never a bare GO over what an MJCF lock leaves out
         bare = [k.name for k in c.model.links if k.name != "world" and not k.mass]
@@ -4833,22 +5521,38 @@ def check_model_values(
                 for i in (link.inertia, now.inertia)
             ),
         }
+        band = _mass_band(link.mass, link.mass_tolerance) if link.mass_tolerance else None
+        unit = {"mass": "kg", "com": "m", "inertia": "kg*m^2"}
         for what, (locked, current) in values.items():
-            if differs(locked, current):
-                quantity = f"model/links/{link.name}/{what}"
+            quantity = f"model/links/{link.name}/{what}"
+            if what == "mass" and band and band[0] <= current[0] <= band[1]:
+                if scores is not None:
+                    scores.passed(
+                        quantity,
+                        observed=f"{current[0]:g} kg",
+                        expected=band[2],
+                        margin="inside the band",
+                    )
+                continue
+            if differs(locked, current) or (what == "mass" and band):  # outside a band: always
                 findings.append(
                     Finding(
                         severity="violation",
                         quantity=quantity,
-                        observed=f"model file has {what} {show(current)}",
-                        expected=f"locked {what} {show(locked)}",
+                        observed=f"model file has {what} {show(current)} {unit[what]}",
+                        expected=(
+                            f"locked {what} {band[2]}"
+                            if what == "mass" and band
+                            else f"locked {what} {show(locked)} {unit[what]}"
+                        ),
                         source=str(path),
-                        action=(
+                        action=(what != "mass" and _posed_drift_action(path, {link.name}, scores, relock))
+                        or (
                             f"the model file's {what} of {link.name} changed after the lock; fix the model "
                             "file; if the edit is on purpose, a person reviews it and re-locks "
                             "(the command below discards locked entries)"
                         ),
-                        next_command=_relock_command(path, contract_path, c.model.xacro_args),
+                        next_command=relock,
                     )
                 )
                 if scores is not None:
@@ -4932,15 +5636,21 @@ def check_mesh_drift(
             finding(
                 "not_scored",
                 "model/meshes",
-                f"{len({m.uri for m in now})} mesh files were not found at lock; their bytes are not compared",
+                f"{_meshes_said(len({m.uri for m in now}))}; their bytes are not compared",
                 "mesh files inside the robot's package folder, pinned at lock",
-                "make the meshes resolvable inside the robot's package folder, then re-lock",
+                _meshes_outside(path, sorted({m.uri for m in now}))
+                + "move the meshes into the robot's package folder (beside its package.xml), then re-lock."
+                + sibling_hint(path, [m.uri for m in now], base=contract_path.parent if contract_path else None),
             )
         ]
-    root = mesh_root(path, contract_path.parent)
     found = []
     for asset in c.model.external_assets:
-        file = root / asset.path
+        file, why = resolve_asset(path, contract_path.parent, c.model.asset_root, asset.path)
+        if why:
+            found.append(
+                finding("violation", f"model/external_assets/{asset.path}", f"mesh {asset.path} {why}", "a mesh file inside the robot's package folder")
+            )
+            continue
         digest = hashlib.sha256(file.read_bytes()).hexdigest() if file.is_file() else None
         if digest != asset.sha256:
             found.append(
@@ -5110,7 +5820,7 @@ def check_datasheet_agreement(
     model: str | None = None,
     contract_path: Path | None = None,
 ) -> list[Finding]:
-    """A recognised robot's URDF-derived numbers vs its vendor datasheet (catalog_robots.yaml).
+    """A recognised robot's numbers from its model against its maker's datasheet.
 
     Mass +-5 % and dof exact are violations; payload and joint speed (the URDF allowing more
     than the sheet) and largest joint torque (+-10 %) are warnings; reach (+-3 %) is passed when it agrees, else a not_scored note. A mass_total budget (`--mass`) wins over the
@@ -5122,11 +5832,11 @@ def check_datasheet_agreement(
     if robot is None:
         return []
     joints = c.model.joints
-    # urdf.py drops a mimic follower's limits, so a limitless revolute/prismatic is a follower.
+    # A mimic follower is not a driven joint: it counts for no DOF, speed, effort or reach.
     moving = [
         j
         for j in joints
-        if j.type == "continuous" or (j.type in ("revolute", "prismatic") and j.limits)
+        if j.type == "continuous" or (j.type in ("revolute", "prismatic") and j.limits and not j.mimic)
     ]
     by_child = {j.child: j for j in joints}
     poses: dict[str, _Transform] = {}
@@ -5156,6 +5866,7 @@ def check_datasheet_agreement(
         j.limits.effort_limit
         for j in joints
         if j.type in ("revolute", "continuous") and j.limits and j.limits.effort_limit
+        and not j.mimic
     ]
     derived = {
         "mass_total": (
@@ -5219,7 +5930,7 @@ def check_datasheet_agreement(
         expected = f"{who.get(key, robot.name + ' datasheet')}: {row.value:g} {row.unit}{scope}"
         observed = f"URDF {how}: {urdf:.4g}"
         if key in suppressed:
-            note = f"not compared: known URDF deviation —{suppressed[key]}"
+            note = f"not compared: known URDF deviation:{suppressed[key]}"
             finding = Finding(
                 severity="not_scored",
                 quantity=quantity,
@@ -5278,9 +5989,8 @@ def check_datasheet_agreement(
 def check_envelopes_vs_hard_limits(
     c: Contract, *, scores: _ScoreBook | None = None
 ) -> list[Finding]:
-    """A locked envelope outside its model's hard limits means the baseline was
-    almost certainly captured on a sick sensor (spec: baseline-on-broken-sensor
-    trap). Hard limits win; the envelope must be re-derived."""
+    """A signal envelope declared outside its device's hard limits (envelopes come from
+    Lockwire Pro recordings): the hard limits win, and the envelope must be measured again."""
     out: list[Finding] = []
     for d in c.devices:
         model = c.device_model(d.model)
@@ -5288,14 +5998,14 @@ def check_envelopes_vs_hard_limits(
             continue  # reference check already flagged it
         # `Band.max_rate` is a rate of change, and a rate
         # needs two samples and the time between them. `check` is a static
-        # comparison of one contract against itself — no time series reaches
-        # it, and an envelope is a range, not a trajectory — so there is no
+        # comparison of one contract against itself - no time series reaches
+        # it, and an envelope is a range, not a trajectory - so there is no
         # previous value here to compute a rate from. That decision is said out
         # loud, per declared bound, rather than left silent: a rate limit that
         # quietly does not apply is a rate limit that has stopped biting.
         # It is scored where the operands exist: `lockwire plan`
         # (plan._score_max_rate): compare now, predict
-        # eventually, never actuate — scored, never enforced on a device.
+        # eventually, never actuate - scored, never enforced on a device.
         # Deliberately not recorded in the ScoreBook: nothing was compared.
         for channel, limit in sorted(model.hard_limits.items()):
             if limit.max_rate is None:
@@ -5308,8 +6018,8 @@ def check_envelopes_vs_hard_limits(
                     expected="two timed samples of this signal, which a contract check never has",
                     owner=d.owner,
                     action=(
-                        f"score this bound with `{cli_line('lockwire', 'plan')}`, which compares consecutive "
-                        "published values; `check` compares declarations, not trajectories"
+                        f"score this bound with {cli_line('lockwire', 'plan')}, which compares consecutive "
+                        "published values; check compares declarations, not trajectories"
                     ),
                 )
             )
@@ -5318,7 +6028,7 @@ def check_envelopes_vs_hard_limits(
                 limit: Band | None = model.hard_limits.get(channel)
                 if limit is None:
                     continue
-                # Envelope band vs datasheet hard limit — both sides present.
+                # Envelope band vs datasheet hard limit - both sides present.
                 quantity = f"devices/{d.id}/envelopes/{env.context}/{channel}"
                 if scores is not None:
                     scores.record(quantity)
@@ -5331,7 +6041,7 @@ def check_envelopes_vs_hard_limits(
                             expected=f"same dimension as hard limit unit {limit.unit!r}",
                             owner=d.owner,
                             action=(
-                                "fix the channel's units — envelope and hard limit are incomparable"
+                                "fix the channel's units: envelope and hard limit are incomparable"
                             ),
                         )
                     )
@@ -5341,12 +6051,12 @@ def check_envelopes_vs_hard_limits(
                         Finding(
                             severity="violation",
                             quantity=quantity,
-                            observed=str(sig.band),
-                            expected=f"inside hard limit {limit}",
+                            observed=str(sig.band),  # unrounded: a crossing must show
+                            expected=f"within the hard limit {limit}",
                             dependent=", ".join(d.depends) or None,
                             owner=d.owner,
                             action=(
-                                "re-baseline — envelope exceeds absolute ratings, "
+                                "re-baseline: envelope exceeds absolute ratings, "
                                 "baseline likely captured on a sick sensor"
                             ),
                         )
@@ -5357,18 +6067,23 @@ def check_envelopes_vs_hard_limits(
                     headroom = min(band_lo - limit.lo, limit.hi - band_hi)
                     scores.passed(
                         quantity,
-                        observed=str(sig.band),
-                        expected=f"inside hard limit {limit}",
+                        observed=_band_text(sig.band),
+                        expected=f"within the hard limit {_band_text(limit)}",
                         margin=f"{format_magnitude(headroom, limit.unit)} headroom",
                     )
     return out
+
+
+def _band_text(band: Band) -> str:
+    """A band to four significant figures, for a person to read."""
+    return f"[{band.lo:.4g}, {band.hi:.4g}] {band.unit}{band.why_suffix}"
 
 
 # ---------------------------------------------------------------- thermal budget
 
 
 # Published T.SoC junction trip points for Jetson Orin-class modules.
-# Source: NVIDIA Thermal Design Guide TDG-11127-001_v1.5 (May 2025) —
+# Source: NVIDIA Thermal Design Guide TDG-11127-001_v1.5 (May 2025) -
 #   software throttle 99 °C, hardware shutdown 105 °C, both the composite
 #   equal-ratio average of CPU / GPU / SoC zones. NVIDIA publishes no
 #   discrete per-zone trip points; the check's operand is that composite.
@@ -5389,7 +6104,7 @@ def _device_worst_draw_w(device) -> tuple[float, str] | None:
     ``(watts, mode_name)`` or ``None`` when the device declares no power.
     """
     if device.power is None or device.power.draw is None:
-        # an undeclared draw is unknown, never 0 W — same "no power" gap
+        # an undeclared draw is unknown, never 0 W - same "no power" gap
         # this already reported before draw could be optional.
         return None
     worst_w = device.power.draw.base()
@@ -5410,12 +6125,12 @@ def check_thermal_budget(c: Contract, *, scores: _ScoreBook | None = None) -> li
     declared ``thermal_limit`` with ``kind="throttle"`` and required
     provenance. Resistance side: the instance's ``thermal.resistance`` from
     the author's heatsink/enclosure datasheet. A declared limit with missing
-    resistance, ambient, or draw emits ``not_scored`` naming the gap — never
+    resistance, ambient, or draw emits ``not_scored`` naming the gap, never
     a guessed RθJA (two-source).
 
     Dissipation uses the worst declared device power mode (ampacity sibling):
     a throttle limit must hold regardless of which named mode the author had
-    in mind. ``kind="shutdown"`` alone is ``not_scored`` — shutdown is
+    in mind. ``kind="shutdown"`` alone is ``not_scored``: shutdown is
     context (see ``_THERMAL_SHUTDOWN_C``), not the fire threshold.
     """
     out: list[Finding] = []
@@ -5491,7 +6206,7 @@ def check_thermal_budget(c: Contract, *, scores: _ScoreBook | None = None) -> li
 
         assert thermal is not None and thermal.resistance is not None
         assert thermal.ambient is not None and draw is not None
-        # Tj estimate vs published throttle limit — score on the DISSIPATION, not
+        # Tj estimate vs published throttle limit - score on the DISSIPATION, not
         # merely on the operands being present. With a declared draw of 0 W,
         # Tj = 0·RθJA + Tamb collapses to ambient and "passes" a throttle limit
         # that was never tested against a load (the same vacuous-pass shape as the
@@ -5588,7 +6303,7 @@ def check_link_budget(c: Contract, *, scores: _ScoreBook | None = None) -> list[
     − installation loss (feedline / connector / misc) versus receiver
     sensitivity, at the declared required range, leaving a fade margin. Fires
     when that margin falls below the contract's declared requirement (field
-    design goal 20–30 dB). Under-specified fade margin is the leading
+    design goal 20 to 30 dB). Under-specified fade margin is the leading
     documented cause of intermittent link loss.
 
     This is NOT the RF band-overlap check, which was rejected: band
@@ -5600,7 +6315,7 @@ def check_link_budget(c: Contract, *, scores: _ScoreBook | None = None) -> list[
     ``installation_loss`` is mandatory on that block: omitting it fails
     schema validation so no operator ever sees an unqualified margin that
     silently ignored feedline loss. Missing radio datasheet operands, carrier
-    frequency, or either antenna gain emit ``not_scored`` — never a bundled
+    frequency, or either antenna gain emit ``not_scored``, never a bundled
     2 dBi monopole and never an assumed mid-band channel (e.g. 915 MHz).
     Arithmetic stays in log space (dBm + dBi − dB = dBm); dimensions are
     validated via Quantity.
@@ -5658,13 +6373,13 @@ def check_link_budget(c: Contract, *, scores: _ScoreBook | None = None) -> list[
         assert budget.tx_antenna is not None
         assert budget.rx_antenna is not None
 
-        # Fade margin vs required — all RF operands populated.
+        # Fade margin vs required - all RF operands populated.
         if scores is not None:
             scores.record(quantity)
 
         # Log-space sum: Pt + Gt + Gr − FSPL − L_install − Sr
         # (all dBm / dBi / dB). Quantity.base yields the dimension base
-        # (dBm, dB, m, Hz) — no dBm↔W conversion; that belongs nowhere in
+        # (dBm, dB, m, Hz) - no dBm↔W conversion; that belongs nowhere in
         # units.py.
         pt_dbm = radio.tx_power.base()
         sr_dbm = radio.rx_sensitivity.base()
@@ -5723,7 +6438,7 @@ def check_link_budget(c: Contract, *, scores: _ScoreBook | None = None) -> list[
                 action=(
                     "raise TX power, improve antennas, reduce required range, "
                     "cut feedline/connector loss, or lower the air rate to a "
-                    "more sensitive row — or correct the sourced operands"
+                    "more sensitive row; or correct the sourced operands"
                 ),
             )
         )
@@ -5843,7 +6558,7 @@ def check_scene_placement(
                 quantity=f"scene/{lw_id}/unclaimed",
                 observed="the model has a part the contract doesn't name",
                 expected="a matching device, rail, bus or link in the contract",
-                action="add it to the contract, or remove the id from the scene",
+                action="add it to the lockfile, or remove the id from the scene",
             )
         )
     return out
@@ -6218,8 +6933,11 @@ def check_mirror(c: Contract, *, contract_path: Path | None = None) -> list[Find
                 table[re.sub(SIDE, "_~", i.name.lower()), t.group(1)] = i
         for (key, tok), a in table.items():
             b = table.get((key, _OTHER_SIDE.get(tok, "")))
-            if b is None or (hasattr(a, "limits") and not (a.limits and b.limits)):
-                continue  # a mimic follower or fixed joint has no limits of its own
+            if b is None or (
+                hasattr(a, "limits")
+                and not (a.limits and b.limits and not getattr(a, "mimic", 0) and not b.mimic)
+            ):
+                continue  # a mimic follower or fixed joint is not compared
             va, vb = _mirror_values(a), _mirror_values(b)
             bad = [f"{k} {va[k]:g} vs {vb[k]:g}" for k in va if off(va[k], vb[k])]
             if bad:
@@ -6515,7 +7233,7 @@ def check_datasheet_limit(c: Contract, *, contract_path: Path | None = None) -> 
 
 def check_collision_visual(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
     """A link whose collision primitives' bounding box is far from its visual ones'. Only
-    primitive shapes are read (`_link_primitives` leaves mesh links out); both needed."""
+    primitive shapes (box, cylinder, sphere) are read, not meshes; a link needs both."""
     found = _urdf_root(c, contract_path)
     if found is None:
         return []
@@ -6628,8 +7346,8 @@ def check_i2c_reserved_address(c: Contract, *, contract_path: Path | None = None
             address = int(ident.address, 0)
         except ValueError:
             continue
-        # NXP UM10204 section 3.1.12, Table 4: addresses 0000 XXX and 1111 XXX are reserved
-        # (https://www.nxp.com/docs/en/user-guide/UM10204.pdf).
+        # NXP UM10204, "I2C-bus specification and user manual", section 3.1.12, Table 4:
+        # addresses 0000 XXX and 1111 XXX are reserved.
         if address <= 0x07 or 0x78 <= address <= 0x7F:
             out.append(
                 Finding(
@@ -6781,9 +7499,11 @@ def _declare(contract_path: Path | None, field: str, example: str) -> str:
         "declare",
         contract_path or "lockwire.yaml",
         f"topology/battery/{field}",
-        example,
+        f"<value, e.g. {example}>",
         "--source",
-        "<pack datasheet>",
+        "<where this number comes from>",
+        "--witness",
+        "<your name>",
     )
 
 
@@ -6832,7 +7552,7 @@ def _not_scored(quantity: str, observed: str, expected: str, cmd: str) -> Findin
 def check_battery_cell_window(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
     """The pack's cell window (cells x cell min/max for its chemistry) against each pack-fed rail's range.
 
-    Also the group's door: a battery with no chemistry gets one "Not compared yet" line.
+    Also the group's door: a battery with no chemistry gets one "Not scored" line.
     """
     battery = c.topology.battery if c.topology else None
     if battery is None:
@@ -7020,11 +7740,28 @@ def check_battery_temperature(c: Contract, *, contract_path: Path | None = None)
     ambients = _declared_ambients(c)
     if not ambients:
         return [
-            _not_scored(
-                "topology/battery/discharge_temp_c",
-                "no declared ambient; pack temperature window not compared",
-                "a device thermal ambient or a C envelope",
-                _describe_hint(contract_path),
+            Finding(
+                severity="not_scored",
+                quantity="topology/battery/discharge_temp_c",
+                observed="no declared ambient; pack temperature window not compared",
+                expected="a device thermal ambient or a C envelope",
+                action=(
+                    "declare the temperature the robot works in on any one device; it "
+                    "counts for the whole robot"
+                ),
+                next_command=cli_line(
+                    "lockwire",
+                    "declare",
+                    contract_path or "lockwire.yaml",
+                    f"devices/{c.devices[0].id}/thermal/ambient",
+                    "<ambient temperature, e.g. 25 C>",
+                    "--source",
+                    "<where this number comes from>",
+                    "--witness",
+                    "<your name>",
+                )
+                if c.devices
+                else None,
             )
         ]
     cold, hot = min(ambients), max(ambients)
@@ -7639,11 +8376,10 @@ def wire_drop_v(contract: Contract, wire, current_a: float | None) -> float | No
     says nothing about a return leg, so the resistance is not doubled. ``contract`` is unused
     today; it is in the signature so a caller can pass it once wires carry a return path.
     """
-    table = load_catalog().wire_table
-    row = next((r for r in table.rows if r.awg == wire.awg), None) if table else None
-    if row is None or wire.length_m is None or current_a is None:
+    ohm_per_m = wire_ohm_per_m(wire.awg)
+    if ohm_per_m is None or wire.length_m is None or current_a is None:
         return None
-    return current_a * row.ohm_per_m * wire.length_m
+    return current_a * ohm_per_m * wire.length_m
 
 
 def _wire_load(c: Contract, wire):
@@ -8227,8 +8963,8 @@ def check_back_power(c: Contract, *, contract_path: Path | None = None) -> list[
 
 
 def check_reverse_polarity(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
-    """A file that uses protection[] with a multi-cell pack feeding a rail and no
-    reverse-polarity guard on that path gets one warning (advice only: no maker source read).
+    """A lockfile that declares protection parts, with a multi-cell pack feeding a rail and no
+    reverse-polarity guard on that path, gets one warning (advice only: no maker source read).
 
     A guard is a `reverse_polarity` entry naming "battery", a battery-fed rail or a device on
     one, or naming nothing (a declared pack-level guard). A TVS never counts. When
@@ -8264,7 +9000,7 @@ def check_reverse_polarity(c: Contract, *, contract_path: Path | None = None) ->
 def check_tvs_rating(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
     """A rail with a motor on it that is declared unable to absorb regen
     (accepts_regen false) needs a TVS naming it, whose standoff is not below the rail's
-    highest voltage. Only a file that uses protection[] is read. Advice only: no maker
+    highest voltage. Only a lockfile that declares protection parts is read. Advice only: no maker
     source read, so no number here is sourced.
     """
     t = c.topology
@@ -8476,8 +9212,8 @@ def _model_warner(c: Contract, contract_path: Path | None):
 
 
 def check_control_joint_names(c: Contract, *, contract_path: Path | None = None) -> list[Finding]:
-    """ros2_control and transmission blocks naming a joint the model lacks, or commanding
-    a fixed or mimic joint."""
+    """Control blocks (ros2_control, transmissions) that name a joint the model lacks, or
+    command a fixed or mimic joint."""
     ctx = _model_warner(c, contract_path)
     if ctx is None:
         return []

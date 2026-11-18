@@ -23,7 +23,8 @@ import { RobotView } from "./scene/RobotView";
 import { ViewBoundary } from "./ErrorBoundary";
 import { dropEdit, placeRequest, type Prov } from "./scene/placeOnBody";
 import type { SceneHit } from "./scene/buildScene";
-import type { ContractWriteRequest } from "../shared/ipc-contract";
+import { meshIds, type ContractWriteRequest } from "../shared/ipc-contract";
+import { RobotFile } from "./shown";
 import { flagSummary } from "./FindingList";
 import { headroomHighlights } from "./scene/buildScene";
 import { declarePart, highlightsFromCards, highlightsFromFindings, partsOfPath, targetIds, checkHighlight, wholeHighlight, type Highlight } from "./scene/robotScene";
@@ -39,6 +40,7 @@ import "./InterferencePanel"; // registers the Overlaps and clearance side panel
 import { visiblePanels } from "./panelRegistry";
 import { SideDrawer } from "./SideDrawer";
 import { AssistantPanel, EMPTY_CHAT, type Chat } from "./AssistantPanel";
+import { applyShow } from "./assistantShow";
 import { DocsPanel } from "./DocsPanel";
 import { OpenFace } from "./OpenFace";
 import { ShortcutsSheet } from "./ShortcutsSheet";
@@ -50,7 +52,7 @@ import { pro, type ProResult } from "./proRegistry";
 import { useSidecarState } from "./useSidecarState";
 import type { CheckPayload, DeclareFormPayload, DiffPayload, Finding, LogPayload, MeshGap, PagePayload, PlanPayload, ScenePayload, Starter } from "../shared/api.gen";
 
-// The composition root (E2-j2, rebased onto e2-app-r2). Owns the mode Frame renders AND the
+// The composition root. Owns the mode Frame renders AND the
 // one payload BOTH the Check and Design tabs read (one source, never two).
 //
 // The OpenFace -> CheckPanel IPC flow: same `View` state shape, same `onOpenLockfile`, same
@@ -89,7 +91,7 @@ export function App() {
   const [checkState, setCheckState] = useState<CheckState>({ kind: "open" });
   const [opened, setOpened] = useState<OpenedDocument | null>(null);
   // The check reply carries the 3D scene: drawn at once while the page (cards, Declare rows) is still being built.
-  const [early, setEarly] = useState<{ path: string; scene: ScenePayload } | null>(null);
+  const [early, setEarly] = useState<{ path: string; scene?: ScenePayload } | null>(null);
   const [chats, setChats] = useState<Record<string, Chat>>({}); // per robot, this app run; the panel itself unmounts when closed
   const [assistantOpen, setAssistantOpen] = useState(false); // closed by default; nothing runs until first opened
   const [recents, setRecents] = useState(readRecents);
@@ -97,7 +99,17 @@ export function App() {
   const [showKeys, setShowKeys] = useState(false); // the keyboard shortcuts sheet
   const [drawerTab, setDrawerTab] = useState("assistant");
   const [drawerWant, setDrawerWant] = useState<{ id: string } | undefined>();
-  useEffect(() => { const open = () => { setDrawerWant({ id: "agent" }); setAssistantOpen(true); }; window.addEventListener("lockwire:open-agent", open); return () => window.removeEventListener("lockwire:open-agent", open); }, []); // Pro buttons that start the agent: show its tab
+  const showAssistant = () => { setDrawerWant({ id: "assistant" }); setAssistantOpen(true); };
+  useEffect(() => { // a Pro button's question (main's own sentence): it waits in this robot's chat, and the panel sends it once
+    const path = opened?.path;
+    const onAsk = (e: Event) => { if (!path) return; const ask = (e as CustomEvent<string>).detail; setChats((m) => { const c = m[path] ?? EMPTY_CHAT; return c.busy !== null || c.ask ? m : { ...m, [path]: { ...c, ask } }; }); showAssistant(); }; // busy or already waiting: the press is dropped, never queued
+    window.addEventListener("lockwire:ask", onAsk);
+    return () => window.removeEventListener("lockwire:ask", onAsk);
+  }, [opened?.path]);
+  // A question still waiting is dropped when the drawer closes or another robot opens: it never fires later as a surprise paid call.
+  const dropAsks = () => setChats((m) => (Object.values(m).some((c) => c.ask) ? Object.fromEntries(Object.entries(m).map(([k, c]) => [k, { ...c, ask: undefined }])) : m));
+  useEffect(() => { if (!assistantOpen) dropAsks(); }, [assistantOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { dropAsks(); }, [opened?.path]); // eslint-disable-line react-hooks/exhaustive-deps
   const [startNote, setStartNote] = useState<string | null>(null);
   const [flatPath, setFlatPath] = useState<string | null>(null); // a Webots file has no 3D model: its lockfile's viewport stays empty
   const noView = flatPath !== null && flatPath === opened?.path; // tied to that robot, so any other open shows its view again
@@ -150,7 +162,9 @@ export function App() {
   // APP-1: the one guard every late reply goes through. A write's reply acts only while the robot it was
   // for is still the one shown and no other open is under way; a reply for robot A never lands on robot B.
   // ponytail: an edit whose reply lands while a Re-check of the same robot runs skips its reload; that Re-check shows it.
-  const settled = (load: number) => { if (load === documentLoad.current) shownLoad.current = load; };
+  // The newest open ending, however it ended (shown, refused, thrown, cancelled), ends its "Checking" too; an older one
+  // overtaken leaves it to the newer. `pending`: the check was stale and re-runs at once, so "Checking" stays.
+  const settled = (load: number, pending = false) => { if (load === documentLoad.current) { shownLoad.current = load; if (!pending) setEarly(null); } };
   const isShown = (contract: string) => documentLoad.current === shownLoad.current && openedPathRef.current === contract;
   async function reloadShown(contract: string): Promise<boolean> {
     if (!isShown(contract)) return false;
@@ -214,7 +228,7 @@ export function App() {
     if (!result.opened) return; // user cancelled the dialog -- stay on OpenFace
     const load = token ?? ++documentLoad.current;
     let moved = false;
-    try { moved = await showOpened(result, load, retried); } finally { settled(load); }
+    try { moved = await showOpened(result, load, retried); } finally { settled(load, moved); }
     // The file changed while it was being checked (an edit during Re-check): check it again, once.
     if (moved && load === documentLoad.current) await onOpenLockfile(result.path, true);
   }
@@ -234,7 +248,7 @@ export function App() {
     if (result.path !== openedPathRef.current) { // another robot: never show the last one's verdict while this one's page builds
       setOpened(null); setCheckState({ kind: "open" }); setCheckDoc(null);
       const scene = result.checkPayload?.scene;
-      setEarly(scene && "parts" in scene ? { path: result.path, scene } : null);
+      setEarly({ path: result.path, scene: scene && "parts" in scene ? scene : undefined }); // no scene yet: still "Checking", never the start screen mid-switch
     }
     try {
       const [pagePayload, declareForm] = await Promise.all([
@@ -436,7 +450,7 @@ export function App() {
   const designPart = useSelectedPartId();
   const sceneParts = useMemo(() => scenePayload?.parts.map(toScenePart) ?? [], [scenePayload]);
   // The one owner of "a new robot drops the old selection": the selection now outlives a tab.
-  const sceneKey = `${opened?.path ?? early?.path ?? "preview"}:${scenePayload?.hash ?? "skeleton"}`;
+  const sceneKey = `${opened?.path ?? early?.path ?? "preview"}:${scenePayload?.hash ?? (page ? "skeleton" : "pending")}`; // "pending": the view mounted before the page must rebuild when its skeleton lands
   useEffect(() => setSelectionSceneKey(sceneKey), [sceneKey]);
 
   async function submitDeclaration(submission: {
@@ -516,7 +530,7 @@ export function App() {
       revision = made.revision;
     }
     const done = await write(revision, "device", part.id, { family: `fam.${slug}`, model: `mdl.${slug}`, owner: "you", power_draw: `${part.draw} W`, power_rail: part.rail }, part.source);
-    // CAD-05: an attached component is still a power device. Device first, then the attach; batch-edit takes no add,
+    // An attached component is still a power device. Device first, then the attach; batch-edit takes no add,
     // so these are two writes, and a refused attach is undone step by step (the rail too when this add made it).
     if (done.written && part.attach) {
       const undo = async () => { const r = await window.lockwire.writeContract({ command: "undo-edit", args: { contract: opened.path } }); return Reflect.get(Reflect.get(r ?? {}, "payload") ?? {}, "undone") === true; };
@@ -889,15 +903,25 @@ export function App() {
   // GRAPH-1: the chosen check's graph nodes come from the payload; isolating hides the rest in 3D and in the graph.
   const involveCard = payload && selectedFinding !== null ? payload.cards[selectedFinding] : undefined;
   const robotGraph = page?.robot_graph ?? undefined;
+  const graphLabels = Object.fromEntries((robotGraph?.nodes ?? []).map((n) => [n.id.slice(n.id.indexOf(":") + 1), n.label])); // "w.servo-feed" -> "Servo Feed"
+  // A show tool of the Assistant moves this view through the stores and handlers a click uses (subscribed again each render, so the handlers are current).
+  const drawnIds = new Set(meshIds(sceneIds, joints.map((j) => j.name), (page?.links ?? []).flatMap((l) => (l.solids?.length ? [l.name] : []))));
+  useEffect(() => window.lockwire?.onAssistantShow?.((m) => applyShow(m, { contract: opened?.path, drawn: drawnIds, pick: pickPart, finding: (i) => jump({ findingIdx: i }), design: () => changeMode("Design"), graph: setGraphOn, isolate: setIsolate, cards: payload?.cards.length ?? 0, known: new Set([...sceneIds, ...joints.map((j) => j.name), ...(page?.links ?? []).map((l) => l.name), ...(robotGraph?.nodes ?? []).map((n) => n.id.slice(n.id.indexOf(":") + 1))]) })));
+  // What the Assistant is told about the screen with each question: the one selected part and the open view, nothing else.
+  const selectedNode = designPart ? robotGraph?.nodes.find((n) => n.id.slice(n.id.indexOf(":") + 1) === designPart) : undefined;
+  const lensView = mode === "Design" && (designLens === "power" || designLens === "data" || designLens === "mechanical") ? designLens : undefined;
+  const assistantContext = { ...(designPart ? { selection: { id: selectedNode?.id ?? designPart, name: selectedNode?.label ?? designPart } } : {}), ...(graphOn && robotGraph ? { view: "graph" as const } : lensView ? { view: lensView } : {}) };
   const involves = involveCard?.involves ?? [];
-  const isoIds = isolate && involves.length ? isolateIds(involves) : null;
+  // THE RULE (one place): the 3D view is never narrowed to a list in which no part has a mesh; then it is sent null (everything), while the graph still narrows.
+  const isoList = isolate && involves.length ? isolateIds(involves) : null;
+  const isoIds = isoList?.some((id) => drawnIds.has(id)) ? isoList : null;
   const label = mode === "Reference" ? "Docs" : mode;
   // The mass budget's result: the datasheet comparison, else why the sum was not scored (massless links).
   const massCard = payload?.cards.find((c) => c.quantity === MASS_NOMINAL) ?? payload?.cards.find((c) => c.quantity === "budgets/bud.mass" && c.severity === "not_scored");
   const panelTabs = visiblePanels(opened?.page);
   const onPanelTab = panelTabs.some((p) => p.id === drawerTab);
   return (
-    <>
+    <RobotFile.Provider value={opened?.path}>
     <Shell
       robotName={page?.robot ?? payload?.robot}
       onRobot={payload && (mode !== "Design" || selectedIds.length) ? () => { showWhole(); setMode("Design"); } : undefined}
@@ -906,9 +930,8 @@ export function App() {
       assistant={{ open: assistantOpen && !!opened && !onPanelTab, onToggle: opened ? () => { if (assistantOpen && !onPanelTab) setAssistantOpen(false); else { setDrawerWant({ id: "@assist" }); setAssistantOpen(true); } } : undefined }}
       panels={opened && panelTabs.length ? { open: assistantOpen && onPanelTab, onToggle: () => { if (assistantOpen && onPanelTab) setAssistantOpen(false); else { setDrawerWant({ id: "@panels" }); setAssistantOpen(true); } } } : undefined}
       drawer={<SideDrawer open={assistantOpen && !!opened} onClose={() => setAssistantOpen(false)} cwd={assistantOpen ? opened?.path.replace(/[\\/][^\\/]*$/, "") : undefined} contract={opened?.path} revision={opened?.revision} page={opened?.page} onDeclare={declareFromPanel} onAddWire={addWireFromPanel} want={drawerWant} onTab={setDrawerTab}
-        onReview={(p) => opened && setChats((m) => { const c = m[opened.path] ?? EMPTY_CHAT; return c.cards.some((x) => x.id === p.id) ? m : { ...m, [opened.path]: { ...c, cards: [...c.cards, p] } }; })}
         assistant={assistantOpen && opened && (
-        <AssistantPanel contract={opened.path} revision={opened.revision} mode={mode} witness={opened.declareForm.witness.prefill} chat={chats[opened.path] ?? EMPTY_CHAT} onChat={(f) => setChats((m) => ({ ...m, [opened.path]: f(m[opened.path] ?? EMPTY_CHAT) }))} onApplied={async (contract) => { await reloadShown(contract); }} />
+        <AssistantPanel contract={opened.path} revision={opened.revision} mode={mode} witness={opened.declareForm.witness.prefill} onName={(declareForm) => setOpened((cur) => (cur?.path === opened.path ? { ...cur, declareForm } : cur))} check={payload ?? undefined} rows={opened.declareForm.rows} labels={graphLabels} context={assistantContext} chat={chats[opened.path] ?? EMPTY_CHAT} onChat={(f) => setChats((m) => ({ ...m, [opened.path]: f(m[opened.path] ?? EMPTY_CHAT) }))} onApplied={async (contract) => { await reloadShown(contract); }} />
       )} />}
       onModeChange={changeMode}
       connected={connected}
@@ -923,7 +946,7 @@ export function App() {
       ) : (
         <ViewBoundary><RobotView
           viewInset={viewInset}
-          sceneKey={`${opened?.path ?? early?.path}:${scenePayload?.hash ?? "skeleton"}`}
+          sceneKey={sceneKey}
           parts={noView ? [] : sceneParts}
           joints={sceneSource && !noView ? jointsOf(sceneSource) : []}
           links={sceneSource && !noView && "links" in sceneSource ? sceneSource.links : []}
@@ -957,7 +980,7 @@ export function App() {
         : mode === "Declare" && opened ? <DeclareValues payload={opened.declareForm} selectedPath={declareSel} onSelect={(path) => pickDeclare(path)} onAddPart={() => setAddingPart(true)} /> : undefined}
       above={mode === "Design" ? <DesignLens payload={designPayload} /> : undefined}
       tools={mode === "Design" ? <DesignTools payload={designPayload} canAnalyse={!!(opened?.path && opened.revision)} /> : undefined}
-      center={mode === "Check" && !payload && !early ? <OpenFace connected={!((sidecarState.phase === "starting" || sidecarState.phase === "error") && window.lockwire?.getSidecarState)} engineError={sidecarState.phase === "error" ? sidecarState.message : undefined} recent={recents} onOpenRobot={() => void onStartFromUrdf()} starters={starters} onNewRobot={(s) => void onNewRobot(s)} onAgent={() => void onNewRobot(null).then((ok) => { if (ok) window.dispatchEvent(new Event("lockwire:open-agent")); })} onOpenRecent={(p) => void onOpenLockfile(p)} /> : undefined}
+      center={mode === "Check" && !payload && !early ? <OpenFace connected={!((sidecarState.phase === "starting" || sidecarState.phase === "error") && window.lockwire?.getSidecarState)} engineError={sidecarState.phase === "error" ? sidecarState.message : undefined} recent={recents} onOpenRobot={() => void onStartFromUrdf()} starters={starters} onNewRobot={(s) => void onNewRobot(s)} onAssistant={() => void onNewRobot(null).then((ok) => { if (ok) showAssistant(); })} onOpenRecent={(p) => void onOpenLockfile(p)} /> : undefined}
     >
       {mode === "Check" || mode === "Design" || mode === "Reference" || !body || (OWN_PANEL.has(mode) && opened) ? body : (
         <Panel title={label}>{body}</Panel>
@@ -978,6 +1001,6 @@ export function App() {
     </Shell>
     {showKeys && <ShortcutsSheet onClose={() => setShowKeys(false)} />}
     <FindPart page={page} onPick={(id) => { const again = storeIds.length === 1 && storeIds[0] === id; setSelectedPartId(id); setFitIds((f) => again && drawn.has(id) ? (f.length ? [] : [id, id]) : []); pickPart(id); }} />
-    </>
+    </RobotFile.Provider>
   );
 }

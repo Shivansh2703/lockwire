@@ -57,7 +57,7 @@ function isReadyLine(value: unknown): value is ReadyLine {
 // `app.isPackaged`, not `process.resourcesPath`'s truthiness -- Electron sets
 // resourcesPath in BOTH modes (in dev it points at the Electron binary's own resources
 // dir), so testing it for truthiness picks the packaged branch the first time a
-// packaged build runs too, by accident (e2-hl's reviewer, 00:0x).
+// packaged build runs too, by accident.
 // `LOCKWIRE_SIDECAR_COMMAND`/`_ARGS` are a manual-testing escape hatch only (not used
 // by the unit tests, which pass overrides directly to startSidecar()).
 export function resolveSidecarCommand(): { command: string; args: string[] } {

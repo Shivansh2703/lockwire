@@ -4,7 +4,7 @@ served to an agent as tools.
 An agent about to operate a robot can ask these questions before it touches
 hardware. Every tool is a thin wrapper around lockwire's existing, already-tested
 functions (`checks.py`, `describe.py`, `plan.py`, `preflight/runner.py`, and
-`api.upgrade`) — nothing here recomputes a verdict or re-derives a role. The
+`api.upgrade`) - nothing here recomputes a verdict or re-derives a role. The
 upgrade tool is the one non-overwriting file writer; ``review_value`` also writes, in
 place, and takes ``expected_revision`` to refuse a stale file.
 """
@@ -25,17 +25,18 @@ from pydantic import Field, ValidationError
 from ruamel.yaml import YAMLError
 
 from lockwire import __version__, api, plugins
+from lockwire.checks import ModelFileRefusal, refuse_unreadable_model
 from lockwire.cli_line import cli_line as _build_cli_line
 from lockwire.describe import _role
 from lockwire.describe import describe_device as _describe_device
 from lockwire.describe import describe_system as _describe_system
-from lockwire.edit import Change, EditRefusal, resolve_witness
+from lockwire.edit import WHAT_IF_WITNESS, Change, EditRefusal, resolve_witness
 from lockwire.plan import Plan
 from lockwire.schema import ArtifactRef, Contract, ContractError, UnsupportedSchemaVersion
 
 # The SDK only carries an exception's own text to the client when it is a
 # `ToolError` (anything else reaches the client as a generic "Error executing
-# tool X", the real message kept server-side only) — verified against the
+# tool X", the real message kept server-side only) - verified against the
 # installed SDK (mcp 2.1.1, mcp/server/mcpserver/tools/base.py). So every
 # "refuses ..." case below raises `ToolError`, not a bare `ValueError`.
 
@@ -43,10 +44,10 @@ from lockwire.schema import ArtifactRef, Contract, ContractError, UnsupportedSch
 # A description is rendered from text the contract's author wrote
 # (`provenance.note` and any prose field added later). It is data, never
 # instructions, so the whole contract-authored document goes to the agent
-# inside one explicit untrusted fence — fencing the document rather than a list
+# inside one explicit untrusted fence - fencing the document rather than a list
 # of field names keeps a prose field added tomorrow covered on the day it lands.
 # The delimiter carries a per-document random nonce (`{nonce}`): a fixed one is
-# forgeable — stripping the author's copy of it is single-pass, so the halves
+# forgeable - stripping the author's copy of it is single-pass, so the halves
 # they wrote around that copy rejoin into a valid closing marker and the fence
 # ends early. An author cannot write, split or reassemble a marker they cannot
 # predict, so with a nonce there is nothing to strip.
@@ -66,7 +67,7 @@ def _fence_untrusted(markdown: str) -> str:
 
 def _cli_line(*parts: str) -> str:
     """A paste-able ``lockwire ...`` command reproducing an MCP call, built by
-    ``lockwire.cli_line.cli_line`` (the single shared builder) — not
+    ``lockwire.cli_line.cli_line`` (the single shared builder) - not
     composed locally, so quoting can only go wrong in one place."""
     return _build_cli_line("lockwire", *parts)
 
@@ -94,6 +95,9 @@ def _arg(description: str) -> Any:
 
 
 CONTRACT = Annotated[str, _arg("Path to the lockwire.yaml contract, relative to the server's cwd.")]
+CONTRACT_ALIAS = Annotated[
+    str | None, _arg("Same as the lock path argument; give one of the two, not both.")
+]
 REVISION = Annotated[
     str | None, _arg("SHA-256 of the contract bytes you read; refuses a file changed since.")
 ]
@@ -117,6 +121,16 @@ def _plain(error: Exception) -> str:
     return without_values(str(error))
 
 
+def _one_name(first: str | None, second: str | None, names: str) -> str:
+    """The lock path given under either of two argument names (never both, never neither)."""
+    if first is not None and second is not None and first != second:
+        raise ToolError(f"two different lock paths were given; give only one of {names}")
+    value = first if first is not None else second
+    if value is None:
+        raise ToolError(f"no lock path given; pass {names}")
+    return value
+
+
 def _load_contract(contract: str) -> Contract:
     """Resolve ``contract`` against the server's cwd; refuse a path that does not exist,
     or one written by a lockwire newer than this one.
@@ -127,7 +141,7 @@ def _load_contract(contract: str) -> Contract:
     """
     path = Path(contract)
     if not path.exists():
-        raise ToolError(f"no contract at {path}")
+        raise ToolError(f"no lockfile at {path}")
     if path.is_dir():
         raise ToolError(f"{path} is a folder; pass the lockfile or model inside it")
     if path.suffix.lower() in (".urdf", ".xacro", ".sdf", ".wbt", ".proto"):
@@ -135,7 +149,7 @@ def _load_contract(contract: str) -> Contract:
     try:
         return api.load(path)
     except UnsupportedSchemaVersion as error:
-        raise ToolError(f"REFUSED — {error}") from error
+        raise ToolError(f"REFUSED: {error}") from error
     except ContractError as error:  # the user's file: the same plain lines the CLI prints
         raise ToolError(str(error)) from error
     except (OSError, KeyError, TypeError, ValueError, YAMLError) as error:
@@ -143,8 +157,16 @@ def _load_contract(contract: str) -> Contract:
 
 
 def build_server() -> MCPServer:
-    """Construct the lockwire MCP server (no stdio — tests can drive it in-process)."""
-    server = MCPServer("lockwire", version=__version__)
+    """Construct the lockwire MCP server (no stdio - tests can drive it in-process)."""
+    server = MCPServer(
+        "lockwire",
+        version=__version__,
+        instructions=(
+            "Lockwire checks a robot's lockfile (lockwire.yaml): whether its declared power, "
+            "weight, bus and torque add up. Start with check_contract on the lockfile; "
+            "its verdict is GO, GO with notes or NO-GO, and each finding says what to fix."
+        ),
+    )
     _tool = server.tool
 
     def tool(*args: Any, **kwargs: Any) -> Any:
@@ -155,9 +177,11 @@ def build_server() -> MCPServer:
             def guarded(*a: Any, **k: Any) -> Any:
                 try:
                     return fn(*a, **k)
-                except PrivatePartsError as error:  # a broken private parts file, as plain text
+                except (PrivatePartsError, ModelFileRefusal) as error:  # the user's files, as plain text
                     raise ToolError(str(error)) from error
 
+            # The docstring is the tool's description: one line, not the source's indentation.
+            guarded.__doc__ = " ".join((fn.__doc__ or "").split())
             return register(guarded)
 
         return wrap
@@ -166,7 +190,11 @@ def build_server() -> MCPServer:
 
     @server.tool()
     def check_contract(
-        contract: CONTRACT,
+        contract: Annotated[
+            str | None,
+            _arg("Path to the lockwire.yaml contract, relative to the server's cwd."),
+        ] = None,
+        path: CONTRACT_ALIAS = None,
         actuator_evidence: Annotated[
             dict[str, ArtifactRef] | None,
             _arg("Actuator case id -> evidence file {path, sha256} to check that case against."),
@@ -180,6 +208,7 @@ def build_server() -> MCPServer:
         ] = None,
     ) -> dict[str, Any]:
         """Run lockwire's record-level checks on the contract and return its verdict and findings, each carrying a `next_command` where one applies; refuses a contract path that does not exist."""
+        contract = _one_name(contract, path, "`contract` or `path`")
         loaded = _load_contract(contract)
         try:
             options: dict[str, Any] = {"contract_path": contract}
@@ -295,44 +324,13 @@ def build_server() -> MCPServer:
             str | None, _arg("Words the part id, name or family must all hold (any case).")
         ] = None,
     ) -> dict[str, Any]:
-        """The catalog parts (private ones too) with their sourced numbers, then the stock shapes
+        """The catalog parts (the bundled ones and any of your own private parts) with their sourced numbers, then the stock shapes
         (kind "stock": add one by its id with named_dimensions, mass_basis and material_required);
         servos go on a joint via swap."""
-        from lockwire.catalog import load_catalog, stock
+        from lockwire.catalog import listing
 
         words = (query or "").lower().split()
-        parts = [
-            {
-                "id": p.id,
-                "name": p.name,
-                "kind": "part",
-                "label": p.label,
-                "numbers": {k: f"{n.value:g} {n.unit}" for k, n in p.numbers.items()},
-            }
-            for p in load_catalog().parts
-            if all(w in f"{p.id} {p.name} {p.family}".lower() for w in words)
-        ]
-        solid = ("plate", "round_rod")  # mass follows a named dimension only here (edit._stock_link)
-        parts += [
-            {
-                "id": r.id,
-                "name": r.name,
-                "kind": "stock",
-                "recipe": r.shape,
-                "dimensions": r.dimensions,
-                "named_dimensions": r.shape in solid,
-                "mass_basis": (
-                    "derived from material density"
-                    if r.shape in solid
-                    else "maker's mass per metre"
-                    if r.mass_from == "mass_per_length"
-                    else "true cross-section x length x material density"
-                ),
-                "material_required": r.mass_from == "material",
-            }
-            for r in stock()
-            if all(w in f"{r.id} {r.name} {r.shape}".lower() for w in words)
-        ]
+        parts = listing(words)
         return {"parts": parts, "cli_line": _cli_line("catalog", "parts", *words)}
 
     @server.tool()
@@ -343,7 +341,7 @@ def build_server() -> MCPServer:
         ] = None,
         expected_revision: REVISION = None,
     ) -> dict[str, str]:
-        """Write a new current-version contract from an exact 0.2/0.3/0.4/0.5 file revision without
+        """Write a new current-version contract from an exact 0.2, 0.3, 0.4, 0.5 or 0.6 file revision without
         changing that legacy file; refuses a stale revision or occupied output path.
         """
         # `out`/`expected_revision` are optional in the signature only so a missing
@@ -352,17 +350,17 @@ def build_server() -> MCPServer:
         _load_contract(contract)
         if out is None or expected_revision is None:
             missing = "out" if out is None else "expected_revision"
-            raise ToolError(f"REFUSED — upgrade_contract requires {missing}")
+            raise ToolError(f"REFUSED: upgrade_contract requires {missing}")
         # confine() refuses every lockfile target, and this output is one: keep its folder rule.
         target = Path(out).resolve()
         if target.suffix.lower() not in (".yaml", ".yml"):
-            raise ToolError(f"REFUSED — upgrade_contract writes a .yaml file: {out}")
+            raise ToolError(f"REFUSED: upgrade_contract writes a .yaml file: {out}")
         if not target.is_relative_to(Path(contract).resolve().parent):
-            raise ToolError(f"REFUSED — refusing to write outside the contract's folder: {out}")
+            raise ToolError(f"REFUSED: refusing to write outside the lockfile's folder: {out}")
         try:
             notices = api.upgrade(contract, out=out, expected_revision=expected_revision)
         except (OSError, UnicodeError, ValueError, YAMLError) as error:
-            raise ToolError(f"REFUSED — {error}") from error
+            raise ToolError(f"REFUSED: {error}") from error
         return {
             "contract": contract,
             "out": out,
@@ -379,10 +377,10 @@ def build_server() -> MCPServer:
         change: Annotated[list[str], _arg("Proposed edits, each PATH=VALUE, e.g. 'x.mass=2 kg'.")],
         source: Annotated[str, _arg("Where the proposed values come from.")],
         witness: Annotated[
-            str | None, _arg("Required in practice: the real person who vouches for the values.")
+            str | None, _arg("Optional: a comparison writes nothing. A name given is still checked.")
         ] = None,
     ) -> dict[str, Any]:
-        """Compare current and proposed contract checks without writing the contract or health ledger; findings carry a `next_command` where one applies."""
+        """Compare current and proposed contract checks without writing anything; findings carry a `next_command` where one applies."""
         _load_contract(contract)
         try:
             changes = []
@@ -391,7 +389,12 @@ def build_server() -> MCPServer:
                 if not separator or not path or not value:
                     raise EditRefusal("--change requires PATH=VALUE")
                 changes.append(
-                    Change(path=path, value=value, source=source, witness=resolve_witness(witness))
+                    Change(
+                        path=path,
+                        value=value,
+                        source=source,
+                        witness=resolve_witness(witness) or WHAT_IF_WITNESS,
+                    )
                 )
             document = plugins.pick("what_if", api.what_if)(contract, changes)
         except (
@@ -403,7 +406,7 @@ def build_server() -> MCPServer:
             YAMLError,
         ) as error:
             said = str(error).replace("--witness", "witness").replace("--change", "change")
-            raise ToolError(f"REFUSED — {said}") from error  # the tool's argument names, not flags
+            raise ToolError(f"REFUSED: {said}") from error  # the tool's argument names, not flags
         line = ["what-if", contract]
         for entry in change:
             line += ["--change", entry]
@@ -418,6 +421,7 @@ def build_server() -> MCPServer:
         format: Annotated[str, _arg("urdf, sdf, mjcf, stl, obj or dae.")] = "urdf",
     ) -> dict[str, Any]:
         """Write the contract's robot model as a standard URDF, SDF or MJCF file beside the contract, or (stl, obj, dae) a folder of one mesh file per link plus an assembly file in metres; refuses to overwrite an existing file. URDF, SDF and MJCF carry no geometry."""
+        from lockwire import export_model
         from lockwire.export_model import default_out, default_stl_dir, write, write_mesh
 
         loaded = _load_contract(contract)
@@ -445,6 +449,8 @@ def build_server() -> MCPServer:
         }
         if skipped:
             result["not_exported"] = skipped
+        if format == "urdf":
+            result["notes"] = [n for n in export_model.urdf_notes(loaded.model) if n]
         return result
 
     def _design_edit(
@@ -475,7 +481,7 @@ def build_server() -> MCPServer:
             if v is None
         ]
         if missing:
-            raise ToolError(f"REFUSED — the {kind} edit requires {', '.join(missing)}")
+            raise ToolError(f"REFUSED: the {kind} edit requires {', '.join(missing)}")
         try:
             witness = resolve_witness(witness)
             if rename_to is not None:
@@ -516,7 +522,7 @@ def build_server() -> MCPServer:
                     expected_revision=expected_revision,
                 )
         except (EditRefusal, UnsupportedSchemaVersion, OSError, YAMLError) as error:
-            raise ToolError(f"REFUSED — {_plain(error)}") from error
+            raise ToolError(f"REFUSED: {_plain(error)}") from error
         return {
             "written": result.written,
             "diff": result.diff,
@@ -852,9 +858,13 @@ def build_server() -> MCPServer:
             parsed = Plan.model_validate(plan)
         except ValidationError as error:
             raise ToolError(f"malformed plan: {error}") from error
-        # `plan` arrives inline (a dict), not a file path — CLI `plan` takes a
+        # `plan` arrives inline (a dict), not a file path - CLI `plan` takes a
         # plan.yaml path, so the line names the same file the plan would be
         # saved to and cannot itself be replayed until it exists on disk.
+        try:
+            refuse_unreadable_model(loaded, Path(contract))
+        except ModelFileRefusal as error:
+            raise ToolError(str(error)) from error
         return _with_cli_line(
             plugins.pick("plan", api.plan)(loaded, parsed),
             _cli_line("plan", contract, "<plan.yaml>"),
@@ -940,16 +950,16 @@ def build_server() -> MCPServer:
 
         loaded = _load_contract(contract)
         if expected_revision is not None and part_id is None:
-            raise ToolError("REFUSED — writing a swap requires part_id")
+            raise ToolError("REFUSED: writing a swap requires part_id")
         try:
             if expected_revision is None:
-                pv, written = preview(loaded, joint, part_id), None
+                pv, written = preview(loaded, joint, part_id, contract_path=Path(contract)), None
             else:
                 pv, written = apply_swap(
                     Path(contract), joint, part_id, expected_revision=expected_revision
                 )
         except (EditRefusal, OSError, ValueError, YAMLError) as error:
-            raise ToolError(f"REFUSED — {without_values(str(error))}") from error
+            raise ToolError(f"REFUSED: {without_values(str(error))}") from error
 
         knock = [  # a status drop first
             {

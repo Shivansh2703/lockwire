@@ -1,8 +1,8 @@
 """The machine-readable preflight document.
 
 `lockwire preflight --json <path>` writes one JSON file describing the same run
-the terminal just rendered. It exists because an out-of-process consumer — the
-`lockwire_ros` gate node is the first — must read a verdict as *data*, and the
+the terminal just rendered. It exists because an out-of-process consumer - the
+`lockwire_ros` gate node is the first - must read a verdict as *data*, and the
 alternative is scraping rich-rendered prose. A gate whose consumer parses
 colour codes is a gate that breaks silently the first time a message is reworded.
 
@@ -19,7 +19,7 @@ Three properties this file is responsible for, each load-bearing:
 - **A vacuous pass is visibly distinct.** ``NOT_SCORED`` (exit 3) and ``scored``
   travel together so no consumer can read "nothing was checked" as clearance.
 
-Writing this file never changes the verdict — like ``--html``, it is an
+Writing this file never changes the verdict - like ``--html``, it is an
 additional output of a run that already happened.
 """
 
@@ -48,12 +48,12 @@ BASELINE_CHECK_ARTIFACT_TYPE = "lockwire-baseline-check-report"
 #: Bumped only when the document's shape changes in a way a consumer must notice.
 #: Independent of the lockfile ``SCHEMA_VERSION``, which is also reported below.
 #: "2": ``verdict`` now spells NO-GO hyphenated, byte-identical to the
-#: terminal, instead of the raw ``NO_GO`` Python identifier — a breaking change
+#: terminal, instead of the raw ``NO_GO`` Python identifier - a breaking change
 #: for any consumer comparing the raw string.
 FORMAT_VERSION = "2"
 
 
-#: The keys ``envelope`` owns. A body may not use them — see the guard below.
+#: The keys ``envelope`` owns. A body may not use them - see the guard below.
 HEADER_KEYS = ("artifact_type", "format_version", "schema_version")
 
 
@@ -62,7 +62,7 @@ def envelope(artifact_type: str, body: dict[str, Any]) -> dict[str, Any]:
 
     ``artifact_type`` says which document this is, and is the only key a
     consumer needs to read before it knows how to read the rest; the two
-    versions say what may have changed under it — ``FORMAT_VERSION`` the
+    versions say what may have changed under it - ``FORMAT_VERSION`` the
     envelope and body shape, ``SCHEMA_VERSION`` the lockfile the run used.
     One helper, so a second machine door cannot be added unversioned: the
     body is merged flat behind the header rather than nested, because
@@ -125,7 +125,7 @@ def preflight_document(
             # budget emits no finding, so without this key the one edit that can make
             # a robot look safe by moving the goalposts is invisible to a consumer.
             # An annotation only: the verdict and exit code above are untouched.
-            # rendered regardless of the budget's current severity — the
+            # rendered regardless of the budget's current severity - the
             # mark must survive a later re-breach, not vanish exactly when a raised
             # limit turns out not to have held (see report.limit_raised_mark).
             "limits_raised": [

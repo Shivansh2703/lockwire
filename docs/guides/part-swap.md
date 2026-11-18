@@ -21,9 +21,9 @@ lockwire swap lockwire.yaml wrist
 wrist: feetech.scs0009, gravity load 0.15 N*m (fit = stall >= 2x load)
   fit      dynamixel.xl330-m288   cited      0.52 N*m  3.4x  18 g  different bus
   fit      dynamixel.xc330-m288   cited      0.93 N*m  6.1x  23 g  different bus
-  fit      feetech.sts3032        cited      0.44 N*m  2.9x  20.6 g  different bus, rated at 6 V; your supply is 5 V, expect less (needs new supply)
-  fit      feetech.st3215         cited      2.94 N*m  19.6x  55 g  different bus, rated at 12 V; your supply is 5 V, expect less (needs new supply)
-  tight    dynamixel.xl330-m077   cited      0.21 N*m  1.4x  18 g  different bus
+  fit      feetech.sts3032        cited      0.44 N*m  2.9x  20.6 g  different bus, rated at 6 V; your supply is 5 V, expect less torque
+  fit      feetech.st3215         cited      2.94 N*m  19.6x  55 g  different bus, rated at 12 V; your supply is 5 V, expect less torque
+  tight    dynamixel.xl330-m077   cited      0.21 N*m  1.4x  18 g  different bus, below this joint's 0.4 N*m effort limit
   ...
   fit      feetech.sts3215        unverified 1.91 N*m  12.7x  55 g  different bus, needs at least 6 V, above your supply's 5 V
 With dynamixel.xl330-m288 (+4.8 g on wrist's child link), the joints above:
@@ -51,12 +51,13 @@ already scores, with the candidate's own mass added.
 Rows are ordered by what the swap asks of you: too weak servos come last. Among the rest, a
 servo whose voltage range does not cover your supply comes after every servo that does, since
 over-volting can damage a servo. Then a servo on a different bus comes after one on the same
-bus. Within that, fit comes before tight. A servo's stall torque is
+bus. Then a servo whose stall torque is under the joint's effort limit comes after one that
+clears it. Within that, fit comes before tight. A servo's stall torque is
 rated at one voltage (its datasheet says which). Your supply is the voltage declared for the
 joint's power rail; with no rail declared it is taken as at most the current servo's highest
 input voltage ("your supply is at most N V"). A servo rated above it will not reach its figure
 on this joint: within one status, those rows sit after every servo that runs on your supply,
-flagged "rated at 6 V; your supply is 5 V, expect less (needs new supply)". Their stall and ratio
+flagged "rated at 6 V; your supply is 5 V, expect less torque". Their stall and ratio
 columns still show the rated figure. With no current servo, the supply is unknown and the output
 says so.
 
@@ -67,8 +68,10 @@ row, the one the app picks for you, needs the fewest changes; read its flags bef
 
 - **different bus**: the servo talks on a different bus than the one it replaces. It ranks below
   same-bus servos.
-- **rated at N V; your supply is M V, expect less (needs new supply)**: its stall
+- **rated at N V; your supply is M V, expect less torque**: its stall
   torque is rated above your supply.
+- **below this joint's N N*m effort limit**: its stall torque is under the joint's effort limit,
+  so `check` would fail the joint after the swap. It ranks after the servos that clear the limit.
 - **max N V, below your supply's M V (needs new supply)** or **needs at least N V, above your
   supply's M V**: the servo needs a new supply, because its highest input voltage is below the
   current servo's highest, or its lowest is above it. It ranks below every servo that covers it.
@@ -104,13 +107,13 @@ One accepted swap is one edit to the lockfile:
   it is `mdl.part-swap.servo-mass` (mass only), added in the same edit and named in the output;
 - a second swap on the same joint replaces that device, it does not stack.
 
-A swap does not change the version line, so a swapped 0.5 file still opens in Lockwire 0.2.6.
-New files from `start` and `upgrade` are written at `0.6`, which 0.2.6 and older do
-not open. The device is a mass difference, not a part, and its note says so. Your model file is never touched.
+A swap does not change the version line: `schema_version` stays as it was. New files from `start` and `upgrade` are written at `0.7`.
+The device is a mass difference, not a part, and its note says so. Your model file is never touched.
 
 ## Worked example
 
-The `servo-bench` example has a wrist servo that is too weak on purpose.
+The `servo-bench` example has a wrist servo that is too weak on purpose. Start it in a new,
+empty folder (in a folder where you already ran the swap above, `start` keeps the swapped file):
 
 ```bash
 lockwire start --example servo-bench
@@ -118,38 +121,48 @@ lockwire check lockwire.yaml
 ```
 
 ```text
-VIOLATION model/joints/wrist/limits/effort — observed 0.40 N*m joint effort limit, expected <= 0.226 N*m, the feetech.scs0009 stall torque (Δ 1.8x the stall torque)
+VIOLATION model/joints/wrist/limits/effort: observed 0.40 N*m joint effort limit, expected <= 0.226 N*m, the feetech.scs0009 stall torque (1.8 times that)
+  source: https://www.feetechrc.com/6v-23kg-serial-bus-steering-gear_65522.html (Peak stall torque 2.3kg.cm@6V), read 2026-11-09; 2.3 kg*cm x 0.0980665 = 0.226 N*m
   action: a simulator will let wrist push 0.4 N*m, which a feetech.scs0009 cannot; in this lockfile's model: joints wrist limits effort 0.4 → 0.226, then re-lock (ignore if another motor drives it); or find a stronger servo: lockwire swap lockwire.yaml wrist
 ...
-NO-GO — 2 violation(s), 0 warning(s)
+NO-GO: 2 violation(s), 0 warning(s)
 ```
 
-Preview the wrist as above. The top row, the XL330, asks only for a different bus and adds
-4.8 g, so nothing above it drops. To see a warning, take the STS3215 instead: it is unverified
-and adds 41.8 g, so the shoulder drops to tight:
+Preview the wrist as above. Take the top row, the XL330: it runs on the bench's 5 V supply,
+asks only for a different bus, and adds 4.8 g, so nothing above it drops:
 
 ```bash
-lockwire swap lockwire.yaml wrist --use feetech.sts3215
+lockwire swap lockwire.yaml wrist --use dynamixel.xl330-m288
 ```
 
+It prints the ranked table first, then:
+
 ```text
-With feetech.sts3215 (+41.8 g on wrist's child link), the joints above:
-  elbow 0.40 → 0.48 N*m, still fit (4.0x)
-  shoulder 0.81 → 0.97 N*m, warning: now tight (1.9x), was fit
+With dynamixel.xl330-m288 (+4.8 g on wrist's child link), the joints above:
+  elbow 0.40 → 0.40 N*m, still fit (4.7x)
+  shoulder 0.81 → 0.83 N*m, still fit (2.3x)
 ...
-swapped wrist to Feetech STS3215 smart servo (7.4 V class)
+swapped wrist to ROBOTIS Dynamixel XL330-M288-T smart servo
 supply 5 V, as declared for its power rail
 added a mass-only part so the new servo's weight is counted (no limits or signals)
 the hand link now carries the servo's mass difference
+warning: dynamixel.xl330-m288: different bus
 ```
+
+The `...` is the change to `lockwire.yaml`, printed as a diff. The warning means the XL330
+talks on a different servo bus from the old part, so the wiring changes with it.
 
 `check` again: the wrist line is gone. The remaining violation is the 5 V rail, which is a
 different problem.
 
 ```text
 scored 9: 8 add up, 1 do not · 2 not scored
-NO-GO — 1 violation(s), 0 warning(s)
+NO-GO: 1 violation(s), 0 warning(s)
 ```
+
+A part the supply cannot run is not refused. `--use feetech.sts3215`, for example, ends with
+`warning: feetech.sts3215: different bus, needs at least 6 V, above your supply's 5 V`, and the
+next `check` does not repeat it: that servo needs a new supply before it can do its job.
 
 ## The other fix: lower the effort limit
 
@@ -168,8 +181,8 @@ really drives that joint, ignore the finding.
 
 ## For AI agents (MCP)
 
-The MCP server has a `swap` tool ([The MCP server](../mcp_server.md)). With a contract and a
+The MCP server has a `swap` tool ([The MCP server](../mcp_server.md)). With a lockfile and a
 joint it previews. With a `part_id` it shows the knock-on for that part. It writes only when
-it is given a `part_id` and an `expected_revision`, the SHA-256 of the contract bytes the
+it is given a `part_id` and an `expected_revision`, the SHA-256 of the lockfile bytes the
 agent read, so a file that changed underneath is refused rather than overwritten. The result
 carries `written` and the equivalent `cli_line`.

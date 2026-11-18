@@ -20,6 +20,8 @@ const PATHS = {
   ok: "M4 10.5l4 4 8-9",
   alert: "M10 3l8 14H2zM10 8v4M10 14.5v.5",
   fail: "M5 5l10 10M15 5L5 15",
+  enter: "M15.5 4.5v7h-11M8.5 7.5l-4 4 4 4",
+  eye: "M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10zM10 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z",
 } as const;
 
 export type IconName = keyof typeof PATHS;

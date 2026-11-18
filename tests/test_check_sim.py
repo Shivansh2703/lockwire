@@ -39,6 +39,18 @@ def test_mass_drift_is_a_violation_naming_the_body_and_both_values():
     assert len(by) == 3  # mass, lower, upper; matching inertia/COM/effort stay quiet
 
 
+def test_a_link_mass_tolerance_is_the_band_for_the_sim_mass(tmp_path):
+    text = (SO101 / "lockwire.yaml").read_text()
+    at = "      value: 0.100006\n      unit: kg\n"
+    for tol, drift in (("rel_pct: 20", False), ("abs: {value: 1, unit: g}", True)):
+        lock = tmp_path / "l.yaml"
+        lock.write_text(text.replace(at, f"{at}    mass_tolerance:\n      {tol}\n", 1))
+        args = ["check-sim", str(SO101 / "so101_drift.xml"), "--lock", str(lock), "--json", "-"]
+        by = {f["quantity"]: f for f in json.loads(CliRunner().invoke(app, args).stdout)["findings"]}
+        mass = by.get("model/links/shoulder_link/mass")
+        assert bool(mass) is drift and (not drift or "0.100006 kg \u00b1 0.001 kg" in mass["expected"])
+
+
 def test_matching_sim_is_go_and_lists_what_the_format_cannot_express():
     code, doc = _run("so101.sdf")
     assert code == 0 and doc["verdict"] == "GO" and doc["scored"] > 0
@@ -114,3 +126,17 @@ def test_drifted_sim_still_names_each_mismatch():
     result = CliRunner().invoke(app, ["check-sim", str(SO101 / "so101_drift.xml"), "--lock", LOCK])
     assert result.exit_code == 1 and "agrees with" not in result.output
     assert "VIOLATION model/links/shoulder_link/mass" in result.output
+
+
+def test_damping_hint_does_not_name_a_command_the_tool_lacks(tmp_path):
+    doc = _joint_doc(tmp_path, joint='damping="0.4"')
+    row = next(f for f in doc["findings"] if f["quantity"].endswith("shoulder_pan/damping"))
+    text = json.dumps(row)
+    assert "lock a" not in text and "yet" not in text  # bites a hint with no real command or a promise
+    assert "not compared (the lockfile does not record it); nothing to do" in text
+
+
+def test_a_row_the_files_cannot_score_offers_no_rerun_of_the_same_command():
+    _code, doc = _run("so101_density.xml")
+    unscored = [f for f in doc["findings"] if f["severity"] == "not_scored"]
+    assert unscored and not any(f.get("next_command") for f in unscored)

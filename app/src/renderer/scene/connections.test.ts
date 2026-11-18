@@ -18,9 +18,14 @@ describe("connection rows", () => {
     expect(rows.find((r) => r.id === "dev.companion.jetson-orin-nano")).toMatchObject({ depth: 2, meta: "25 W" });
     expect(rows.find((r) => r.id === "rail.servo-motor")!.state).toBeUndefined();
   });
+  it("names are the engine's labels as written: the app never re-cases or rebuilds one", () => {
+    const label = (id: string) => graph.power.nodes.find((n) => n.id === id)!.label;
+    expect(connectionRows(graph.power, "power").find((r) => r.id === "rail.pm02-5v")!.name).toBe(label("rail.pm02-5v"));
+    expect(sagRows(swept(9)).find((r) => r.id === "rail.servo-motor")!.name).toBe(label("rail.servo-motor"));
+  });
   it("data shows link speed; mechanical says mass unknown in amber", () => {
     expect(connectionRows(graph.data, "data").find((r) => r.id === "bus.uart.companion")!.meta).toBe("serial 921.6 kbit/s");
-    expect(connectionRows(graph.mechanical, "mechanical").find((r) => r.id === "dev.camera.oak-d-lite")).toMatchObject({ meta: "mass unknown", state: "warn" });
+    expect(connectionRows(graph.mechanical, "mechanical").find((r) => r.id === "dev.camera.oak-d-lite")).toMatchObject({ meta: "no mass written down", state: "warn" });
   });
 });
 

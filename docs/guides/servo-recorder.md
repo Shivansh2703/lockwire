@@ -1,6 +1,6 @@
 ---
 title: Servo recorder
-description: Record the settings and live readings of Feetech STS/SCS or Dynamixel X servos on a bus, read-only, into a recording Lockwire can use.
+description: Record the settings and live readings of Feetech STS/SCS or Dynamixel X servos on a bus, read-only, into a folder of files.
 ---
 
 # Servo recorder
@@ -61,4 +61,4 @@ and load or current. Feetech STS records current in mA; SCS records it as a raw 
 XM models and load on XL models, so it is recorded raw as `load_or_current_raw` with the model
 number beside it.
 
-The folder uses the same recording format as `lockwire sample` (Lockwire Pro).
+The folder uses the same recording format as `lockwire sample` and the recording checks, which are Lockwire Pro.

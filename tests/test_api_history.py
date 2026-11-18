@@ -270,12 +270,18 @@ def test_blame_public_transport_preserves_rows_across_rename_and_unrelated_edit(
     assert text_result.exit_code == 0, text_result.output
     rendered = [line for line in text_result.output.splitlines() if line]
     assert len(rendered) == len(expected[0])
+    words = {  # literal: what the printed table says for each stored witness
+        "devices/dev.barometer/envelopes/0": "live reading",
+        "devices/dev.imu/envelopes/1": "live reading",
+        "model": "none named (declared, not measured)",
+    }  # every other row is stored as the name "human-w1" and prints as it is
     assert set(rendered) == {
-        f"{row['path']}  {row['witness']}  {row['source']}  "
-        f"{row.get('last_changing_commit', 'unattributed')}"
+        f"{blame_history.shown_path(row['path'])}  {words.get(row['path'], 'human-w1')}  {row['source']}  "
+        f"{row.get('last_changing_commit', 'not committed yet')}"
         for row in expected[0]
     }
-    assert "not a git repository" not in text_result.output
+    assert len(words) == 3 and sum("human-w1" in line for line in rendered) == len(rendered) - 3
+    assert "No git history here" not in text_result.output
 
 
 def test_follow_is_single_path_full_history_only_and_retains_rename_attribution(tmp_path: Path):
@@ -326,3 +332,13 @@ def test_blame_carrier_preserves_unknown_commit_without_inventing_identity(tmp_p
     assert not in_repository
     assert all("last_changing_commit" not in row for row in actual)
     assert BlamePayload.model_validate(actual).model_dump(exclude_unset=True) == actual
+
+
+def test_blame_table_says_paths_in_words_and_one_plain_line_outside_git(tmp_path):
+    contract = tmp_path / "lockwire.yaml"
+    contract.write_text((FIXTURES / "x500" / "contract.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    lines = runner.invoke(app, ["blame", str(contract)], env={"COLUMNS": "400"}).output.splitlines()
+    assert lines[0] == "No git history here, so no row names a commit."
+    assert not [ln for ln in lines if ln.startswith("device_models/") or "unattributed" in ln]
+    assert blame_history.shown_path("device_models/mdl.gnss.here3-plus") == "device model mdl.gnss.here3-plus"
+    assert blame_history.shown_path("accepted/devices/dev.imu/envelopes/0") == "accepted device dev.imu: envelopes/0"

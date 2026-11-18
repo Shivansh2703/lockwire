@@ -4,7 +4,7 @@ import csv
 import io
 
 from lockwire.copy import check_label, fix_text
-from lockwire.report import Finding, verdict, verdict_word
+from lockwire.report import Finding, counts_text, observed_text, plain_text, verdict, verdict_text
 
 COLUMNS = ("severity", "about", "observed", "expected", "units", "source", "action")
 
@@ -21,14 +21,15 @@ def rows(findings: list[Finding]) -> list[dict[str, str]]:
         row = {
             "severity": _severity(f),
             "about": check_label(f.quantity),
-            "observed": f.observed,
-            "expected": f.expected,
+            # the text's plain words; JSON keeps the raw strings an accept row pins
+            "observed": plain_text(observed_text(f)),
+            "expected": plain_text(f.expected),
             "units": unit,
             "source": f.source or "",
             "action": fix_text(f.action) if f.action else "",
         }
         row["plain"] = (
-            f"{row['about']}: observed {f.observed}, expected {f.expected}. {row['action']}".strip()
+            f"{row['about']}: observed {row['observed']}, expected {row['expected']}. {row['action']}".strip()
         )
         out.append(row)
     return out
@@ -37,8 +38,7 @@ def rows(findings: list[Finding]) -> list[dict[str, str]]:
 def verdict_row(counting: list[Finding]) -> dict[str, str]:
     """First row of the table: severity VERDICT, the word in `about`, the counts in `observed`."""
     v = verdict(counting)
-    counts = f"{v.violations} violation(s), {v.warnings} warning(s), {v.not_scored} not scored"
-    return {"severity": "VERDICT", "about": verdict_word(v.code), "observed": counts}
+    return {"severity": "VERDICT", "about": verdict_text(v.summary), "observed": counts_text(counting)}  # as printed
 
 
 def table(findings: list[Finding], counting: list[Finding], delimiter: str) -> str:

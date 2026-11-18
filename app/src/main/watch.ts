@@ -1,6 +1,6 @@
 // Watches a file's mtime on an interval, independent of window focus -- v2 only re-read the
 // contract when the BrowserWindow regained focus, which misses an agent (or a terminal) writing
-// while the window stays in front of you (plan v8 line 435). This module has no notion of focus
+// while the window stays in front of you . This module has no notion of focus
 // at all: it is a stdlib poll (fs.stat on a timer), so it fires the same whether the window is
 // focused, backgrounded, or minimized.
 //

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs only inside the fixed E5.9a image. Host isolation is owned by jobs.py.
+# Runs only inside the fixed motion image. Host isolation is owned by jobs.py.
 set -euo pipefail
 
 mode=${1:-enabled}

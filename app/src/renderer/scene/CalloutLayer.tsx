@@ -1,15 +1,10 @@
-// The callout layer component (plan v8 line 547). Mounts a FIXED POOL of
+// The callout layer component. Mounts a FIXED POOL of
 // divs once, then moves them every animation frame by writing `translate3d`
-// directly onto the DOM nodes — never through `useState`/`useReducer` — so
+// directly onto the DOM nodes, never through `useState`/`useReducer`, so
 // orbiting the model never re-renders this component.
 //
-// NOT WIRED HERE (named, not invented, per the box brief): the real camera
-// and real anchors come from `Canvas.tsx`, which this box does not build —
-// it is blocked on the lens box (e2-f, no commit past its base as of this
-// box) and on the scene-hash cache / selection read (e1-b2/e1-b3), neither
-// merged. `getAnchors`/`camera` are accepted as props so this component is
-// ready to be handed real ones the moment they exist, without this file
-// changing.
+// The camera and anchors are props: `DesignPanel.tsx` and `Connections.tsx` pass
+// them from the mounted scene (`useScene()`), so this file builds no scene of its own.
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
@@ -45,7 +40,7 @@ export interface CalloutLayerProps {
 // Test-only render counter: a `useState` anywhere in the frame callback would
 // make this component's own function body run again every frame, and this is
 // the cheapest legible way to prove it does not (no `setState` call to spy on
-// directly — the absence of a re-render is what the claim is about).
+// directly: the absence of a re-render is what the claim is about).
 let _renderCount = 0;
 export function __resetCalloutLayerRenderCountForTest(): void {
   _renderCount = 0;

@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- Synthetic: two links, one revolute joint whose <pose> (child-relative by default) sits off the
+     child link and is rotated 90 deg about z. Hand answer in tests/test_sdf_joint_pose.py. -->
+<sdf version="1.9">
+  <model name="posed_arm">
+    <link name="base"><inertial><mass>1</mass></inertial></link>
+    <link name="arm">
+      <pose>0 0 1 0 0 0</pose>
+      <inertial><pose>0.3 0 0 0 0 0</pose><mass>2</mass></inertial>
+    </link>
+    <joint name="j" type="revolute">
+      <parent>base</parent>
+      <child>arm</child>
+      <pose>0.2 0 0.1 0 0 1.5707963267948966</pose>
+      <axis><xyz>1 0 0</xyz><limit><lower>-3</lower><upper>3</upper><effort>10</effort><velocity>1</velocity></limit></axis>
+    </joint>
+  </model>
+</sdf>

@@ -1,5 +1,5 @@
 // Real, measured output from `uv run lockwire log --json -- tests/fixtures/x500/contract.yaml`
-// (E0-35 worktree, 2026-09-08), three of the eleven real commits touching that fixture
+// (2026-09-08), three of the eleven real commits touching that fixture
 // contract -- not invented data. Picked for size and variety: two entries with a small
 // `fact_diff` (6 and 4 changes) and the repo's earliest commit touching the file, whose
 // `fact_diff` is `null` because it has no parent to diff against.
@@ -9,7 +9,7 @@ import type { LogEntry } from "./historyPayload";
 export const X500_HISTORY: LogEntry[] = [
   {
     "sha": "202f5f6895eecffa32e7cf04cd2b9e1895a12e83",
-    "author": "Shivansh",
+    "author": "Alex Rivera",
     "date": "2026-09-06T04:32:05-04:00",
     "message": "fix(x500): RFD900x figures re-read from the datasheet PDF \u2014 review caught a table not in the source",
     "verdict": "NO-GO",
@@ -73,9 +73,9 @@ export const X500_HISTORY: LogEntry[] = [
   },
   {
     "sha": "4e34062df356a9fd24789b964fd36ce162761a06",
-    "author": "Shivansh",
+    "author": "Alex Rivera",
     "date": "2026-07-26T08:33:25-04:00",
-    "message": "build(B31): the MAVLink path exists in the model - UART, baud honestly UNKNOWN",
+    "message": "build: the MAVLink path exists in the model - UART, baud honestly UNKNOWN",
     "verdict": "NO-GO",
     "fact_diff": {
       "changed": true,
@@ -131,23 +131,22 @@ export const X500_HISTORY: LogEntry[] = [
   },
   {
     "sha": "f5509acc312c46812109c44cf4c499c452ba2280",
-    "author": "Shivansh",
+    "author": "Alex Rivera",
     "date": "2026-07-25T18:03:37-04:00",
-    "message": "build(B4): X500-class reference contract carrying the real power violation",
+    "message": "build: X500-class reference contract carrying the real power violation",
     "verdict": "NO-GO",
     "fact_diff": null
   }
 ];
 
-// SYNTHETIC, not measured -- `lockwire log` does not exist at this base (e0-35 is
-// unmerged/bounced), so no real whitespace-only commit's `--json` output was available to
-// capture. Shaped by hand to match `gitlog.LogEntry`/`factdiff.FactDiff`: a commit with a
+// SYNTHETIC, not measured -- no real whitespace-only commit's `--json` output was captured,
+// so this one is shaped by hand to match `gitlog.LogEntry`/`factdiff.FactDiff`: a commit with a
 // parent whose `fact_diff.changed` is `false` and `changes` is empty, the field-for-field
-// shape a whitespace-only change to the contract text must produce (the decisive case the
-// reviewer named: it must show no changed facts, never `git diff` text).
+// shape a whitespace-only change to the contract text must produce (the decisive case:
+// it must show no changed facts, never `git diff` text).
 export const WHITESPACE_ONLY_ENTRY: LogEntry = {
   sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  author: "Shivansh",
+  author: "Alex Rivera",
   date: "2026-09-08T00:00:00-04:00",
   message: "style: reindent lockwire.yaml, no facts touched",
   verdict: "GO",

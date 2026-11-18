@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 
 import type { PagePayload } from "../shared/api.gen";
 
-// The side-panel slot (F8). A feature box registers its panel by name here; SideDrawer shows a
+// The side-panel slot. A feature registers its panel by name here; SideDrawer shows a
 // tab for it only while `hasData(page)` is true, so nothing new appears until the robot has
 // something to show. Nothing is registered today. Power, Controls and Wiring are the planned names.
 export interface PanelEntry {

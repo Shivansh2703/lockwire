@@ -1,4 +1,4 @@
-"""Rules every bundled starter folder must follow; CONTRIBUTING "Add a starter" lists them."""
+"""Rules every bundled starter folder must follow; CONTRIBUTING "Add an example" lists them."""
 
 import json
 import re

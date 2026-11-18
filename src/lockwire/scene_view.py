@@ -1,8 +1,8 @@
 """Join a glTF scene to a contract for the page payload.
 
-``resolve_scene`` assigns each ``ScenePart`` a contract id — the join key
+``resolve_scene`` assigns each ``ScenePart`` a contract id - the join key
 (extras id, else a name in its chain that matches a contract id, else None =
-structure) — and reports the coverage gap both ways. Part *state* (fault,
+structure) - and reports the coverage gap both ways. Part *state* (fault,
 warn, affected, ok, unchecked, plain) is computed here from data the page has
 already scored: cards and scored records. No check ever runs twice for a
 picture.
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from lockwire.catalog import _cached, _stamp
-from lockwire.copy import human_name
+from lockwire.copy import label_name
 from lockwire.scene import Scene, ScenePart, SceneRefusal
 from lockwire.schema import Contract
 
@@ -81,7 +81,7 @@ def part_groups(contract: Contract, part_ids: tuple[str | None, ...]) -> list[di
         kinds |= {b.id: "bus" for b in contract.topology.buses}
 
     return [
-        {"id": pid, "label": human_name(pid), "kind": kinds[pid]}
+        {"id": pid, "label": label_name(pid), "kind": kinds[pid]}
         if pid in kinds
         else {"id": "other", "label": "Other", "kind": "other"}
         for pid in part_ids
@@ -90,8 +90,8 @@ def part_groups(contract: Contract, part_ids: tuple[str | None, ...]) -> list[di
 
 #: Every lens a scene part belongs to, keyed by the same
 #: contract id the wiring diagram joins on (``report_html._graph``'s node
-#: sets). ``off`` and ``health`` are whole-scene overlays — every part in the
-#: scene is drawn under them — so they are added to every id's set below,
+#: sets). ``off`` and ``health`` are whole-scene overlays - every part in the
+#: scene is drawn under them - so they are added to every id's set below,
 #: never left for a part to fall out of.
 _OVERLAY_LENSES: tuple[str, ...] = ("off", "health")
 
@@ -101,7 +101,7 @@ def part_lenses(contract: Contract) -> dict[str, list[str]]:
     node membership: a link is mechanical; a device is mechanical always, plus
     power/data when it declares that half of the contract; a rail is power; a
     bus is data. Structure with no contract id (``_part_id`` returns ``None``)
-    is not covered here — ``scene_payload`` falls back to mechanical-only for
+    is not covered here - ``scene_payload`` falls back to mechanical-only for
     it, since it is bolted-on geometry with no electrical or data role."""
     lenses: dict[str, set[str]] = {}
     for link in contract.model.links if contract.model is not None else []:
@@ -122,7 +122,7 @@ def part_lenses(contract: Contract) -> dict[str, list[str]]:
 
 
 def ids_in_quantity(contract: Contract, quantity: str) -> list[str]:
-    """The contract ids a quantity path is about — same resolution ``gui._faults`` uses."""
+    """The contract ids a quantity path is about - same resolution ``gui._faults`` uses."""
     found: list[str] = []
     if quantity.startswith("budgets/"):
         wanted = quantity.removeprefix("budgets/").split("/", 1)[0]
@@ -250,7 +250,7 @@ def _pack_vectors(values: tuple[float, ...], *, normals: bool = False) -> dict[s
 
 
 def scene_hash(scene: Scene) -> str:
-    """Sha256 identity of the scene's **source** geometry — one part at a
+    """Sha256 identity of the scene's **source** geometry - one part at a
     time, node name then positions/normals/indices/color/translation as
     doubles, so the hash is stable across runs and independent of display
     decimation or int16 packing (both happen after this). This is what a
@@ -430,7 +430,7 @@ def scene_payload(
 
     ``decimate`` gates the display cap (``_DISPLAY_TRIANGLES``): ``gui --out`` (a
     static page, one shot, no re-fetch) wants it; the sidecar's API wants the
-    parts un-decimated (v8 line 317) since the app can re-sample for its own
+    parts un-decimated, since the app can re-sample for its own
     viewport. The hash covers the source geometry regardless of ``decimate``
     (``scene_hash``), so a decimated and an un-decimated reply of the same
     scene carry the same hash.
@@ -478,7 +478,7 @@ def scene_payload(
         {
             "id": part_id,
             "node": part.node,
-            "name": human_name(re.sub(r"\.\d+$", "", part.node)),
+            "name": label_name(re.sub(r"\.\d+$", "", part.node)),
             "state": states.get(part_id, "plain") if part_id is not None else "plain",
             "positions": dict(pos_pack),
             "normals": dict(norm_pack) if norm_pack is not None else None,

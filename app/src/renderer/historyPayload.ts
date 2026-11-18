@@ -1,12 +1,11 @@
 // The history drawer's data model -- the shape `lockwire log --json` emits
-// (`gitlog.as_json`, `src/lockwire/gitlog.py`, E0-35: "the drawer's whole data model,
-// one object per commit, no extra keys"). No generated twin exists yet (`log` is not
-// wired through `api.gen.ts`; e4-lg carries that wiring) so these types are hand-kept
-// here, field-for-field the same as `gitlog.LogEntry`/`factdiff.FactDiff` -- verified
+// (`gitlog.as_json`, `src/lockwire/gitlog.py`: "the drawer's whole data model,
+// one object per commit, no extra keys"). A generated twin exists
+// (`LogEntry` and `LogPayload` in `../shared/api.gen`), but its `fact_diff` is typed as `DiffPayload`
+// and these types are hand-kept here, field-for-field the same as `gitlog.LogEntry`/`factdiff.FactDiff` -- verified
 // by running `lockwire log --json` against a real fixture repo (see history.fixture.ts).
-// Re-point this file at `../shared/api.gen` once `log` gains a generated type (same
-// pattern `checkFacePayload.ts` used for `Card`/`Finding`), rather than hand-duplicating
-// the shape twice once that lands.
+// This duplicates the generated type: re-point this file at `../shared/api.gen` (same
+// pattern `checkFacePayload.ts` used for `Card`/`Finding`) rather than keep the shape twice.
 
 interface FactChange {
   path: string;

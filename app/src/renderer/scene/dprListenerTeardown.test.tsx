@@ -1,11 +1,11 @@
 /**
- * e2-sm2 — NOTHING PINS e2-sm-r2's HiDPI listener teardown (TODO.md row, found by e2-ss's
- * reviewer): Canvas.tsx watches devicePixelRatio via `window.matchMedia(...)`, re-subscribing
+ * Nothing else pins the HiDPI listener teardown: Canvas.tsx watches
+ * devicePixelRatio via `window.matchMedia(...)`, re-subscribing
  * itself on every "change" (see Canvas.tsx's `watchRatio`), and its cleanup was verified only
  * BY READING at review time. No test asserted the listener registers on mount or is removed on
  * unmount. This is that guard.
  *
- * Idiom: same options-boundary trick as e2-hh3 (window-options.test.ts) — assert on the
+ * Idiom: same options-boundary trick as window-options.test.ts — assert on the
  * arguments/calls at the boundary (`addEventListener`/`removeEventListener` on the object
  * `matchMedia` returns) rather than an observable side effect, and no launch needed. The
  * `window.matchMedia` stub shape and the `parts`/`lens` fixture are copied from

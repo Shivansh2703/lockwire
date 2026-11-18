@@ -67,7 +67,7 @@ def test_jetson_orin_nano_render(x500_contract):
 def test_no_driver_signals_renders_literal_line(x500_contract):
     device = x500_contract.device("dev.companion.jetson-orin-nano")
     rendered = describe_device(x500_contract, device)
-    assert "Measures: nothing declared." in rendered
+    assert "## Measures\n\nNothing declared." in rendered
 
 
 def test_imu_hard_limit_band():
@@ -99,7 +99,7 @@ def test_public_description_keeps_measured_envelope_bag_identity():
         for line in page.splitlines()
         if "observed envelope [nominal-op] signal accel_z:" in line
     )
-    assert "witness: human" in authored
+    assert "witness: a person, not named" in authored
     assert "bag_sha256:" not in authored
 
 
@@ -138,9 +138,9 @@ def test_edges_render_as_a_matrix_on_a_real_fixture():
     rendered = describe_system(contract)
     assert "## Edges" in rendered
     assert "| quantity | tolerance | files | owner |" in rendered
-    assert "| devices/dev.imu/physical/mass | 5% | src/estimation/ekf.cpp | shivansh |" in rendered
+    assert "| devices/dev.imu/physical/mass | 5% | src/estimation/ekf.cpp | avery |" in rendered
     assert (
-        "| model/joints/imu_mount/limits/effort | 5% | src/control/mount.cpp | shivansh |"
+        "| model/joints/imu_mount/limits/effort | 5% | src/control/mount.cpp | avery |"
         in rendered
     )
 
@@ -168,7 +168,7 @@ def test_abs_tolerance_edge_renders_its_value_not_a_guessed_percent():
                 quantity="devices/dev.imu/physical/mass",
                 tolerance=Tolerance(abs=Quantity(value=0.02, unit="kg")),
                 code=["src/estimation/ekf.cpp"],
-                owner="shivansh",
+                owner="avery",
             )
         ],
     )
@@ -259,7 +259,7 @@ def test_role_measures_from_driver_signals():
     assert "accel_x" in rendered
     assert "linear_acceleration.x" in rendered
     assert "m/s^2" in rendered
-    assert "Measures: nothing declared." not in rendered
+    assert "## Measures\n\nNothing declared." not in rendered
 
 
 def test_role_component_when_nothing_declared():
@@ -283,8 +283,8 @@ def test_role_component_when_nothing_declared():
     assert role_value == "component", f"Expected 'component', got '{role_value}'"
 
     # Verify both fallback messages are present
-    assert "Measures: nothing declared." in rendered
-    assert "Adjusts: nothing declared." in rendered
+    assert "## Measures\n\nNothing declared." in rendered
+    assert "## Adjusts\n\nNothing declared." in rendered
 
 
 def test_golden_jetson_orin_nano(x500_contract):
@@ -331,8 +331,8 @@ def test_describe_labels_ratings_envelopes_and_optional_enforcement():
 
     assert "declared datasheet/model rating accel_z:" in rendered
     assert "observed envelope [bench-idle] signal accel_z:" in rendered
-    assert "declared enforcement: firmware" in rendered
-    assert "declared enforcement: driver" in rendered
+    assert "enforced by firmware, as declared" in rendered
+    assert "enforced by driver, as declared" in rendered
     assert "allowed modes: nominal" in rendered
 
 
@@ -342,8 +342,7 @@ def test_describe_explains_limit_enforcement_metadata_without_physical_claim():
     assert rail is not None
     rail.capacity_enforced_by = "fuse"
     rendered = describe_system(contract)
-    assert "declared enforcement provenance: fuse" in rendered
-    assert "metadata only; does not prove physical protection" in rendered
+    assert "enforced by fuse, as declared; Lockwire cannot see that it is fitted" in rendered
 
 
 def test_describe_quotes_why_on_crossed_bound():
@@ -374,8 +373,9 @@ def test_power_tree_draws_a_converter_node_distinct_from_the_rail():
     contract = load_contract(FIXTURES / "contract_clean.yaml")
     tree = "\n".join(render_power_tree(contract))
     assert "converter (efficiency: 0.85)" in tree
-    assert "rail rail.22v" in tree
-    assert "rail rail.5v" in tree
+    assert "rail rail." not in tree  # the id already says rail (round 3)
+    assert "- rail.22v:" in tree
+    assert "- rail.5v:" in tree
     # the converter line names neither rail
     converter_line = next(line for line in tree.splitlines() if "converter" in line)
     assert "rail.22v" not in converter_line
@@ -388,9 +388,9 @@ def test_power_tree_rail_without_voltage_renders_unknown():
     contract = load_contract(FIXTURES / "contract_clean.yaml")
     mutated = _with_rail(contract, "rail.22v", voltage=None)
     tree = "\n".join(render_power_tree(mutated))
-    assert "rail rail.22v (unknown, capacity 20.00 W)" in tree
+    assert "- rail.22v: unknown, capacity 20.00 W" in tree
     # the number that used to sit there must be gone from that rail's line
-    unknown_line = next(line for line in tree.splitlines() if "rail rail.22v" in line)
+    unknown_line = next(line for line in tree.splitlines() if "- rail.22v:" in line)
     assert "22.20" not in unknown_line
 
 
@@ -485,7 +485,7 @@ def test_human_system_sheet_is_plain(x500_contract):
     assert "CAN (DroneCAN) | CAN | 8 Mbit/s" in text and "e+06" not in text
     assert "| Endurance |" in text and "bud." not in text
     assert "\nBattery · " in text and "\n  - " in text
-    assert "- Total mass: 665.6 g · Incomplete" in text
+    assert "- Total mass: 665.6 g\n" in text  # joints move the CG, not the total
     assert "kind:" not in text and "device(s)" not in text
     assert "device(s)" in describe_system(x500_contract)
 
@@ -494,7 +494,7 @@ def test_human_sheet_plain_joints_battery_and_mass_reason(x500_contract):
     text = describe_system(x500_contract, human=True)
     assert "## Battery" not in text  # the battery's figures ride on the power-tree root
     assert "rail (" not in text and "capacity:" not in text
-    assert human_name("END-EFFECTOR") == "End Effector" and human_name("base_link") == "Base"
+    assert human_name("END-EFFECTOR") == "end effector" and human_name("base_link") == "base"
     from lockwire.describe import _forces_plain
 
     doc = {
@@ -505,7 +505,7 @@ def test_human_sheet_plain_joints_battery_and_mass_reason(x500_contract):
         "cg": {"kind": "not_scored"},
         "gravity": {"kind": "declared", "value": 9.81, "unit": "m/s^2"},
     }
-    assert "- Total mass: NOT SCORED — no total-mass budget declared" in _forces_plain(doc)
+    assert "- Total mass: NOT SCORED: no total-mass budget declared" in _forces_plain(doc)
 
 
 def test_describe_refuses_a_device_id_that_leaves_the_out_folder(tmp_path):
@@ -537,7 +537,9 @@ def test_describe_signal_wire_shows_ends_not_none(x500_contract):
         update={"topology": x500_contract.topology.model_copy(update={"wires": wires})}
     )
     rendered = describe_system(contract)
-    assert "| w.sig | 26 | enclosed | imu to fc |" in rendered
+    # the ends sit in their own column, never in "rail" (round 3)
+    assert "| wire | AWG | run | rail | between |" in rendered
+    assert "| w.sig | 26 | enclosed |  | imu to fc |" in rendered
 
 
 def test_describe_gaugeless_signal_wire_prints_blanks_not_none(x500_contract):
@@ -545,7 +547,7 @@ def test_describe_gaugeless_signal_wire_prints_blanks_not_none(x500_contract):
     wire = {"id": "w.sig", "owner": "w1", "from": end, "to": {**end, "device": "fc"}}
     topology = x500_contract.topology.model_copy(update={"wires": [Wire.model_validate(wire)]})
     rendered = describe_system(x500_contract.model_copy(update={"topology": topology}))
-    assert "| w.sig |  |  | imu to fc |" in rendered
+    assert "| w.sig |  |  |  | imu to fc |" in rendered
 
 
 def test_device_section_lists_connector_pins(x500_contract):
@@ -555,3 +557,63 @@ def test_device_section_lists_connector_pins(x500_contract):
     pins = [Pin(number=1, name="GND"), Pin(number=2, name="3V3")]
     device.connectors = [Connector(id="j1", type="qwiic", pins=pins)]
     assert "- connector j1 (qwiic): 1: GND, 2: 3V3" in describe_device(x500_contract, device)
+
+
+def test_describe_marks_the_total_when_a_middle_link_has_no_mass(clean_contract):
+    from lockwire.schema import Joint, Link
+    from tests.test_statics import chain1
+
+    def total(mid_kg, tip):
+        kg, c = {"value": 1, "unit": "kg"}, clean_contract
+        links = [Link(name="base", mass=kg, com=(0, 0, 0), frame="base"), Link(name="mid", mass=mid_kg)]
+        joints = [Joint(name="j", type="revolute", parent="base", child="mid", axis=(0, 1, 0))]
+        if tip:
+            links.append(Link(name="tip", mass=kg, com=(0, 0, 0), frame="tip"))
+            joints.append(Joint(name="j2", type="revolute", parent="mid", child="tip", axis=(0, 1, 0)))
+        c.model, c.budgets = chain1(), []
+        c.model.__dict__.update(links=links, joints=joints)
+        return next(x for x in describe_system(c).splitlines() if "- total mass" in x)
+
+    assert "INCOMPLETE: link 'mid' has no mass" in total(None, True)  # bites a silent total
+    assert "INCOMPLETE" not in total({"value": 1, "unit": "kg"}, True)
+    assert "INCOMPLETE" not in total(None, False)  # a leaf frame is normal
+
+
+def test_describe_shows_a_mass_tolerance_beside_the_mass():
+    link = Link(name="a", mass=Quantity(value=1.2, unit="kg"), mass_tolerance=Tolerance(rel_pct=2))
+    prov = Provenance(witness="t", source="x", locked_at="2026-01-01")
+    model = ModelRecord(
+        source="x", source_sha256="x", structure_hash="x", links=[link], provenance=prov
+    )
+    c = Contract(robot=RobotInfo(name="r"), model=model)
+    assert "- mass model/links/a/mass: 1.2 kg (kind: declared) (\u00b1 2 %)" in describe_system(c)
+    link.mass_tolerance = None
+    assert "(\u00b1" not in describe_system(c)
+
+
+def test_describe_names_a_family_and_says_when_no_source_is_recorded(x500_contract):
+    device = x500_contract.device("dev.companion.jetson-orin-nano")
+    device.provenance.source = ""
+    rendered = describe_device(x500_contract, device)
+    assert "- family: Companion computer (fam.companion.sbc)" in rendered
+    assert "  - source: no source recorded" in rendered and "source: \n" not in rendered
+
+
+def test_describe_at_80_columns_leaves_no_source_line_bare(monkeypatch):
+    from rich.console import Console
+
+    from lockwire import cli
+    from lockwire.start_operation import EXAMPLES
+
+    monkeypatch.setattr(cli, "console", Console(width=80))
+    out = CliRunner().invoke(app, ["describe", str(EXAMPLES / "quadruped" / "contract.yaml")]).output
+    assert "source:" in out and [ln for ln in out.splitlines() if ln.rstrip().endswith("source:")] == []
+
+
+def test_describe_headings_power_tree_and_wires_name_each_id():
+    from lockwire.start_operation import EXAMPLES
+
+    out = CliRunner().invoke(app, ["describe", str(EXAMPLES / "arm-power" / "contract.yaml")]).output
+    assert "- family: Smart servo (fam.servo.smart)" in out and "# dev.servo.shoulder\n" in out  # no made-up names
+    assert "- load dev.jetson: 11.25 W" in out and "Jetson (dev.jetson)" not in out
+    assert "| w.pack | 22 | in free air | rail.battery |" in out and "free_air" not in out

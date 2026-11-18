@@ -1,5 +1,5 @@
-"""Opening a robot file must never run code from it or read files outside its package (0.5.0
-XACRO-EVAL). Each hostile file would write a sentinel in tmp_path or leak a secret it reads."""
+"""Opening a robot file must never run code from it or read files outside its package (since
+0.5.0). Each hostile file would write a sentinel in tmp_path or leak a secret it reads."""
 
 import time
 from pathlib import Path

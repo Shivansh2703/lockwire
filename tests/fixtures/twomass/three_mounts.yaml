@@ -56,7 +56,7 @@ device_models:
 devices:
   - id: dev.a
     model: mdl.mass
-    owner: shivansh
+    owner: avery
     physical:
       mass: {value: 2.0, unit: kg}
       mount_frame: mount_a
@@ -66,7 +66,7 @@ devices:
         - {value: 0.0, unit: m}
   - id: dev.b
     model: mdl.mass
-    owner: shivansh
+    owner: avery
     physical:
       mass: {value: 2.0, unit: kg}
       mount_frame: mount_b
@@ -76,7 +76,7 @@ devices:
         - {value: 0.0, unit: m}
   - id: dev.c
     model: mdl.mass
-    owner: shivansh
+    owner: avery
     physical:
       mass: {value: 4.0, unit: kg}
       mount_frame: mount_c
@@ -89,4 +89,4 @@ budgets:
     kind: mass_total
     sources: devices
     limit: {value: 10, unit: kg}
-    owner: shivansh
+    owner: avery

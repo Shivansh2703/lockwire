@@ -7,7 +7,7 @@ Controller-driven traces from the sim-jazzy CI job.
 Reads the evidence packaging/sim_jazzy/run_e5_10.py wrote to LOCKWIRE_SIM_OUT
 (X500 pose while climbing, ANYmal /joint_states and controller_state while
 squatting) and checks it against the acceptance numbers already recorded in
-tests/fixtures/e5_10_real_scenarios/scenarios.json, not invented thresholds.
+tests/fixtures/real_scenarios/scenarios.json, not invented thresholds.
 Skipped everywhere but the sim-jazzy job (LOCKWIRE_SIM=1); local Docker stays
 paused.
 """
@@ -23,7 +23,7 @@ from ruamel.yaml import YAML
 
 _YAML = YAML(typ="safe")
 
-FIXTURES = Path(__file__).parent / "fixtures" / "e5_10_real_scenarios"
+FIXTURES = Path(__file__).parent / "fixtures" / "real_scenarios"
 SCENARIOS = json.loads((FIXTURES / "scenarios.json").read_text())
 LEG_JOINTS = [
     f"{leg}_{joint}" for leg in ("LF", "RF", "LH", "RH") for joint in ("HAA", "HFE", "KFE")

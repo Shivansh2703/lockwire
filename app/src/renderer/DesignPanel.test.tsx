@@ -385,7 +385,19 @@ describe("DesignPanel", () => {
     expect([...container.querySelectorAll(".kit-panel-title")].pop()?.textContent).toBe("Arm"); // the link, not its joint "shoulder"
   });
 
-  describe("PRINT-BTN Print this part", () => {
+  it("a picked joint shows Check's passed torque beside its effort limit; nothing when the check has none", () => {
+    const j = { type: "revolute", parent: "base", parent_name: "Base", position: [0, 0, 0], axis: [0, 0, 1], lower: null, upper: null, effort: 1.5 };
+    const row_ = (q: string, o: string, e: string, m: string) => ({ name: "", text: "", margin: m, mark: null, raw: `model/joints/${q}/limits/effort\n  observed: ${o}\n  expected: ${e}\n  margin: ${m}` });
+    const arm = { scene: null, graph: null, links: [], joints: [{ ...j, name: "shoulder", child: "arm", child_name: "Arm" }, { ...j, name: "elbow", parent: "arm", child: "fore", child_name: "Fore" }],
+      adds_up: [row_("elbow", "1.50 N*m joint effort limit", "<= 1.91 N*m feetech.sts3215 stall torque", "0.41 N*m headroom"), row_("shoulder", "0.81 N*m", "<= 1.50 N*m joint effort limit", "0.69 N*m headroom")] } as unknown as CheckPayload;
+    act(() => root.render(<Page payload={arm} />));
+    act(() => row("Arm").click());
+    expect(container.querySelector(".design-face")?.textContent).toContain("Torque0.81 N*m of 1.50 N*m, 0.69 N*m headroom");
+    act(() => row("Fore").click()); // only the limit-against-stall row: not a checked torque
+    expect(container.querySelector(".design-face")?.textContent).not.toContain("Torque");
+  });
+
+  describe("Print this part", () => {
     const solid = { kind: "box", size: [1, 1, 1], position: [0, 0, 0], rotation: [0, 0, 0, 1] };
     const mk = (solids: object[]) => ({ scene: null, graph: null, links: [{ name: "arm", position: [0, 0, 0], solids }], joints: [{ name: "shoulder", type: "revolute", parent: "base", child: "arm", parent_name: "Base", child_name: "Arm", position: [0, 0, 0], axis: [0, 0, 1], lower: -1, upper: 1, effort: null }] }) as unknown as CheckPayload;
     const btn = () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Print this part")!;
@@ -545,7 +557,7 @@ describe("DesignPanel", () => {
     const rows = [...container.querySelectorAll<HTMLElement>(".kit-tree-group ul .kit-tree-row")];
     expect(rows.map((r) => r.textContent)).toEqual(["lidar ×2", "Lidar base"]); // same-named meshes fold into one row, under the one group
     expect(container.querySelector(".kit-tree-head .kit-s-warn")).not.toBeNull(); // the group dot is the worst of its parts
-    expect(container.querySelector(".design-legend")?.textContent).toBe("warnok");
+    expect(container.querySelector(".design-legend")?.textContent).toBe("warningok");
   });
 
   it("keeps row selection on the shared store used by the canvas", () => {

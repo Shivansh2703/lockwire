@@ -1,4 +1,5 @@
 import type { RobotGraph } from "../shared/api.gen";
+import { partOf } from "../shared/ipc-contract";
 
 // GRAPH-1: a layered layout by hand. The structure tree (links and joints) runs left to right;
 // every other kind gets one column to its right, each node as high as the parts it connects to.
@@ -61,7 +62,7 @@ export function layout(g: RobotGraph): Map<string, Pos> {
 }
 
 /** The 3D part a node stands for (the link or joint name, a device's id); the rest have no mesh. */
-export const partOf = (id: string): string | null => (/^(link|joint|device):/.test(id) ? id.slice(id.indexOf(":") + 1) : null);
+export { partOf };
 
 /** The part ids to keep in the 3D view for a set of involved nodes. */
 export const isolateIds = (involves: readonly string[]): string[] => involves.flatMap((id) => partOf(id) ?? []);

@@ -1,0 +1,275 @@
+{
+ "example:arm": {
+  "model/structure_hash": [
+   "URDF is a web link; not re-checked offline"
+  ]
+ },
+ "example:arm-power": {
+  "topology/battery/discharge_temp_c": [
+   "no declared ambient; pack temperature window not compared"
+  ],
+  "topology/rails/rail.5v/brownout": [
+   "rail.5v sags to 4.65 V with every servo stalled (2.73 A)"
+  ],
+  "topology/wires/w.bus-data": [
+   "dev.esp32 IO12 is reserved: strapping pin, default pull-down: 0 (default) = VDD_SDIO from VDD3P3_RTC (3.3 V); 1 selects 1.8 V flash voltage (can stop a 3.3 V flash from booting) (Espressif ESP32 datasheet Table 3-1)"
+  ],
+  "topology/wires/w.pack/fuse": [
+   "9.00 A fuse on 22 AWG wire w.pack"
+  ],
+  "topology/wires/w.servo-feed/ampacity": [
+   "5.19 A computed draw on 28 AWG free_air (draw mode: nominal)"
+  ]
+ },
+ "example:drone": {
+  "budgets/bud.mass.payload": [
+   "mass unknown for dev.magnetometer.ist8310; total not scored"
+  ],
+  "devices/dev.magnetometer.ist8310/physical/mass": [
+   "mass not declared"
+  ],
+  "model/sanity": [
+   "model sanity checks not run: the lock names no .urdf, .xacro or .sdf file"
+  ],
+  "model/structure_hash": [
+   "no URDF provenance; structure drift not scored"
+  ],
+  "topology/battery/chemistry": [
+   "battery chemistry not declared"
+  ],
+  "topology/buses/bus.can.dronecan/bandwidth": [
+   "no declared traffic on this bus"
+  ],
+  "topology/buses/bus.i2c.external/bandwidth": [
+   "bitrate unrated; bandwidth not scored"
+  ],
+  "topology/buses/bus.uart.telemetry/bandwidth": [
+   "no declared traffic on this bus"
+  ]
+ },
+ "example:hexapod-param": {
+  "model/standing_load": [
+   "6 leg ends (front-left-tibia, ...) and no support contacts declared: the load on the leg joints while standing was not checked"
+  ],
+  "topology/battery/discharge_temp_c": [
+   "no declared ambient; pack temperature window not compared"
+  ]
+ },
+ "example:humanoid": {
+  "model/structure_hash": [
+   "URDF is a web link; not re-checked offline"
+  ],
+  "topology/battery/c_rate_continuous": [
+   "pack C-rate not declared; peak draw not compared"
+  ],
+  "topology/battery/discharge_temp_c": [
+   "no declared ambient; pack temperature window not compared"
+  ]
+ },
+ "example:quadruped": {
+  "model/joints/FL_HAA/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/FL_HFE/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/FL_KFE/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/FR_HAA/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/FR_HFE/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/FR_KFE/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/HL_HAA/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/HL_HFE/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/HL_KFE/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/HR_HAA/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/HR_HFE/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/joints/HR_KFE/limits/velocity": [
+   "velocity limit 1000 rad/s"
+  ],
+  "model/links/massless_frames": [
+   "4 massless frames (sensor/mount frames, normal): FL_FOOT, FR_FOOT, ..."
+  ],
+  "model/standing_load": [
+   "4 leg ends (FL_FOOT, ...) and no support contacts declared: the load on the leg joints while standing was not checked"
+  ],
+  "model/structure_hash": [
+   "URDF is a web link; not re-checked offline"
+  ],
+  "model/tip_margin": [
+   "CoM at (-0.000, 0.000) m over 4 contact points (FL_FOOT, FR_FOOT, HL_FOOT, HR_FOOT) is 148 mm inside the edge: tip margin 100%"
+  ]
+ },
+ "example:rover": {
+  "model/links/massless_frames": [
+   "1 massless frames (sensor/mount frames, normal): imu_link"
+  ],
+  "model/structure_hash": [
+   "URDF is a web link; not re-checked offline"
+  ],
+  "model/tip_margin": [
+   "CoM at (-0.004, 0.000) m over 3 contact points (wheel_left_link, wheel_right_link, caster_back_link) is 4 mm inside the edge: tip margin 15%"
+  ],
+  "topology/battery/discharge_temp_c": [
+   "no declared ambient; pack temperature window not compared"
+  ],
+  "topology/rails/rail.controller-12v/voltage": [
+   "rail.controller-12v has no declared voltage"
+  ]
+ },
+ "example:rover-param": {
+  "model/tip_margin": [
+   "CoM at (0.000, 0.000) m over 4 contact points (wheel-front-left, wheel-front-right, wheel-rear-left, wheel-rear-right) is 150 mm inside the edge: tip margin 100%"
+  ]
+ },
+ "example:servo-bench": {
+  "budgets/bud.power.servo-5v": [
+   "32.10 W"
+  ],
+  "model/joints/wrist/limits/effort": [
+   "0.40 N*m joint effort limit"
+  ],
+  "model/sanity": [
+   "model sanity checks not run: the lock names no .urdf, .xacro or .sdf file"
+  ],
+  "model/structure_hash": [
+   "no URDF provenance; structure drift not scored"
+  ]
+ },
+ "model:anymal_d": {
+  "model/links/base/mass": [
+   "zero or missing mass"
+  ],
+  "model/links/lidar_parent/mass": [
+   "zero or missing mass"
+  ],
+  "model/links/massless_frames": [
+   "30 massless frames (sensor/mount frames, normal): body_top, depth_camera_front_lower_camera_parent, ..."
+  ],
+  "model/links/placeholder_inertia": [
+   "16 link(s) with three equal round-number moments: LF_HIP (1e-06), LF_HFE_output (1e-06), LF_THIGH (1e-06), ..."
+  ],
+  "model/standing_load": [
+   "4 leg ends (LF_FOOT, ...) and no support contacts declared: the load on the leg joints while standing was not checked"
+  ],
+  "model/tip_margin": [
+   "CoM at (0.007, -0.000) m over 4 contact points (LF_FOOT, RF_FOOT, LH_FOOT, RH_FOOT) is 318 mm inside the edge: tip margin 100%"
+  ]
+ },
+ "model:fivebar": {
+  "model/joints/a/limits/effort": [
+   "0.07 N*m static gravity torque at pose a=-11deg, b=-34deg (closed loop solved at 49 of 49 grid poses, servos a, b, free pins link, knee; base held, no ground contact, so not a standing load; no payload declared; no device masses)"
+  ],
+  "model/joints/tail/limits/effort": [
+   "0.05 N*m static gravity torque at pose tail=0deg (peak over its own range, other joints at 0/+-90 deg and limit points; no payload declared; no device masses)"
+  ],
+  "model/sanity/base/no_inertia": [
+   "link 'base' has mass 1 kg but no inertia; simulators treat it as zero"
+  ],
+  "model/sanity/crank_a/no_inertia": [
+   "link 'crank_a' has mass 0.1 kg but no inertia; simulators treat it as zero"
+  ],
+  "model/sanity/crank_b/no_inertia": [
+   "link 'crank_b' has mass 0.1 kg but no inertia; simulators treat it as zero"
+  ],
+  "model/sanity/shin/no_inertia": [
+   "link 'shin' has mass 0.1 kg but no inertia; simulators treat it as zero"
+  ],
+  "model/sanity/short_link/no_inertia": [
+   "link 'short_link' has mass 0.1 kg but no inertia; simulators treat it as zero"
+  ],
+  "model/sanity/tail/no_inertia": [
+   "link 'tail' has mass 0.1 kg but no inertia; simulators treat it as zero"
+  ]
+ },
+ "model:fivebar_lock": {
+  "model/links/base/mass": [
+   "zero or missing mass"
+  ],
+  "model/links/crank_l/mass": [
+   "zero or missing mass"
+  ],
+  "model/links/crank_r/mass": [
+   "zero or missing mass"
+  ],
+  "model/links/lower_r/mass": [
+   "zero or missing mass"
+  ],
+  "model/mirror/lower_l": [
+   "lower_l and lower_r are left/right twins but differ: mass 1 vs 0"
+  ],
+  "model/sanity/lower_l/no_inertia": [
+   "link 'lower_l' has mass 1 kg but no inertia; simulators treat it as zero"
+  ]
+ },
+ "model:fourbar_par": {
+  "model/joints/drive/limits/effort": [
+   "0.48 N*m static gravity torque at pose drive=-76deg (closed loop solved at 5 of 7 grid poses; peak is over those only, the other 2 lock, sit within 8 deg of locking or cannot be reached, and torque rises toward locking, servos drive, free pins follow, wrist; base held, no ground contact, so not a standing load; no payload declared; no device masses)"
+  ],
+  "model/links/base/mass": [
+   "zero or missing mass"
+  ],
+  "model/links/crank_a/mass": [
+   "zero or missing mass"
+  ],
+  "model/links/crank_b/mass": [
+   "zero or missing mass"
+  ],
+  "model/sanity/coupler/no_inertia": [
+   "link 'coupler' has mass 1 kg but no inertia; simulators treat it as zero"
+  ]
+ },
+ "model:mesh_missing": {
+  "model/links/placeholder_inertia": [
+   "1 link(s) with three equal round-number moments: imu_link (1e-06)"
+  ],
+  "model/links/sensor_mount/mass": [
+   "zero or missing mass"
+  ],
+  "model/meshes": [
+   "1 mesh files were not found; their bytes are not compared"
+  ]
+ },
+ "model:mjcf_frame_c_flat": {
+  "model/mjcf": [
+   "an MJCF lock does not compare joint damping, armature or friction; actuators (gear, ctrlrange, forcerange); tendons; joint anchor positions (pos); geoms, sites, cameras, lights, contacts and meshes; rotations written as axisangle, xyaxes or zaxis"
+  ]
+ },
+ "model:sdf_joint_pose": {
+  "model/sanity/arm/no_inertia": [
+   "link 'arm' has mass 2 kg but no inertia; simulators treat it as zero"
+  ],
+  "model/sanity/base/no_inertia": [
+   "link 'base' has mass 1 kg but no inertia; simulators treat it as zero"
+  ]
+ },
+ "model:so101": {
+  "model/meshes": [
+   "13 mesh files were not found; their bytes are not compared"
+  ]
+ },
+ "model:testbot": {
+  "model/links/placeholder_inertia": [
+   "1 link(s) with three equal round-number moments: imu_link (1e-06)"
+  ],
+  "model/links/sensor_mount/mass": [
+   "zero or missing mass"
+  ]
+ }
+}
